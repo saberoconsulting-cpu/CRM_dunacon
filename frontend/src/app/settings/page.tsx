@@ -4,7 +4,7 @@ import { Toaster, toast } from '@/components/ui';
 import { api } from '@/lib/api';
 import { useEffect, useState } from 'react';
 
-const DEF = { companyName: 'Inmobiliaria S.A.C.', color: '#E30620', alertCuotas: '1', approvalNotify: '1' };
+const DEF = { companyName: 'Inmobiliaria S.A.C.', color: '#1877F2', alertCuotas: '1', approvalNotify: '1' };
 
 export default function SettingsPage() {
   const [me, setMe] = useState<any>(null);
@@ -44,8 +44,8 @@ export default function SettingsPage() {
               <div><label className="label">Correo de administración</label><input type="email" className="input" readOnly value={me?.email || ''} /></div>
               <div className="flex items-center gap-3">
                 <label className="label mb-0">Color de marca</label>
-                <input type="color" value={form.color || '#E30620'} className="h-10 w-16 border rounded" onChange={(e) => set('color', e.target.value)} />
-                <span className="text-sm" style={{ color: '#6B7280' }}>{form.color || '#E30620'}</span>
+                <input type="color" value={form.color || '#1877F2'} className="h-10 w-16 border rounded" onChange={(e) => set('color', e.target.value)} />
+                <span className="text-sm" style={{ color: '#6B7280' }}>{form.color || '#1877F2'}</span>
               </div>
             </div>
           </div>

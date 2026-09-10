@@ -83,7 +83,7 @@ export default function SalesPage() {
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Ventas cerradas" value={rows.length} />
           <StatCard label="Monto total vendido" value={formatMoney(total)} color="#171717" />
-          <StatCard label="Comisiones devengadas" value={formatMoney(comm)} color="#A90318" />
+          <StatCard label="Comisiones devengadas" value={formatMoney(comm)} color="#1259C4" />
           <StatCard label="Lotes vendidos" value={rows.length} />
         </div>
         <div className="card">

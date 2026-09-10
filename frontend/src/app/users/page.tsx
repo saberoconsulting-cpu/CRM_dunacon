@@ -64,7 +64,7 @@ export default function UsersPage() {
   }
 
   const roles: any = { superadmin: 'Superadmin', admin: 'Admin', agent: 'Agente' };
-  const RoleBadge = ({ r }: { r: string }) => <span className="badge" style={{ background: r === 'agent' ? '#EEF2FF' : r === 'admin' ? '#FFF1F3' : '#F3F4F6', color: r === 'agent' ? '#3730A3' : r === 'admin' ? '#A90318' : '#374151' }}>{roles[r] || r}</span>;
+  const RoleBadge = ({ r }: { r: string }) => <span className="badge" style={{ background: r === 'agent' ? '#EEF2FF' : r === 'admin' ? '#E7F0FE' : '#F3F4F6', color: r === 'agent' ? '#3730A3' : r === 'admin' ? '#1259C4' : '#374151' }}>{roles[r] || r}</span>;
 
   return (
     <Layout title="Usuarios y permisos">
@@ -94,7 +94,7 @@ export default function UsersPage() {
                   <td className="td-base">{u.email}</td>
                   <td className="td-base"><RoleBadge r={u.role} /></td>
                   <td className="td-base">{u.role === 'agent' ? (
-                    <button className="text-[#E30620] hover:underline text-xs font-medium inline-flex items-center gap-1" onClick={() => editCommission(u)}>⚙ {Number(u.commissionRate || 0)}% editar</button>
+                    <button className="text-[#1877F2] hover:underline text-xs font-medium inline-flex items-center gap-1" onClick={() => editCommission(u)}>⚙ {Number(u.commissionRate || 0)}% editar</button>
                   ) : '—'}</td>
                   <td className="td-base"><span className="badge" style={{ background: u.status === 'active' ? '#EAF7EE' : '#F1F5F9', color: u.status === 'active' ? '#125A3B' : '#64748B' }}>{u.status}</span></td>
                   <td className="td-base">

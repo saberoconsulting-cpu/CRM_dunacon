@@ -90,7 +90,7 @@ export default function ProjectsMap({ projects, onOpen }: Props) {
       const pin = document.createElement('div');
       pin.style.cssText =
         'display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;' +
-        'background:#E30620;color:#fff;font-weight:800;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer;transform:translate(-15px,-15px)';
+        'background:#1877F2;color:#fff;font-weight:800;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer;transform:translate(-15px,-15px)';
       pin.textContent = (p.name || 'P').charAt(0).toUpperCase();
       el.appendChild(pin);
 
@@ -105,7 +105,7 @@ export default function ProjectsMap({ projects, onOpen }: Props) {
             <div style="color:#6b7280;font-size:11px">${p.location || 'Ubicación por definir'}</div>
             ${p.referencePrice ? `<div style="color:#0d9e58;font-weight:800;font-size:12px;margin-top:4px">Desde ${formatMoney(p.referencePrice)}</div>` : ''}
           </div></div>
-          <button data-goto="${p.id}" style="margin-top:8px;width:100%;background:#E30620;color:#fff;border:0;padding:7px 0;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Ver proyecto →</button>`
+          <button data-goto="${p.id}" style="margin-top:8px;width:100%;background:#1877F2;color:#fff;border:0;padding:7px 0;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Ver proyecto →</button>`
       );
       pop.on('open', () => {
         const b = pop.getElement().querySelector<HTMLElement>(`[data-goto="${p.id}"]`);
@@ -159,7 +159,7 @@ export default function ProjectsMap({ projects, onOpen }: Props) {
             return (
               <div key={p.id} onClick={() => focus(p)}
                 className={`group cursor-pointer overflow-hidden rounded-xl border transition hover:shadow-md ${isA ? 'ring-2' : ''}`}
-                style={{ borderColor: isA ? '#E30620' : '#E7E9EC', background: isA ? '#FFF7F7' : '#fff' }}>
+                style={{ borderColor: isA ? '#1877F2' : '#E7E9EC', background: isA ? '#E7F0FE' : '#fff' }}>
                 <div className="relative">
                   {p.coverImageUrl ? (
                     <img src={p.coverImageUrl} alt="" className="h-14 w-full object-cover" />
@@ -179,7 +179,7 @@ export default function ProjectsMap({ projects, onOpen }: Props) {
                   )}
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <span className="rounded bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{hasCoords(p) ? 'Con ubicación' : 'Sin geolocalización'}</span>
-                    <button onClick={(e) => { e.stopPropagation(); onOpen(p.id); }} className="text-xs font-bold" style={{ color: '#E30620' }}>Ver detalles →</button>
+                    <button onClick={(e) => { e.stopPropagation(); onOpen(p.id); }} className="text-xs font-bold" style={{ color: '#1877F2' }}>Ver detalles →</button>
                   </div>
                 </div>
               </div>

@@ -182,7 +182,7 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
               const hi = selectedBlk === b.id && mode === 'none';
               return (
               <g key={b.id} onClick={(e) => { if (mode === 'none') { e.stopPropagation(); setSelectedBlk(selectedBlk === b.id ? null : b.id); } }} style={{ pointerEvents: mode === 'lot' ? 'none' : 'auto' }}>
-                <polygon points={b.points.map((p) => `${p.x},${p.y}`).join(' ')} fill={hi ? 'rgba(227,6,32,0.25)' : t} stroke={hi ? '#E30620' : '#64748b'} strokeWidth={hi ? 2.5 : 1.2} />
+                <polygon points={b.points.map((p) => `${p.x},${p.y}`).join(' ')} fill={hi ? 'rgba(24,119,242,0.25)' : t} stroke={hi ? '#1877F2' : '#64748b'} strokeWidth={hi ? 2.5 : 1.2} />
                 <text x={c.x} y={c.y} fontSize={26} fontWeight={800} textAnchor="middle" dominantBaseline="central"
                   fill="#FFFFFF"
                   stroke="#171717" strokeWidth={4} paintOrder="stroke" strokeLinejoin="round"
@@ -196,8 +196,8 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
                 <text x={c.x} y={c.y + 8} fontSize={8} textAnchor="middle">{lt.areaM2} m²</text>
               </g>
             ); })}
-            {draft.length > 0 && <polygon points={draft.map((p) => `${p.x},${p.y}`).join(' ')} fill="rgba(227,6,32,0.25)" stroke="#E30620" strokeWidth={2} />}
-            {draft.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={5} fill="#E30620" stroke="#fff" strokeWidth={1.5} />)}
+            {draft.length > 0 && <polygon points={draft.map((p) => `${p.x},${p.y}`).join(' ')} fill="rgba(24,119,242,0.25)" stroke="#1877F2" strokeWidth={2} />}
+            {draft.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={5} fill="#1877F2" stroke="#fff" strokeWidth={1.5} />)}
           </svg>
           {!imgUrl && <div className="absolute inset-0 grid place-items-center text-sm" style={{ color: '#6B7280' }}>Sube la imagen del plano para dibujar sobre ella.</div>}
         </div>
@@ -239,12 +239,12 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
           <h4 className="font-semibold mb-2">Manzanas ({blocks.length})</h4>
           <ul className="space-y-2 text-sm">
             {blocks.map((b) => (
-              <li key={b.id} className="rounded-lg border p-2" style={{ borderColor: '#E5E7EB', background: selectedBlk === b.id ? '#FFF1F3' : '#fff' }}>
+              <li key={b.id} className="rounded-lg border p-2" style={{ borderColor: '#E5E7EB', background: selectedBlk === b.id ? '#E7F0FE' : '#fff' }}>
                 <div className="flex items-center justify-between gap-2">
                   <button onClick={() => setSelectedBlk(selectedBlk === b.id ? null : b.id)}
                     className="flex items-center gap-2.5 flex-1 min-w-0 text-left font-bold"
                     style={{ color: '#171717' }}>
-                    <span className="grid place-items-center w-7 h-7 rounded-md text-white font-bold shrink-0" style={{ background: selectedBlk === b.id ? '#E30620' : '#171717' }}>{b.name}</span>
+                    <span className="grid place-items-center w-7 h-7 rounded-md text-white font-bold shrink-0" style={{ background: selectedBlk === b.id ? '#1877F2' : '#171717' }}>{b.name}</span>
                     <span className="min-w-0">
                       <span className="block truncate">Manzana {b.name}</span>
                       <span className="block text-xs font-medium" style={{ color: countLotsIn(b) ? '#067a46' : '#94a3b8' }}>

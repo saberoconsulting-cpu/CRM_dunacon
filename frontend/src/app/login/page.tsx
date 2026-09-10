@@ -33,9 +33,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-canvas p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-7">
-          <div className="mx-auto w-11 h-11 rounded-lg bg-brand-gradient flex items-center justify-center text-white font-extrabold" style={{ fontSize: 18 }}>
-            IN
-          </div>
+          <img src="/logo/dunacon.png" alt="Dunacon" className="mx-auto h-12 w-auto" />
           <h1 className="mt-3 font-semibold" style={{ fontSize: 20, color: '#171717' }}>Inmobiliaria CRM</h1>
           <p className="mt-1 text-sm" style={{ color: '#6B7280' }}>Control comercial y financiero</p>
         </div>
@@ -44,7 +42,7 @@ export default function LoginPage() {
           <h2 className="font-semibold mb-6" style={{ fontSize: 17, color:'#171717' }}>Iniciar sesión</h2>
 
           {error && (
-            <div className="mb-4 rounded-lg border px-3 py-2 text-sm" style={{ background:'#FFF1F3', borderColor:'#FCB7C0', color:'#A90318' }}>
+            <div className="mb-4 rounded-lg border px-3 py-2 text-sm" style={{ background:'#E7F0FE', borderColor:'#A9C9FB', color:'#1259C4' }}>
               {error}
             </div>
           )}

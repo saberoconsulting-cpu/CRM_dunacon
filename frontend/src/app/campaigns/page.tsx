@@ -8,7 +8,7 @@ import { formatMoney } from '@/lib/types';
 type C = { id: number; name: string; channel: string; projectId?: number | null; budget: string; realExpense: string; status: string; metrics?: { leads: number; attributedIncome: number } };
 
 const CHANNELS: any = { facebook: 'Facebook', tiktok: 'TikTok', instagram: 'Instagram', web: 'Web', referidos: 'Referidos', otro: 'Otro' };
-const CH_COLOR: any = { facebook: '#E30620', tiktok: '#171717', instagram: '#A90318', web: '#6B7280', referidos: '#E30620', otro: '#9AA1AB' };
+const CH_COLOR: any = { facebook: '#1877F2', tiktok: '#171717', instagram: '#1259C4', web: '#6B7280', referidos: '#166FE0', otro: '#9AA1AB' };
 
 export default function CampaignsPage() {
   const [rows, setRows] = useState<C[]>([]);

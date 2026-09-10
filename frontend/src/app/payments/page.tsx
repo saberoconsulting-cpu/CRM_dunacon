@@ -9,7 +9,7 @@ import { formatMoney, formatDate } from '@/lib/types';
 
 type P = { id: number; projectId: number; lotId: number; type: string; amount: string; dueDate?: string | null; paidAt?: string | null; status: string };
 const TYPE_LABEL: any = { reserva: 'Reserva', adelanto: 'Adelanto', primera_cuota: 'Primera cuota', cuota: 'Cuota' };
-const BADGE: any = { pagado: ['#EAF7EE', '#257849'], pendiente: ['#FFF6E4', '#B45309'], vencido: ['#FFF1F3', '#A90318'] };
+const BADGE: any = { pagado: ['#EAF7EE', '#257849'], pendiente: ['#FFF6E4', '#B45309'], vencido: ['#E7F0FE', '#1259C4'] };
 const METHODS = [['yape', 'Yape / Plin (QR)'], ['transferencia', 'Transferencia bancaria'], ['deposito', 'Depósito en banco'], ['tarjeta', 'Tarjeta de débito/crédito'], ['efectivo', 'Efectivo / oficina'], ['otro', 'Otro']];
 
 export default function PaymentsPage() {
@@ -92,7 +92,7 @@ export default function PaymentsPage() {
       <Toaster />
       <div className="space-y-5">
         {overdue.length > 0 && (
-          <div className="rounded-lg border px-3 py-2 text-sm" style={{ background: '#FFF1F3', borderColor: '#FCB7C0', color: '#A90318' }}>
+          <div className="rounded-lg border px-3 py-2 text-sm" style={{ background: '#E7F0FE', borderColor: '#A9C9FB', color: '#1259C4' }}>
             <b>{overdue.length}</b> cuotas vencidas detectadas. Regístralas para actualizar la cartera.
           </div>
         )}
@@ -100,7 +100,7 @@ export default function PaymentsPage() {
           <StatCard label="Registros (filtrados)" value={meta.total} />
           <StatCard label="Total abonado (pagado)" value={'S/ ' + ((cash?.methods || []).reduce((s: number, m: any) => s + Number(m.monto || 0), 0)).toLocaleString('es-PE')} color="#257849" />
           <StatCard label="Medios usados" value={(cash?.methods || []).length} color="#B45309" />
-          <StatCard label="Meses con recaudo" value={(cash?.byMonth || []).length} color="#A90318" />
+          <StatCard label="Meses con recaudo" value={(cash?.byMonth || []).length} color="#1259C4" />
         </div>
 
         {/* Caja / canales de ingreso */}
@@ -110,7 +110,7 @@ export default function PaymentsPage() {
             <div style={{ height: 240 }}>
               {cash?.methods?.length ? (
                 <DistribucionPie data={cash.methods.map((m: any) => ({ name: String(m.method || 'otro'), value: Number(m.monto || 0) }))}
-                  colorMap={(n) => ({ yape: '#7C3AED', plin: '#7C3AED', transferencia: '#2563EB', deposito: '#0EA5E9', tarjeta: '#171717', efectivo: '#E30620', otro: '#9AA1AB' })[n] || '#9AA1AB'} />
+                  colorMap={(n) => ({ yape: '#7C3AED', plin: '#7C3AED', transferencia: '#2563EB', deposito: '#0EA5E9', tarjeta: '#171717', efectivo: '#1877F2', otro: '#9AA1AB' })[n] || '#9AA1AB'} />
               ) : <p className="py-10 text-center text-sm text-slate-400">Aún no hay pagos pagados para mostrar la distribución.</p>}
             </div>
           </div>
@@ -149,7 +149,7 @@ export default function PaymentsPage() {
                   <tr key={p.id}>
                     <td className="td-base capitalize">{TYPE_LABEL[p.type] || p.type}</td>
                     <td className="td-base font-medium">Lote {p.lotId}</td>
-                    <td className="td-base">{(p as any).paymentMethod ? <span className="badge bg-slate-100 text-slate-600 capitalize mr-1">{(p as any).paymentMethod}</span> : null}{formatMoney(p.amount)}{(p as any).voucherUrl ? <> <a href={(p as any).voucherUrl} target="_blank" rel="noreferrer" className="text-[#E30620] hover:underline">Ver voucher</a></> : null}</td>
+                    <td className="td-base">{(p as any).paymentMethod ? <span className="badge bg-slate-100 text-slate-600 capitalize mr-1">{(p as any).paymentMethod}</span> : null}{formatMoney(p.amount)}{(p as any).voucherUrl ? <> <a href={(p as any).voucherUrl} target="_blank" rel="noreferrer" className="text-[#1877F2] hover:underline">Ver voucher</a></> : null}</td>
                     <td className="td-base">{st(p)}{p.status === 'pendiente' && (p as any).voucherUrl && payCanMark && <button className="btn-primary !h-6 !px-2 text-xs ml-2 align-middle" onClick={(e) => { e.stopPropagation(); if (!confirm(`¿Confirmar como pagado el voucher del lote ${p.lotId}?`)) return; api.post(`/payments/mark-paid/${p.id}`).then(() => { toast('Pago marcado como pagado'); load(); }).catch((err: any) => toast(err.message, 'err')); }}>Marcar pagado</button>}</td>
                     <td className="td-base">{formatDate(p.dueDate)}</td>
                     <td className="td-base">{formatDate(p.paidAt)}</td>

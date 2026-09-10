@@ -119,7 +119,7 @@ export default function ProjectsPage() {
                     <div><div className="text-lg font-bold text-slate-800">{p.stats.total}</div><div className="text-[10px] text-slate-400">Lotes</div></div>
                     <div><div className="text-lg font-bold text-emerald-600">{p.stats.disponibles}</div><div className="text-[10px] text-slate-400">Disp.</div></div>
                     <div><div className="text-lg font-bold text-yellow-600">{p.stats.reservados + p.stats.adelantos + p.stats.primeras}</div><div className="text-[10px] text-slate-400">En curso</div></div>
-                    <div><div className="text-lg font-bold text-red-600">{p.stats.vendidos}</div><div className="text-[10px] text-slate-400">Vend.</div></div>
+                    <div><div className="text-lg font-bold text-[#1877F2]">{p.stats.vendidos}</div><div className="text-[10px] text-slate-400">Vend.</div></div>
                   </div>
                 )}
                 {p.referencePrice && <div className="text-xs text-slate-400 mb-3">Precio ref: {formatMoney(p.referencePrice)}</div>}

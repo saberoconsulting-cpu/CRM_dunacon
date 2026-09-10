@@ -56,7 +56,7 @@ export default function AgentsPage() {
                 {rows.map((a) => (
                   <tr key={a.id}>
                     <td className="td-base font-medium">{a.name}</td>
-                    <td className="td-base"><button onClick={() => changeCommission(a)} className="text-[#E30620] text-xs font-medium inline-flex items-center gap-1 hover:underline">⚙ {Number(a.commissionRate || 0)}% editar</button></td>
+                    <td className="td-base"><button onClick={() => changeCommission(a)} className="text-[#1877F2] text-xs font-medium inline-flex items-center gap-1 hover:underline">⚙ {Number(a.commissionRate || 0)}% editar</button></td>
                     <td className="td-base">{countOf(a.id)}</td>
                     <td className="td-base">{amountOf(a.id).toLocaleString('es-PE')}</td>
                     <td className="td-base">{a.monthlyGoalLots || 0}</td>

@@ -126,8 +126,8 @@ export default function InteractivePlan({
               <polygon
                 key={`b-${b.id}`}
                 points={pointsToString(b.points)}
-                fill={hi ? '#FCB7C0' : 'rgba(148,163,184,0.10)'}
-                stroke={hi ? '#E30620' : '#CBD5E1'}
+                fill={hi ? '#A9C9FB' : 'rgba(148,163,184,0.10)'}
+                stroke={hi ? '#1877F2' : '#CBD5E1'}
                 strokeWidth={hi ? 3 : 1.2}
                 style={{ cursor: interactive ? 'pointer' : 'default' }}
                 onClick={(e) => { e.stopPropagation(); if (interactive && onBlockClick) onBlockClick(b); }}
@@ -145,7 +145,7 @@ export default function InteractivePlan({
           {lots.map((lot) => {
             const sold = lot.sellingStage === 'vendido' || lot.status === 'vendido';
             const locked = lot.sellingStage === 'separado' && !sold;
-            const color = sold ? '#E30620' : locked ? '#F2B94B' : LOT_STATUS_COLOR[lot.status];
+            const color = sold ? '#1877F2' : locked ? '#F2B94B' : LOT_STATUS_COLOR[lot.status];
             const sel = selectedLotId === lot.id;
             const dim = highlightBlockId != null && lot.blockId !== highlightBlockId;
             return (
