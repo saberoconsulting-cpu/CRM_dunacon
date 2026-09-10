@@ -10,7 +10,7 @@ const BRAND = '#1a56db';
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('admin@crm.com');
-  const [password, setPassword] = useState('Admin123!');
+  const [password, setPassword] = useState('Admin150');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -197,13 +197,6 @@ export default function LoginPage() {
               </button>
             </form>
           </div>
-
-          {/* Usuarios demo — discreto al pie */}
-          <p className="text-center mt-8" style={{ fontSize: 11.5, color: 'rgba(255,255,255,0.6)', lineHeight: 1.7 }}>
-            Usuarios demo · Contraseña Admin123!
-            <br />
-            admin@crm.com · gerente@crm.com · maria@crm.com
-          </p>
         </div>
       </div>
     </div>
