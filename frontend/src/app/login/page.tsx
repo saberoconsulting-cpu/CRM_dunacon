@@ -33,53 +33,65 @@ export default function LoginPage() {
     <div className="min-h-screen flex bg-white">
       {/* ===== Columna izquierda (≈55%) — marca ===== */}
       <div
-        className="hidden min-[860px]:flex w-[55%] relative flex-col justify-between overflow-hidden p-8 lg:p-14 text-white"
-        style={{
-          background: 'linear-gradient(150deg, rgba(11,47,110,0.92) 0%, rgba(26,86,219,0.88) 100%)',
-        }}
+        className="hidden min-[860px]:flex w-[55%] relative flex-col justify-between overflow-hidden p-10 lg:p-16"
+        style={{ background: 'linear-gradient(160deg, #ffffff 0%, #EEF3FC 100%)' }}
       >
-        {/* Foto de fondo (transparente sobre el azul) */}
+        {/* Foto de fondo muy sutil (arquitectura) */}
         <img
           src="https://images.unsplash.com/photo-1486406146926-c627a92ad1ab?q=80&w=1800&auto=format&fit=crop"
           alt=""
           className="absolute inset-0 h-full w-full object-cover"
-          style={{ opacity: 0.18 }}
+          style={{ opacity: 0.05 }}
         />
-        {/* Cuadrícula sutil (planos arquitectónicos) */}
+        {/* Cuadrícula sutil azul (planos arquitectónicos) */}
         <div
           className="absolute inset-0"
           style={{
             backgroundImage:
-              'linear-gradient(rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.05) 1px, transparent 1px)',
+              'linear-gradient(rgba(26,86,219,0.06) 1px, transparent 1px), linear-gradient(90deg, rgba(26,86,219,0.06) 1px, transparent 1px)',
             backgroundSize: '44px 44px',
           }}
         />
 
-        {/* Logo grande arriba + frase debajo */}
-        <div className="relative z-10">
+        {/* Logo grande + centrado + frase espaciada */}
+        <div className="relative z-10 flex flex-col items-center text-center">
           <img
             src="/logo/dunacon.png"
             alt="Dunacon"
-            className="h-auto w-72 max-w-full lg:w-96"
+            className="h-auto w-80 max-w-full lg:w-[28rem]"
           />
-          <div className="mt-8 max-w-md">
-            <p className="font-serif italic text-white/70" style={{ fontSize: 16, letterSpacing: 0.5 }}>
+          <div className="mt-10 max-w-lg">
+            <p
+              className="font-serif italic"
+              style={{ fontSize: 16, letterSpacing: 1.2, color: '#1a56db' }}
+            >
               Dunacon CRM
             </p>
             <h1
-              className="mt-3 font-serif text-white leading-tight"
-              style={{ fontSize: 'clamp(28px, 4.5vw, 42px)', fontWeight: 600, lineHeight: 1.2 }}
+              className="mt-5 font-serif"
+              style={{
+                fontSize: 'clamp(30px, 4vw, 44px)',
+                fontWeight: 600,
+                lineHeight: 1.35,
+                letterSpacing: '-0.01em',
+                color: '#0B2F6E',
+              }}
             >
-              La precisión de un plano, la elegancia de tu gestión.
+              La precisión de un plano,
+              <br />
+              la elegancia de tu gestión.
             </h1>
-            <p className="mt-5 text-white/80" style={{ fontSize: 15, lineHeight: 1.7 }}>
+            <p
+              className="mt-7"
+              style={{ fontSize: 16, lineHeight: 1.9, color: '#4B5563' }}
+            >
               El CRM inmobiliario que une planos, clientes, ventas y finanzas en un solo
               lugar. Construye con orden, decide con certeza.
             </p>
           </div>
         </div>
 
-        <div className="relative z-10 text-white/50" style={{ fontSize: 12.5 }}>
+        <div className="relative z-10 text-center" style={{ fontSize: 12.5, color: '#9AA1AB' }}>
           © {new Date().getFullYear()} Dunacon · Todos los derechos reservados
         </div>
       </div>
