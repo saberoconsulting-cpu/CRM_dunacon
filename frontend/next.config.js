@@ -2,7 +2,6 @@
 const nextConfig = {
   reactStrictMode: false,
   images: { unoptimized: true },
-  output: 'export',
   async rewrites() {
     return [
       { source: '/api/:path*', destination: `${process.env.NEXT_PUBLIC_API || 'http://localhost:3001'}/api/:path*` },
