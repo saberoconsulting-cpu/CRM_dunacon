@@ -31,6 +31,7 @@ async function bootstrap() {
     'http://localhost:3000',
     'http://localhost:3001',
     'https://crm.saberoconsulting.com',
+    'https://crm.dunacon.pe',
   ];
   // Si el entorno define FRONTEND_URL (u origenes extra), se agregan
   const extraFromEnv = process.env.FRONTEND_URL;
