@@ -10,7 +10,7 @@ const BRAND = '#1a56db';
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('admin@crm.com');
-  const [password, setPassword] = useState('Admin150');
+  const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
