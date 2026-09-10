@@ -3,7 +3,7 @@ import { useState, FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { api, saveSession } from '@/lib/api';
 import { AuthSession } from '@/lib/types';
-import { FiMail, FiLock, FiArrowRight } from 'react-icons/fi';
+import { FiMail, FiLock, FiArrowRight, FiEye, FiEyeOff } from 'react-icons/fi';
 
 const BRAND = '#1a56db';
 
@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('Admin150');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -165,12 +166,12 @@ export default function LoginPage() {
                 <div className="relative">
                   <FiLock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" style={{ fontSize: 16 }} />
                   <input
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     placeholder="••••••••"
-                    className="w-full rounded-lg border border-[#D1D5DB] bg-white pl-10 pr-3 text-sm outline-none transition-all duration-200"
+                    className="w-full rounded-lg border border-[#D1D5DB] bg-white pl-10 pr-12 text-sm outline-none transition-all duration-200"
                     style={{ height: 46 }}
                     onFocus={(e) => {
                       e.currentTarget.style.borderColor = BRAND;
@@ -181,6 +182,15 @@ export default function LoginPage() {
                       e.currentTarget.style.boxShadow = 'none';
                     }}
                   />
+                  <button
+                    type="button"
+                    aria-label={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}
+                    onClick={() => setShowPassword((s) => !s)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center justify-center rounded-md text-slate-400 hover:text-[#1a56db] transition-colors"
+                    style={{ width: 32, height: 32 }}
+                  >
+                    {showPassword ? <FiEyeOff style={{ fontSize: 18 }} /> : <FiEye style={{ fontSize: 18 }} />}
+                  </button>
                 </div>
               </div>
 
