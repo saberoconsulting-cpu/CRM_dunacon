@@ -97,26 +97,31 @@ export default function LoginPage() {
       </div>
 {/* ===== Columna derecha (≈45%) — formulario ===== */}
       <div
-        className="w-full min-[860px]:w-[45%] flex items-center justify-center overflow-y-auto px-5 py-10 sm:px-10"
+        className="w-full min-[860px]:w-[45%] flex items-center justify-center overflow-y-auto px-4 py-8 sm:px-10"
         style={{ background: 'linear-gradient(160deg, #0B2F6E 0%, #1a56db 100%)' }}
       >
         <div className="w-full max-w-sm">
-          {/* Logo visible en móvil (la izquierda se oculta <860px) */}
-          <div className="min-[860px]:hidden text-center mb-8">
-            <img src="/logo/dunacon.png" alt="Dunacon" className="mx-auto h-12 w-auto" />
+          {/* Logo visible en móvil (la izquierda se oculta <860px) — sobre chip blanco para que resalte */}
+          <div className="min-[860px]:hidden flex justify-center mb-8">
+            <div className="rounded-2xl bg-white px-6 py-4 shadow-lg">
+              <img src="/logo/dunacon.png" alt="Dunacon" className="mx-auto h-10 w-auto" />
+            </div>
           </div>
 
           <h1
-            className="font-serif"
-            style={{ fontSize: 'clamp(26px, 6vw, 30px)', fontWeight: 600, color: '#ffffff' }}
+            className="font-serif text-center min-[860px]:text-left"
+            style={{ fontSize: 'clamp(26px, 7vw, 30px)', fontWeight: 600, color: '#ffffff' }}
           >
             Bienvenido de nuevo
           </h1>
-          <p className="mt-1.5 mb-8" style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)' }}>
+          <p
+            className="mt-1.5 mb-7 text-center min-[860px]:text-left"
+            style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)' }}
+          >
             Ingresa tus credenciales para continuar.
           </p>
 
-          <div className="rounded-2xl bg-white p-7 shadow-2xl sm:p-8">
+          <div className="rounded-2xl bg-white p-6 shadow-2xl sm:p-8">
             <form onSubmit={onSubmit} className="space-y-5">
               {error && (
                 <div
