@@ -81,7 +81,7 @@ export default function Layout({ children, title }: { children: ReactNode; title
       {/* Sidebar blanca, ítem activo azul */}
       <aside className={`${open ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:static inset-y-0 left-0 w-60 bg-white border-r z-30 flex flex-col transition-transform`} style={{ borderColor: '#E5E7EB', width: 240 }}>
         <div className="h-14 px-5 flex items-center gap-2.5 border-b shrink-0" style={{ borderColor: '#F0F1F3' }}>
-          <img src="/logo/dunacon.png" alt="Dunacon" className="h-8 w-auto" />
+          <img src="/logo/dunacon.png" alt="Dunacon" className="h-11 w-auto" />
         </div>
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
