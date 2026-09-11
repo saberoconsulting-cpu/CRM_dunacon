@@ -21,6 +21,22 @@ export function IngresosVsEgresos({ data }: { data: { mes: string; ingreso: numb
   );
 }
 
+export function DistribucionBarras({ data, colorMap, valuePrefix = '' }: { data: { name: string; value: number }[]; colorMap: (name: string) => string; valuePrefix?: string }) {
+  return (
+    <ResponsiveContainer width="100%" height={Math.max(160, data.length * 40)}>
+      <BarChart data={data} layout="vertical" margin={{ left: 8, right: 24 }}>
+        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+        <XAxis type="number" fontSize={11} />
+        <YAxis type="category" dataKey="name" fontSize={12} width={90} />
+        <Tooltip formatter={(v: any) => valuePrefix + Number(v).toLocaleString('es-PE')} />
+        <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+          {data.map((d) => <Cell key={d.name} fill={colorMap(d.name)} />)}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
 export function DistribucionPie({ data, colorMap }: { data: { name: string; value: number }[]; colorMap: (name: string) => string }) {
   return (
     <ResponsiveContainer width="100%" height={240}>

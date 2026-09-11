@@ -7,8 +7,13 @@ import { api, getToken, uploadFile } from '@/lib/api';
 import { getSocket, disconnectSocket } from '@/lib/socket';
 import InteractivePlan from '@/components/features/plan/InteractivePlan';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
+import { DistribucionPie, DistribucionBarras } from '@/components/ui/charts/Charts';
 import { Block, Lot, formatMoney, LOT_STATUS_LABEL, LOT_STATUS_COLOR } from '@/lib/types';
 import { IoLocationSharp } from 'react-icons/io5';
+import { FiCamera } from 'react-icons/fi';
+
+const LEAD_CHANNEL_LABEL: Record<string, string> = { facebook: 'Facebook', tiktok: 'TikTok', instagram: 'Instagram', web: 'Web', referidos: 'Referidos', otro: 'Otro' };
+const LEAD_CHANNEL_COLOR: Record<string, string> = { Facebook: '#1877F2', TikTok: '#171717', Instagram: '#1259C4', Web: '#6B7280', Referidos: '#A9C9FB', Otro: '#9AA1AB' };
 
 export default function ProjectPage() {
   const params = useParams<{ id: string }>();
@@ -25,6 +30,7 @@ export default function ProjectPage() {
   const [search, setSearch] = useState('');
   const [perPage, setPerPage] = useState(10);
   const [lotPage, setLotPage] = useState(0);
+  const [leadsByChannel, setLeadsByChannel] = useState<{ channel: string; total: number }[]>([]);
 
   useEffect(() => {
     let role = 'agent';
@@ -81,11 +87,21 @@ export default function ProjectPage() {
   useEffect(() => {
     if (!projectId) return;
     api.get<any>(`/dashboards/project/${projectId}`).then(setStats).catch(() => {});
+    api.get<any[]>(`/clients/metrics/channels?projectId=${projectId}`).then((d) => setLeadsByChannel(d || [])).catch(() => {});
   }, [projectId]);
 
   const visibleLots = blockFilter ? lots.filter((l) => l.blockId === blockFilter) : lots;
 
   const count = (s: string) => lots.filter((l) => l.status === s).length;
+  const amountByStatus = (s: string) => lots.filter((l) => l.status === s).reduce((sum, l) => sum + Number(l.price || 0), 0);
+  const LOT_STATUSES = ['disponible', 'reservado', 'adelanto', 'primera_cuota', 'vendido'] as const;
+  const lotCountData = LOT_STATUSES.map((s) => ({ name: LOT_STATUS_LABEL[s], value: count(s) }));
+  const lotAmountData = LOT_STATUSES.map((s) => ({ name: LOT_STATUS_LABEL[s], value: amountByStatus(s) }));
+  const lotColorByLabel = (label: string) => {
+    const status = LOT_STATUSES.find((s) => LOT_STATUS_LABEL[s] === label);
+    return status ? LOT_STATUS_COLOR[status] : '#9AA1AB';
+  };
+  const leadsChartData = leadsByChannel.map((c) => ({ name: LEAD_CHANNEL_LABEL[c.channel] || c.channel || 'Otro', value: c.total }));
 
   if (!project) return <Layout title="Cargando…"><Toaster/><p className="text-slate-400">Cargando proyecto…</p></Layout>;
 
@@ -110,12 +126,11 @@ export default function ProjectPage() {
           {canEdit && (
             <div className="flex flex-col gap-2">
               <label className="btn-neutral !h-8 text-xs cursor-pointer inline-flex items-center gap-1">
-                📷 <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; reemplazarPortada(f); }} />Actualizar imagen
+                <FiCamera /> <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; reemplazarPortada(f); }} />Actualizar imagen
               </label>
               <button className="btn-danger !h-8 text-xs" onClick={borrarProyecto}>Eliminar proyecto</button>
             </div>
           )}
-          <LegendChips />
         </div>
 
         <StatCard label="Lotes totales" value={lots.length} />
@@ -124,10 +139,33 @@ export default function ProjectPage() {
             color={LOT_STATUS_COLOR[s] as any} />
         ))}
 
+        {/* Reportes del proyecto */}
+        <div className="xl:col-span-3 grid grid-cols-1 lg:grid-cols-3 gap-5">
+          <div className="card">
+            <h3 className="font-semibold mb-3">Venta de lotes — Nro. de lotes</h3>
+            {lots.length ? (
+              <DistribucionPie data={lotCountData} colorMap={lotColorByLabel} />
+            ) : <p className="py-10 text-center text-sm text-slate-400">Aún no hay lotes registrados.</p>}
+          </div>
+          <div className="card">
+            <h3 className="font-semibold mb-3">Venta de lotes (S/)</h3>
+            {lots.length ? (
+              <DistribucionBarras data={lotAmountData} colorMap={lotColorByLabel} valuePrefix="S/ " />
+            ) : <p className="py-10 text-center text-sm text-slate-400">Aún no hay lotes registrados.</p>}
+          </div>
+          <div className="card">
+            <h3 className="font-semibold mb-3">Origen de leads</h3>
+            {leadsChartData.length ? (
+              <DistribucionPie data={leadsChartData} colorMap={(n) => LEAD_CHANNEL_COLOR[n] || '#9AA1AB'} />
+            ) : <p className="py-10 text-center text-sm text-slate-400">Aún no hay leads para este proyecto.</p>}
+          </div>
+        </div>
+
         {/* Plano interactivo */}
         <div className="xl:col-span-3">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <h3 className="font-semibold">Plano interactivo</h3>
+            <LegendChips />
             <div className="flex gap-2">
               <a href={`/projects/${projectId}/plan-editor`} className="btn-primary !h-8 text-xs">Editar plano</a>
               <button className="btn-neutral text-xs" onClick={() => setBlockFilter(null)}>Ver todos</button>
