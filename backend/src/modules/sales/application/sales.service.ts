@@ -12,6 +12,21 @@ import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-lo
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
 import { CreateSaleDto } from './dto/sale.dto';
 
+/**
+ * Cuota fija por sistema francés a partir de una TEA (tasa efectiva anual).
+ * i_mensual = (1+TEA)^(1/12) - 1 ; cuota = P * i(1+i)^n / ((1+i)^n - 1)
+ * Sin interés (o n=0) cae al reparto simple (saldo / n), como antes.
+ */
+function calcValorCuota(saldoFinanciar: number, totalCuotas: number, interestType?: string, teaPct?: number): number {
+  if (totalCuotas <= 0) return 0;
+  const tea = Number(teaPct || 0);
+  if (interestType !== 'tea' || tea <= 0) return saldoFinanciar / totalCuotas;
+  const iMensual = Math.pow(1 + tea / 100, 1 / 12) - 1;
+  if (iMensual <= 0) return saldoFinanciar / totalCuotas;
+  const factor = Math.pow(1 + iMensual, totalCuotas);
+  return (saldoFinanciar * iMensual * factor) / (factor - 1);
+}
+
 @Injectable()
 export class SalesService {
   constructor(
@@ -45,7 +60,7 @@ export class SalesService {
     const commissionAmount = commissionRate > 0 ? (salePrice * commissionRate) / 100 : 0;
     const financingBase = dto.appliesCommission ? Math.max(0, salePrice - commissionAmount) : salePrice;
     const saldoFinanciar = Math.max(0, financingBase - cuotaInicial);
-    const valorCuota = totalCuotas > 0 ? saldoFinanciar / totalCuotas : 0;
+    const valorCuota = calcValorCuota(saldoFinanciar, totalCuotas, dto.interestType, dto.tea);
 
     const firstTranche = Math.min(totalCuotas, 12);
     const secondTranche = Math.max(0, totalCuotas - firstTranche);
@@ -60,9 +75,10 @@ export class SalesService {
       saldoFinanciar,
       totalCuotas,
       valorCuota,
+      // Cuota fija (sistema francés): ambos tramos comparten el mismo monto.
       installments: [
-        { label: 'Primer tramo de cuotas', count: firstTranche, amount: firstTranche > 0 ? saldoFinanciar / totalCuotas : 0 },
-        { label: 'Segundo tramo de cuotas', count: secondTranche, amount: secondTranche > 0 ? saldoFinanciar / totalCuotas : 0 },
+        { label: 'Primer tramo de cuotas', count: firstTranche, amount: firstTranche > 0 ? valorCuota : 0 },
+        { label: 'Segundo tramo de cuotas', count: secondTranche, amount: secondTranche > 0 ? valorCuota : 0 },
       ],
       interest: {
         type: dto.interestType || 'sin_intereses',
@@ -90,7 +106,8 @@ export class SalesService {
     const saldoFinanciar = Math.max(0, (appliesAgency ? dto.salePrice - commission : dto.salePrice) - cuotaInicial);
     // En inmobiliaria la financiación arranca del neto (se descuenta la comisión del lote)
     const financingBase = appliesAgency ? dto.salePrice - commission : dto.salePrice;
-    const valorCuota = dto.valorCuota || (dto.totalCuotas && dto.totalCuotas > 0 ? saldoFinanciar / dto.totalCuotas : 0);
+    // Se calcula siempre en el servidor (nunca se confía en un valorCuota que mande el cliente).
+    const valorCuota = calcValorCuota(saldoFinanciar, totalCuotas, dto.interestType, dto.tea);
 
     // La venta, el "claim" atómico del lote y la auditoría deben quedar juntos:
     // antes eran saves() independientes y un fallo a mitad dejaba la separación
