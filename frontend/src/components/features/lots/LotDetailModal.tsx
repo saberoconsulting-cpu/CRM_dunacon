@@ -58,7 +58,9 @@ export default function LotDetailModal({ lotId, onClose, onChanged }: {
 
   function cotizar() {
     if (!lot) return;
-    window.open(`/projects/${lot.projectId}/lots/${lot.id}/cotizacion`, '_blank');
+    // El módulo "Cotizaciones Lotes" reemplaza a la vista simple vieja: abre el
+    // formulario de la calculadora ya con este lote precargado.
+    window.location.href = `/projects/${lot.projectId}/quotes?lotId=${lot.id}`;
   }
 
   const statusColor = lot ? ((LOT_STATUS_COLOR as any)[lot.status] || '#64748b') : '#64748b';
