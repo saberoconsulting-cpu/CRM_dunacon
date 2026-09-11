@@ -16,18 +16,34 @@ export default function LotDetailModal({ lotId, onClose, onChanged }: {
   const [payType, setPayType] = useState('reserva');
   const [working, setWorking] = useState(false);
   const [fin, setFin] = useState<any>({ sale: null, installments: [] });
+  const [lotizacion, setLotizacion] = useState({ type: '', salePrice: 0, finalPrice: 0 });
+  const canEdit = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
 
   async function load() {
     if (!lotId) return;
     try {
       const d = await api.get<any>(`/lots/${lotId}`);
       setLot(d.lot); setHistory(d.history || []); setPayments(d.payments || []);
+      setLotizacion({ type: d.lot?.type || '', salePrice: Number(d.lot?.salePrice || 0), finalPrice: Number(d.lot?.finalPrice || 0) });
       const fin = await api.get<any>(`/sales/by-lot/${lotId}`).catch(() => ({ sale: null, installments: [] }));
       setFin(fin);
     }
     catch (e:any){ toast(e.message,'err'); }
   }
   useEffect(() => { setLot(null); setHistory([]); setPayments([]); setFin({ sale: null, installments: [] } as any); if (lotId) load(); }, [lotId]);
+
+  async function saveLotizacion() {
+    if (!lot) return;
+    setWorking(true);
+    try {
+      await api.post(`/plan/lot/update/${lot.id}`, {
+        type: lotizacion.type || undefined,
+        salePrice: lotizacion.salePrice || undefined,
+        finalPrice: lotizacion.finalPrice || undefined,
+      });
+      toast('Lotización actualizada'); await load(); onChanged?.();
+    } catch (e: any) { toast(e.message, 'err'); } finally { setWorking(false); }
+  }
 
   async function registerPayment() {
     if (!lot || !amount) return toast('Ingresa monto', 'err');
@@ -118,6 +134,23 @@ export default function LotDetailModal({ lotId, onClose, onChanged }: {
             </div>
           )}
 
+          {canEdit && (
+            <div className="border-t pt-4">
+              <h4 className="font-semibold text-sm text-slate-700 mb-2">Lotización</h4>
+              <div className="flex gap-2 items-end flex-wrap">
+                <div className="flex-1 min-w-32">
+                  <Field label="Tipo"><input className="input" value={lotizacion.type} onChange={(e) => setLotizacion({ ...lotizacion, type: e.target.value })} placeholder="Ej: Esquina" /></Field>
+                </div>
+                <div className="flex-1 min-w-32">
+                  <Field label="Precio venta (S/)"><input type="number" className="input" value={lotizacion.salePrice || ''} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: Number(e.target.value) })} /></Field>
+                </div>
+                <div className="flex-1 min-w-32">
+                  <Field label="Precio final (S/)"><input type="number" className="input" value={lotizacion.finalPrice || ''} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: Number(e.target.value) })} /></Field>
+                </div>
+                <button onClick={saveLotizacion} disabled={working} className="btn-secondary shrink-0">Guardar</button>
+              </div>
+            </div>
+          )}
           <div className="border-t pt-4">
             <h4 className="font-semibold text-sm text-slate-700 mb-2">Registrar pago</h4>
             <div className="flex gap-2 items-end flex-wrap">
