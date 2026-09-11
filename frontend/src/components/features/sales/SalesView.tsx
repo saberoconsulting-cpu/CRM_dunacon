@@ -19,6 +19,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const [showCotizaciones, setShowCotizaciones] = useState(false);
   const [projects, setProjects] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
@@ -65,12 +66,16 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     api.get<any[]>('/lots').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
   }, [load, role]);
 
-  // Al elegir un lote, autocompletar el precio con su "Precio Venta" de Lotización
-  // (hace de "cotización" vigente sin necesidad de un módulo de cotizaciones aparte).
+  // Al elegir un lote, autocompletar precio (y cliente, si ya tenía uno asignado)
+  // con su "Precio Venta" de Lotización — hace de "cotización" vigente sin
+  // necesidad de un módulo de cotizaciones aparte.
   function selectLot(id: number) {
     setLotId(id);
     const lot = lots.find((l: any) => l.id === id);
-    if (lot) setSalePrice(Number(lot.salePrice || lot.price || 0));
+    if (lot) {
+      setSalePrice(Number(lot.salePrice || lot.price || 0));
+      if (lot.clientId) setClientId(Number(lot.clientId));
+    }
   }
 
   // Calculadora en vivo: comisión, saldo a financiar, tramos de cuotas.
@@ -217,7 +222,36 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
           <div className="relative bg-white rounded-2xl w-full max-w-2xl p-6 max-h-[92vh] overflow-y-auto">
-            <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Registrar venta</h3>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
+              <h3 className="font-semibold" style={{ fontSize: 17 }}>Registrar venta</h3>
+              <button
+                className="rounded-lg px-3 text-xs font-semibold text-white"
+                style={{ height: 32, background: '#1877F2' }}
+                onClick={() => setShowCotizaciones((v) => !v)}
+              >
+                Selecciona Cotización
+              </button>
+            </div>
+
+            {showCotizaciones && (
+              <div className="rounded-xl border mb-4 overflow-hidden" style={{ borderColor: '#A9C9FB' }}>
+                <div className="px-3 py-2 text-xs font-semibold" style={{ background: '#E7F0FE', color: '#1259C4' }}>
+                  Lotes ya cotizados en este proyecto (con Precio Venta en Lotización)
+                </div>
+                <div className="max-h-52 overflow-y-auto divide-y" style={{ borderColor: '#F0F1F3' }}>
+                  {lots.filter((l: any) => l.salePrice && l.status !== 'vendido' && l.sellingStage !== 'vendido' && l.sellingStage !== 'separado' && (!projectId || Number(l.projectId) === Number(projectId))).map((l: any) => (
+                    <button key={l.id} className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-50 text-left"
+                      onClick={() => { selectLot(l.id); setShowCotizaciones(false); }}>
+                      <span>Lote {l.code}{l.blockAddress ? ` — ${l.blockAddress}` : ''}</span>
+                      <b>{formatMoney(l.salePrice)}</b>
+                    </button>
+                  ))}
+                  {lots.filter((l: any) => l.salePrice && (!projectId || Number(l.projectId) === Number(projectId))).length === 0 && (
+                    <p className="px-3 py-4 text-xs text-slate-400 text-center">Ningún lote de este proyecto tiene todavía un Precio Venta cargado en Lotización.</p>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Lote y responsable */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
