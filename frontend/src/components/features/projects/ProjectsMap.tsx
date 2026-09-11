@@ -6,7 +6,7 @@ import maplibregl from 'maplibre-gl';
 import { Project, formatMoney } from '@/lib/types';
 import { IoLocationSharp } from 'react-icons/io5';
 
-interface Props { projects: Project[]; onOpen: (id: number) => void; }
+interface Props { projects: Project[]; onOpen: (id: number) => void; focusProjectId?: number | null; }
 
 const OSM = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 const STYLE: any = {
@@ -28,12 +28,12 @@ function hasCoords(p: Project): boolean {
   return isFinite(la) && isFinite(lo) && la !== 0 && lo !== 0;
 }
 
-export default function ProjectsMap({ projects, onOpen }: Props) {
+export default function ProjectsMap({ projects, onOpen, focusProjectId = null }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
-  const [active, setActive] = useState<number | null>(null);
-  const [fit, setFit] = useState(true);
+  const [active, setActive] = useState<number | null>(focusProjectId);
+  const [fit, setFit] = useState(!focusProjectId);
 
   // Crear mapa una única vez
   useEffect(() => {
@@ -70,7 +70,15 @@ export default function ProjectsMap({ projects, onOpen }: Props) {
     markersRef.current = [];
     const placed = projects.filter(hasCoords);
 
-    if (fit && placed.length) {
+    const focused = focusProjectId ? placed.find((p) => p.id === focusProjectId) : null;
+
+    if (focused) {
+      setFit(false);
+      setActive(focused.id);
+      try {
+        m.easeTo({ center: [Number(focused.longitude), Number(focused.latitude)], zoom: 14, duration: 700 });
+      } catch {}
+    } else if (fit && placed.length) {
       setFit(false);
       try {
         if (placed.length === 1) {
@@ -127,7 +135,7 @@ export default function ProjectsMap({ projects, onOpen }: Props) {
       markersRef.current.push(mk);
     });
     if (active != null && !placed.some((p) => p.id === active)) setActive(null);
-  }, [projects, active, fit, onOpen]);
+  }, [projects, active, fit, onOpen, focusProjectId]);
 
   useEffect(() => { redraw(); }, [redraw]);
 

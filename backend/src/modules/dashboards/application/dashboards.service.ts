@@ -29,6 +29,33 @@ export class DashboardsService {
     private readonly userRepo: Repository<UserEntity>,
   ) {}
 
+  private mapAgentRanking(rows: any[]) {
+    return (rows || []).map((r) => ({
+      agentId: r.agentId,
+      agentName: r.agentName || (r.agentId ? `Agente #${r.agentId}` : 'Sin agente'),
+      salesCount: Number(r.salesCount || 0),
+      salesAmount: Number(r.salesAmount || 0),
+      commission: Number(r.commission || 0),
+    }));
+  }
+
+  private agentRankingQuery(projectId?: number) {
+    const qb = this.saleRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect(UserEntity, 'u', 'u.id = s.agent_id')
+      .select('s.agent_id', 'agentId')
+      .addSelect('u.name', 'agentName')
+      .addSelect('COUNT(*)', 'salesCount')
+      .addSelect('COALESCE(SUM(s.sale_price),0)', 'salesAmount')
+      .addSelect('COALESCE(SUM(s.commission),0)', 'commission')
+      .groupBy('s.agent_id')
+      .addGroupBy('u.name')
+      .orderBy('"salesAmount"', 'DESC');
+
+    if (projectId != null) qb.where('s.project_id = :projectId', { projectId });
+    return qb.getRawMany();
+  }
+
   async general() {
     const monthKey = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
 
@@ -54,18 +81,7 @@ export class DashboardsService {
           .addSelect('COALESCE(SUM(s.sale_price),0)', 'amount')
           .groupBy('s.project_id')
           .getRawMany(),
-        this.saleRepo
-          .createQueryBuilder('s')
-          .leftJoinAndSelect(UserEntity, 'u', 'u.id = s.agent_id')
-          .select('s.agent_id', 'agentId')
-          .addSelect('u.name', 'agentName')
-          .addSelect('COUNT(*)', 'salesCount')
-          .addSelect('SUM(s.sale_price)', 'salesAmount')
-          .addSelect('SUM(s.commission)', 'commission')
-          .groupBy('s.agent_id')
-          .addGroupBy('u.name')
-          .orderBy('"salesAmount"', 'DESC')
-          .getRawMany(),
+        this.agentRankingQuery(),
         this.saleRepo.find({ order: { createdAt: 'DESC' }, take: 10 }),
         this.paymentRepo.find({ order: { createdAt: 'DESC' }, take: 10 }),
         this.clientRepo
@@ -131,10 +147,7 @@ export class DashboardsService {
       },
       lots: lotMap,
       salesByProject: salesByProject.map((r) => ({ projectId: r.projectId, total: Number(r.total), amount: Number(r.amount) })),
-      agentRanking: (rankings || []).map((r) => ({
-        agentId: r.agentId, agentName: r.agentName || (r.agentId ? `Agente #${r.agentId}` : 'Sin agente'), salesCount: Number(r.salesCount),
-        salesAmount: Number(r.salesAmount), commission: Number(r.commission || 0),
-      })),
+      agentRanking: this.mapAgentRanking(rankings),
       recentSales: latestSales,
       recentPayments,
       leadsByChannel: leadsByChannel.map((r) => ({ channel: r.channel, total: Number(r.total) })),
@@ -191,7 +204,7 @@ export class DashboardsService {
   }
 
   async project(projectId: number) {
-    const [total, lotStats, salesByPeriod, income, expense] = await Promise.all([
+    const [total, lotStats, salesByPeriod, income, expense, agentRanking] = await Promise.all([
       this.lotRepo.count({ where: { projectId } }),
       this.lotRepo.createQueryBuilder('l').where('l.project_id = :projectId', { projectId })
         .select('l.status', 'status').addSelect('COUNT(*)', 'total').groupBy('l.status').getRawMany(),
@@ -202,6 +215,7 @@ export class DashboardsService {
         .select('COALESCE(SUM(t.amount),0)', 'total').getRawOne(),
       this.txnRepo.createQueryBuilder('t').where('t.project_id = :projectId AND t.type=\'egreso\'', { projectId })
         .select('COALESCE(SUM(t.amount),0)', 'total').getRawOne(),
+      this.agentRankingQuery(projectId),
     ]);
     const lotMap = Object.fromEntries(lotStats.map((r) => [r.status, Number(r.total)]));
     const totalIncome = Number(income?.total || 0);
@@ -209,6 +223,7 @@ export class DashboardsService {
     return {
       cards: { total, lots: lotMap, income: totalIncome, expense: totalExpense, profit: totalIncome - totalExpense },
       salesByPeriod: salesByPeriod.map((r) => ({ date: r.date, total: Number(r.total), amount: Number(r.amount) })),
+      agentRanking: this.mapAgentRanking(agentRanking),
     };
   }
 }

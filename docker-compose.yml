@@ -40,8 +40,8 @@ services:
     container_name: crm_nginx
     restart: unless-stopped
     ports:
-      - "80:80"
-      - "443:443"
+      - "8080:80"
+      - "8443:443"
     volumes:
       - ./nginx/site.conf:/etc/nginx/conf.d/crm.dunacon.pe.conf:ro
       - ./nginx/site-ssl.conf:/etc/nginx/conf.d/crm-ssl.disabled:ro

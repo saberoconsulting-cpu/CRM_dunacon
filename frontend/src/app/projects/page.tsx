@@ -4,7 +4,7 @@ import Layout from '@/components/layout/Layout';
 import { Toaster, toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api, uploadFile } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { FiMap, FiCamera } from 'react-icons/fi';
+import { FiMap, FiCamera, FiMapPin } from 'react-icons/fi';
 import { Project, formatMoney } from '@/lib/types';
 import ProjectsMap from '@/components/features/projects/ProjectsMap';
 
@@ -16,9 +16,16 @@ export default function ProjectsPage() {
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
   const [openMap, setOpenMap] = useState(false);
+  const [mapProjectId, setMapProjectId] = useState<number | null>(null);
   const [form, setForm] = useState<any>({});
   const [cover, setCover] = useState<File | null>(null);
   const setf = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
+
+  function abrirMapaProyecto(p: Project) {
+    setMapProjectId(p.id);
+    setOpenMap(true);
+    if (p.latitude == null || p.longitude == null) toast('Este proyecto aún no tiene coordenadas en el mapa', 'err');
+  }
 
   async function crearProyecto() {
     if (!form.name) return toast('Ingresa el nombre del proyecto', 'err');
@@ -95,7 +102,7 @@ export default function ProjectsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
         <p className="text-sm" style={{ color: '#6B7280' }}>Unidades comerciales activas y su avance comercial.</p>
         <div className="flex flex-wrap gap-2">
-          <button className="btn-neutral" onClick={() => setOpenMap(true)}>Ver en el mapa</button>
+          <button className="btn-neutral" onClick={() => { setMapProjectId(null); setOpenMap(true); }}>Ver en el mapa</button>
           {canEdit && <button className="btn-primary" onClick={() => setOpenCreate(true)}>Crear proyecto</button>}
         </div>
       </div>
@@ -132,7 +139,17 @@ export default function ProjectsPage() {
                     <button className="btn-danger !h-8 text-xs" onClick={() => eliminarProyecto(p.id)}>Eliminar proyecto</button>
                   </div>
                 )}
-                <button className="btn-primary w-full justify-center" onClick={() => router.push(`/projects/${p.id}`)}>Ver proyecto y plano</button>
+                <div className="flex gap-2">
+                  <button
+                    className="btn-neutral !px-3"
+                    title="Ver en mapa"
+                    aria-label={`Ver ${p.name} en el mapa`}
+                    onClick={() => abrirMapaProyecto(p)}
+                  >
+                    <FiMapPin />
+                  </button>
+                  <button className="btn-primary flex-1 justify-center" onClick={() => router.push(`/projects/${p.id}`)}>Ver proyecto y plano</button>
+                </div>
               </div>
             </div>
           ))}
@@ -191,7 +208,7 @@ export default function ProjectsPage() {
               </div>
               <button className="btn-neutral !h-8 text-sm" onClick={() => setOpenMap(false)}>Cerrar</button>
             </div>
-            <div className="flex-1 min-h-0 rounded-xl overflow-hidden"><ProjectsMap projects={projects} onOpen={(id) => { setOpenMap(false); router.push(`/projects/${id}`); }} /></div>
+            <div className="flex-1 min-h-0 rounded-xl overflow-hidden"><ProjectsMap projects={projects} focusProjectId={mapProjectId} onOpen={(id) => { setOpenMap(false); router.push(`/projects/${id}`); }} /></div>
           </div>
         </div>
       )}

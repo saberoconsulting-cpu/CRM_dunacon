@@ -23,34 +23,34 @@ h1, h2, h3 { font-weight: 600; color: #171717; }
 
 @layer components {
   .card {
-    @apply bg-white rounded-xl border border-[#E5E7EB] p-5;
-    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    @apply bg-white rounded-md border border-[#E5E7EB] p-5;
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.035);
   }
   /* Botón principal: azul marca */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 bg-[#1877F2] hover:bg-[#166FE0] text-white font-semibold rounded-lg px-4 text-sm transition-colors disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 bg-[#1877F2] hover:bg-[#166FE0] text-white font-semibold rounded-md px-4 text-sm transition-colors disabled:opacity-50;
     height: 40px;
   }
   /* Botón secundario: blanco + borde azul */
   .btn-outline {
-    @apply inline-flex items-center justify-center gap-2 bg-white hover:bg-softblue text-[#1877F2] font-medium rounded-lg px-4 text-sm transition-colors disabled:opacity-50 border;
+    @apply inline-flex items-center justify-center gap-2 bg-white hover:bg-softblue text-[#1877F2] font-medium rounded-md px-4 text-sm transition-colors disabled:opacity-50 border;
     height: 40px;
     border-color: #1877F2;
   }
   /* Botón neutro */
   .btn-neutral {
-    @apply inline-flex items-center justify-center gap-2 bg-[#F3F4F6] hover:bg-[#E5E7EB] text-[#374151] font-medium rounded-lg px-4 text-sm transition-colors disabled:opacity-50 border border-[#E5E7EB];
+    @apply inline-flex items-center justify-center gap-2 bg-[#F3F4F6] hover:bg-[#E5E7EB] text-[#374151] font-medium rounded-md px-4 text-sm transition-colors disabled:opacity-50 border border-[#E5E7EB];
     height: 40px;
   }
   /* Botón de peligro */
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 bg-[#0E46A0] hover:bg-[#0B3A85] text-white font-medium rounded-lg px-4 text-sm transition-colors disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 bg-[#0E46A0] hover:bg-[#0B3A85] text-white font-medium rounded-md px-4 text-sm transition-colors disabled:opacity-50;
     height: 40px;
   }
   /* Deprecado aliase de secundario antiguo */
   .btn-secondary { @apply btn-neutral; }
   .input {
-    @apply w-full border border-[#D1D5DB] rounded-lg px-3 text-sm focus:outline-none focus:ring-2 transition-colors;
+    @apply w-full border border-[#D1D5DB] rounded-md px-3 text-sm focus:outline-none focus:ring-2 transition-colors;
     height: 40px;
     background: #fff;
     color: #171717;
