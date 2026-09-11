@@ -39,7 +39,7 @@ export function StatCard({ label, value, color = '#171717', delta, deltaUp, date
     <div className="card card-kpi">
       <div className="flex items-center justify-between">
         <span className="font-medium" style={{ fontSize: 12, color: '#6B7280' }}>{label}</span>
-        <span className="w-1.5 h-1.5 rounded-full bg-[#E30620]" />
+        <span className="w-1.5 h-1.5 rounded-full bg-[#1877F2]" />
       </div>
       <div className="mt-1.5 font-bold" style={{ fontSize: 24, color }}>{value}</div>
       {(delta || date) && (
@@ -98,7 +98,7 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg' }: {
           <svg width="12" height="2"><path d="M1 1h10" stroke="white" strokeWidth="1.6" /></svg>
         </button>
         <button type="button" onClick={onClose} aria-label="Cerrar"
-          className="grid place-items-center rounded-md hover:bg-red-500" style={{ width: 30, height: 26, background: 'rgba(255,255,255,.14)' }}>
+          className="grid place-items-center rounded-md hover:bg-[#1877F2]" style={{ width: 30, height: 26, background: 'rgba(255,255,255,.14)' }}>
           <svg width="11" height="11"><path d="M1 1l9 9M10 1l-9 9" stroke="white" strokeWidth="1.6" /></svg>
         </button>
       </div>
@@ -146,7 +146,7 @@ export function Toaster() {
   return (
     <div className="fixed top-4 right-4 z-[60] space-y-2">
       {items.map((t) => (
-        <div key={t.id} className={`toast-in px-4 py-2 rounded-lg shadow-lg text-sm font-medium text-white ${t.type === 'ok' ? 'bg-emerald-600' : 'bg-red-600'}`}>
+        <div key={t.id} className={`toast-in px-4 py-2 rounded-lg shadow-lg text-sm font-medium text-white ${t.type === 'ok' ? 'bg-emerald-600' : 'bg-[#1259C4]'}`}>
           {t.msg}
         </div>
       ))}

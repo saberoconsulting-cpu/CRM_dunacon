@@ -33,7 +33,8 @@ services:
       echo Migraciones OK - arrancando API... &&
       exec node dist/main.js"
 
-  # Reverse proxy + TLS (Let's Encrypt) hacia api.saberoconsulting.com
+  # Reverse proxy + TLS (Let's Encrypt) para crm.dunacon.pe.
+  # Sirve el FRONTEND (build estático en ./nginx/html) y proxye la API/WebSocket al backend.
   nginx:
     image: nginx:1.27-alpine
     container_name: crm_nginx
@@ -42,8 +43,8 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/site.conf:/etc/nginx/conf.d/api.saberoconsulting.com.conf:ro
-      - ./nginx/site-ssl.conf:/etc/nginx/conf.d/api-ssl.disabled:ro
+      - ./nginx/site.conf:/etc/nginx/conf.d/crm.dunacon.pe.conf:ro
+      - ./nginx/site-ssl.conf:/etc/nginx/conf.d/crm-ssl.disabled:ro
       - ./nginx/certs:/etc/nginx/certs:ro
       - ./nginx/html:/var/www/html:ro
       - ./letsencrypt/etc:/etc/letsencrypt:ro

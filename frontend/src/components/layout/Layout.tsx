@@ -107,7 +107,7 @@ export default function Layout({ children, title }: { children: ReactNode; title
 
   return (
     <div className="flex h-screen overflow-hidden bg-canvas">
-      {/* Sidebar blanca, ítem activo rojo */}
+      {/* Sidebar blanca, ítem activo azul */}
       <aside className={`${open ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:static inset-y-0 left-0 w-60 bg-white border-r z-30 flex flex-col transition-transform`} style={{ borderColor: '#E5E7EB', width: 240 }}>
         {activeProject ? (
           <button onClick={() => { router.push('/projects'); setOpen(false); }}
@@ -120,8 +120,7 @@ export default function Layout({ children, title }: { children: ReactNode; title
           </button>
         ) : (
           <div className="h-14 px-5 flex items-center gap-2.5 border-b shrink-0" style={{ borderColor: '#F0F1F3' }}>
-            <span className="bg-brand-gradient w-8 h-8 rounded-md text-white font-bold grid place-items-center" style={{ fontSize: 14 }}>IN</span>
-            <span className="font-semibold text-[15px]" style={{ color: '#171717' }}>Inmobiliario CRM</span>
+            <img src="/logo/dunacon.png" alt="Dunacon" className="h-11 w-auto" />
           </div>
         )}
 
@@ -132,11 +131,11 @@ export default function Layout({ children, title }: { children: ReactNode; title
               return (
                 <li key={n.href}>
                   <button onClick={() => { router.push(n.href); setOpen(false); }}
-                    className={`w-full flex items-center gap-3 rounded-lg px-3 text-sm transition-colors ${active ? 'bg-[#E30620] text-white' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
+                    className={`w-full flex items-center gap-3 rounded-lg px-3 text-sm transition-colors ${active ? 'bg-[#1877F2] text-white' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
                     style={{ height: 38, fontWeight: active ? 600 : 500 }}>
                     <span style={{ fontSize: 16 }}>{n.icon}</span>{n.label}
                     {n.href.endsWith('/sales') && pendingApp.count > 0 && (
-                      <span className="ml-auto grid place-items-center min-w-5 h-5 px-1 rounded-full text-[10px] font-bold text-white" style={{ background: '#E30620' }}>{pendingApp.count}</span>
+                      <span className="ml-auto grid place-items-center min-w-5 h-5 px-1 rounded-full text-[10px] font-bold text-white" style={{ background: '#1877F2' }}>{pendingApp.count}</span>
                     )}
                   </button>
                 </li>
@@ -155,7 +154,7 @@ export default function Layout({ children, title }: { children: ReactNode; title
                   return (
                     <li key={n.href}>
                       <button onClick={() => { router.push(n.href); setOpen(false); }}
-                        className={`w-full flex items-center gap-3 rounded-lg px-3 text-sm transition-colors ${active ? 'bg-[#E30620] text-white' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
+                        className={`w-full flex items-center gap-3 rounded-lg px-3 text-sm transition-colors ${active ? 'bg-[#1877F2] text-white' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
                         style={{ height: 38, fontWeight: active ? 600 : 500 }}>
                         <span style={{ fontSize: 16 }}>{n.icon}</span>{n.label}
                       </button>
@@ -170,7 +169,7 @@ export default function Layout({ children, title }: { children: ReactNode; title
             <p className="text-[11px] font-semibold tracking-wide" style={{ color: '#9AA1AB' }}>CUENTA</p>
           </div>
           <button onClick={() => { router.push('/profile'); setOpen(false); }}
-            className={`w-full flex items-center gap-3 rounded-lg px-3 text-sm ${isActive('/profile') ? 'bg-[#E30620] text-white' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
+            className={`w-full flex items-center gap-3 rounded-lg px-3 text-sm ${isActive('/profile') ? 'bg-[#1877F2] text-white' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
             style={{ height: 38, fontWeight: 500 }}>
             <span style={{ fontSize: 16 }}><FiUser /></span>Perfil
           </button>
@@ -178,13 +177,13 @@ export default function Layout({ children, title }: { children: ReactNode; title
 
         <div className="px-3 py-3 border-t space-y-2 shrink-0" style={{ borderColor: '#F0F1F3' }}>
           <div className="flex items-center gap-2.5 px-2">
-            <span className="w-8 h-8 rounded-full bg-softred text-[#E30620] font-semibold grid place-items-center" style={{ fontSize: 13 }}>{LOGO}</span>
+            <span className="w-8 h-8 rounded-full bg-softblue text-[#1877F2] font-semibold grid place-items-center" style={{ fontSize: 13 }}>{LOGO}</span>
             <span className="min-w-0 flex-1">
               <span className="block text-[13px] font-semibold truncate" style={{ color: '#171717' }}>{user.name}</span>
               <span className="block text-[11px] capitalize" style={{ color: '#6B7280' }}>{user.role === 'agent' ? 'Agente comercial' : user.role}</span>
             </span>
           </div>
-          <button onClick={logout} className="w-full flex items-center gap-3 rounded-lg px-3 text-sm text-[#6B7280] hover:text-[#E30620] hover:bg-[#F3F4F6]" style={{ height: 34 }}>
+          <button onClick={logout} className="w-full flex items-center gap-3 rounded-lg px-3 text-sm text-[#6B7280] hover:text-[#1877F2] hover:bg-[#F3F4F6]" style={{ height: 34 }}>
             <span style={{ fontSize: 16 }}><FiLogOut /></span>Cerrar sesión
           </button>
         </div>
@@ -202,15 +201,15 @@ export default function Layout({ children, title }: { children: ReactNode; title
             {title && <h1 className="truncate" style={{ fontSize: 17 }}>{title}</h1>}
           </div>
           {canManage && (
-            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-softred text-[#E30620] px-3" style={{ height: 28, fontSize: 12 }}>
-              <span className="w-1.5 h-1.5 rounded-full bg-[#E30620]" /> Acceso de administración
+            <span className="hidden sm:inline-flex items-center gap-1.5 rounded-full bg-softblue text-[#1877F2] px-3" style={{ height: 28, fontSize: 12 }}>
+              <span className="w-1.5 h-1.5 rounded-full bg-[#1877F2]" /> Acceso de administración
             </span>
           )}
           <div className="relative">
             <button className="relative p-1 text-[#6B7280] hover:text-[#171717]" aria-label="Notificaciones" onClick={() => setBellOpen((v) => !v)}>
               <FiBell style={{ fontSize: 17 }} />
               {(canManage && pendingApp.count > 0) && (
-                <span className="absolute -right-0.5 -top-0.5 grid place-items-center min-w-4 h-4 px-1 rounded-full text-[10px] font-bold text-white" style={{ background: '#E30620' }}>{pendingApp.count}</span>
+                <span className="absolute -right-0.5 -top-0.5 grid place-items-center min-w-4 h-4 px-1 rounded-full text-[10px] font-bold text-white" style={{ background: '#1877F2' }}>{pendingApp.count}</span>
               )}
             </button>
             {bellOpen && (
@@ -219,7 +218,7 @@ export default function Layout({ children, title }: { children: ReactNode; title
                 <div className="absolute right-0 top-11 z-50 w-80 max-h-[70vh] overflow-auto rounded-2xl bg-white shadow-2xl border" style={{ borderColor: '#EDEEF0' }}>
                   <div className="px-4 py-3 border-b flex justify-between items-center" style={{ borderColor: '#F0F1F3' }}>
                     <span className="text-sm font-semibold">Separaciones por aprobar</span>
-                    <span className="badge bg-softred text-[#E30620]">{pendingApp.count}</span>
+                    <span className="badge bg-softblue text-[#1877F2]">{pendingApp.count}</span>
                   </div>
                   <div className="divide-y">
                     {pendingApp.rows.slice(0, 15).map((s) => (

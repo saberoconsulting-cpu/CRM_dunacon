@@ -14,7 +14,7 @@ export function IngresosVsEgresos({ data }: { data: { mes: string; ingreso: numb
         <YAxis fontSize={11} />
         <Tooltip formatter={(v: any) => 'S/ ' + Number(v).toLocaleString('es-PE')} />
         <Legend />
-        <Bar dataKey="ingreso" name="Ingresos" fill="#E30620" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="ingreso" name="Ingresos" fill="#1877F2" radius={[4, 4, 0, 0]} />
         <Bar dataKey="egreso" name="Egresos" fill="#6B7280" radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>

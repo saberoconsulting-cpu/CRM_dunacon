@@ -6,9 +6,9 @@ import { DistribucionPie } from '@/components/ui/charts/Charts';
 
 export default function GeneralView({ d, compact = false }: { d: FormattedDashboard | null; compact?: boolean }) {
   if (!d) return <p className="text-slate-400">Sin datos</p>;
-  const colors: Record<string,string> = { disponible:'#D1D5DB', reservado:'#F2B94B', adelanto:'#4B83C4', primera_cuota:'#8064A2', vendido:'#E30620' };
-  // Rojo de marca + negro + grises + rojo claro derivados de la identidad
-  const channelMap: any = { facebook:'#E30620', tiktok:'#171717', instagram:'#A90318', web:'#6B7280', referidos:'#FCB7C0' };
+  const colors: Record<string,string> = { disponible:'#D1D5DB', reservado:'#F2B94B', adelanto:'#4B83C4', primera_cuota:'#8064A2', vendido:'#1877F2' };
+  // Azul de marca + negro + grises + azul claro derivados de la identidad
+  const channelMap: any = { facebook:'#1877F2', tiktok:'#171717', instagram:'#1259C4', web:'#6B7280', referidos:'#A9C9FB' };
   const lotData = Object.keys(colors).map((k) => ({ name: k, value: d.lots[k] || 0 }));
   const label: Record<string,string> = { disponible:'Disponible',reservado:'Reservado',adelanto:'Con adelanto',primera_cuota:'Primera cuota',vendido:'Vendido' };
 

@@ -38,7 +38,7 @@ export const PaginationBar: FC<Props> = ({ page, totalPages, total, limit, setPa
         )}
         <button type="button" className="btn-neutral !h-8 !text-xs" disabled={page <= 1} onClick={() => setPage(page - 1)}>‹ Anterior</button>
         {nums.map((n) => (
-          <button key={n} type="button" className={`!h-8 !min-w-8 !px-2 !text-xs rounded-lg ${n === page ? 'text-white' : 'text-slate-600 hover:bg-slate-100'}`} style={n === page ? { background: '#E30620' } : undefined} onClick={() => setPage(n)}>{n}</button>
+          <button key={n} type="button" className={`!h-8 !min-w-8 !px-2 !text-xs rounded-lg ${n === page ? 'text-white' : 'text-slate-600 hover:bg-slate-100'}`} style={n === page ? { background: '#1877F2' } : undefined} onClick={() => setPage(n)}>{n}</button>
         ))}
         <button type="button" className="btn-neutral !h-8 !text-xs" disabled={page >= totalPages} onClick={() => setPage(page + 1)}>Siguiente ›</button>
       </div>
