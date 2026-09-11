@@ -5,6 +5,7 @@ import { api, uploadFile } from '@/lib/api';
 import { FiPaperclip, FiFileText, FiExternalLink } from 'react-icons/fi';
 
 type Doc = { id: number; kind: string; originalName: string; url: string; createdAt: string };
+type Quote = { id: number; lotCode?: string | null; clientName: string; paymentMethod: string };
 
 // "Se adjunta" — el usuario sube el archivo. Ya tiene backend funcional.
 const ATTACHABLE: { kind: string; label: string }[] = [
@@ -13,19 +14,14 @@ const ATTACHABLE: { kind: string; label: string }[] = [
   { kind: 'condiciones_comerciales', label: 'Condiciones Comerciales' },
 ];
 
-// "Lo genera la APP" — pendiente: requiere un generador de PDF que hoy no existe.
-const GENERATED: { label: string }[] = [
-  { label: 'Contrato Venta de Lote' },
-  { label: 'Cotización de Lote' },
-  { label: 'Financiamiento' },
-];
-
 export default function ProjectDocuments({ projectId }: { projectId: number }) {
   const [docs, setDocs] = useState<Doc[]>([]);
   const [busyKind, setBusyKind] = useState<string | null>(null);
+  const [quotes, setQuotes] = useState<Quote[]>([]);
 
   function load() {
     api.get<Doc[]>(`/projects/${projectId}/documents`).then((d) => setDocs(Array.isArray(d) ? d : [])).catch(() => {});
+    api.get<Quote[]>(`/quotes?projectId=${projectId}`).then((d) => setQuotes(Array.isArray(d) ? d : [])).catch(() => {});
   }
   useEffect(() => { load(); }, [projectId]);
 
@@ -64,12 +60,34 @@ export default function ProjectDocuments({ projectId }: { projectId: number }) {
             </div>
           );
         })}
-        {GENERATED.map(({ label }) => (
-          <div key={label} className="rounded-xl border p-3 opacity-60" style={{ borderColor: '#E5E7EB', background: '#FAFAFB' }}>
-            <p className="font-semibold text-sm mb-2 inline-flex items-center gap-1.5"><FiFileText /> {label}</p>
-            <p className="text-xs text-slate-400">Próximamente — lo generará el sistema</p>
-          </div>
-        ))}
+        <div className="rounded-xl border p-3 opacity-60" style={{ borderColor: '#E5E7EB', background: '#FAFAFB' }}>
+          <p className="font-semibold text-sm mb-2 inline-flex items-center gap-1.5"><FiFileText /> Contrato Venta de Lote</p>
+          <p className="text-xs text-slate-400">Próximamente — lo generará el sistema</p>
+        </div>
+        <div className="rounded-xl border p-3" style={{ borderColor: '#E5E7EB' }}>
+          <p className="font-semibold text-sm mb-2 inline-flex items-center gap-1.5"><FiFileText /> Cotización de Lote</p>
+          {quotes.length ? (
+            <button className="btn-neutral !h-8 text-xs w-full justify-center inline-flex items-center gap-1.5"
+              onClick={() => window.open(`/projects/${projectId}/quotes/${quotes[0].id}/cotizacion`, '_blank')}>
+              <FiExternalLink /> Ver última cotización
+            </button>
+          ) : <p className="text-xs text-slate-400">Sin cotizaciones generadas</p>}
+          <a href={`/projects/${projectId}/quotes`} className="btn-outline !h-8 text-xs w-full justify-center mt-2 inline-flex items-center gap-1.5">
+            Ver todas ({quotes.length})
+          </a>
+        </div>
+        <div className="rounded-xl border p-3" style={{ borderColor: '#E5E7EB' }}>
+          <p className="font-semibold text-sm mb-2 inline-flex items-center gap-1.5"><FiFileText /> Financiamiento</p>
+          {(() => {
+            const withCredit = quotes.find((q) => q.paymentMethod === 'credito');
+            return withCredit ? (
+              <button className="btn-neutral !h-8 text-xs w-full justify-center inline-flex items-center gap-1.5"
+                onClick={() => window.open(`/projects/${projectId}/quotes/${withCredit.id}/financiamiento`, '_blank')}>
+                <FiExternalLink /> Ver cronograma
+              </button>
+            ) : <p className="text-xs text-slate-400">Sin cotizaciones a crédito todavía</p>;
+          })()}
+        </div>
       </div>
     </div>
   );

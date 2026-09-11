@@ -21,6 +21,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [showCotizaciones, setShowCotizaciones] = useState(false);
+  const [quotes, setQuotes] = useState<any[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
@@ -65,11 +66,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     api.get<any[]>('/clients').then((d) => setClients(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
     api.get<any[]>('/users/agents').then(setAgents).catch(() => {});
     api.get<any[]>('/lots').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
-  }, [load, role]);
+    const q = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
+    api.get<any[]>(`/quotes${q}`).then((d) => setQuotes(Array.isArray(d) ? d : [])).catch(() => {});
+  }, [load, role, lockedProjectId]);
 
-  // Al elegir un lote, autocompletar precio (y cliente, si ya tenía uno asignado)
-  // con su "Precio Venta" de Lotización — hace de "cotización" vigente sin
-  // necesidad de un módulo de cotizaciones aparte.
+  // Al elegir un lote, autocompletar el precio con su "Precio Venta" de
+  // Lotización (si no viene de una cotización real seleccionada abajo).
   function selectLot(id: number) {
     setLotId(id);
     const lot = lots.find((l: any) => l.id === id);
@@ -77,6 +79,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       setSalePrice(Number(lot.salePrice || lot.price || 0));
       if (lot.clientId) setClientId(Number(lot.clientId));
     }
+  }
+
+  // Cotización real del módulo Cotizaciones Lotes: precarga el lote y el
+  // precio (convertido a soles con el tipo de cambio de esa cotización).
+  function selectQuote(q: any) {
+    setLotId(q.lotId);
+    setSalePrice(Math.round(Number(q.finalPriceUsd) * Number(q.exchangeRate)));
+    setShowCotizaciones(false);
   }
 
   // Calculadora en vivo: comisión, saldo a financiar, tramos de cuotas.
@@ -246,18 +256,18 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             {showCotizaciones && (
               <div className="rounded-xl border mb-4 overflow-hidden" style={{ borderColor: '#A9C9FB' }}>
                 <div className="px-3 py-2 text-xs font-semibold" style={{ background: '#E7F0FE', color: '#1259C4' }}>
-                  Lotes ya cotizados en este proyecto (con Precio Venta en Lotización)
+                  Cotizaciones generadas en este proyecto (módulo Cotizaciones Lotes)
                 </div>
                 <div className="max-h-52 overflow-y-auto divide-y" style={{ borderColor: '#F0F1F3' }}>
-                  {lots.filter((l: any) => l.salePrice && l.status !== 'vendido' && l.sellingStage !== 'vendido' && l.sellingStage !== 'separado' && (!projectId || Number(l.projectId) === Number(projectId))).map((l: any) => (
-                    <button key={l.id} className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-50 text-left"
-                      onClick={() => { selectLot(l.id); setShowCotizaciones(false); }}>
-                      <span>Lote {l.code}{l.blockAddress ? ` — ${l.blockAddress}` : ''}</span>
-                      <b>{formatMoney(l.salePrice)}</b>
+                  {quotes.map((q: any) => (
+                    <button key={q.id} className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-50 text-left"
+                      onClick={() => selectQuote(q)}>
+                      <span>Lote {q.lotCode || q.lotId} — {q.clientName}</span>
+                      <b>{formatMoney(Math.round(Number(q.finalPriceUsd) * Number(q.exchangeRate)))}</b>
                     </button>
                   ))}
-                  {lots.filter((l: any) => l.salePrice && (!projectId || Number(l.projectId) === Number(projectId))).length === 0 && (
-                    <p className="px-3 py-4 text-xs text-slate-400 text-center">Ningún lote de este proyecto tiene todavía un Precio Venta cargado en Lotización.</p>
+                  {quotes.length === 0 && (
+                    <p className="px-3 py-4 text-xs text-slate-400 text-center">Aún no hay cotizaciones generadas para este proyecto.</p>
                   )}
                 </div>
               </div>
