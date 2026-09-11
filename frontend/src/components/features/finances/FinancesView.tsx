@@ -151,12 +151,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                 <option value="compra_terreno">Compra de terreno</option>
               </select>
             </Field>
-            <Field label="Proyecto">
-              <select className="input" disabled={!!lockedProjectId} value={lockedProjectId || eForm.projectId || ''} onChange={(e) => ef('projectId', e.target.value ? Number(e.target.value) : null)}>
-                <option value="">—</option>
-                {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </Field>
+            {!lockedProjectId && (
+              <Field label="Proyecto"><select className="input" value={eForm.projectId || ''} onChange={(e) => ef('projectId', e.target.value ? Number(e.target.value) : null)}><option value="">—</option>{projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-neutral" onClick={() => setOpenExp(false)}>Cancelar</button>
               <button className="btn-primary" onClick={addEgreso}>Guardar egreso</button>
@@ -171,12 +168,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Registrar ingreso adicional</h3>
             <Field label="Concepto *"><input className="input" value={iForm.concept || ''} onChange={(e) => inf('concept', e.target.value)} /></Field>
             <Field label="Monto (S/) *"><input type="number" className="input" value={iForm.amount || ''} onChange={(e) => inf('amount', e.target.value)} /></Field>
-            <Field label="Proyecto">
-              <select className="input" disabled={!!lockedProjectId} value={lockedProjectId || iForm.projectId || ''} onChange={(e) => inf('projectId', e.target.value ? Number(e.target.value) : null)}>
-                <option value="">—</option>
-                {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </Field>
+            {!lockedProjectId && (
+              <Field label="Proyecto"><select className="input" value={iForm.projectId || ''} onChange={(e) => inf('projectId', e.target.value ? Number(e.target.value) : null)}><option value="">—</option>{projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-neutral" onClick={() => setOpenIn(false)}>Cancelar</button>
               <button className="btn-primary" onClick={addIngreso}>Guardar ingreso</button>
