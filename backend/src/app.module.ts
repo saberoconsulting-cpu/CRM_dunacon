@@ -22,6 +22,7 @@ import { AuditLogEntity } from './shared/infrastructure/entities/audit-log.entit
 import { SaleInstallmentEntity } from './shared/infrastructure/entities/sale-installment.entity';
 import { AppSettingEntity } from './shared/infrastructure/entities/app-setting.entity';
 import { ProjectDocumentEntity } from './shared/infrastructure/entities/project-document.entity';
+import { QuoteEntity } from './shared/infrastructure/entities/quote.entity';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ProjectsModule } from './modules/projects/projects.module';
@@ -34,6 +35,7 @@ import { PaymentsModule } from './modules/payments/payments.module';
 import { FinancesModule } from './modules/finances/finances.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
+import { QuotesModule } from './modules/quotes/quotes.module';
 
 @Module({
   imports: [
@@ -57,6 +59,7 @@ import { DashboardsModule } from './modules/dashboards/dashboards.module';
         SaleInstallmentEntity,
         AppSettingEntity,
         ProjectDocumentEntity,
+        QuoteEntity,
       ],
       synchronize: false,
       logging: false,
@@ -73,6 +76,7 @@ import { DashboardsModule } from './modules/dashboards/dashboards.module';
     FinancesModule,
     SettingsModule,
     DashboardsModule,
+    QuotesModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

@@ -6,6 +6,9 @@ import { PaymentEntity } from '../../../shared/infrastructure/entities/payment.e
 import { LotEntity } from '../../../shared/infrastructure/entities/lot.entity';
 import { LotStatusHistoryEntity } from '../../../shared/infrastructure/entities/lot-status-history.entity';
 import { FinancialTransactionEntity } from '../../../shared/infrastructure/entities/financial-transaction.entity';
+import { ClientEntity } from '../../../shared/infrastructure/entities/client.entity';
+import { UserEntity } from '../../../shared/infrastructure/entities/user.entity';
+import { SaleEntity } from '../../../shared/infrastructure/entities/sale.entity';
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
 import { CreatePaymentDto } from './dto/payment.dto';
 
@@ -27,6 +30,8 @@ export class PaymentsService {
     private readonly historyRepo: Repository<LotStatusHistoryEntity>,
     @InjectRepository(FinancialTransactionEntity)
     private readonly txnRepo: Repository<FinancialTransactionEntity>,
+    @InjectRepository(SaleEntity)
+    private readonly saleRepo: Repository<SaleEntity>,
     private readonly gateway: NotificationsGateway,
     @InjectDataSource()
     private readonly dataSource: DataSource,
@@ -129,17 +134,67 @@ export class PaymentsService {
   }) {
     const page = Math.max(1, filters.page ?? 1);
     const limit = Math.min(200, Math.max(1, filters.limit ?? 20));
-    const qb = this.paymentRepo.createQueryBuilder('p');
-    if (filters.projectId) qb.where('p.project_id = :projectId', { projectId: filters.projectId });
-    if (filters.lotId) qb.andWhere('p.lot_id = :lotId', { lotId: filters.lotId });
-    if (filters.agentId) qb.andWhere('p.agent_id = :agentId', { agentId: filters.agentId });
-    if (filters.status) qb.andWhere('p.status = :status', { status: filters.status });
-    if (filters.type) qb.andWhere('p.type = :type', { type: filters.type });
+
+    const applyFilters = (qb: any) => {
+      if (filters.projectId) qb.andWhere('p.project_id = :projectId', { projectId: filters.projectId });
+      if (filters.lotId) qb.andWhere('p.lot_id = :lotId', { lotId: filters.lotId });
+      if (filters.agentId) qb.andWhere('p.agent_id = :agentId', { agentId: filters.agentId });
+      if (filters.status) qb.andWhere('p.status = :status', { status: filters.status });
+      if (filters.type) qb.andWhere('p.type = :type', { type: filters.type });
+      return qb;
+    };
+
+    const qb = applyFilters(
+      this.paymentRepo
+        .createQueryBuilder('p')
+        .leftJoinAndSelect(LotEntity, 'l', 'l.id = p.lot_id')
+        .leftJoinAndSelect(ClientEntity, 'c', 'c.id = p.client_id')
+        .leftJoinAndSelect(UserEntity, 'u', 'u.id = p.created_by')
+        .select([
+          'p.id', 'p.projectId', 'p.lotId', 'p.clientId', 'p.agentId', 'p.type', 'p.amount',
+          'p.dueDate', 'p.paymentMethod', 'p.reference', 'p.voucherUrl', 'p.paidAt', 'p.status', 'p.createdAt',
+        ])
+        // Postgres pliega a minúsculas cualquier alias sin comillas — mismo bug
+        // ya corregido en lots.service.ts y sales.service.ts.
+        .addSelect('l.code AS "lotCode"')
+        .addSelect('COALESCE(l.sale_price, l.price) AS "salePrice"')
+        .addSelect('c.full_name AS "clientName"')
+        .addSelect('u.name AS "receivedByName"'),
+    );
     qb.orderBy('p.created_at', 'DESC');
     const total = await qb.clone().getCount();
+
+    // Conteos sobre TODO el filtro (no solo la página actual), para que las
+    // StatCards "Total Venta" / "Pagos Pendiente" sean correctas con paginación.
+    const distinctLots = await applyFilters(this.paymentRepo.createQueryBuilder('p'))
+      .select('COUNT(DISTINCT p.lot_id)', 'count')
+      .getRawOne();
+    const pending = await applyFilters(this.paymentRepo.createQueryBuilder('p'))
+      .andWhere("p.status = 'pendiente'")
+      .select('COUNT(*)', 'count')
+      .getRawOne();
+
     qb.skip((page - 1) * limit).take(limit);
-    const items = await qb.getMany();
-    return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
+    const raw = await qb.getRawMany();
+    const items = raw.map((r) => ({
+      id: Number(r.p_id), projectId: Number(r.p_project_id), lotId: Number(r.p_lot_id),
+      clientId: r.p_client_id ? Number(r.p_client_id) : null,
+      agentId: r.p_agent_id ? Number(r.p_agent_id) : null,
+      type: r.p_type, amount: Number(r.p_amount),
+      dueDate: r.p_due_date, paymentMethod: r.p_payment_method,
+      reference: r.p_reference, voucherUrl: r.p_voucher_url,
+      paidAt: r.p_paid_at, status: r.p_status, createdAt: r.p_created_at,
+      lotCode: r.lotCode || null,
+      salePrice: r.salePrice != null ? Number(r.salePrice) : null,
+      clientName: r.clientName || null,
+      receivedByName: r.receivedByName || null,
+    }));
+
+    return {
+      items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)),
+      distinctLots: Number(distinctLots?.count || 0),
+      pendingCount: Number(pending?.count || 0),
+    };
   }
 
   async markPaid(paymentId: number) {
@@ -163,14 +218,16 @@ export class PaymentsService {
     return saved;
   }
 
-  // Métricas de caja: por medio de pago y por mes (monto conciliado= pagado)
-  async summary() {
+  // Métricas de caja: por medio de pago, por mes (pagado), ventas por mes y
+  // morosidad por mes (para el gráfico de doble eje "Pagos vs Morosidad").
+  async summary(projectId?: number) {
     const methods: any = await this.paymentRepo
       .createQueryBuilder('p')
       .select('COALESCE(p.payment_method, \'otro\')', 'method')
       .addSelect('COUNT(*)', 'total')
       .addSelect('COALESCE(SUM(p.amount),0)', 'monto')
       .where("p.status = 'pagado'")
+      .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
       .groupBy('p.payment_method')
       .orderBy('monto', 'DESC')
       .getRawMany();
@@ -179,12 +236,39 @@ export class PaymentsService {
       .select("to_char(p.created_at, 'YYYY-MM')", 'month')
       .addSelect('COALESCE(SUM(p.amount),0)', 'monto')
       .where("p.status = 'pagado'")
+      .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
       .groupBy('1')
       .orderBy('1', 'ASC')
       .getRawMany();
+
+    // "Morosidad": monto de cuotas vencidas o pendientes ya pasadas de fecha,
+    // agrupado por mes de vencimiento.
+    const overdueByMonth: any = await this.paymentRepo
+      .createQueryBuilder('p')
+      .select("to_char(p.due_date, 'YYYY-MM')", 'month')
+      .addSelect('COALESCE(SUM(p.amount),0)', 'monto')
+      .where("p.status IN ('pendiente','vencido') AND p.due_date < CURRENT_DATE")
+      .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
+      .groupBy('1')
+      .orderBy('1', 'ASC')
+      .getRawMany();
+
+    // "Ventas por mes": monto de ventas aprobadas, agrupado por mes de venta.
+    const salesByMonth: any = await this.saleRepo
+      .createQueryBuilder('s')
+      .select("to_char(s.sale_date, 'YYYY-MM')", 'month')
+      .addSelect('COALESCE(SUM(s.sale_price),0)', 'monto')
+      .where("s.approval_status = 'aprobada'")
+      .andWhere(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
+      .groupBy('1')
+      .orderBy('1', 'ASC')
+      .getRawMany();
+
     return {
       methods: (methods || []).map((r: any) => ({ method: r.method, total: Number(r.total || 0), monto: Number(r.monto || 0) })),
       byMonth: (byMonth || []).map((r: any) => ({ month: r.month, monto: Number(r.monto || 0) })),
+      overdueByMonth: (overdueByMonth || []).map((r: any) => ({ month: r.month, monto: Number(r.monto || 0) })),
+      salesByMonth: (salesByMonth || []).map((r: any) => ({ month: r.month, monto: Number(r.monto || 0) })),
     };
   }
 

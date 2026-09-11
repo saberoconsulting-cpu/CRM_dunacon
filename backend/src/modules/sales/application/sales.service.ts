@@ -10,6 +10,7 @@ import { UserEntity } from '../../../shared/infrastructure/entities/user.entity'
 import { FinancialTransactionEntity } from '../../../shared/infrastructure/entities/financial-transaction.entity';
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
+import { calcValorCuota } from '../../../shared/domain/finance.util';
 import { CreateSaleDto } from './dto/sale.dto';
 
 @Injectable()
@@ -45,7 +46,7 @@ export class SalesService {
     const commissionAmount = commissionRate > 0 ? (salePrice * commissionRate) / 100 : 0;
     const financingBase = dto.appliesCommission ? Math.max(0, salePrice - commissionAmount) : salePrice;
     const saldoFinanciar = Math.max(0, financingBase - cuotaInicial);
-    const valorCuota = totalCuotas > 0 ? saldoFinanciar / totalCuotas : 0;
+    const valorCuota = calcValorCuota(saldoFinanciar, totalCuotas, dto.interestType, dto.tea);
 
     const firstTranche = Math.min(totalCuotas, 12);
     const secondTranche = Math.max(0, totalCuotas - firstTranche);
@@ -60,9 +61,10 @@ export class SalesService {
       saldoFinanciar,
       totalCuotas,
       valorCuota,
+      // Cuota fija (sistema francés): ambos tramos comparten el mismo monto.
       installments: [
-        { label: 'Primer tramo de cuotas', count: firstTranche, amount: firstTranche > 0 ? saldoFinanciar / totalCuotas : 0 },
-        { label: 'Segundo tramo de cuotas', count: secondTranche, amount: secondTranche > 0 ? saldoFinanciar / totalCuotas : 0 },
+        { label: 'Primer tramo de cuotas', count: firstTranche, amount: firstTranche > 0 ? valorCuota : 0 },
+        { label: 'Segundo tramo de cuotas', count: secondTranche, amount: secondTranche > 0 ? valorCuota : 0 },
       ],
       interest: {
         type: dto.interestType || 'sin_intereses',
@@ -90,7 +92,8 @@ export class SalesService {
     const saldoFinanciar = Math.max(0, (appliesAgency ? dto.salePrice - commission : dto.salePrice) - cuotaInicial);
     // En inmobiliaria la financiación arranca del neto (se descuenta la comisión del lote)
     const financingBase = appliesAgency ? dto.salePrice - commission : dto.salePrice;
-    const valorCuota = dto.valorCuota || (dto.totalCuotas && dto.totalCuotas > 0 ? saldoFinanciar / dto.totalCuotas : 0);
+    // Se calcula siempre en el servidor (nunca se confía en un valorCuota que mande el cliente).
+    const valorCuota = calcValorCuota(saldoFinanciar, totalCuotas, dto.interestType, dto.tea);
 
     // La venta, el "claim" atómico del lote y la auditoría deben quedar juntos:
     // antes eran saves() independientes y un fallo a mitad dejaba la separación
@@ -118,6 +121,8 @@ export class SalesService {
         totalCuotas,
         valorCuota: String(valorCuota),
         planStatus: 'pendiente',
+        interestType: dto.interestType || 'sin_intereses',
+        tea: String(dto.interestType === 'tea' ? Number(dto.tea || 0) : 0),
       });
       const savedSale = await manager.save(sale);
 
@@ -255,12 +260,17 @@ export class SalesService {
         's.id', 's.projectId', 's.lotId', 's.clientId', 's.agentId',
         's.salePrice', 's.saleDate', 's.commission', 's.conditions', 's.status', 's.createdAt',
       ])
-      .addSelect('u.name AS agentName')
-      .addSelect('c.full_name AS clientName')
-      .addSelect('l.code AS lotCode')
-      .addSelect('s.approval_status AS approvalStatus')
-      .addSelect('s.plan_status AS planStatus')
-      .addSelect('s.total_cuotas AS totalCuotas');
+      // Postgres pliega a minúsculas cualquier alias sin comillas (AS agentName
+      // vuelve "agentname"), por eso van entre comillas dobles — mismo bug que
+      // ya se corrigió en lots.service.ts.
+      .addSelect('u.name AS "agentName"')
+      .addSelect('c.full_name AS "clientName"')
+      .addSelect('l.code AS "lotCode"')
+      .addSelect('s.approval_status AS "approvalStatus"')
+      .addSelect('s.plan_status AS "planStatus"')
+      .addSelect('s.total_cuotas AS "totalCuotas"')
+      .addSelect('s.interest_type AS "interestType"')
+      .addSelect('s.tea AS "tea"');
     if (filters.projectId) qb.andWhere('s.project_id = :projectId', { projectId: filters.projectId });
     if (filters.agentId) qb.andWhere('s.agent_id = :agentId', { agentId: filters.agentId });
     if (filters.status) qb.andWhere('s.approval_status = :status', { status: filters.status });
@@ -281,6 +291,8 @@ export class SalesService {
       approvalStatus: r.approvalStatus || 'pendiente',
       planStatus: r.planStatus || 'pendiente',
       totalCuotas: Number(r.totalCuotas || 0),
+      interestType: r.interestType || 'sin_intereses',
+      tea: Number(r.tea || 0),
     }));
   }
 
@@ -301,7 +313,9 @@ export class SalesService {
 
   /** Separaciones pendientes de aprobación (Admin/Tesorería). */
   async pendingApprovals() {
-    return this.saleRepo.find({ where: { approvalStatus: 'pendiente' }, order: { createdAt: 'DESC' } as any });
+    // Reusa list() para traer lotCode/agentName/commission ya resueltos
+    // (antes era un find() plano sin esos joins).
+    return this.list({ status: 'pendiente' });
   }
 
   /** Cronograma de una venta aprobada. */

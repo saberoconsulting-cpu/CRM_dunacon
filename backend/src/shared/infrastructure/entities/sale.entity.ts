@@ -62,6 +62,13 @@ export class SaleEntity {
   @Column({ name: 'approved_at', type: 'timestamptz', nullable: true })
   approvedAt: Date;
 
+  // --- Ampliado (migración 1710000000011) ---
+  @Column({ name: 'interest_type', length: 20, default: 'sin_intereses' })
+  interestType: string;
+
+  @Column({ type: 'numeric', precision: 6, scale: 2, default: 0 })
+  tea: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
