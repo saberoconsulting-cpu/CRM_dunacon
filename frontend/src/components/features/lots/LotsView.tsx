@@ -66,53 +66,90 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
         {(() => {
           if (!lots.length) return <EmptyState text="No se encontraron lotes con los filtros" />;
           const coll = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
-          const blockOf = (c: string) => String(c || '').split(/[-_\s.]/)[0] || c;
-          const baseAbc = (b: string) => /^[a-zA-Z]/.test(b);
-          const numsFirst = false; // letras primero (A, B, C…), luego numéricas
-          const ordered = [...lots].sort((a, b) => {
-            const ba = blockOf(a.code), bb = blockOf(b.code);
-            if (ba === bb) return coll.compare(a.code, b.code);
-            const aL = baseAbc(ba), bL = baseAbc(bb);
-            if (aL !== bL) return aL && !bL ? -1 : 1;
-            return coll.compare(ba, bb);
-          });
-          const groups: { k: string; items: Lot[] }[] = [];
-          for (const l of ordered) {
-            const k = blockOf(l.code) || '?';
-            const g = groups.find((x) => x.k === k);
-            if (g) g.items.push(l); else groups.push({ k, items: [l] });
+
+          // Agrupar por manzana real (block_id), no por prefijo del código.
+          type Group = { key: string; blockName: string; blockAddress: string | null; items: Lot[] };
+          const groups: Group[] = [];
+          for (const l of lots) {
+            const key = l.blockId != null ? String(l.blockId) : 'sin-manzana';
+            let g = groups.find((x) => x.key === key);
+            if (!g) {
+              g = { key, blockName: l.blockName || '—', blockAddress: l.blockAddress || null, items: [] };
+              groups.push(g);
+            }
+            g.items.push(l);
           }
+          groups.sort((a, b) => coll.compare(a.blockName, b.blockName));
+          groups.forEach((g) => g.items.sort((a, b) => coll.compare(a.code, b.code)));
+
           return groups.map((g) => {
             const totalArea = g.items.reduce((s, l) => s + Number(l.areaM2 || 0), 0);
-            const venta = g.items.filter((l) => l.status === 'vendido').length;
+            const totalPrice = g.items.reduce((s, l) => s + Number(l.price || 0), 0);
+            const totalVenta = g.items.reduce((s, l) => s + Number(l.salePrice || 0), 0);
+            const totalFinal = g.items.reduce((s, l) => s + Number(l.finalPrice || 0), 0);
+            const pricePerM2 = totalArea ? totalPrice / totalArea : 0;
             return (
-              <div key={g.k} className="card overflow-hidden">
+              <div key={g.key} className="card overflow-hidden p-0">
                 <div className="flex items-center justify-between gap-3 border-b px-4 py-2.5 bg-slate-50/60" style={{ borderColor: '#E9EBEE' }}>
-                  <div className="flex items-center gap-2.5">
-                    <span className="grid h-9 w-9 place-items-center rounded-lg text-base font-extrabold text-white" style={{ background: '#171717' }}>{g.k}</span>
-                    <div>
-                      <p className="font-bold leading-tight">Manzana {g.k}</p>
-                      <p className="text-xs text-slate-500">{g.items.length} lotes · {formatMoney(totalArea)} m² {venta ? `· ${venta} vendidos` : ''}</p>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-base font-extrabold text-white" style={{ background: '#171717' }}>{g.blockName}</span>
+                    <div className="min-w-0">
+                      {g.blockAddress ? (
+                        <span className="inline-block rounded-md px-2 py-0.5 text-xs font-semibold truncate" style={{ background: '#E7F0FE', color: '#1259C4' }}>{g.blockAddress}</span>
+                      ) : (
+                        <p className="font-bold leading-tight">Manzana {g.blockName}</p>
+                      )}
+                      <p className="text-xs text-slate-500 mt-0.5">{g.items.length} lotes · {formatMoney(totalArea)} m²</p>
                     </div>
                   </div>
-                  <span className="text-xs" style={{ color: '#94a3b8' }}>{blockOf(g.k)} · {g.items.length}</span>
                 </div>
 
-                <div>
-                  {g.items.map((l) => (
-                    <div key={l.id} className="grid items-center gap-x-4 gap-y-2 border-b px-4 py-2.5 hover:bg-slate-50 last:border-0 sm:grid-cols-[minmax(0,1fr)_64px_150px_130px_auto]" onClick={() => setSelected(l.id)} style={{ borderColor: '#F0F1F3', minHeight: 44 }}>
-                      <span className="flex min-w-0 flex-col gap-0.5">
-                        <span className="truncate font-semibold text-[15px] leading-tight text-[#171717]">{l.code}</span>
-                        {!lockedProjectId && (
-                          <span className="truncate text-[11px] leading-tight" style={{ color: '#9AA1AB' }}>{(proyectos.find((p: any) => Number(p.id) === Number(l.projectId)) as any)?.name || `Proyecto ${l.projectId}`}</span>
-                        )}
-                      </span>
-                      <span className="text-xs tabular-nums" style={{ color: '#6B7280' }}>{l.areaM2} m²</span>
-                      <span className="truncate text-right font-semibold tabular-nums text-[#171717]">{formatMoney(l.price)}</span>
-                      <span className="justify-self-start sm:justify-self-center"><span className="badge whitespace-nowrap text-center" style={{ backgroundColor: LOT_STATUS_COLOR[l.status] + '22', color: LOT_STATUS_COLOR[l.status] }}>{LOT_STATUS_LABEL[l.status]}</span></span>
-                      <button className="btn-secondary !h-8 !px-3 text-xs whitespace-nowrap justify-self-end" onClick={(e) => { e.stopPropagation(); setSelected(l.id); }}>Ver ficha</button>
-                    </div>
-                  ))}
+                <div className="overflow-x-auto">
+                  <table className="table-base" style={{ width: '100%', minWidth: 900 }}>
+                    <thead><tr>
+                      <th className="th-base" style={{ textAlign: 'left' }}>Nro. Lote</th>
+                      <th className="th-base" style={{ textAlign: 'left' }}>Dirección</th>
+                      <th className="th-base" style={{ textAlign: 'left' }}>Tipo</th>
+                      <th className="th-base" style={{ textAlign: 'left' }}>Dimensión</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Final</th>
+                      <th className="th-base" style={{ textAlign: 'center' }}>Estado</th>
+                      <th className="th-base" style={{ textAlign: 'left' }}>Cliente</th>
+                      <th className="th-base"></th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {g.items.map((l) => (
+                        <tr key={l.id} onClick={() => setSelected(l.id)} className="cursor-pointer hover:bg-slate-50">
+                          <td className="td-base font-semibold" style={{ textAlign: 'left' }}>{l.code}</td>
+                          <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{g.blockAddress || '—'}</td>
+                          <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{l.type || '—'}</td>
+                          <td className="td-base" style={{ textAlign: 'left' }}>{l.areaM2} m²</td>
+                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.price ? formatMoney(l.price) : '—'}</td>
+                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.salePrice ? formatMoney(l.salePrice) : '—'}</td>
+                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.finalPrice ? formatMoney(l.finalPrice) : '—'}</td>
+                          <td className="td-base" style={{ textAlign: 'center' }}>
+                            <span className="badge whitespace-nowrap" style={{ backgroundColor: LOT_STATUS_COLOR[l.status] + '22', color: LOT_STATUS_COLOR[l.status] }}>{LOT_STATUS_LABEL[l.status]}</span>
+                          </td>
+                          <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{l.clientName || '—'}</td>
+                          <td className="td-base" style={{ textAlign: 'right' }}>
+                            <button className="btn-secondary !h-8 !px-3 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected(l.id); }}>Ver ficha</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#0B2F6E' }}>
+                        <td className="td-base font-bold text-white" style={{ textAlign: 'left' }}>{g.items.length}</td>
+                        <td className="td-base font-bold text-white" colSpan={2} style={{ textAlign: 'left' }}>Totales</td>
+                        <td className="td-base font-bold text-white tabular-nums">{pricePerM2 ? `${formatMoney(pricePerM2)}/m²` : '—'}</td>
+                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatMoney(totalPrice)}</td>
+                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatMoney(totalVenta)}</td>
+                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatMoney(totalFinal)}</td>
+                        <td className="td-base" colSpan={3}></td>
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
               </div>
             );

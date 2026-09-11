@@ -103,6 +103,7 @@ export interface Block {
   name: string;
   points: Point[];
   color?: string;
+  address?: string;
 }
 
 export interface Lot {
@@ -120,6 +121,11 @@ export interface Lot {
   agentId?: number | null;
   agentName?: string | null;
   clientName?: string | null;
+  type?: string | null;
+  salePrice?: number | null;
+  finalPrice?: number | null;
+  blockName?: string | null;
+  blockAddress?: string | null;
 }
 
 export interface Sale {
