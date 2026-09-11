@@ -7,7 +7,7 @@ import { LotEntity } from '../../shared/infrastructure/entities/lot.entity';
 import { UserEntity } from '../../shared/infrastructure/entities/user.entity';
 import { FinancialTransactionEntity } from '../../shared/infrastructure/entities/financial-transaction.entity';
 import { AuditLogEntity } from '../../shared/infrastructure/entities/audit-log.entity';
-import { NotificationsGateway } from '../../shared/infrastructure/websocket/notifications.gateway';
+import { WebsocketModule } from '../../shared/infrastructure/websocket/websocket.module';
 import { SalesController } from './interface/sales.controller';
 import { SalesService } from './application/sales.service';
 
@@ -21,9 +21,9 @@ import { SalesService } from './application/sales.service';
       FinancialTransactionEntity,
       AuditLogEntity,
     ]),
+    WebsocketModule,
   ],
   controllers: [SalesController],
-  providers: [SalesService, NotificationsGateway],
-  exports: [NotificationsGateway],
+  providers: [SalesService],
 })
 export class SalesModule {}
