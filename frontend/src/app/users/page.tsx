@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import Layout from '@/components/Layout';
-import { Toaster, toast, Field } from '@/components/ui';
+import Layout from '@/components/layout/Layout';
+import { Toaster, toast, Field } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/types';
 

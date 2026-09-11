@@ -1,5 +1,5 @@
 'use client';
-import { StatCard } from '@/components/ui';
+import { StatCard } from '@/components/ui/ui';
 import { AgentDashboard } from '@/lib/dboard';
 import { formatMoney, formatDate } from '@/lib/types';
 

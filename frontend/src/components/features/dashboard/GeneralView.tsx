@@ -1,8 +1,8 @@
 'use client';
-import { StatCard } from '@/components/ui';
+import { StatCard } from '@/components/ui/ui';
 import { FormattedDashboard } from '@/lib/dboard';
 import { formatMoney } from '@/lib/types';
-import { DistribucionPie } from '@/components/charts/Charts';
+import { DistribucionPie } from '@/components/ui/charts/Charts';
 
 export default function GeneralView({ d, compact = false }: { d: FormattedDashboard | null; compact?: boolean }) {
   if (!d) return <p className="text-slate-400">Sin datos</p>;

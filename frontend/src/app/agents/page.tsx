@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import Layout from '@/components/Layout';
-import { Toaster, toast, StatCard } from '@/components/ui';
+import Layout from '@/components/layout/Layout';
+import { Toaster, toast, StatCard } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 
 type A = { id: number; name: string; email: string; status: string; commissionRate?: string; monthlyGoalLots?: number; monthlyGoalAmount?: string };

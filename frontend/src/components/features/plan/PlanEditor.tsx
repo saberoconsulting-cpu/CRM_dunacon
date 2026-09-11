@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { api, uploadFile } from '@/lib/api';
 import { Block, Lot, Point, formatMoney } from '@/lib/types';
-import { Modal as _m, toast, Field } from '@/components/ui';
+import { Modal as _m, toast, Field } from '@/components/ui/ui';
 
 const SVG_W = 1000;
 const SVG_H = 800;

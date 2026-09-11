@@ -8,24 +8,36 @@ import { User, UserRole } from '@/lib/types';
 // Navegación lateral según rol
 import {
   FiHome, FiMap, FiLayers, FiUsers, FiTag, FiCreditCard, FiPieChart,
-  FiVolume2, FiAward, FiUserCheck, FiSettings, FiUser, FiLogOut, FiBell,
+  FiVolume2, FiAward, FiUserCheck, FiSettings, FiUser, FiLogOut, FiBell, FiArrowLeft,
 } from 'react-icons/fi';
 
 interface NavItem { href: string; label: string; icon: JSX.Element; roles: UserRole[] }
 
-const NAV: NavItem[] = [
+// Navegación global: siempre visible, no depende de un proyecto en contexto.
+const GLOBAL_NAV: NavItem[] = [
   { href: '/dashboard', label: 'Inicio', icon: <FiHome />, roles: ['superadmin', 'admin', 'agent'] },
   { href: '/projects', label: 'Proyectos', icon: <FiMap />, roles: ['superadmin', 'admin', 'agent'] },
-  { href: '/lots', label: 'Lotes', icon: <FiLayers />, roles: ['superadmin', 'admin', 'agent'] },
-  { href: '/clients', label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
-  { href: '/sales', label: 'Ventas', icon: <FiTag />, roles: ['superadmin', 'admin', 'agent'] },
-  { href: '/payments', label: 'Pagos', icon: <FiCreditCard />, roles: ['superadmin', 'admin', 'agent'] },
-  { href: '/finances', label: 'Finanzas', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
-  { href: '/campaigns', label: 'Campañas', icon: <FiVolume2 />, roles: ['superadmin', 'admin'] },
+];
+
+// Entidades globales (no pertenecen a un proyecto puntual) — quedan siempre al final del menú.
+const GLOBAL_END_NAV: NavItem[] = [
   { href: '/agents', label: 'Agentes', icon: <FiAward />, roles: ['superadmin', 'admin'] },
   { href: '/users', label: 'Usuarios', icon: <FiUserCheck />, roles: ['superadmin', 'admin'] },
   { href: '/settings', label: 'Configuración', icon: <FiSettings />, roles: ['superadmin'] },
 ];
+
+// Módulos que viven dentro del contexto de un proyecto.
+function projectNav(projectId: number): NavItem[] {
+  return [
+    { href: `/projects/${projectId}`, label: 'Resumen', icon: <FiMap />, roles: ['superadmin', 'admin', 'agent'] },
+    { href: `/projects/${projectId}/lots`, label: 'Lotes', icon: <FiLayers />, roles: ['superadmin', 'admin', 'agent'] },
+    { href: `/projects/${projectId}/clients`, label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
+    { href: `/projects/${projectId}/sales`, label: 'Ventas', icon: <FiTag />, roles: ['superadmin', 'admin', 'agent'] },
+    { href: `/projects/${projectId}/payments`, label: 'Pagos', icon: <FiCreditCard />, roles: ['superadmin', 'admin', 'agent'] },
+    { href: `/projects/${projectId}/finances`, label: 'Finanzas', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
+    { href: `/projects/${projectId}/campaigns`, label: 'Campañas', icon: <FiVolume2 />, roles: ['superadmin', 'admin'] },
+  ];
+}
 
 export default function Layout({ children, title }: { children: ReactNode; title?: string }) {
   const router = useRouter();
@@ -34,12 +46,23 @@ export default function Layout({ children, title }: { children: ReactNode; title
   const [open, setOpen] = useState(false);
   const [pendingApp, setPendingApp] = useState<{ count: number; rows: any[] }>({ count: 0, rows: [] });
   const [bellOpen, setBellOpen] = useState(false);
+  const [activeProject, setActiveProject] = useState<{ id: number; name: string } | null>(null);
+
+  const projectMatch = pathname.match(/^\/projects\/(\d+)/);
+  const activeProjectId = projectMatch ? Number(projectMatch[1]) : null;
 
   useEffect(() => {
     const u = getSessionUser();
     if (!u) { router.push('/login'); return; }
     setUser(u);
   }, [router]);
+
+  useEffect(() => {
+    if (!activeProjectId) { setActiveProject(null); return; }
+    api.get<any>(`/projects/${activeProjectId}`)
+      .then((p) => setActiveProject({ id: activeProjectId, name: p?.name || `Proyecto ${activeProjectId}` }))
+      .catch(() => setActiveProject({ id: activeProjectId, name: `Proyecto ${activeProjectId}` }));
+  }, [activeProjectId]);
 
   useEffect(() => {
     if (!user) return;
@@ -68,22 +91,39 @@ export default function Layout({ children, title }: { children: ReactNode; title
   if (!user) return null;
 
   const canManage = user.role === 'superadmin' || user.role === 'admin';
-  const visible = NAV.filter((n) => n.roles.includes(user.role));
+  const primaryNav = activeProjectId ? projectNav(activeProjectId) : GLOBAL_NAV;
+  const visible = primaryNav.filter((n) => n.roles.includes(user.role));
+  const visibleEnd = GLOBAL_END_NAV.filter((n) => n.roles.includes(user.role));
   const LOGO = user.name?.trim()?.charAt(0)?.toUpperCase() || user.email?.charAt(0)?.toUpperCase() || 'U';
 
   function isActive(h: string) {
     return pathname === h || pathname.startsWith(h + '/');
   }
   function logout() { clearSession(); router.push('/login'); }
+  function goToPendingSale(s: any) {
+    setBellOpen(false);
+    router.push(s?.projectId ? `/projects/${s.projectId}/sales` : '/projects');
+  }
 
   return (
     <div className="flex h-screen overflow-hidden bg-canvas">
       {/* Sidebar blanca, ítem activo rojo */}
       <aside className={`${open ? 'translate-x-0' : '-translate-x-full'} md:translate-x-0 fixed md:static inset-y-0 left-0 w-60 bg-white border-r z-30 flex flex-col transition-transform`} style={{ borderColor: '#E5E7EB', width: 240 }}>
-        <div className="h-14 px-5 flex items-center gap-2.5 border-b shrink-0" style={{ borderColor: '#F0F1F3' }}>
-          <span className="bg-brand-gradient w-8 h-8 rounded-md text-white font-bold grid place-items-center" style={{ fontSize: 14 }}>IN</span>
-          <span className="font-semibold text-[15px]" style={{ color: '#171717' }}>Inmobiliario CRM</span>
-        </div>
+        {activeProject ? (
+          <button onClick={() => { router.push('/projects'); setOpen(false); }}
+            className="h-14 px-5 flex items-center gap-2.5 border-b shrink-0 text-left hover:bg-[#F9FAFB]" style={{ borderColor: '#F0F1F3' }}>
+            <span className="text-[#6B7280]" style={{ fontSize: 16 }}><FiArrowLeft /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[10px] font-semibold tracking-wide" style={{ color: '#9AA1AB' }}>VOLVER A PROYECTOS</span>
+              <span className="block font-semibold text-[14px] truncate" style={{ color: '#171717' }}>{activeProject.name}</span>
+            </span>
+          </button>
+        ) : (
+          <div className="h-14 px-5 flex items-center gap-2.5 border-b shrink-0" style={{ borderColor: '#F0F1F3' }}>
+            <span className="bg-brand-gradient w-8 h-8 rounded-md text-white font-bold grid place-items-center" style={{ fontSize: 14 }}>IN</span>
+            <span className="font-semibold text-[15px]" style={{ color: '#171717' }}>Inmobiliario CRM</span>
+          </div>
+        )}
 
         <nav className="flex-1 overflow-y-auto px-3 py-4">
           <ul className="space-y-0.5">
@@ -95,7 +135,7 @@ export default function Layout({ children, title }: { children: ReactNode; title
                     className={`w-full flex items-center gap-3 rounded-lg px-3 text-sm transition-colors ${active ? 'bg-[#E30620] text-white' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
                     style={{ height: 38, fontWeight: active ? 600 : 500 }}>
                     <span style={{ fontSize: 16 }}>{n.icon}</span>{n.label}
-                    {n.href === '/sales' && pendingApp.count > 0 && (
+                    {n.href.endsWith('/sales') && pendingApp.count > 0 && (
                       <span className="ml-auto grid place-items-center min-w-5 h-5 px-1 rounded-full text-[10px] font-bold text-white" style={{ background: '#E30620' }}>{pendingApp.count}</span>
                     )}
                   </button>
@@ -103,6 +143,29 @@ export default function Layout({ children, title }: { children: ReactNode; title
               );
             })}
           </ul>
+
+          {visibleEnd.length > 0 && (
+            <>
+              <div className="mt-4 mb-1.5 px-3 pt-3 border-t" style={{ borderColor: '#F0F1F3' }}>
+                <p className="text-[11px] font-semibold tracking-wide" style={{ color: '#9AA1AB' }}>GENERAL</p>
+              </div>
+              <ul className="space-y-0.5">
+                {visibleEnd.map((n) => {
+                  const active = isActive(n.href);
+                  return (
+                    <li key={n.href}>
+                      <button onClick={() => { router.push(n.href); setOpen(false); }}
+                        className={`w-full flex items-center gap-3 rounded-lg px-3 text-sm transition-colors ${active ? 'bg-[#E30620] text-white' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
+                        style={{ height: 38, fontWeight: active ? 600 : 500 }}>
+                        <span style={{ fontSize: 16 }}>{n.icon}</span>{n.label}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+
           <div className="mt-4 mb-1.5 px-3 pt-3 border-t" style={{ borderColor: '#F0F1F3' }}>
             <p className="text-[11px] font-semibold tracking-wide" style={{ color: '#9AA1AB' }}>CUENTA</p>
           </div>
@@ -160,7 +223,7 @@ export default function Layout({ children, title }: { children: ReactNode; title
                   </div>
                   <div className="divide-y">
                     {pendingApp.rows.slice(0, 15).map((s) => (
-                      <button key={s.id} onClick={() => { setBellOpen(false); router.push('/sales'); }}
+                      <button key={s.id} onClick={() => goToPendingSale(s)}
                         className="w-full text-left px-4 py-3 hover:bg-slate-50 flex items-center justify-between gap-3">
                         <span className="text-sm">Lote {s.lotCode ? s.lotCode : `#${s.lotId ?? '—'}`}</span>
                         <span className="badge bg-amber-50 text-amber-700 text-[11px]">Pendiente</span>
@@ -170,7 +233,7 @@ export default function Layout({ children, title }: { children: ReactNode; title
                   {pendingApp.rows.length === 0 && <p className="px-4 py-8 text-sm text-center text-slate-400">Sin separaciones pendientes 🎉</p>}
                   {pendingApp.rows.length > 0 && (
                     <div className="px-3 py-2.5 border-t" style={{ borderColor: '#F0F1F3' }}>
-                      <button className="btn-primary w-full justify-center" onClick={() => { setBellOpen(false); router.push('/sales'); }}>Ir a revisar y aprobar</button>
+                      <button className="btn-primary w-full justify-center" onClick={() => goToPendingSale(pendingApp.rows[0])}>Ir a revisar y aprobar</button>
                     </div>
                   )}
                 </div>

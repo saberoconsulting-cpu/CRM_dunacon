@@ -1,12 +1,12 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import Layout from '@/components/Layout';
-import { Toaster, toast, StatCard, LegendChips } from '@/components/ui';
+import Layout from '@/components/layout/Layout';
+import { Toaster, toast, StatCard, LegendChips } from '@/components/ui/ui';
 import { api, getToken, uploadFile } from '@/lib/api';
 import { getSocket, disconnectSocket } from '@/lib/socket';
-import InteractivePlan from '@/components/interactive-plan/InteractivePlan';
-import LotDetailModal from '@/components/LotDetailModal';
+import InteractivePlan from '@/components/features/plan/InteractivePlan';
+import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import { Block, Lot, formatMoney, LOT_STATUS_LABEL, LOT_STATUS_COLOR } from '@/lib/types';
 import { IoLocationSharp } from 'react-icons/io5';
 

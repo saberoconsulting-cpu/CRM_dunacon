@@ -1,12 +1,12 @@
 'use client';
 import { useEffect, useState } from 'react';
-import Layout from '@/components/Layout';
-import { Toaster, toast } from '@/components/ui';
+import Layout from '@/components/layout/Layout';
+import { Toaster, toast } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { getSocket, disconnectSocket } from '@/lib/socket';
 import { FormattedDashboard, AgentDashboard } from '@/lib/dboard';
-import GeneralView from '@/components/dashboard/GeneralView';
-import AgentView from '@/components/dashboard/AgentView';
+import GeneralView from '@/components/features/dashboard/GeneralView';
+import AgentView from '@/components/features/dashboard/AgentView';
 
 export default function DashboardPage() {
   const [role, setRole] = useState('agent');

@@ -1,9 +1,9 @@
 'use client';
 import { useState, useEffect, FormEvent, useRef } from 'react';
-import Layout from '@/components/Layout';
-import { Toaster, toast } from '@/components/ui';
-import AgentView from '@/components/dashboard/AgentView';
-import GeneralView from '@/components/dashboard/GeneralView';
+import Layout from '@/components/layout/Layout';
+import { Toaster, toast } from '@/components/ui/ui';
+import AgentView from '@/components/features/dashboard/AgentView';
+import GeneralView from '@/components/features/dashboard/GeneralView';
 import { api, getSessionUser, saveSession, uploadFile } from '@/lib/api';
 
 const EMPTY = { name: '', phone: '', whatsapp: '', bio: '' };

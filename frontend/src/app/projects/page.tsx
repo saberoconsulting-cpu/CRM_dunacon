@@ -1,12 +1,12 @@
 'use client';
 import { useEffect, useState } from 'react';
-import Layout from '@/components/Layout';
-import { Toaster, toast, StatusBadge, Field } from '@/components/ui';
+import Layout from '@/components/layout/Layout';
+import { Toaster, toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api, uploadFile } from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { FiMap } from 'react-icons/fi';
 import { Project, formatMoney } from '@/lib/types';
-import ProjectsMap from '@/components/ProjectsMap';
+import ProjectsMap from '@/components/features/projects/ProjectsMap';
 
 export default function ProjectsPage() {
   const router = useRouter();

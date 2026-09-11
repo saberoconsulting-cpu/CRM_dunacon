@@ -1,6 +1,6 @@
 ﻿'use client';
 import { useEffect, useState } from 'react';
-import { Modal, toast, StatusBadge, Field } from './ui';
+import { Modal, toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { LOT_STATUS_COLOR, LOT_STATUS_LABEL, LotStatus, formatMoney, formatDate } from '@/lib/types';
 
