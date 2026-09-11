@@ -4,16 +4,16 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { FinancialTransactionEntity } from '../../shared/infrastructure/entities/financial-transaction.entity';
 import { ExpenseEntity } from '../../shared/infrastructure/entities/expense.entity';
 import { AuditLogEntity } from '../../shared/infrastructure/entities/audit-log.entity';
-import { NotificationsGateway } from '../../shared/infrastructure/websocket/notifications.gateway';
+import { WebsocketModule } from '../../shared/infrastructure/websocket/websocket.module';
 import { FinancesController } from './interface/finances.controller';
 import { FinancesService } from './application/finances.service';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([FinancialTransactionEntity, ExpenseEntity, AuditLogEntity]),
+    WebsocketModule,
   ],
   controllers: [FinancesController],
-  providers: [FinancesService, NotificationsGateway],
-  exports: [NotificationsGateway],
+  providers: [FinancesService],
 })
 export class FinancesModule {}

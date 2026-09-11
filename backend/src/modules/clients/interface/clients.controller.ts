@@ -43,8 +43,8 @@ export class ClientsController {
   }
 
   @Get('metrics/channels')
-  metrics() {
-    return this.clientsService.metricsByChannel();
+  metrics(@Query('projectId') projectId?: string) {
+    return this.clientsService.metricsByChannel(projectId ? Number(projectId) : undefined);
   }
 
   @Get(':id')

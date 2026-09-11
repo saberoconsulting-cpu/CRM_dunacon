@@ -1,10 +1,12 @@
 'use client';
 import { useState, useEffect, FormEvent, useRef } from 'react';
-import Layout from '@/components/Layout';
-import { Toaster, toast } from '@/components/ui';
-import AgentView from '@/components/dashboard/AgentView';
-import GeneralView from '@/components/dashboard/GeneralView';
+import Layout from '@/components/layout/Layout';
+import { Toaster, toast } from '@/components/ui/ui';
+import AgentView from '@/components/features/dashboard/AgentView';
+import GeneralView from '@/components/features/dashboard/GeneralView';
 import { api, getSessionUser, saveSession, uploadFile } from '@/lib/api';
+import { FiEdit2, FiPhone } from 'react-icons/fi';
+import { FaWhatsapp } from 'react-icons/fa';
 
 const EMPTY = { name: '', phone: '', whatsapp: '', bio: '' };
 
@@ -106,7 +108,7 @@ export default function ProfilePage() {
                 : <span className="w-full h-full flex items-center justify-center bg-brand-600 text-white text-3xl font-bold uppercase">{me.name?.charAt(0) || '?'}</span>}
             </button>
             {avatarBusy && <span className="absolute inset-0 rounded-full bg-black/40 text-white text-[10px] flex items-center justify-center">Subiendo…</span>}
-            <span className="absolute bottom-0 right-0 bg-brand-600 text-white rounded-full w-8 h-8 grid place-items-center text-base" title="Cambiar foto">✎</span>
+            <span className="absolute bottom-0 right-0 bg-brand-600 text-white rounded-full w-8 h-8 grid place-items-center text-base" title="Cambiar foto"><FiEdit2 style={{ fontSize: 14 }} /></span>
             <input ref={fileRef} type="file" accept="image/*" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; pickAvatar(f); }} />
           </div>
@@ -121,8 +123,8 @@ export default function ProfilePage() {
           </div>
           {(me.phone?.trim() || me.whatsapp?.trim()) && (
             <div className="text-sm bg-canvas rounded-xl p-3 space-y-1 min-w-52">
-              {me.phone?.trim() && <div className="flex items-center gap-2">📞 <a className="hover:underline" href={`tel:${me.phone}`}>{me.phone}</a></div>}
-              {me.whatsapp?.trim() && <div className="flex items-center gap-2">💬 <a className="hover:underline" href={`https://wa.me/${me.whatsapp.replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer">{me.whatsapp}</a></div>}
+              {me.phone?.trim() && <div className="flex items-center gap-2"><FiPhone /> <a className="hover:underline" href={`tel:${me.phone}`}>{me.phone}</a></div>}
+              {me.whatsapp?.trim() && <div className="flex items-center gap-2"><FaWhatsapp /> <a className="hover:underline" href={`https://wa.me/${me.whatsapp.replace(/[^\d]/g, '')}`} target="_blank" rel="noreferrer">{me.whatsapp}</a></div>}
             </div>
           )}
         </div>
@@ -202,7 +204,7 @@ export default function ProfilePage() {
             </div>
           </div>
           <div className="card">
-            <h3 className="font-semibold mb-3">Resumen</h3>
+            <h3 className="font-semibold mb-3">DashBoard</h3>
             <div className="rounded-lg bg-canvas p-3"><span className="label">Puesto</span><b className="capitalize">{role === 'superadmin' ? 'Administración' : role}</b></div>
             {role === 'agent' && (
               <div className="mt-2 space-y-2 text-sm">

@@ -80,6 +80,7 @@ export class PlanService {
       planId: plan.id,
       name: dto.name,
       points: dto.points,
+      address: dto.address,
     });
     const saved = await this.blockRepo.save(block);
     await this.audit(actorId, 'CREAR_MANZANA', 'blocks', saved.id);
@@ -91,6 +92,7 @@ export class PlanService {
     if (!block) throw new NotFoundException('Manzana no encontrada');
     if (dto.name !== undefined) block.name = dto.name;
     if (dto.points !== undefined) block.points = dto.points;
+    if (dto.address !== undefined) block.address = dto.address;
     const saved = await this.blockRepo.save(block);
     await this.audit(actorId, 'EDITAR_MANZANA', 'blocks', blockId);
     return saved;
@@ -131,6 +133,9 @@ export class PlanService {
       price: String(dto.price ?? 0),
       status: dto.status || 'disponible',
       agentId: dto.agentId,
+      type: dto.type,
+      salePrice: dto.salePrice != null ? String(dto.salePrice) : undefined,
+      finalPrice: dto.finalPrice != null ? String(dto.finalPrice) : undefined,
     });
     const saved = await this.lotRepo.save(lot);
     await this.audit(actorId, 'CREAR_LOTE', 'lots', saved.id);
@@ -148,6 +153,9 @@ export class PlanService {
     if (dto.price !== undefined) lot.price = String(dto.price);
     if (dto.clientId !== undefined) lot.clientId = dto.clientId;
     if (dto.agentId !== undefined) lot.agentId = dto.agentId;
+    if (dto.type !== undefined) lot.type = dto.type;
+    if (dto.salePrice !== undefined) lot.salePrice = String(dto.salePrice);
+    if (dto.finalPrice !== undefined) lot.finalPrice = String(dto.finalPrice);
     if (dto.status !== undefined && dto.status !== lot.status) {
       await this.historyRepo.save({
         lotId,

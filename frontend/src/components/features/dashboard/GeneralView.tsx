@@ -1,16 +1,31 @@
 'use client';
-import { StatCard } from '@/components/ui';
+import { useEffect, useState } from 'react';
+import { StatCard } from '@/components/ui/ui';
 import { FormattedDashboard } from '@/lib/dboard';
+import { api } from '@/lib/api';
 import { formatMoney } from '@/lib/types';
-import { DistribucionPie } from '@/components/charts/Charts';
+import { DistribucionPie, DistribucionBarras } from '@/components/ui/charts/Charts';
+
+// Tonos derivados del azul de marca para diferenciar proyectos en el gráfico comparativo.
+const PROJECT_PALETTE = ['#1877F2', '#1259C4', '#0E46A0', '#4B83C4', '#A9C9FB', '#171717', '#6B7280'];
 
 export default function GeneralView({ d, compact = false }: { d: FormattedDashboard | null; compact?: boolean }) {
+  const [projects, setProjects] = useState<any[]>([]);
+  useEffect(() => { api.get<any[]>('/projects').then((p) => setProjects(Array.isArray(p) ? p : ((p as any)?.items || []))).catch(() => {}); }, []);
+
   if (!d) return <p className="text-slate-400">Sin datos</p>;
   const colors: Record<string,string> = { disponible:'#D1D5DB', reservado:'#F2B94B', adelanto:'#4B83C4', primera_cuota:'#8064A2', vendido:'#1877F2' };
   // Azul de marca + negro + grises + azul claro derivados de la identidad
   const channelMap: any = { facebook:'#1877F2', tiktok:'#171717', instagram:'#1259C4', web:'#6B7280', referidos:'#A9C9FB' };
   const lotData = Object.keys(colors).map((k) => ({ name: k, value: d.lots[k] || 0 }));
   const label: Record<string,string> = { disponible:'Disponible',reservado:'Reservado',adelanto:'Con adelanto',primera_cuota:'Primera cuota',vendido:'Vendido' };
+
+  const projectName = (id: number) => projects.find((p) => Number(p.id) === Number(id))?.name || `Proyecto ${id}`;
+  const salesByProjectData = (d.salesByProject || []).map((r) => ({ name: projectName(r.projectId), value: r.amount }));
+  const projectColorByLabel = (label: string) => {
+    const idx = salesByProjectData.findIndex((r) => r.name === label);
+    return PROJECT_PALETTE[idx % PROJECT_PALETTE.length] || '#9AA1AB';
+  };
 
   if (compact) {
     return (
@@ -44,6 +59,12 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
         <div className="card"><h3 className="mb-3">Origen de leads</h3>
           <DistribucionPie data={d.leadsByChannel.map((c)=>({name:c.channel,value:c.total}))} colorMap={(n)=>channelMap[n]||'#9AA1AB'} />
         </div>
+      </div>
+      <div className="card">
+        <h3 className="mb-3 font-semibold">Ventas por proyecto</h3>
+        {salesByProjectData.length ? (
+          <DistribucionBarras data={salesByProjectData} colorMap={projectColorByLabel} valuePrefix="S/ " />
+        ) : <p className="py-8 text-center text-sm text-slate-400">Aún no hay ventas registradas en ningún proyecto.</p>}
       </div>
       <div className="card"><h3 className="font-semibold mb-3">Ranking de agentes</h3>
         <div className="overflow-auto"><table className="table-base"><thead><tr>

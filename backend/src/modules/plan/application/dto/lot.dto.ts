@@ -31,6 +31,18 @@ export class CreateLotDto {
 
   @IsOptional()
   agentId?: number;
+
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @IsOptional()
+  @IsNumber()
+  salePrice?: number;
+
+  @IsOptional()
+  @IsNumber()
+  finalPrice?: number;
 }
 
 export class UpdateLotDto {
@@ -61,4 +73,16 @@ export class UpdateLotDto {
 
   @IsOptional()
   agentId?: number;
+
+  @IsOptional()
+  @IsString()
+  type?: string;
+
+  @IsOptional()
+  @IsNumber()
+  salePrice?: number;
+
+  @IsOptional()
+  @IsNumber()
+  finalPrice?: number;
 }

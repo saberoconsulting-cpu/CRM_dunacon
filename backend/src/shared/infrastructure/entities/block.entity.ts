@@ -27,6 +27,9 @@ export class BlockEntity {
   @Column({ length: 20, default: '#64748b' })
   color: string;
 
+  @Column({ length: 255, nullable: true })
+  address?: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

@@ -20,10 +20,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private readonly userRepo: Repository<UserEntity>,
     config: ConfigService,
   ) {
+    const secret = config.get<string>('JWT_SECRET');
+    if (!secret) {
+      throw new Error('JWT_SECRET no está definido. Configúralo en el .env antes de arrancar la API.');
+    }
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: config.get<string>('JWT_SECRET') || 'crm_secret',
+      secretOrKey: secret,
     });
   }
 

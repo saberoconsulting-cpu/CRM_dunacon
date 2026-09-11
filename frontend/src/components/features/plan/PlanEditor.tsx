@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { api, uploadFile } from '@/lib/api';
 import { Block, Lot, Point, formatMoney } from '@/lib/types';
-import { Modal as _m, toast, Field } from '@/components/ui';
+import { Modal as _m, toast, Field } from '@/components/ui/ui';
 
 const SVG_W = 1000;
 const SVG_H = 800;
@@ -16,7 +16,7 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
   const [mode, setMode] = useState<'none' | 'block' | 'lot'>('none');
   const [draft, setDraft] = useState<Point[]>([]);
   const [selectedBlk, setSelectedBlk] = useState<number | null>(null);
-  const [lotInfo, setLotInfo] = useState<{ code: string; area: number; price: number }>({ code: '', area: 0, price: 0 });
+  const [lotInfo, setLotInfo] = useState<{ code: string; area: number; price: number; type: string; salePrice: number; finalPrice: number }>({ code: '', area: 0, price: 0, type: '', salePrice: 0, finalPrice: 0 });
   const dim = useRef({ w: SVG_W, h: SVG_H });
   const [lotPage, setLotPage] = useState(0);
 
@@ -76,8 +76,9 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
   async function saveBlock() {
     if (draft.length < 3) return toast('Dibuja una manzana (3+ puntos)', 'err');
     const name = prompt('Nombre de la manzana (A, B, C…):', String.fromCharCode(65 + blocks.length)) || 'A';
+    const address = prompt('Dirección de la manzana (ej: Calle Las Palmeras) — opcional:', '') || undefined;
     try {
-      await api.post(`/plan/block/${projectId}`, { name, points: draft });
+      await api.post(`/plan/block/${projectId}`, { name, points: draft, address });
       toast('Manzana guardada'); setDraft([]); load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -87,15 +88,26 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
     if (!block) return toast('Primero crea/elige la manzana contenedora', 'err');
     if (!lotInfo.code) return toast('Indica el código del lote', 'err');
     try {
-      await api.post(`/plan/lot/${projectId}`, { code: lotInfo.code, blockId: block.id, points: draft, areaM2: Number(lotInfo.area) || 0, price: Number(lotInfo.price) || 0, status: 'disponible' });
-      toast('Lote guardado'); setDraft([]); setLotInfo({ code: '', area: 0, price: 0 }); load();
+      await api.post(`/plan/lot/${projectId}`, {
+        code: lotInfo.code, blockId: block.id, points: draft,
+        areaM2: Number(lotInfo.area) || 0, price: Number(lotInfo.price) || 0, status: 'disponible',
+        type: lotInfo.type || undefined,
+        salePrice: lotInfo.salePrice || undefined,
+        finalPrice: lotInfo.finalPrice || undefined,
+      });
+      toast('Lote guardado'); setDraft([]); setLotInfo({ code: '', area: 0, price: 0, type: '', salePrice: 0, finalPrice: 0 }); load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
 
   async function renameBlock(b: Block) {
     const name = prompt('Nuevo nombre de la manzana:', b.name);
-    if (!name || name === b.name) return;
-    try { await api.post(`/plan/block/update/${b.id}`, { name }); toast('Renombrado'); load(); } catch (e: any) { toast(e.message, 'err'); }
+    if (name == null) return;
+    const address = prompt('Dirección de la manzana (ej: Calle Las Palmeras) — opcional:', b.address || '');
+    if (address == null) return;
+    try {
+      await api.post(`/plan/block/update/${b.id}`, { name: name || b.name, address });
+      toast('Manzana actualizada'); load();
+    } catch (e: any) { toast(e.message, 'err'); }
   }
   async function delBlock(b: Block) {
     if (!confirm(`Eliminar manzana ${b.name}? Sus lotes no se borran, quedan sin manzana.`)) return;
@@ -222,7 +234,12 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
                   <Field label="Código del lote *"><input className="input" value={lotInfo.code} onChange={(e) => setLotInfo({ ...lotInfo, code: e.target.value })} placeholder="A-01" /></Field>
                   <div className="grid grid-cols-2 gap-2">
                     <Field label="Área m²"><input type="number" className="input" value={lotInfo.area || ''} onChange={(e) => setLotInfo({ ...lotInfo, area: Number(e.target.value) })} /></Field>
-                    <Field label="Precio S/"><input type="number" className="input" value={lotInfo.price || ''} onChange={(e) => setLotInfo({ ...lotInfo, price: Number(e.target.value) })} /></Field>
+                    <Field label="Tipo"><input className="input" value={lotInfo.type} onChange={(e) => setLotInfo({ ...lotInfo, type: e.target.value })} placeholder="Ej: Esquina" /></Field>
+                  </div>
+                  <Field label="Precio S/"><input type="number" className="input" value={lotInfo.price || ''} onChange={(e) => setLotInfo({ ...lotInfo, price: Number(e.target.value) })} /></Field>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Precio venta S/"><input type="number" className="input" value={lotInfo.salePrice || ''} onChange={(e) => setLotInfo({ ...lotInfo, salePrice: Number(e.target.value) })} /></Field>
+                    <Field label="Precio final S/"><input type="number" className="input" value={lotInfo.finalPrice || ''} onChange={(e) => setLotInfo({ ...lotInfo, finalPrice: Number(e.target.value) })} /></Field>
                   </div>
                   <button className="btn-primary w-full" onClick={() => saveLot(blocks.find((x) => x.id === selectedBlk) || null)}>Guardar lote</button>
                 </>

@@ -6,7 +6,7 @@ import { BlockEntity } from '../../shared/infrastructure/entities/block.entity';
 import { LotEntity } from '../../shared/infrastructure/entities/lot.entity';
 import { LotStatusHistoryEntity } from '../../shared/infrastructure/entities/lot-status-history.entity';
 import { AuditLogEntity } from '../../shared/infrastructure/entities/audit-log.entity';
-import { NotificationsGateway } from '../../shared/infrastructure/websocket/notifications.gateway';
+import { WebsocketModule } from '../../shared/infrastructure/websocket/websocket.module';
 import { PlanController } from './interface/plan.controller';
 import { PlanService } from './application/plan.service';
 
@@ -19,9 +19,9 @@ import { PlanService } from './application/plan.service';
       LotStatusHistoryEntity,
       AuditLogEntity,
     ]),
+    WebsocketModule,
   ],
   controllers: [PlanController],
-  providers: [PlanService, NotificationsGateway],
-  exports: [NotificationsGateway],
+  providers: [PlanService],
 })
 export class PlanModule {}

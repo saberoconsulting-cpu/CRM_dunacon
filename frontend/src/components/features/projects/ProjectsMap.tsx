@@ -4,6 +4,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import { Project, formatMoney } from '@/lib/types';
+import { IoLocationSharp } from 'react-icons/io5';
 
 interface Props { projects: Project[]; onOpen: (id: number) => void; }
 
@@ -171,7 +172,7 @@ export default function ProjectsMap({ projects, onOpen }: Props) {
                 </div>
                 <div className="p-3">
                   <p className="truncate font-extrabold text-[#171717]">{p.name}</p>
-                  <p className="mt-0.5 truncate text-xs text-slate-500">📍 {p.location || 'Ubicación por definir'}</p>
+                  <p className="mt-0.5 truncate text-xs text-slate-500 inline-flex items-center gap-1"><IoLocationSharp /> {p.location || 'Ubicación por definir'}</p>
                   {p.referencePrice ? (
                     <p className="mt-1 text-sm"><span className="text-xs text-slate-400">Desde </span><span className="font-extrabold" style={{ color: '#0f9d58' }}>{formatMoney(p.referencePrice)}</span></p>
                   ) : (

@@ -1,12 +1,12 @@
 'use client';
 import { useEffect, useState } from 'react';
-import Layout from '@/components/Layout';
-import { Toaster, toast, StatusBadge, Field } from '@/components/ui';
+import Layout from '@/components/layout/Layout';
+import { Toaster, toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api, uploadFile } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { FiMap } from 'react-icons/fi';
+import { FiMap, FiCamera } from 'react-icons/fi';
 import { Project, formatMoney } from '@/lib/types';
-import ProjectsMap from '@/components/ProjectsMap';
+import ProjectsMap from '@/components/features/projects/ProjectsMap';
 
 export default function ProjectsPage() {
   const router = useRouter();
@@ -126,7 +126,7 @@ export default function ProjectsPage() {
                 {canEdit && (
                   <div className="flex flex-wrap gap-2 mb-3">
                     <label className="btn-neutral !h-8 text-xs cursor-pointer inline-flex items-center gap-1">
-                      📷 <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; reemplazarImagen(p.id, f); }} />Actualizar imagen
+                      <FiCamera /> <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; reemplazarImagen(p.id, f); }} />Actualizar imagen
                     </label>
                     <button className="btn-neutral !h-8 text-xs" onClick={() => abrirEdicion(p)}>Actualizar ubicación</button>
                     <button className="btn-danger !h-8 text-xs" onClick={() => eliminarProyecto(p.id)}>Eliminar proyecto</button>

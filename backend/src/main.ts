@@ -2,9 +2,11 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { join } from 'path';
+import helmet from 'helmet';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { configureCloudinary, cloudinaryConfigured } from './shared/infrastructure/upload/cloudinary.util';
+import { getAllowedOrigins } from './shared/infrastructure/config/cors-origins';
 
 async function bootstrap() {
   // Configurar Cloudinary si las credenciales están en el entorno
@@ -17,6 +19,16 @@ async function bootstrap() {
   }
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
+  // Cabeceras de seguridad HTTP. CSP se desactiva porque esta API no sirve HTML
+  // (rompería sin aportar nada) y el CORP se abre a cross-origin para que el
+  // frontend (otro dominio) pueda seguir cargando /uploads (planos, vouchers).
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+    }),
+  );
+
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
     new ValidationPipe({
@@ -27,19 +39,8 @@ async function bootstrap() {
   );
 
   // CORS: origenes autorizados (local y produccion)
-  const allowedOrigins: string[] = [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'https://crm.saberoconsulting.com',
-    'https://crm.dunacon.pe',
-  ];
-  // Si el entorno define FRONTEND_URL (u origenes extra), se agregan
-  const extraFromEnv = process.env.FRONTEND_URL;
-  const extra = extraFromEnv ? extraFromEnv.split(',').map((s) => s.trim()).filter(Boolean) : [];
-  const origins = Array.from(new Set([...allowedOrigins, ...extra]));
-
   app.enableCors({
-    origin: origins,
+    origin: getAllowedOrigins(),
     credentials: true,
   });
 

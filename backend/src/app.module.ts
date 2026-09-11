@@ -1,7 +1,9 @@
 // app.module.ts
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { UserEntity } from './shared/infrastructure/entities/user.entity';
 import { ProjectEntity } from './shared/infrastructure/entities/project.entity';
 import { PlanEntity } from './shared/infrastructure/entities/plan.entity';
@@ -35,6 +37,9 @@ import { DashboardsModule } from './modules/dashboards/dashboards.module';
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    // Límite general por IP (protege toda la API); endpoints sensibles como
+    // login usan @Throttle() con un límite más estricto encima de este.
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST || '127.0.0.1',
@@ -67,5 +72,6 @@ import { DashboardsModule } from './modules/dashboards/dashboards.module';
     SettingsModule,
     DashboardsModule,
   ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

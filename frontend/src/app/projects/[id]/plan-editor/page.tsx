@@ -1,9 +1,9 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import Layout from '@/components/Layout';
-import { Toaster } from '@/components/ui';
-import PlanEditor from '@/components/plan-editor/PlanEditor';
+import Layout from '@/components/layout/Layout';
+import { Toaster } from '@/components/ui/ui';
+import PlanEditor from '@/components/features/plan/PlanEditor';
 import { getSessionUser } from '@/lib/api';
 
 export default function PlanEditorPage() {

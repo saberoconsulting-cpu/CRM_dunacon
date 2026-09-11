@@ -7,6 +7,7 @@ import { LotStatusHistoryEntity } from '../../../shared/infrastructure/entities/
 import { PaymentEntity } from '../../../shared/infrastructure/entities/payment.entity';
 import { ClientEntity } from '../../../shared/infrastructure/entities/client.entity';
 import { UserEntity } from '../../../shared/infrastructure/entities/user.entity';
+import { BlockEntity } from '../../../shared/infrastructure/entities/block.entity';
 
 @Injectable()
 export class LotsService {
@@ -21,6 +22,8 @@ export class LotsService {
     private readonly clientRepo: Repository<ClientEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
+    @InjectRepository(BlockEntity)
+    private readonly blockRepo: Repository<BlockEntity>,
   ) {}
 
   // Listado global con filtros
@@ -43,11 +46,18 @@ export class LotsService {
       .createQueryBuilder('l')
       .leftJoinAndSelect(UserEntity, 'u', 'u.id = l.agent_id')
       .leftJoinAndSelect(ClientEntity, 'c', 'c.id = l.client_id')
+      .leftJoinAndSelect(BlockEntity, 'b', 'b.id = l.block_id')
       .select([
         'l.id', 'l.projectId', 'l.planId', 'l.blockId', 'l.code',
         'l.areaM2', 'l.price', 'l.status', 'l.clientId', 'l.agentId',
       ])
-      .addSelect(['u.name AS agentName', 'c.full_name AS clientName', 'l.selling_stage AS sellingStage']);
+      // Postgres pliega a minúsculas cualquier alias sin comillas (AS agentName
+      // vuelve "agentname"), por eso todos estos van entre comillas dobles.
+      .addSelect([
+        'u.name AS "agentName"', 'c.full_name AS "clientName"', 'l.selling_stage AS "sellingStage"',
+        'l.type AS "type"', 'l.sale_price AS "salePrice"', 'l.final_price AS "finalPrice"',
+        'b.name AS "blockName"', 'b.address AS "blockAddress"',
+      ]);
 
     if (filters.projectId) qb.andWhere('l.project_id = :projectId', { projectId: filters.projectId });
     if (filters.blockId) qb.andWhere('l.block_id = :blockId', { blockId: filters.blockId });
@@ -78,6 +88,11 @@ export class LotsService {
       agentId: r.l_agent_id ? Number(r.l_agent_id) : null,
       agentName: r.agentName || null,
       clientName: r.clientName || null,
+      type: r.type || null,
+      salePrice: r.salePrice != null ? Number(r.salePrice) : null,
+      finalPrice: r.finalPrice != null ? Number(r.finalPrice) : null,
+      blockName: r.blockName || null,
+      blockAddress: r.blockAddress || null,
     }));
     return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
   }
@@ -92,15 +107,17 @@ export class LotsService {
     ]);
     let client: ClientEntity | null = null;
     let agent: { id: number; name: string; email: string; phone: string | null } | null = null;
+    let block: BlockEntity | null = null;
     if (lot.clientId) client = await this.clientRepo.findOne({ where: { id: lot.clientId } });
     if (lot.agentId) {
       const a = await this.userRepo.findOne({ where: { id: lot.agentId } });
       if (a) agent = { id: a.id, name: a.name, email: a.email, phone: a.phone };
     }
+    if (lot.blockId) block = await this.blockRepo.findOne({ where: { id: lot.blockId } });
     const totalPaid = payments
       .filter((p) => p.status === 'pagado')
       .reduce((s, p) => s + Number(p.amount), 0);
     const balance = Number(lot.price) - totalPaid;
-    return { lot, history, payments, client, agent, totalPaid, balance };
+    return { lot, history, payments, client, agent, block, totalPaid, balance };
   }
 }

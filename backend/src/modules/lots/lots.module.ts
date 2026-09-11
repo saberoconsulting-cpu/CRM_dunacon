@@ -6,6 +6,7 @@ import { LotStatusHistoryEntity } from '../../shared/infrastructure/entities/lot
 import { PaymentEntity } from '../../shared/infrastructure/entities/payment.entity';
 import { ClientEntity } from '../../shared/infrastructure/entities/client.entity';
 import { UserEntity } from '../../shared/infrastructure/entities/user.entity';
+import { BlockEntity } from '../../shared/infrastructure/entities/block.entity';
 import { LotsController } from './interface/lots.controller';
 import { LotsService } from './application/lots.service';
 
@@ -17,6 +18,7 @@ import { LotsService } from './application/lots.service';
       PaymentEntity,
       ClientEntity,
       UserEntity,
+      BlockEntity,
     ]),
   ],
   controllers: [LotsController],

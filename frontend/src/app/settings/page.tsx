@@ -1,6 +1,6 @@
 'use client';
-import Layout from '@/components/Layout';
-import { Toaster, toast } from '@/components/ui';
+import Layout from '@/components/layout/Layout';
+import { Toaster, toast } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { useEffect, useState } from 'react';
 

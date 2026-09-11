@@ -162,7 +162,17 @@ export default function InteractivePlan({
                 />
                 {(() => { const c = centroid(lot.points); return (
                   <g style={{ pointerEvents: 'none' }}>
-                    <text x={c.x} y={c.y - 6} fontSize="14" textAnchor="middle">{(locked || sold) ? (locked ? '🔒' : '✓') : ''}</text>
+                    {locked && (
+                      <g transform={`translate(${c.x - 7}, ${c.y - 13}) scale(0.583)`} stroke="#171717" strokeWidth={2.4} fill="none" strokeLinecap="round" strokeLinejoin="round">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                      </g>
+                    )}
+                    {sold && (
+                      <g transform={`translate(${c.x - 7}, ${c.y - 15}) scale(0.583)`} stroke="#fff" strokeWidth={3} fill="none" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M20 6L9 17l-5-5" />
+                      </g>
+                    )}
                     <text x={c.x} y={c.y + 4} fontSize="12" fontWeight="600" textAnchor="middle" fill="#0f172a">{lot.code}</text>
                   </g>
                 ); })()}

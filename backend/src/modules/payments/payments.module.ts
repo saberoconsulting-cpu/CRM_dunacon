@@ -5,7 +5,7 @@ import { PaymentEntity } from '../../shared/infrastructure/entities/payment.enti
 import { LotEntity } from '../../shared/infrastructure/entities/lot.entity';
 import { LotStatusHistoryEntity } from '../../shared/infrastructure/entities/lot-status-history.entity';
 import { FinancialTransactionEntity } from '../../shared/infrastructure/entities/financial-transaction.entity';
-import { NotificationsGateway } from '../../shared/infrastructure/websocket/notifications.gateway';
+import { WebsocketModule } from '../../shared/infrastructure/websocket/websocket.module';
 import { PaymentsController } from './interface/payments.controller';
 import { PaymentsService } from './application/payments.service';
 
@@ -17,9 +17,9 @@ import { PaymentsService } from './application/payments.service';
       LotStatusHistoryEntity,
       FinancialTransactionEntity,
     ]),
+    WebsocketModule,
   ],
   controllers: [PaymentsController],
-  providers: [PaymentsService, NotificationsGateway],
-  exports: [NotificationsGateway],
+  providers: [PaymentsService],
 })
 export class PaymentsModule {}
