@@ -9,6 +9,7 @@ type S = {
   id: number; projectId: number; lotId: number; clientId?: number | null; agentId?: number | null;
   salePrice: string; saleDate: string; commission: string; agentName?: string | null; clientName?: string | null;
   lotCode?: string | null; conditions?: string | null; approvalStatus?: string; totalCuotas?: number;
+  interestType?: string; tea?: number;
 };
 
 const PAYMENT_METHODS = ['Contado', 'Al crédito'];
@@ -152,23 +153,26 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         {isAdmin && pending.length > 0 && (
           <div className="card p-0 overflow-auto">
             <h3 className="font-semibold px-4 pt-4">Separaciones por aprobar ({pending.length})</h3>
-            <table className="table-base mt-2" style={{ width: '100%', minWidth: 820 }}>
+            <table className="table-base mt-2" style={{ width: '100%', minWidth: 960 }}>
               <thead><tr>
-                <th className="th-base">Lote</th><th className="th-base">Cliente</th><th className="th-base">Agente</th>
+                <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
                 <th className="th-base">Precio</th><th className="th-base">Forma de pago</th><th className="th-base">Cuotas</th>
-                <th className="th-base">Comisión</th><th className="th-base">Fecha</th><th className="th-base">Acción</th>
+                <th className="th-base">Cuotas sin intereses</th><th className="th-base">Fecha</th>
+                <th className="th-base">Agente</th><th className="th-base">Comisión</th><th className="th-base">Acción</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {pending.map((s) => (
                   <tr key={s.id}>
+                    <td className="td-base text-slate-400">V{s.id}</td>
                     <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
                     <td className="td-base">{s.clientName || '—'}</td>
-                    <td className="td-base">{s.agentName || '—'}</td>
                     <td className="td-base">{formatMoney(s.salePrice)}</td>
                     <td className="td-base">{s.totalCuotas ? 'Al crédito' : 'Contado'}</td>
                     <td className="td-base">{s.totalCuotas || 0}</td>
-                    <td className="td-base">{formatMoney(s.commission)}</td>
+                    <td className="td-base">{s.interestType !== 'tea' ? (s.totalCuotas || 0) : '—'}</td>
                     <td className="td-base">{formatDate(s.saleDate)}</td>
+                    <td className="td-base">{s.agentName || '—'}</td>
+                    <td className="td-base">{formatMoney(s.commission)}</td>
                     <td className="td-base whitespace-nowrap">
                       <button className="btn-primary !h-7 text-xs mr-1" onClick={() => aprobar(s)}>Aprobar</button>
                       <button className="btn-danger !h-7 text-xs" onClick={() => rechazar(s)}>Rechazar</button>
@@ -183,23 +187,27 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         <div className="card p-0 overflow-auto">
           {loading ? <p className="p-4 text-slate-400">Cargando…</p>
             : rows.length === 0 ? <EmptyState text="Aún no hay ventas registradas." /> : (
-            <table className="table-base" style={{ width: '100%', minWidth: 820 }}>
+            <table className="table-base" style={{ width: '100%', minWidth: 960 }}>
               <thead><tr>
-                <th className="th-base">Lote</th><th className="th-base">Cliente</th><th className="th-base">Agente</th>
+                <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
                 <th className="th-base">Precio</th><th className="th-base">Forma de pago</th><th className="th-base">Cuotas</th>
-                <th className="th-base">Estado</th><th className="th-base">Fecha</th>
+                <th className="th-base">Cuotas sin intereses</th><th className="th-base">Estado</th>
+                <th className="th-base">Fecha</th><th className="th-base">Agente</th><th className="th-base">Comisión</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map((s) => (
                   <tr key={s.id}>
+                    <td className="td-base text-slate-400">V{s.id}</td>
                     <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
                     <td className="td-base">{s.clientName || '—'}</td>
-                    <td className="td-base">{s.agentName || '—'}</td>
                     <td className="td-base font-medium">{formatMoney(s.salePrice)}</td>
                     <td className="td-base">{s.totalCuotas ? 'Al crédito' : 'Contado'}</td>
                     <td className="td-base">{s.totalCuotas || 'Contado'}</td>
+                    <td className="td-base">{s.interestType !== 'tea' ? (s.totalCuotas || 0) : '—'}</td>
                     <td className="td-base">{s.approvalStatus === 'pendiente' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#FEF3C7', color:'#92400E' }}>Pendiente</span> : <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#D1FAE5', color:'#065F46' }}>Aprobada</span>}</td>
                     <td className="td-base">{formatDate(s.saleDate)}</td>
+                    <td className="td-base">{s.agentName || '—'}</td>
+                    <td className="td-base">{formatMoney(s.commission)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -207,8 +215,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <tr style={{ background: '#0B2F6E' }}>
                   <td className="td-base font-bold text-white" colSpan={3}>Totales ({rows.length})</td>
                   <td className="td-base font-bold text-white">{formatMoney(total)}</td>
-                  <td className="td-base" colSpan={2}></td>
-                  <td className="td-base font-bold text-white" colSpan={2}>Comisión: {formatMoney(comm)}</td>
+                  <td className="td-base" colSpan={4}></td>
+                  <td className="td-base font-bold text-white" colSpan={2}>{formatMoney(comm)}</td>
                 </tr>
               </tfoot>
             </table>
