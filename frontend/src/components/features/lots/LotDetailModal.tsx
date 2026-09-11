@@ -223,12 +223,26 @@ export function PagosTable({ rows }: { rows: Row[] }) {
   return (
     <div className="overflow-auto">
       <table className="table-base">
-        <thead><tr><th className="th-base">Tipo</th><th className="th-base">Monto</th><th className="th-base">Estado</th><th className="th-base">Fecha</th></tr></thead>
+        <thead><tr>
+          <th className="th-base">Tipo</th>
+          <th className="th-base">Medio</th>
+          <th className="th-base">Comprobante</th>
+          <th className="th-base">Monto</th>
+          <th className="th-base">Estado</th>
+          <th className="th-base">Fecha</th>
+        </tr></thead>
         <tbody className="divide-y divide-slate-100">
           {rows.map((p) => (
-            <tr key={p.id}><td className="td-base capitalize">{p.type||''}</td><td className="td-base">{(p as any).paymentMethod || '—'}</td><td className="td-base">{(p as any).voucherUrl ? <a href={(p as any).voucherUrl} target="_blank" rel="noreferrer" className="text-[#1877F2] hover:underline">Ver comprobante</a> : '—'}</td><td className="td-base">{formatMoney(p.amount)}</td><td className="td-base"><StatusBadge status={(p as any).status||''}/></td><td className="td-base">{formatDate((p as any).paidAt||(p as any).createdAt||'')}</td></tr>
+            <tr key={p.id}>
+              <td className="td-base capitalize">{p.type||''}</td>
+              <td className="td-base capitalize">{(p as any).paymentMethod || '—'}</td>
+              <td className="td-base">{(p as any).voucherUrl ? <a href={(p as any).voucherUrl} target="_blank" rel="noreferrer" className="text-[#1877F2] hover:underline">Ver comprobante</a> : '—'}</td>
+              <td className="td-base">{formatMoney(p.amount)}</td>
+              <td className="td-base"><StatusBadge status={(p as any).status||''}/></td>
+              <td className="td-base">{formatDate((p as any).paidAt||(p as any).createdAt||'')}</td>
+            </tr>
           ))}
-          {rows.length===0 && <tr><td className="td-base text-slate-400" colSpan={4}>Sin pagos</td></tr>}
+          {rows.length===0 && <tr><td className="td-base text-slate-400" colSpan={6}>Sin pagos</td></tr>}
         </tbody>
       </table>
     </div>
