@@ -158,7 +158,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
                 <th className="th-base">Precio</th><th className="th-base">Forma de pago</th><th className="th-base">Cuotas</th>
                 <th className="th-base">Cuotas sin intereses</th><th className="th-base">Fecha</th>
-                <th className="th-base">Agente</th><th className="th-base">Comisión</th><th className="th-base">Acción</th>
+                <th className="th-base">Agente</th><th className="th-base">Comisión</th><th className="th-base" style={{ textAlign: 'center' }}>Acción</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {pending.map((s) => (
@@ -174,8 +174,10 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     <td className="td-base">{s.agentName || '—'}</td>
                     <td className="td-base">{formatMoney(s.commission)}</td>
                     <td className="td-base whitespace-nowrap">
-                      <button className="btn-primary !h-7 text-xs mr-1" onClick={() => aprobar(s)}>Aprobar</button>
-                      <button className="btn-danger !h-7 text-xs" onClick={() => rechazar(s)}>Rechazar</button>
+                      <div className="flex justify-center gap-1.5">
+                        <button className="btn-primary !h-7 text-xs" onClick={() => aprobar(s)}>Aprobar</button>
+                        <button className="btn-danger !h-7 text-xs" onClick={() => rechazar(s)}>Rechazar</button>
+                      </div>
                     </td>
                   </tr>
                 ))}
