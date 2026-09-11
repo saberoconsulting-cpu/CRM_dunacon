@@ -1,7 +1,7 @@
 // modules/sales/application/sales.service.ts
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { SaleEntity } from '../../../shared/infrastructure/entities/sale.entity';
 import { SaleInstallmentEntity } from '../../../shared/infrastructure/entities/sale-installment.entity';
 import { LotEntity } from '../../../shared/infrastructure/entities/lot.entity';
@@ -27,10 +27,13 @@ export class SalesService {
     @InjectRepository(AuditLogEntity)
     private readonly auditRepo: Repository<AuditLogEntity>,
     private readonly gateway: NotificationsGateway,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
-  async audit(userId: number, action: string, entity?: string, entityId?: number) {
-    await this.auditRepo.save({ userId, action, entity, entityId });
+  async audit(userId: number, action: string, entity?: string, entityId?: number, manager?: EntityManager) {
+    const repo = manager ? manager.getRepository(AuditLogEntity) : this.auditRepo;
+    await repo.save({ userId, action, entity, entityId });
   }
 
   async create(dto: CreateSaleDto, actorId: number) {
@@ -52,40 +55,47 @@ export class SalesService {
     const financingBase = appliesAgency ? dto.salePrice - commission : dto.salePrice;
     const valorCuota = dto.valorCuota || (dto.totalCuotas && dto.totalCuotas > 0 ? financingBase / dto.totalCuotas : 0);
 
-    const sale = this.saleRepo.create({
-      projectId: dto.projectId,
-      lotId: dto.lotId,
-      clientId: dto.clientId,
-      agentId: dto.agentId,
-      salePrice: String(dto.salePrice),
-      saleDate: dto.saleDate || undefined,
-      commission: String(commission),
-      financingBase: String(financingBase),
-      conditions: dto.conditions,
-      status: 'cerrada',
-      approvalStatus: 'pendiente',
-      totalCuotas,
-      valorCuota: String(valorCuota),
-      planStatus: 'pendiente',
+    // La venta, el "claim" atómico del lote y la auditoría deben quedar juntos:
+    // antes eran saves() independientes y un fallo a mitad dejaba la separación
+    // creada sin que el lote reflejara el compromiso (o viceversa).
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const sale = manager.create(SaleEntity, {
+        projectId: dto.projectId,
+        lotId: dto.lotId,
+        clientId: dto.clientId,
+        agentId: dto.agentId,
+        salePrice: String(dto.salePrice),
+        saleDate: dto.saleDate || undefined,
+        commission: String(commission),
+        financingBase: String(financingBase),
+        conditions: dto.conditions,
+        status: 'cerrada',
+        approvalStatus: 'pendiente',
+        totalCuotas,
+        valorCuota: String(valorCuota),
+        planStatus: 'pendiente',
+      });
+      const savedSale = await manager.save(sale);
+
+      // El lote queda "separado" hasta aprobación. Compromiso ATOMICO:
+      // solo gana si sigue disponible; evita que dos agentes vendan/reserven a la vez.
+      const claimed = await manager.update(
+        LotEntity,
+        { id: lot.id, sellingStage: 'disponible' },
+        { sellingStage: 'separado', agentId: dto.agentId, clientId: dto.clientId ?? lot.clientId ?? null },
+      );
+      const won = claimed.affected == null || Number(claimed.affected) > 0;
+      if (!won) {
+        throw new BadRequestException('Mientras confirmabas, otro agente gestionó este lote. Puedes verlo, contactar al asesor responsable o pedir reasignación al administrador, pero no registrar una venta duplicada.');
+      }
+      lot.sellingStage = 'separado';
+      lot.clientId = dto.clientId ?? lot.clientId;
+      lot.agentId = dto.agentId;
+
+      await this.audit(actorId, 'CREAR_SEPARACION', 'sales', savedSale.id, manager);
+      return savedSale;
     });
-    const saved = await this.saleRepo.save(sale);
 
-    // El lote queda "separado" hasta aprobación. Compromiso ATOMICO:
-    // solo gana si sigue disponible; evita que dos agentes vendan/reserven a la vez.
-    const claimed = await this.lotRepo.update(
-      { id: lot.id, sellingStage: 'disponible' },
-      { sellingStage: 'separado', agentId: dto.agentId, clientId: dto.clientId ?? lot.clientId ?? null },
-    );
-    const won = claimed.affected == null || Number(claimed.affected) > 0;
-    if (!won) {
-      throw new BadRequestException('Mientras confirmabas, otro agente gestionó este lote. Puedes verlo, contactar al asesor responsable o pedir reasignación al administrador, pero no registrar una venta duplicada.');
-    }
-    lot.sellingStage = 'separado';
-    lot.clientId = dto.clientId ?? lot.clientId;
-    lot.agentId = dto.agentId;
-    await this.lotRepo.save(lot);
-
-    await this.audit(actorId, 'CREAR_SEPARACION', 'sales', saved.id);
     this.gateway.emitToAll('sale.created', saved);
     this.gateway.emitToAll('lot.updated', lot);
     return { ...saved, commissionRate, commission };
@@ -97,39 +107,44 @@ export class SalesService {
     if (!sale) throw new BadRequestException('Venta no encontrada');
     if (sale.approvalStatus === 'aprobada') return sale;
 
-    sale.approvalStatus = 'aprobada';
-    sale.status = 'cerrada';
-    sale.approvedBy = actorId;
-    sale.approvedAt = new Date();
-    sale.planStatus = 'al_dia';
-    const kept = await this.saleRepo.save(sale);
+    let lot: LotEntity | null = null;
+    const kept = await this.dataSource.transaction(async (manager) => {
+      sale.approvalStatus = 'aprobada';
+      sale.status = 'cerrada';
+      sale.approvedBy = actorId;
+      sale.approvedAt = new Date();
+      sale.planStatus = 'al_dia';
+      const savedSale = await manager.save(sale);
 
-    // Lote: aprobada ⇒ vendido
-    const lot = await this.lotRepo.findOne({ where: { id: sale.lotId } });
-    if (lot) {
-      lot.sellingStage = 'vendido';
-      lot.status = 'vendido';
-      await this.lotRepo.save(lot);
-    }
+      // Lote: aprobada ⇒ vendido
+      lot = await manager.findOne(LotEntity, { where: { id: sale.lotId } });
+      if (lot) {
+        lot.sellingStage = 'vendido';
+        lot.status = 'vendido';
+        await manager.save(LotEntity, lot);
+      }
 
-    // Ingreso inmutable por la venta al aprobarse
-    await this.txnRepo.save({
-      projectId: sale.projectId,
-      lotId: sale.lotId,
-      clientId: sale.clientId,
-      createdBy: actorId,
-      type: 'ingreso',
-      category: 'venta',
-      concept: `Venta aprobada lote #${sale.lotId}`,
-      amount: sale.salePrice,
+      // Ingreso inmutable por la venta al aprobarse
+      await manager.save(FinancialTransactionEntity, {
+        projectId: sale.projectId,
+        lotId: sale.lotId,
+        clientId: sale.clientId,
+        createdBy: actorId,
+        type: 'ingreso',
+        category: 'venta',
+        concept: `Venta aprobada lote #${sale.lotId}`,
+        amount: sale.salePrice,
+      });
+
+      // Cronograma si hay plan
+      if (sale.totalCuotas > 0) {
+        await this.buildSchedule(sale.id, sale.totalCuotas, Number(sale.valorCuota) || 0, sale.approvedAt, manager);
+      }
+
+      await this.audit(actorId, 'APROBAR_SEPARACION', 'sales', id, manager);
+      return savedSale;
     });
 
-    // Cronograma si hay plan
-    if (sale.totalCuotas > 0) {
-      await this.buildSchedule(sale.id, sale.totalCuotas, Number(sale.valorCuota) || 0, sale.approvedAt);
-    }
-
-    await this.audit(actorId, 'APROBAR_SEPARACION', 'sales', id);
     this.gateway.emitToAll('lot.updated', lot);
     this.gateway.emitToAll('sale.created', kept);
     return kept;
@@ -139,23 +154,30 @@ export class SalesService {
   async reject(id: number, actorId: number, note?: string) {
     const sale = await this.saleRepo.findOne({ where: { id } });
     if (!sale) throw new BadRequestException('Venta no encontrada');
-    sale.approvalStatus = 'rechazada';
-    sale.planStatus = 'cancelada';
-    sale.status = 'rechazada';
-    const kept = await this.saleRepo.save(sale);
 
-    const lot = await this.lotRepo.findOne({ where: { id: sale.lotId } });
-    if (lot && lot.sellingStage === 'separado') {
-      lot.sellingStage = 'disponible';
-      lot.clientId = null;
-      await this.lotRepo.save(lot);
-    }
-    await this.audit(actorId, 'RECHAZAR_SEPARACION', 'sales', id, );
+    let lot: LotEntity | null = null;
+    const kept = await this.dataSource.transaction(async (manager) => {
+      sale.approvalStatus = 'rechazada';
+      sale.planStatus = 'cancelada';
+      sale.status = 'rechazada';
+      const savedSale = await manager.save(sale);
+
+      lot = await manager.findOne(LotEntity, { where: { id: sale.lotId } });
+      if (lot && lot.sellingStage === 'separado') {
+        lot.sellingStage = 'disponible';
+        lot.clientId = null;
+        await manager.save(LotEntity, lot);
+      }
+      await this.audit(actorId, 'RECHAZAR_SEPARACION', 'sales', id, manager);
+      return savedSale;
+    });
+
     this.gateway.emitToAll('lot.updated', lot);
     return { kept, note };
   }
 
-  private async buildSchedule(saleId: number, n: number, amount: number, start?: Date | null) {
+  private async buildSchedule(saleId: number, n: number, amount: number, start?: Date | null, manager?: EntityManager) {
+    const repo = manager ? manager.getRepository(SaleInstallmentEntity) : this.instRepo;
     const begin = start ? new Date(start) : new Date();
     const rows: Partial<SaleInstallmentEntity>[] = [];
     for (let i = 1; i <= n; i++) {
@@ -168,7 +190,7 @@ export class SalesService {
         status: 'pendiente',
       });
     }
-    await this.instRepo.save(rows);
+    await repo.save(rows);
   }
 
 
