@@ -21,6 +21,7 @@ import { LotStatusHistoryEntity } from './shared/infrastructure/entities/lot-sta
 import { AuditLogEntity } from './shared/infrastructure/entities/audit-log.entity';
 import { SaleInstallmentEntity } from './shared/infrastructure/entities/sale-installment.entity';
 import { AppSettingEntity } from './shared/infrastructure/entities/app-setting.entity';
+import { ProjectDocumentEntity } from './shared/infrastructure/entities/project-document.entity';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ProjectsModule } from './modules/projects/projects.module';
@@ -55,6 +56,7 @@ import { DashboardsModule } from './modules/dashboards/dashboards.module';
         LotStatusHistoryEntity, AuditLogEntity,
         SaleInstallmentEntity,
         AppSettingEntity,
+        ProjectDocumentEntity,
       ],
       synchronize: false,
       logging: false,

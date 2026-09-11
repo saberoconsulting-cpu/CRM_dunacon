@@ -6,6 +6,7 @@ import {
   Param,
   ParseIntPipe,
   Post,
+  Query,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -34,6 +35,11 @@ export class ProjectsController {
   @Get('dashboard/:id')
   dashboard(@Param('id', ParseIntPipe) id: number) {
     return this.projectsService.dashboard(id);
+  }
+
+  @Get(':id/documents')
+  listDocuments(@Param('id', ParseIntPipe) id: number) {
+    return this.projectsService.listDocuments(id);
   }
 
   @Get(':id')
@@ -86,5 +92,16 @@ export class ProjectsController {
   ) {
     const up = await uploadToCloudinary(file.buffer, 'covers');
     return this.projectsService.updateCover(id, up.secure_url, actorId);
+  }
+
+  @Post(':id/documents')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  async uploadDocument(
+    @Param('id', ParseIntPipe) id: number,
+    @Query('kind') kind: string,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser('id') actorId: number,
+  ) {
+    return this.projectsService.uploadDocument(id, kind || 'general', file, actorId);
   }
 }

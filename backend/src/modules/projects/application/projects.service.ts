@@ -7,6 +7,8 @@ import { BlockEntity } from '../../../shared/infrastructure/entities/block.entit
 import { LotEntity } from '../../../shared/infrastructure/entities/lot.entity';
 import { PlanEntity } from '../../../shared/infrastructure/entities/plan.entity';
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
+import { ProjectDocumentEntity } from '../../../shared/infrastructure/entities/project-document.entity';
+import { uploadToCloudinary } from '../../../shared/infrastructure/upload/cloudinary.util';
 import { CreateProjectDto } from './dto/create-project.dto';
 
 @Injectable()
@@ -22,6 +24,8 @@ export class ProjectsService {
     private readonly planRepo: Repository<PlanEntity>,
     @InjectRepository(AuditLogEntity)
     private readonly auditRepo: Repository<AuditLogEntity>,
+    @InjectRepository(ProjectDocumentEntity)
+    private readonly projectDocumentRepo: Repository<ProjectDocumentEntity>,
   ) {}
 
   async audit(userId: number, action: string, entity?: string, entityId?: number) {
@@ -145,6 +149,63 @@ export class ProjectsService {
     await this.projectRepo.remove(project);
     await this.audit(actorId, 'ELIMINAR_PROYECTO', 'projects', id).catch(() => {});
     return { ok: true };
+  }
+
+  async listDocuments(projectId: number) {
+    const project = await this.projectRepo.findOne({ where: { id: projectId } });
+    if (!project) throw new NotFoundException('Proyecto no encontrado');
+
+    const documents = await this.projectDocumentRepo.find({
+      where: { projectId },
+      order: { createdAt: 'DESC' },
+    });
+
+    return documents.map((doc) => ({
+      id: doc.id,
+      projectId: doc.projectId,
+      kind: doc.kind,
+      originalName: doc.originalName,
+      fileName: doc.fileName,
+      mimeType: doc.mimeType,
+      size: Number(doc.size || 0),
+      url: doc.url,
+      publicId: doc.publicId,
+      createdAt: doc.createdAt,
+    }));
+  }
+
+  async uploadDocument(projectId: number, kind: string, file: Express.Multer.File, actorId: number) {
+    const project = await this.projectRepo.findOne({ where: { id: projectId } });
+    if (!project) throw new NotFoundException('Proyecto no encontrado');
+    if (!file) throw new NotFoundException('Archivo no recibido');
+
+    const uploaded = await uploadToCloudinary(file.buffer, 'documents');
+
+    const saved = await this.projectDocumentRepo.save({
+      projectId,
+      kind,
+      originalName: file.originalname,
+      fileName: file.originalname,
+      mimeType: file.mimetype,
+      size: String(file.size || 0),
+      url: uploaded.secure_url,
+      publicId: uploaded.public_id,
+    });
+
+    await this.audit(actorId, 'SUBIR_DOCUMENTO', 'project_documents', saved.id).catch(() => {});
+
+    return {
+      id: saved.id,
+      projectId: saved.projectId,
+      kind: saved.kind,
+      originalName: saved.originalName,
+      fileName: saved.fileName,
+      mimeType: saved.mimeType,
+      size: Number(saved.size || 0),
+      url: saved.url,
+      publicId: saved.publicId,
+      createdAt: saved.createdAt,
+    };
   }
 
   async dashboard(id: number) {

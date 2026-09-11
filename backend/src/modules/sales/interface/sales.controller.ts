@@ -73,6 +73,11 @@ export class SalesController {
     return this.salesService.reject(id, actorId, note);
   }
 
+  @Post('preview')
+  preview(@Body() dto: CreateSaleDto) {
+    return this.salesService.preview(dto);
+  }
+
   @Post()
   create(@Body() dto: CreateSaleDto, @CurrentUser('id') actorId: number) {
     return this.salesService.create(dto, actorId);
