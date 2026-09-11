@@ -45,8 +45,8 @@ export class PaymentsController {
   }
 
   @Get('caja')
-  summary() {
-    return this.paymentsService.summary();
+  summary(@Query('projectId') projectId?: string) {
+    return this.paymentsService.summary(projectId ? Number(projectId) : undefined);
   }
 
   @Get('alerts')
