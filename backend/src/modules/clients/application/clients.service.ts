@@ -98,13 +98,14 @@ export class ClientsService {
     return this.contactRepo.save({ clientId: id, note: dto.note, userId });
   }
 
-  async metricsByChannel() {
-    const rows = await this.clientRepo
+  async metricsByChannel(projectId?: number) {
+    const qb = this.clientRepo
       .createQueryBuilder('c')
       .select('c.source', 'channel')
       .addSelect('COUNT(*)', 'total')
-      .groupBy('c.source')
-      .getRawMany();
+      .groupBy('c.source');
+    if (projectId) qb.where('c.project_interest_id = :projectId', { projectId });
+    const rows = await qb.getRawMany();
     return rows.map((r) => ({ channel: r.channel, total: Number(r.total) }));
   }
 }
