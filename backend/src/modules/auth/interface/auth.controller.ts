@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from '../application/auth.service';
 import { LoginDto } from '../application/dto/login.dto';
 import { ChangePasswordDto } from '../application/dto/change-password.dto';
@@ -22,6 +23,8 @@ import { uploadToCloudinary } from '../../../shared/infrastructure/upload/cloudi
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  // Máx. 5 intentos por minuto por IP — evita fuerza bruta de contraseñas.
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
@@ -50,6 +53,9 @@ export class AuthController {
     return this.authService.updateAvatar(userId, up.secure_url);
   }
 
+  // Requiere la contraseña actual, pero igual limitamos intentos por si el
+  // token de un agente queda comprometido y alguien intenta adivinarla.
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @UseGuards(JwtAuthGuard)
   @Post('change-password')
   changePassword(@CurrentUser('id') userId: number, @Body() dto: ChangePasswordDto) {

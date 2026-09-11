@@ -2,6 +2,7 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { join } from 'path';
+import helmet from 'helmet';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { configureCloudinary, cloudinaryConfigured } from './shared/infrastructure/upload/cloudinary.util';
@@ -17,6 +18,16 @@ async function bootstrap() {
     });
   }
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+
+  // Cabeceras de seguridad HTTP. CSP se desactiva porque esta API no sirve HTML
+  // (rompería sin aportar nada) y el CORP se abre a cross-origin para que el
+  // frontend (otro dominio) pueda seguir cargando /uploads (planos, vouchers).
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginResourcePolicy: { policy: 'cross-origin' },
+    }),
+  );
 
   app.setGlobalPrefix('api');
   app.useGlobalPipes(
