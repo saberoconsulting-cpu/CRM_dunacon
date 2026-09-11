@@ -29,6 +29,10 @@ export class CreateBlockDto {
 
   @IsNotEmpty()
   points!: PointDto[];
+
+  @IsOptional()
+  @IsString()
+  address?: string;
 }
 
 export class UpdateBlockDto {
@@ -38,4 +42,8 @@ export class UpdateBlockDto {
 
   @IsOptional()
   points?: PointDto[];
+
+  @IsOptional()
+  @IsString()
+  address?: string;
 }
