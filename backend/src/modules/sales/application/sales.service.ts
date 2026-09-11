@@ -255,12 +255,15 @@ export class SalesService {
         's.id', 's.projectId', 's.lotId', 's.clientId', 's.agentId',
         's.salePrice', 's.saleDate', 's.commission', 's.conditions', 's.status', 's.createdAt',
       ])
-      .addSelect('u.name AS agentName')
-      .addSelect('c.full_name AS clientName')
-      .addSelect('l.code AS lotCode')
-      .addSelect('s.approval_status AS approvalStatus')
-      .addSelect('s.plan_status AS planStatus')
-      .addSelect('s.total_cuotas AS totalCuotas');
+      // Postgres pliega a minúsculas cualquier alias sin comillas (AS agentName
+      // vuelve "agentname"), por eso van entre comillas dobles — mismo bug que
+      // ya se corrigió en lots.service.ts.
+      .addSelect('u.name AS "agentName"')
+      .addSelect('c.full_name AS "clientName"')
+      .addSelect('l.code AS "lotCode"')
+      .addSelect('s.approval_status AS "approvalStatus"')
+      .addSelect('s.plan_status AS "planStatus"')
+      .addSelect('s.total_cuotas AS "totalCuotas"');
     if (filters.projectId) qb.andWhere('s.project_id = :projectId', { projectId: filters.projectId });
     if (filters.agentId) qb.andWhere('s.agent_id = :agentId', { agentId: filters.agentId });
     if (filters.status) qb.andWhere('s.approval_status = :status', { status: filters.status });
@@ -301,7 +304,9 @@ export class SalesService {
 
   /** Separaciones pendientes de aprobación (Admin/Tesorería). */
   async pendingApprovals() {
-    return this.saleRepo.find({ where: { approvalStatus: 'pendiente' }, order: { createdAt: 'DESC' } as any });
+    // Reusa list() para traer lotCode/agentName/commission ya resueltos
+    // (antes era un find() plano sin esos joins).
+    return this.list({ status: 'pendiente' });
   }
 
   /** Cronograma de una venta aprobada. */

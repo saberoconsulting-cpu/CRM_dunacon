@@ -1,5 +1,5 @@
 // modules/sales/application/dto/sale.dto.ts
-import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateSaleDto {
   @IsNumber()
@@ -20,6 +20,10 @@ export class CreateSaleDto {
   salePrice!: number;
 
   // Comisión inmobiliaria (opcional y configurable por lote)
+  // Sin decorador, el ValidationPipe (whitelist:true) lo descartaba en
+  // silencio antes de llegar al service — la comisión siempre daba 0.
+  @IsOptional()
+  @IsBoolean()
   appliesCommission?: boolean;
 
   @IsOptional()
