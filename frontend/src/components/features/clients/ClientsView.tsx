@@ -8,7 +8,7 @@ import { formatDate } from '@/lib/types';
 type C = { id: number; full_name: string; phone?: string | null; email?: string | null; source?: string; pipeline_status: string; agent_id?: number | null; created_at: string };
 const SOURCES = ['facebook', 'tiktok', 'instagram', 'web', 'referidos', 'otro'];
 const PIPELINE: any = { nuevo: 'Nuevo', contactado: 'Contactado', visito: 'Visitó', reservado: 'Reservado', compro: 'Compró', perdido: 'Perdido' };
-const PCOLOR: any = { nuevo: ['#EEF2FF', '#3730A3'], contactado: ['#F3F4F6', '#374151'], visito: ['#FFF6E4', '#B45309'], reservado: ['#FFF1F3', '#A90318'], compro: ['#EAF7EE', '#125A3B'], perdido: ['#F1F5F9', '#64748B'] };
+const PCOLOR: any = { nuevo: ['#EEF2FF', '#3730A3'], contactado: ['#F3F4F6', '#374151'], visito: ['#FFF6E4', '#B45309'], reservado: ['#E7F0FE', '#1259C4'], compro: ['#EAF7EE', '#125A3B'], perdido: ['#F1F5F9', '#64748B'] };
 
 export default function ClientsView({ lockedProjectId }: { lockedProjectId?: number }) {
   const [rows, setRows] = useState<C[]>([]);
@@ -72,7 +72,7 @@ export default function ClientsView({ lockedProjectId }: { lockedProjectId?: num
       <div className="space-y-5">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Clientes / leads" value={contados} />
-          <StatCard label="Reservados" value={rows.filter((r) => r.pipeline_status === 'reservado').length} color="#A90318" />
+          <StatCard label="Reservados" value={rows.filter((r) => r.pipeline_status === 'reservado').length} color="#1259C4" />
           <StatCard label="Compraron" value={rows.filter((r) => r.pipeline_status === 'compro').length} color="#125A3B" />
           <StatCard label="Contactados +" value={rows.filter((r) => ['contactado', 'visito'].includes(r.pipeline_status)).length} color="#3730A3" />
         </div>

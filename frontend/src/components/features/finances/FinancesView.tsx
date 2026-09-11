@@ -60,8 +60,8 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
       <div className="space-y-5">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard label="Ingresos" value={formatMoney(income)} color="#125A3B" />
-          <StatCard label="Egresos" value={formatMoney(expense)} color="#A90318" />
-          <StatCard label="Utilidad estimada" value={formatMoney(income - expense)} color={income - expense >= 0 ? '#125A3B' : '#A90318'} />
+          <StatCard label="Egresos" value={formatMoney(expense)} color="#1259C4" />
+          <StatCard label="Utilidad estimada" value={formatMoney(income - expense)} color={income - expense >= 0 ? '#125A3B' : '#1259C4'} />
           <StatCard label="Movimientos" value={txns.length} />
         </div>
         {statement && (
@@ -84,14 +84,14 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                 <div className="text-xs" style={{ color:'#6D28D9' }}>Financiamiento</div>
                 <div className="text-lg font-bold" style={{ color:'#5B21B6' }}>{formatMoney((statement.egresos_clasificados || {}).financiamiento)}</div>
               </div>
-              <div className="rounded-xl p-3" style={{ background:'#FFF1F3' }}>
-                <div className="text-xs" style={{ color:'#DC2626' }}>Operación</div>
-                <div className="text-lg font-bold" style={{ color:'#991B1B' }}>{formatMoney((statement.egresos_clasificados || {}).operacion)}</div>
+              <div className="rounded-xl p-3" style={{ background:'#E7F0FE' }}>
+                <div className="text-xs" style={{ color:'#1877F2' }}>Operación</div>
+                <div className="text-lg font-bold" style={{ color:'#1259C4' }}>{formatMoney((statement.egresos_clasificados || {}).operacion)}</div>
               </div>
             </div>
             <div className="flex flex-wrap gap-6 mt-4 pt-3 border-t" style={{ borderColor:'#E2E8F0' }}>
               <div><span className="text-sm" style={{ color:'#6B7280' }}>Total egresos:</span> <b>{formatMoney(statement.egresos_total)}</b></div>
-              <div><span className="text-sm" style={{ color:'#6B7280' }}>Utilidad:</span> <b style={{ color: Number(statement.utilidad) >= 0 ? '#125A3B' : '#991B1B' }}>{formatMoney(statement.utilidad)}</b></div>
+              <div><span className="text-sm" style={{ color:'#6B7280' }}>Utilidad:</span> <b style={{ color: Number(statement.utilidad) >= 0 ? '#125A3B' : '#1259C4' }}>{formatMoney(statement.utilidad)}</b></div>
             </div>
           </div>
         )}
@@ -105,7 +105,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
           <div className="flex items-center gap-2 mt-3">
             <span className="badge" style={{ background: '#EAF7EE', color: '#125A3B' }}>Ingreso</span>
-            <span className="badge" style={{ background: '#FFF1F3', color: '#A90318' }}>Egreso</span>
+            <span className="badge" style={{ background: '#E7F0FE', color: '#1259C4' }}>Egreso</span>
             <button className="btn-neutral ml-auto !h-8 text-xs" onClick={() => setCat('')}>Limpiar filtro</button>
           </div>
         </div>
@@ -121,7 +121,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
               <tbody className="divide-y divide-slate-100">
                 {txns.map((t) => (
                   <tr key={t.id}>
-                    <td className="td-base"><span className="badge" style={{ background: t.type === 'ingreso' ? '#EAF7EE' : '#FFF1F3', color: t.type === 'ingreso' ? '#125A3B' : '#A90318' }}>{t.type}</span></td>
+                    <td className="td-base"><span className="badge" style={{ background: t.type === 'ingreso' ? '#EAF7EE' : '#E7F0FE', color: t.type === 'ingreso' ? '#125A3B' : '#1259C4' }}>{t.type}</span></td>
                     <td className="td-base capitalize">{t.category}</td>
                     <td className="td-base">{t.concept}</td>
                     <td className="td-base font-medium">{formatMoney(t.amount)}</td>
