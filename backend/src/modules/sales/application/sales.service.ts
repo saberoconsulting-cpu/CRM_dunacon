@@ -10,22 +10,8 @@ import { UserEntity } from '../../../shared/infrastructure/entities/user.entity'
 import { FinancialTransactionEntity } from '../../../shared/infrastructure/entities/financial-transaction.entity';
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
+import { calcValorCuota } from '../../../shared/domain/finance.util';
 import { CreateSaleDto } from './dto/sale.dto';
-
-/**
- * Cuota fija por sistema francés a partir de una TEA (tasa efectiva anual).
- * i_mensual = (1+TEA)^(1/12) - 1 ; cuota = P * i(1+i)^n / ((1+i)^n - 1)
- * Sin interés (o n=0) cae al reparto simple (saldo / n), como antes.
- */
-function calcValorCuota(saldoFinanciar: number, totalCuotas: number, interestType?: string, teaPct?: number): number {
-  if (totalCuotas <= 0) return 0;
-  const tea = Number(teaPct || 0);
-  if (interestType !== 'tea' || tea <= 0) return saldoFinanciar / totalCuotas;
-  const iMensual = Math.pow(1 + tea / 100, 1 / 12) - 1;
-  if (iMensual <= 0) return saldoFinanciar / totalCuotas;
-  const factor = Math.pow(1 + iMensual, totalCuotas);
-  return (saldoFinanciar * iMensual * factor) / (factor - 1);
-}
 
 @Injectable()
 export class SalesService {
