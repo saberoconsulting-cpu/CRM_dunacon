@@ -216,7 +216,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   <td className="td-base font-bold text-white">{formatMoney(totalPrecioVenta)}</td>
                   <td className="td-base" colSpan={4}></td>
                   <td className="td-base font-bold text-white">{formatMoney(totalPagado)}</td>
-                  <td className="td-base font-bold text-white" colSpan={4}>% Pago: {pctPago.toFixed(1)}%</td>
+                  <td className="td-base font-bold text-white" colSpan={4} style={{ background: '#16A34A' }}>% Pago: {pctPago.toFixed(1)}%</td>
                 </tr>
               </tfoot>
             </table>
