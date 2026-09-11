@@ -88,13 +88,13 @@ npm run migration:revert
 1. `1710000000000-InitialSchema` — crea todas las tablas, constraints e índices.
 2. `1710000000001-Seed` — datos demo (usuarios, proyecto, plano, manzanas A/B/C, lotes, clientes, campañas).
 
-### Usuarios demo (contraseña: `Admin123!`)
+### Usuarios demo (contraseña: `Admin150` — ver migración `1710000000007-UpdateCredentials`)
 
 | Correo             | Rol        |
 |--------------------|------------|
 | admin@crm.com      | superadmin |
 | gerente@crm.com    | admin      |
-| maria@crm.com      | agent (3.5%) |
+| Rene@crm.com       | agent (3.5%) |
 | carlos@crm.com     | agent (3.0%) |
 
 ## Estados comerciales del lote (decisiones cerradas)

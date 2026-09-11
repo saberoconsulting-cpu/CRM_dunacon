@@ -28,7 +28,7 @@ export class SettingsService {
     const r = await this.getRaw();
     return {
       companyName: r.company_name || '',
-      color: r.color || '#E30620',
+      color: r.color || '#1877F2',
       alertCuotas: r.alert_cuotas != null ? r.alert_cuotas : '1',
       approvalNotify: r.approval_notify != null ? r.approval_notify : '1',
     };

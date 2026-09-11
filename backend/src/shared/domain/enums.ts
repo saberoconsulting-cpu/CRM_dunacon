@@ -31,7 +31,7 @@ export const LOT_STATUS_COLOR: Record<LotStatus, string> = {
   [LotStatus.RESERVADO]: '#F2B94B', // Reservado (amarillo)
   [LotStatus.ADELANTO]: '#4B83C4', // Con adelanto (azul)
   [LotStatus.PRIMERA_CUOTA]: '#8064A2', // Primera cuota (violeta)
-  [LotStatus.VENDIDO]: '#E30620', // Vendido (rojo de marca)
+  [LotStatus.VENDIDO]: '#1877F2', // Vendido (azul de marca)
 };
 
 export const LOT_STATUS_LABEL: Record<LotStatus, string> = {

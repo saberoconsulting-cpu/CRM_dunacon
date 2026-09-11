@@ -5,8 +5,9 @@ export class Seed1710000000001 implements MigrationInterface {
   name = 'Seed1710000000001';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Contraseña para todos los usuarios demo: Admin123!
-    const hash = '$2a$10$Li0QT/gEJEDBJklcajj5fOXFCxynJIxHEYg8YTh9PGVlCt2EQWKSi';
+    // Contraseña para todos los usuarios demo: Admin150 (ojo: 1710000000007 re-nombra
+    // el correo de "maria@crm.com" a "Rene@crm.com" y re-aplíca Admin150 en BD existentes)
+    const hash = '$2a$10$wnrxglfDMmO4a82olb4qgOW7ffPjw/IGyVoW7sIiW8y.HPUYKssu6';
 
     // ---- USUARIOS ----
     await queryRunner.query(
