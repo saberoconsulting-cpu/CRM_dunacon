@@ -34,8 +34,10 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [lots, setLots] = useState<any[]>([]);
   const [payProjects, setPayProjects] = useState<any[]>([]);
   const [payProjectId, setPayProjectId] = useState(lockedProjectId || 0);
+  const [clients, setClients] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [lotId, setLotId] = useState(0);
+  const [clientId, setClientId] = useState(0);
   const [amount, setAmount] = useState(0);
   const [dueDate, setDueDate] = useState('');
   const [payType, setPayType] = useState('reserva');
@@ -71,6 +73,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     api.get<{ overdue: P[] }>('/payments/alerts').then((a) => setOverdue(a?.overdue || [])).catch(() => setOverdue([]));
     api.get<any[]>('/lots?limit=200').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
     api.get<any>('/projects').then((d) => setPayProjects(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
+    api.get<any[]>('/clients?limit=500').then((d) => setClients(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
   }, [load]);
 
   useEffect(() => { setPage(1); }, [status, lockedProjectId]);
@@ -82,15 +85,23 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
   const availableLots = payProjectId ? lots.filter((l: any) => Number(l.projectId) === Number(payProjectId)) : lots;
 
+  // Al elegir el lote, precargar su cliente asignado (si tiene) — igual se
+  // puede cambiar a mano con el selector de Cliente.
+  function selectLot(id: number) {
+    setLotId(id);
+    const lot = lots.find((l: any) => l.id === id);
+    if (lot?.clientId) setClientId(Number(lot.clientId));
+  }
+
   async function registrar() {
     if (!lotId) return toast('Selecciona un lote', 'err');
     if (!amount) return toast('Ingresa monto', 'err');
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
-      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined });
+      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined });
       if (voucher) { await uploadFile(`/payments/voucher/${saved?.id}`, voucher); }
       toast(voucher ? 'Pago registrado con comprobante adjunto' : 'Pago registrado');
-      setOpen(false); setAmount(0); setDueDate(''); setNote(''); setLotId(0); setPayMethod('yape'); setReference(''); setVoucher(null); setVoucherUrl('');
+      setOpen(false); setAmount(0); setDueDate(''); setNote(''); setLotId(0); setClientId(0); setPayMethod('yape'); setReference(''); setVoucher(null); setVoucherUrl('');
       load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -233,16 +244,22 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Registrar pago</h3>
             {!lockedProjectId && (
               <Field label="Proyecto">
-                <select className="input" value={payProjectId} onChange={(e) => { setPayProjectId(Number(e.target.value)); setLotId(0); }}>
+                <select className="input" value={payProjectId} onChange={(e) => { setPayProjectId(Number(e.target.value)); setLotId(0); setClientId(0); }}>
                   <option value={0}>Selecciona el proyecto…</option>
                   {payProjects.map((pr: any) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
                 </select>
               </Field>
             )}
             <Field label="Lote">
-              <select className="input" value={lotId} onChange={(e) => setLotId(Number(e.target.value))}>
+              <select className="input" value={lotId} onChange={(e) => selectLot(Number(e.target.value))}>
                 <option value={0}>{payProjectId ? 'Selecciona el lote…' : 'Primero elige un proyecto'}</option>
                 {availableLots.map((l: any) => <option key={l.id} value={l.id}>Lote {l.code} — {formatMoney(l.price)}</option>)}
+              </select>
+            </Field>
+            <Field label="Cliente">
+              <select className="input" value={clientId} onChange={(e) => setClientId(Number(e.target.value))}>
+                <option value={0}>— Sin asignar —</option>
+                {clients.map((c: any) => <option key={c.id} value={c.id}>{c.fullName || c.full_name || '— Sin nombre —'}</option>)}
               </select>
             </Field>
             <Field label="Tipo">
