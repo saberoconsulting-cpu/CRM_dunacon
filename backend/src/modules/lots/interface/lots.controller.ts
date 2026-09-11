@@ -1,7 +1,9 @@
 // modules/lots/interface/lots.controller.ts
-import { Controller, Get, Param, ParseIntPipe, Query } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Query, UseGuards } from '@nestjs/common';
 import { LotsService } from '../application/lots.service';
+import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
 
+@UseGuards(JwtAuthGuard)
 @Controller('lots')
 export class LotsController {
   constructor(private readonly lotsService: LotsService) {}
