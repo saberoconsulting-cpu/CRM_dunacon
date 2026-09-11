@@ -5,6 +5,7 @@ import { api, uploadFile } from '@/lib/api';
 import { DistribucionPie, LineaTiempo } from '@/components/ui/charts/Charts';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { formatMoney, formatDate } from '@/lib/types';
+import { FiUpload, FiCamera } from 'react-icons/fi';
 
 type P = { id: number; projectId: number; lotId: number; type: string; amount: string; dueDate?: string | null; paidAt?: string | null; status: string };
 const TYPE_LABEL: any = { reserva: 'Reserva', adelanto: 'Adelanto', primera_cuota: 'Primera cuota', cuota: 'Cuota' };
@@ -200,11 +201,11 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             </Field>
             <Field label="Comprobante (baucher o captura)">
               <div className="flex flex-wrap gap-2">
-                <label className="btn-neutral cursor-pointer text-xs">
-                  📂 <input type="file" accept="image/*" className="hidden" onChange={(e) => { pickVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Subir imagen
+                <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                  <FiUpload /> <input type="file" accept="image/*" className="hidden" onChange={(e) => { pickVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Subir imagen
                 </label>
-                <label className="btn-neutral cursor-pointer text-xs">
-                  📷 <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pickVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Tomar foto
+                <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                  <FiCamera /> <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pickVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Tomar foto
                 </label>
                 {voucherUrl && <img src={voucherUrl} alt="Voucher" className="w-24 h-24 rounded-lg object-cover border" />}
               </div>

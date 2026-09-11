@@ -8,7 +8,7 @@ import { User, UserRole } from '@/lib/types';
 // Navegación lateral según rol
 import {
   FiHome, FiMap, FiLayers, FiUsers, FiTag, FiCreditCard, FiPieChart,
-  FiVolume2, FiAward, FiUserCheck, FiSettings, FiUser, FiLogOut, FiBell, FiArrowLeft,
+  FiVolume2, FiAward, FiUserCheck, FiSettings, FiUser, FiLogOut, FiBell, FiArrowLeft, FiCheckCircle,
 } from 'react-icons/fi';
 
 interface NavItem { href: string; label: string; icon: JSX.Element; roles: UserRole[] }
@@ -29,7 +29,7 @@ const GLOBAL_END_NAV: NavItem[] = [
 // Módulos que viven dentro del contexto de un proyecto.
 function projectNav(projectId: number): NavItem[] {
   return [
-    { href: `/projects/${projectId}`, label: 'Resumen', icon: <FiMap />, roles: ['superadmin', 'admin', 'agent'] },
+    { href: `/projects/${projectId}`, label: 'DashBoard', icon: <FiMap />, roles: ['superadmin', 'admin', 'agent'] },
     { href: `/projects/${projectId}/lots`, label: 'Lotes', icon: <FiLayers />, roles: ['superadmin', 'admin', 'agent'] },
     { href: `/projects/${projectId}/clients`, label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
     { href: `/projects/${projectId}/sales`, label: 'Ventas', icon: <FiTag />, roles: ['superadmin', 'admin', 'agent'] },
@@ -93,10 +93,15 @@ export default function Layout({ children, title }: { children: ReactNode; title
   const canManage = user.role === 'superadmin' || user.role === 'admin';
   const primaryNav = activeProjectId ? projectNav(activeProjectId) : GLOBAL_NAV;
   const visible = primaryNav.filter((n) => n.roles.includes(user.role));
-  const visibleEnd = GLOBAL_END_NAV.filter((n) => n.roles.includes(user.role));
+  // Agentes/Usuarios/Configuración son globales: dentro de un proyecto no se muestran,
+  // porque navegar a ellos sacaría al usuario del contexto del proyecto sin avisar.
+  const visibleEnd = activeProjectId ? [] : GLOBAL_END_NAV.filter((n) => n.roles.includes(user.role));
   const LOGO = user.name?.trim()?.charAt(0)?.toUpperCase() || user.email?.charAt(0)?.toUpperCase() || 'U';
 
   function isActive(h: string) {
+    // El "Resumen" del proyecto (/projects/5) es prefijo de sus propios submódulos
+    // (/projects/5/clients, /projects/5/sales...), así que ese exige match exacto.
+    if (/^\/projects\/\d+$/.test(h)) return pathname === h;
     return pathname === h || pathname.startsWith(h + '/');
   }
   function logout() { clearSession(); router.push('/login'); }
@@ -165,14 +170,18 @@ export default function Layout({ children, title }: { children: ReactNode; title
             </>
           )}
 
-          <div className="mt-4 mb-1.5 px-3 pt-3 border-t" style={{ borderColor: '#F0F1F3' }}>
-            <p className="text-[11px] font-semibold tracking-wide" style={{ color: '#9AA1AB' }}>CUENTA</p>
-          </div>
-          <button onClick={() => { router.push('/profile'); setOpen(false); }}
-            className={`w-full flex items-center gap-3 rounded-lg px-3 text-sm ${isActive('/profile') ? 'bg-[#1877F2] text-white' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
-            style={{ height: 38, fontWeight: 500 }}>
-            <span style={{ fontSize: 16 }}><FiUser /></span>Perfil
-          </button>
+          {!activeProjectId && (
+            <>
+              <div className="mt-4 mb-1.5 px-3 pt-3 border-t" style={{ borderColor: '#F0F1F3' }}>
+                <p className="text-[11px] font-semibold tracking-wide" style={{ color: '#9AA1AB' }}>CUENTA</p>
+              </div>
+              <button onClick={() => { router.push('/profile'); setOpen(false); }}
+                className={`w-full flex items-center gap-3 rounded-lg px-3 text-sm ${isActive('/profile') ? 'bg-[#1877F2] text-white' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
+                style={{ height: 38, fontWeight: 500 }}>
+                <span style={{ fontSize: 16 }}><FiUser /></span>Perfil
+              </button>
+            </>
+          )}
         </nav>
 
         <div className="px-3 py-3 border-t space-y-2 shrink-0" style={{ borderColor: '#F0F1F3' }}>
@@ -229,7 +238,11 @@ export default function Layout({ children, title }: { children: ReactNode; title
                       </button>
                     ))}
                   </div>
-                  {pendingApp.rows.length === 0 && <p className="px-4 py-8 text-sm text-center text-slate-400">Sin separaciones pendientes 🎉</p>}
+                  {pendingApp.rows.length === 0 && (
+                    <p className="px-4 py-8 text-sm text-center text-slate-400 flex flex-col items-center gap-1.5">
+                      <FiCheckCircle style={{ fontSize: 20 }} /> Sin separaciones pendientes
+                    </p>
+                  )}
                   {pendingApp.rows.length > 0 && (
                     <div className="px-3 py-2.5 border-t" style={{ borderColor: '#F0F1F3' }}>
                       <button className="btn-primary w-full justify-center" onClick={() => goToPendingSale(pendingApp.rows[0])}>Ir a revisar y aprobar</button>

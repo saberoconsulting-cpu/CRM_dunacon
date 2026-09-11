@@ -4,6 +4,7 @@ import Layout from '@/components/layout/Layout';
 import { Toaster, toast, Field } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/types';
+import { FiSettings } from 'react-icons/fi';
 
 type U = { id: number; name: string; email: string; phone?: string | null; role: string; status: string; commissionRate?: string; created_at: string; lastLoginAt?: string | null };
 
@@ -94,7 +95,7 @@ export default function UsersPage() {
                   <td className="td-base">{u.email}</td>
                   <td className="td-base"><RoleBadge r={u.role} /></td>
                   <td className="td-base">{u.role === 'agent' ? (
-                    <button className="text-[#1877F2] hover:underline text-xs font-medium inline-flex items-center gap-1" onClick={() => editCommission(u)}>⚙ {Number(u.commissionRate || 0)}% editar</button>
+                    <button className="text-[#1877F2] hover:underline text-xs font-medium inline-flex items-center gap-1" onClick={() => editCommission(u)}><FiSettings /> {Number(u.commissionRate || 0)}% editar</button>
                   ) : '—'}</td>
                   <td className="td-base"><span className="badge" style={{ background: u.status === 'active' ? '#EAF7EE' : '#F1F5F9', color: u.status === 'active' ? '#125A3B' : '#64748B' }}>{u.status}</span></td>
                   <td className="td-base">
