@@ -22,6 +22,8 @@ export class LotsService {
     private readonly clientRepo: Repository<ClientEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
+    @InjectRepository(BlockEntity)
+    private readonly blockRepo: Repository<BlockEntity>,
   ) {}
 
   // Listado global con filtros
@@ -105,15 +107,17 @@ export class LotsService {
     ]);
     let client: ClientEntity | null = null;
     let agent: { id: number; name: string; email: string; phone: string | null } | null = null;
+    let block: BlockEntity | null = null;
     if (lot.clientId) client = await this.clientRepo.findOne({ where: { id: lot.clientId } });
     if (lot.agentId) {
       const a = await this.userRepo.findOne({ where: { id: lot.agentId } });
       if (a) agent = { id: a.id, name: a.name, email: a.email, phone: a.phone };
     }
+    if (lot.blockId) block = await this.blockRepo.findOne({ where: { id: lot.blockId } });
     const totalPaid = payments
       .filter((p) => p.status === 'pagado')
       .reduce((s, p) => s + Number(p.amount), 0);
     const balance = Number(lot.price) - totalPaid;
-    return { lot, history, payments, client, agent, totalPaid, balance };
+    return { lot, history, payments, client, agent, block, totalPaid, balance };
   }
 }
