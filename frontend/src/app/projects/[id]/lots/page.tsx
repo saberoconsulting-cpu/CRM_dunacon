@@ -5,5 +5,5 @@ import LotsView from '@/components/features/lots/LotsView';
 
 export default function ProjectLotsPage() {
   const { id } = useParams<{ id: string }>();
-  return <Layout title="Lotes"><LotsView lockedProjectId={Number(id)} /></Layout>;
+  return <Layout title="Lotización"><LotsView lockedProjectId={Number(id)} /></Layout>;
 }

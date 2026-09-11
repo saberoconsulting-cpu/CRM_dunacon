@@ -30,7 +30,7 @@ const GLOBAL_END_NAV: NavItem[] = [
 function projectNav(projectId: number): NavItem[] {
   return [
     { href: `/projects/${projectId}`, label: 'DashBoard', icon: <FiMap />, roles: ['superadmin', 'admin', 'agent'] },
-    { href: `/projects/${projectId}/lots`, label: 'Lotes', icon: <FiLayers />, roles: ['superadmin', 'admin', 'agent'] },
+    { href: `/projects/${projectId}/lots`, label: 'Lotización', icon: <FiLayers />, roles: ['superadmin', 'admin', 'agent'] },
     { href: `/projects/${projectId}/clients`, label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
     { href: `/projects/${projectId}/sales`, label: 'Ventas', icon: <FiTag />, roles: ['superadmin', 'admin', 'agent'] },
     { href: `/projects/${projectId}/payments`, label: 'Pagos', icon: <FiCreditCard />, roles: ['superadmin', 'admin', 'agent'] },
