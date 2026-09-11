@@ -3,12 +3,19 @@ import { useEffect, useState, useCallback } from 'react';
 import { Toaster, toast, Field, EmptyState, StatCard } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { formatMoney, formatDate } from '@/lib/types';
+import ProjectDocuments from './ProjectDocuments';
 
-type S = { id: number; projectId: number; lotId: number; clientId?: number | null; agentId?: number | null; salePrice: string; saleDate: string; commission: string; agentName?: string | null; lotCode?: string | null; conditions?: string | null; approvalStatus?: string; totalCuotas?: number };
+type S = {
+  id: number; projectId: number; lotId: number; clientId?: number | null; agentId?: number | null;
+  salePrice: string; saleDate: string; commission: string; agentName?: string | null; clientName?: string | null;
+  lotCode?: string | null; conditions?: string | null; approvalStatus?: string; totalCuotas?: number;
+};
+
+const PAYMENT_METHODS = ['Contado', 'Al crédito'];
 
 export default function SalesView({ lockedProjectId }: { lockedProjectId?: number }) {
   const [rows, setRows] = useState<S[]>([]);
-  const [pending, setPending] = useState<any[]>([]);
+  const [pending, setPending] = useState<S[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -22,11 +29,16 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [clientId, setClientId] = useState(0);
   const [agentId, setAgentId] = useState(0);
   const [salePrice, setSalePrice] = useState(0);
+  const [paymentMethod, setPaymentMethod] = useState('Contado');
   const [totalCuotas, setTotalCuotas] = useState(0);
+  const [cuotaInicial, setCuotaInicial] = useState(0);
+  const [interestType, setInterestType] = useState<'sin_intereses' | 'tea'>('sin_intereses');
+  const [tea, setTea] = useState(0);
   const [applyCommission, setApplyCommission] = useState(false);
   const [commissionRate, setCommissionRate] = useState(0);
   const [saleDate, setSaleDate] = useState('');
   const [conditions, setConditions] = useState('');
+  const [preview, setPreview] = useState<any>(null);
 
   useEffect(() => { if (lockedProjectId) setProjectId(lockedProjectId); }, [lockedProjectId]);
 
@@ -39,7 +51,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       const data = await api.get<S[]>(`/sales${q.toString() ? `?${q}` : ''}`);
       setRows(data || []);
       if (role === 'admin' || role === 'superadmin') {
-        try { setPending((await api.get<any[]>('/sales/pending')) || []); } catch { setPending([]); }
+        try { setPending((await api.get<S[]>('/sales/pending')) || []); } catch { setPending([]); }
       }
     } catch (e: any) { toast(e.message, 'err'); } finally { setLoading(false); }
   }, [role, lockedProjectId]);
@@ -53,6 +65,28 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     api.get<any[]>('/lots').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
   }, [load, role]);
 
+  // Al elegir un lote, autocompletar el precio con su "Precio Venta" de Lotización
+  // (hace de "cotización" vigente sin necesidad de un módulo de cotizaciones aparte).
+  function selectLot(id: number) {
+    setLotId(id);
+    const lot = lots.find((l: any) => l.id === id);
+    if (lot) setSalePrice(Number(lot.salePrice || lot.price || 0));
+  }
+
+  // Calculadora en vivo: comisión, saldo a financiar, tramos de cuotas.
+  useEffect(() => {
+    if (!open || !salePrice) { setPreview(null); return; }
+    const t = setTimeout(() => {
+      api.post('/sales/preview', {
+        projectId: projectId || 1, lotId: lotId || 1, agentId: agentId || 1,
+        salePrice, appliesCommission: applyCommission, commissionRate: commissionRate || undefined,
+        totalCuotas, cuotaInicial, interestType, tea: interestType === 'tea' ? tea : undefined,
+        paymentMethod,
+      }).then(setPreview).catch(() => setPreview(null));
+    }, 300);
+    return () => clearTimeout(t);
+  }, [open, salePrice, applyCommission, commissionRate, totalCuotas, cuotaInicial, interestType, tea, paymentMethod, projectId, lotId, agentId]);
+
   async function registrar() {
     if (!lotId) return toast('Selecciona un lote', 'err');
     if (!clientId) return toast('Selecciona el cliente que adquiere/lote', 'err');
@@ -60,9 +94,22 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     if (!salePrice) return toast('Ingresa el precio de venta', 'err');
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
-      await api.post('/sales', { projectId: lockedProjectId || projectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || undefined, agentId: Number(agentId), salePrice, totalCuotas: totalCuotas || undefined, appliesCommission: applyCommission || undefined, commissionRate: applyCommission && commissionRate ? Number(commissionRate) : undefined, saleDate: saleDate || undefined, conditions: conditions || undefined });
+      await api.post('/sales', {
+        projectId: lockedProjectId || projectId || lot?.projectId || 1, lotId: Number(lotId),
+        clientId: clientId || undefined, agentId: Number(agentId), salePrice,
+        paymentMethod,
+        totalCuotas: paymentMethod === 'Contado' ? undefined : (totalCuotas || undefined),
+        cuotaInicial: paymentMethod === 'Contado' ? undefined : (cuotaInicial || undefined),
+        interestType: paymentMethod === 'Contado' ? undefined : interestType,
+        tea: paymentMethod !== 'Contado' && interestType === 'tea' ? tea : undefined,
+        appliesCommission: applyCommission || undefined,
+        commissionRate: applyCommission && commissionRate ? Number(commissionRate) : undefined,
+        saleDate: saleDate || undefined, conditions: conditions || undefined,
+      });
       toast('Separación registrada. Queda pendiente de validación.');
-      setOpen(false); setLotId(0); setClientId(0); setConditions(''); setSalePrice(0); setTotalCuotas(0); setApplyCommission(false); setCommissionRate(0); setSaleDate(''); setAgentId(0);
+      setOpen(false); setLotId(0); setClientId(0); setConditions(''); setSalePrice(0);
+      setPaymentMethod('Contado'); setTotalCuotas(0); setCuotaInicial(0); setInterestType('sin_intereses'); setTea(0);
+      setApplyCommission(false); setCommissionRate(0); setSaleDate(''); setAgentId(0); setPreview(null);
       load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -94,55 +141,78 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             <h3 className="font-semibold">Historial de ventas</h3>
             <button className="btn-primary" onClick={() => setOpen(true)}>Registrar venta</button>
           </div>
-          <p className="text-sm mt-1" style={{ color: '#6B7280' }}>Un lote Vendido no puede volver a venderse. El sistema lo valida.</p>{isAdmin && pending.length > 0 && (
-          <div className="card">
-            <h3 className="font-semibold mb-2">Separaciones por aprobar ({pending.length})</h3>
-            <div className="overflow-auto">
-              <table className="table-base">
-                <thead><tr><th className="th-base">Lote</th><th className="th-base">Precio</th><th className="th-base">Cuotas</th><th className="th-base">Acción</th></tr></thead>
-                <tbody className="divide-y divide-slate-100">
-                  {pending.map((s: any) => (
-                    <tr key={s.id}>
-                      <td className="td-base font-medium">Lote {s.lotId}</td>
-                      <td className="td-base">{formatMoney(s.salePrice)}</td>
-                      <td className="td-base">{s.totalCuotas || 0}</td>
-                      <td className="td-base">
-                        <button className="btn-primary !h-7 text-xs mr-1" onClick={() => aprobar(s)}>Aprobar</button>
-                        <button className="btn-danger !h-7 text-xs" onClick={() => rechazar(s)}>Rechazar</button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <p className="text-sm mt-1" style={{ color: '#6B7280' }}>Un lote Vendido no puede volver a venderse. El sistema lo valida.</p>
+        </div>
+
+        {isAdmin && pending.length > 0 && (
+          <div className="card p-0 overflow-auto">
+            <h3 className="font-semibold px-4 pt-4">Separaciones por aprobar ({pending.length})</h3>
+            <table className="table-base mt-2" style={{ minWidth: 820 }}>
+              <thead><tr>
+                <th className="th-base">Lote</th><th className="th-base">Cliente</th><th className="th-base">Agente</th>
+                <th className="th-base">Precio</th><th className="th-base">Forma de pago</th><th className="th-base">Cuotas</th>
+                <th className="th-base">Comisión</th><th className="th-base">Fecha</th><th className="th-base">Acción</th>
+              </tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {pending.map((s) => (
+                  <tr key={s.id}>
+                    <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
+                    <td className="td-base">{s.clientName || '—'}</td>
+                    <td className="td-base">{s.agentName || '—'}</td>
+                    <td className="td-base">{formatMoney(s.salePrice)}</td>
+                    <td className="td-base">{s.totalCuotas ? 'Al crédito' : 'Contado'}</td>
+                    <td className="td-base">{s.totalCuotas || 0}</td>
+                    <td className="td-base">{formatMoney(s.commission)}</td>
+                    <td className="td-base">{formatDate(s.saleDate)}</td>
+                    <td className="td-base whitespace-nowrap">
+                      <button className="btn-primary !h-7 text-xs mr-1" onClick={() => aprobar(s)}>Aprobar</button>
+                      <button className="btn-danger !h-7 text-xs" onClick={() => rechazar(s)}>Rechazar</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
-</div>
+
         <div className="card p-0 overflow-auto">
           {loading ? <p className="p-4 text-slate-400">Cargando…</p>
             : rows.length === 0 ? <EmptyState text="Aún no hay ventas registradas." /> : (
-            <table className="table-base">
+            <table className="table-base" style={{ minWidth: 820 }}>
               <thead><tr>
                 <th className="th-base">Lote</th><th className="th-base">Cliente</th><th className="th-base">Agente</th>
-                <th className="th-base">Precio</th><th className="th-base">Cuotas</th><th className="th-base">Estado</th><th className="th-base">Fecha</th>
+                <th className="th-base">Precio</th><th className="th-base">Forma de pago</th><th className="th-base">Cuotas</th>
+                <th className="th-base">Estado</th><th className="th-base">Fecha</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map((s) => (
                   <tr key={s.id}>
                     <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
-                    <td className="td-base">{s.clientId ? `Cliente #${s.clientId}` : '—'}</td>
+                    <td className="td-base">{s.clientName || '—'}</td>
                     <td className="td-base">{s.agentName || '—'}</td>
                     <td className="td-base font-medium">{formatMoney(s.salePrice)}</td>
+                    <td className="td-base">{s.totalCuotas ? 'Al crédito' : 'Contado'}</td>
                     <td className="td-base">{s.totalCuotas || 'Contado'}</td>
-                    <td className="td-base">{s.approvalStatus === 'pending' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#FEF3C7', color:'#92400E' }}>Pendiente</span> : <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#D1FAE5', color:'#065F46' }}>Aprobada</span>}</td>
+                    <td className="td-base">{s.approvalStatus === 'pendiente' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#FEF3C7', color:'#92400E' }}>Pendiente</span> : <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#D1FAE5', color:'#065F46' }}>Aprobada</span>}</td>
                     <td className="td-base">{formatDate(s.saleDate)}</td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot>
+                <tr style={{ background: '#0B2F6E' }}>
+                  <td className="td-base font-bold text-white" colSpan={3}>Totales ({rows.length})</td>
+                  <td className="td-base font-bold text-white">{formatMoney(total)}</td>
+                  <td className="td-base" colSpan={2}></td>
+                  <td className="td-base font-bold text-white" colSpan={2}>Comisión: {formatMoney(comm)}</td>
+                </tr>
+              </tfoot>
             </table>
             )}
         </div>
+
+        {lockedProjectId && <ProjectDocuments projectId={lockedProjectId} />}
       </div>
+
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
@@ -159,10 +229,20 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   </select>
                 </Field>
               )}
-              <Field label="Lote *"><select className="input" value={lotId} onChange={(e) => setLotId(Number(e.target.value))}><option value={0}>Selecciona…</option>{lots.filter((l: any) => l.status !== 'vendido' && l.sellingStage !== 'vendido' && l.sellingStage !== 'separado' && (!projectId || Number(l.projectId) === Number(projectId))).map((l: any) => <option key={l.id} value={l.id}>Lote {l.code} — {formatMoney(l.price)}</option>)}</select></Field>
+              <Field label="Lote *">
+                <select className="input" value={lotId} onChange={(e) => selectLot(Number(e.target.value))}>
+                  <option value={0}>Selecciona…</option>
+                  {lots.filter((l: any) => l.status !== 'vendido' && l.sellingStage !== 'vendido' && l.sellingStage !== 'separado' && (!projectId || Number(l.projectId) === Number(projectId))).map((l: any) => (
+                    <option key={l.id} value={l.id}>Lote {l.code} — {formatMoney(l.salePrice || l.price)}</option>
+                  ))}
+                </select>
+              </Field>
             </div>
+            {lotId > 0 && salePrice > 0 && (
+              <p className="text-xs mt-1" style={{ color: '#1259C4' }}>Precio autocompletado desde el Precio Venta de Lotización de este lote.</p>
+            )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
               <Field label="Cliente"><select className="input" value={clientId} onChange={(e) => setClientId(Number(e.target.value))}><option value={0}>— Sin asignar —</option>{clients.map((c: any) => <option key={c.id} value={c.id}>{(c.fullName || c.full_name || '— Sin nombre —')}</option>)}</select></Field>
               <Field label="Agente *"><select className="input" value={agentId} onChange={(e) => setAgentId(Number(e.target.value))}><option value={0}>Selecciona…</option>{agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
             </div>
@@ -189,8 +269,6 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   {(() => {
                     const ag = agents.find((a: any) => Number(a.id) === Number(agentId));
                     const adminRate = Number(ag?.commissionRate || 0);
-                    const rate = commissionRate || adminRate;
-                    const nett = rate ? Math.max(0, salePrice - (salePrice * rate) / 100) : salePrice;
                     return (
                       <div className="space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -201,10 +279,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                           <label className="label">Comisión para esta venta (%) — déjala vacía para usar la del admin</label>
                           <input className="input" type="number" min={0} max={100} step={0.1} placeholder="0" value={commissionRate || ''} onChange={(e) => setCommissionRate(Number(e.target.value))} />
                         </div>
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-sm border-t pt-3" style={{ borderColor: '#EEF0F2' }}>
-                          <span className="text-slate-600">Base de cuotas (precio − comisión):</span>
-                          <b>{formatMoney(nett)}</b>
-                        </div>
+                        {preview && (
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-sm border-t pt-3" style={{ borderColor: '#EEF0F2' }}>
+                            <span className="text-slate-600">Comisión:</span>
+                            <b>{formatMoney(preview.commissionAmount)}</b>
+                          </div>
+                        )}
                       </div>
                     );
                   })()}
@@ -212,10 +292,44 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               )}
             </div>
 
-            {/* Plan de pagos */}
-            <div className="mt-3">
-              <Field label="Nº de cuotas (0 = contado, se genera cronograma al aprobar)"><input type="number" min={0} max={120} className="input" value={totalCuotas} onChange={(e) => setTotalCuotas(Number(e.target.value))} /></Field>
+            {/* Forma de pago */}
+            <div className="border-t mt-4 pt-3">
+              <Field label="Forma de pago">
+                <select className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
+                  {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </Field>
             </div>
+
+            {paymentMethod !== 'Contado' && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                  <Field label="Cuota inicial (S/)"><input type="number" className="input" value={cuotaInicial || ''} onChange={(e) => setCuotaInicial(Number(e.target.value))} /></Field>
+                  <Field label="Nº de cuotas"><input type="number" min={0} max={120} className="input" value={totalCuotas} onChange={(e) => setTotalCuotas(Number(e.target.value))} /></Field>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
+                  <Field label="Interés">
+                    <select className="input" value={interestType} onChange={(e) => setInterestType(e.target.value as any)}>
+                      <option value="sin_intereses">Sin intereses</option>
+                      <option value="tea">Con TEA</option>
+                    </select>
+                  </Field>
+                  {interestType === 'tea' && (
+                    <Field label="TEA (%)"><input type="number" className="input" value={tea || ''} onChange={(e) => setTea(Number(e.target.value))} /></Field>
+                  )}
+                </div>
+
+                {preview && preview.totalCuotas > 0 && (
+                  <div className="rounded-xl bg-canvas p-4 mt-3 space-y-2 text-sm">
+                    <div className="flex justify-between"><span className="text-slate-600">Saldo a financiar:</span><b>{formatMoney(preview.saldoFinanciar)}</b></div>
+                    {preview.installments?.filter((t: any) => t.count > 0).map((t: any, i: number) => (
+                      <div key={i} className="flex justify-between"><span className="text-slate-600">{t.count} cuotas de:</span><b>{formatMoney(t.amount)}</b></div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
 
             <Field label="Condiciones"><textarea className="input mt-3" value={conditions} onChange={(e) => setConditions(e.target.value)} /></Field>
 
