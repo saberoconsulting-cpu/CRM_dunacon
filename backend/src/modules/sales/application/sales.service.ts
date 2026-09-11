@@ -135,6 +135,8 @@ export class SalesService {
         totalCuotas,
         valorCuota: String(valorCuota),
         planStatus: 'pendiente',
+        interestType: dto.interestType || 'sin_intereses',
+        tea: String(dto.interestType === 'tea' ? Number(dto.tea || 0) : 0),
       });
       const savedSale = await manager.save(sale);
 
@@ -280,7 +282,9 @@ export class SalesService {
       .addSelect('l.code AS "lotCode"')
       .addSelect('s.approval_status AS "approvalStatus"')
       .addSelect('s.plan_status AS "planStatus"')
-      .addSelect('s.total_cuotas AS "totalCuotas"');
+      .addSelect('s.total_cuotas AS "totalCuotas"')
+      .addSelect('s.interest_type AS "interestType"')
+      .addSelect('s.tea AS "tea"');
     if (filters.projectId) qb.andWhere('s.project_id = :projectId', { projectId: filters.projectId });
     if (filters.agentId) qb.andWhere('s.agent_id = :agentId', { agentId: filters.agentId });
     if (filters.status) qb.andWhere('s.approval_status = :status', { status: filters.status });
@@ -301,6 +305,8 @@ export class SalesService {
       approvalStatus: r.approvalStatus || 'pendiente',
       planStatus: r.planStatus || 'pendiente',
       totalCuotas: Number(r.totalCuotas || 0),
+      interestType: r.interestType || 'sin_intereses',
+      tea: Number(r.tea || 0),
     }));
   }
 
