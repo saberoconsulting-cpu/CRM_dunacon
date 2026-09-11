@@ -10,8 +10,12 @@ import { AuthService } from './application/auth.service';
 import { JwtStrategy } from './application/jwt.strategy';
 
 function buildJwtConfig(cs: ConfigService) {
+  const secret = cs.get<string>('JWT_SECRET');
+  if (!secret) {
+    throw new Error('JWT_SECRET no está definido. Configúralo en el .env antes de arrancar la API.');
+  }
   return {
-    secret: cs.get<string>('JWT_SECRET') || 'crm_secret',
+    secret,
     signOptions: { expiresIn: cs.get<string>('JWT_EXPIRES_IN') || '1d' },
   };
 }
