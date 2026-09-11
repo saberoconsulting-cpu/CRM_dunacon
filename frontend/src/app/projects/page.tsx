@@ -4,8 +4,8 @@ import Layout from '@/components/layout/Layout';
 import { Toaster, toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api, uploadFile } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { FiMap, FiCamera, FiMapPin } from 'react-icons/fi';
-import { Project, formatMoney } from '@/lib/types';
+import { FiCamera, FiEdit3, FiMap, FiMapPin, FiTrash2 } from 'react-icons/fi';
+import { BRAND, Project, formatMoney } from '@/lib/types';
 import ProjectsMap from '@/components/features/projects/ProjectsMap';
 
 export default function ProjectsPage() {
@@ -20,6 +20,7 @@ export default function ProjectsPage() {
   const [form, setForm] = useState<any>({});
   const [cover, setCover] = useState<File | null>(null);
   const setf = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
+  const projectActionBase = 'inline-flex h-10 min-w-0 items-center justify-center gap-2 border px-2 text-xs font-semibold transition-colors';
 
   function abrirMapaProyecto(p: Project) {
     setMapProjectId(p.id);
@@ -100,7 +101,7 @@ export default function ProjectsPage() {
     <Layout title="Proyectos">
       <Toaster />
       <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-        <p className="text-sm" style={{ color: '#6B7280' }}>Unidades comerciales activas y su avance comercial.</p>
+        <p className="text-sm" style={{ color: BRAND.muted }}>Unidades comerciales activas y su avance comercial.</p>
         <div className="flex flex-wrap gap-2">
           <button className="btn-neutral" onClick={() => { setMapProjectId(null); setOpenMap(true); }}>Ver en el mapa</button>
           {canEdit && <button className="btn-primary" onClick={() => setOpenCreate(true)}>Crear proyecto</button>}
@@ -131,24 +132,60 @@ export default function ProjectsPage() {
                 )}
                 {p.referencePrice && <div className="text-xs text-slate-400 mb-3">Precio ref: {formatMoney(p.referencePrice)}</div>}
                 {canEdit && (
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    <label className="btn-neutral !h-8 text-xs cursor-pointer inline-flex items-center gap-1">
-                      <FiCamera /> <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; reemplazarImagen(p.id, f); }} />Actualizar imagen
+                  <div className="grid grid-cols-2 gap-2 mb-3">
+                    <label
+                      className={`${projectActionBase} cursor-pointer bg-white hover:bg-slate-50`}
+                      style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.ink }}
+                      title="Actualizar imagen"
+                    >
+                      <FiCamera className="shrink-0" />
+                      <span className="truncate">Imagen</span>
+                      <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; reemplazarImagen(p.id, f); }} />
                     </label>
-                    <button className="btn-neutral !h-8 text-xs" onClick={() => abrirEdicion(p)}>Actualizar ubicación</button>
-                    <button className="btn-danger !h-8 text-xs" onClick={() => eliminarProyecto(p.id)}>Eliminar proyecto</button>
+                    <button
+                      type="button"
+                      className={`${projectActionBase} bg-white hover:bg-slate-50`}
+                      style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.ink }}
+                      onClick={() => abrirEdicion(p)}
+                      title="Actualizar ubicacion"
+                    >
+                      <FiEdit3 className="shrink-0" />
+                      <span className="truncate">Ubicacion</span>
+                    </button>
                   </div>
                 )}
-                <div className="flex gap-2">
+                <div className={canEdit ? 'grid grid-cols-3 gap-2' : 'grid grid-cols-[3rem_minmax(0,1fr)] gap-2'}>
                   <button
-                    className="btn-neutral !px-3"
+                    className={`${projectActionBase} bg-white hover:bg-slate-50`}
+                    style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.blue }}
                     title="Ver en mapa"
                     aria-label={`Ver ${p.name} en el mapa`}
                     onClick={() => abrirMapaProyecto(p)}
                   >
-                    <FiMapPin />
+                    <FiMapPin className="shrink-0" />
+                    {canEdit && <span className="truncate">Mapa</span>}
                   </button>
-                  <button className="btn-primary flex-1 justify-center" onClick={() => router.push(`/projects/${p.id}`)}>Ver proyecto y plano</button>
+                  <button
+                    type="button"
+                    className={`${projectActionBase} text-white`}
+                    style={{ background: BRAND.blue, borderColor: BRAND.blue, borderRadius: 4 }}
+                    onClick={() => router.push(`/projects/${p.id}`)}
+                  >
+                    <FiMap className="shrink-0" />
+                    <span className="truncate">{canEdit ? 'Proyecto' : 'Ver proyecto y plano'}</span>
+                  </button>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      className={`${projectActionBase} bg-white hover:bg-red-50`}
+                      style={{ borderColor: BRAND.border, borderRadius: 4, color: '#B42318' }}
+                      onClick={() => eliminarProyecto(p.id)}
+                      title="Eliminar proyecto"
+                    >
+                      <FiTrash2 className="shrink-0" />
+                      <span className="truncate">Eliminar</span>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

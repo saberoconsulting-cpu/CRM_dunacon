@@ -1,9 +1,10 @@
 'use client';
 import { ReactNode, useEffect, useState } from 'react';
-import { FiArrowDown, FiCreditCard, FiLayers, FiTag, FiUsers } from 'react-icons/fi';
+import { FiArrowDown, FiCreditCard, FiDownload, FiFileText, FiLayers, FiTag, FiUsers } from 'react-icons/fi';
 import { api } from '@/lib/api';
 import { FormattedDashboard } from '@/lib/dboard';
 import { BRAND, LOT_STATUS_COLOR, formatMoney } from '@/lib/types';
+import { Modal } from '@/components/ui/ui';
 
 const LOT_LABEL: Record<string, string> = {
   disponible: 'Disponible',
@@ -14,7 +15,8 @@ const LOT_LABEL: Record<string, string> = {
 };
 
 const PAGE_SIZE = 10;
-const ACTIVITY_PAGE_SIZE = 6;
+const MOVEMENTS_PREVIEW_SIZE = 8;
+const MOVEMENTS_HISTORY_SIZE = 10;
 
 function money(value: unknown): string {
   return formatMoney(Number(value || 0));
@@ -26,6 +28,60 @@ function pageCount(total: number, size: number) {
 
 function clampPage(page: number, total: number, size: number) {
   return Math.min(page, pageCount(total, size) - 1);
+}
+
+function proportion(value: number, base: number, minimum = 0) {
+  if (!base || value <= 0) return 0;
+  return Math.max(minimum, (value / base) * 100);
+}
+
+function movementDate(row: any) {
+  return row.createdAt || row.paidAt || row.saleDate || row.dueDate || null;
+}
+
+function formatShortDate(value?: string | null) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return date.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+function escapeCsv(value: unknown) {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function conicGradient(data: { value: number; color: string }[], total: number) {
+  if (!total) return BRAND.mutedLight;
+  let cursor = 0;
+  const stops = data
+    .filter((item) => item.value > 0)
+    .map((item) => {
+      const start = cursor;
+      cursor += (item.value / total) * 100;
+      return `${item.color} ${start}% ${cursor}%`;
+    });
+  return `conic-gradient(${stops.join(', ')})`;
+}
+
+function sparklinePoints(values: number[], width: number, height: number) {
+  const max = Math.max(...values, 1);
+  const step = values.length > 1 ? width / (values.length - 1) : width;
+  return values
+    .map((value, index) => {
+      const x = values.length > 1 ? index * step : width / 2;
+      const y = height - proportion(value, max) * (height / 100);
+      return `${x},${y}`;
+    })
+    .join(' ');
 }
 
 function Pagination({ page, total, size, onPage }: { page: number; total: number; size: number; onPage: (page: number) => void }) {
@@ -70,9 +126,9 @@ function Pagination({ page, total, size, onPage }: { page: number; total: number
   );
 }
 
-function SectionShell({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
+function SectionShell({ title, subtitle, children, className = '' }: { title: string; subtitle?: string; children: ReactNode; className?: string }) {
   return (
-    <section className="border bg-white p-4" style={{ borderColor: BRAND.border, borderRadius: 6, boxShadow: '0 1px 2px rgba(16,24,40,.035)' }}>
+    <section className={`border bg-white p-4 ${className}`} style={{ borderColor: BRAND.border, borderRadius: 6, boxShadow: '0 1px 2px rgba(16,24,40,.035)' }}>
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: BRAND.ink }}>{title}</h3>
@@ -133,24 +189,32 @@ function ProjectSales({ rows }: { rows: { name: string; value: number }[] }) {
   const max = ranked[0]?.value || 0;
 
   return (
-    <SectionShell title="Proyectos con mayor venta" subtitle="Ranking visual por monto vendido">
+    <SectionShell title="Proyectos con mayor venta" subtitle="Ranking visual por monto vendido" className="h-full">
       {ranked.length ? (
         <div className="space-y-3">
           {ranked.map((row, index) => {
-            const width = max ? Math.max(7, (row.value / max) * 100) : 0;
+            const width = proportion(row.value, max, 8);
             return (
-              <div key={`${row.name}-${index}`} className="grid grid-cols-[2rem_minmax(0,1fr)_auto] items-center gap-3">
-                <span className="text-xs font-semibold tabular-nums text-slate-400">{String(index + 1).padStart(2, '0')}</span>
-                <div className="min-w-0">
-                  <div className="mb-1 flex items-center justify-between gap-3">
-                    <span className="truncate text-sm font-semibold" style={{ color: BRAND.ink }}>{row.name}</span>
-                  </div>
-                  <div className="h-2.5 overflow-hidden" style={{ borderRadius: 2, background: BRAND.mutedLight }}>
-                    <div className="h-full" style={{ width: `${width}%`, background: BRAND.blue }} />
+              <article
+                key={`${row.name}-${index}`}
+                className="group relative overflow-hidden border p-3 transition-transform duration-200 hover:-translate-y-0.5"
+                style={{ borderColor: BRAND.border, borderRadius: 4 }}
+                title={`${row.name}: ${money(row.value)}`}
+              >
+                <div className="absolute inset-y-0 left-0 transition-all duration-300 group-hover:opacity-90" style={{ width: `${width}%`, background: BRAND.blue, opacity: 0.1 }} />
+                <div className="relative grid grid-cols-[2.5rem_minmax(0,1fr)] gap-3">
+                  <span className="text-xs font-semibold tabular-nums" style={{ color: BRAND.blue }}>{String(index + 1).padStart(2, '0')}</span>
+                  <div className="min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="truncate text-sm font-semibold" style={{ color: BRAND.ink }}>{row.name}</p>
+                      <p className="shrink-0 text-sm font-semibold tabular-nums" style={{ color: BRAND.ink }}>{money(row.value)}</p>
+                    </div>
+                    <div className="mt-2 h-1.5 overflow-hidden" style={{ background: BRAND.mutedLight, borderRadius: 2 }}>
+                      <div className="h-full transition-all duration-300 group-hover:brightness-95" style={{ width: `${width}%`, background: BRAND.blue }} />
+                    </div>
                   </div>
                 </div>
-                <span className="text-sm font-semibold tabular-nums" style={{ color: BRAND.ink }}>{money(row.value)}</span>
-              </div>
+              </article>
             );
           })}
         </div>
@@ -163,28 +227,35 @@ function ProjectSales({ rows }: { rows: { name: string; value: number }[] }) {
 
 function LotStatusDistribution({ data }: { data: { key: string; label: string; value: number; color: string }[] }) {
   const total = data.reduce((sum, item) => sum + item.value, 0);
+  const main = [...data].sort((a, b) => b.value - a.value)[0];
 
   return (
-    <SectionShell title="Estados de lotes" subtitle={`Total registrado: ${total}`}>
+    <SectionShell title="Estados de lotes" subtitle={`Total registrado: ${total}`} className="h-full">
       {total ? (
-        <>
-          <div className="flex h-4 overflow-hidden" style={{ borderRadius: 2, background: BRAND.mutedLight }}>
-            {data.map((item) => (
-              <div key={item.key} title={`${item.label}: ${item.value}`} style={{ width: `${(item.value / total) * 100}%`, background: item.color }} />
-            ))}
+        <div className="grid gap-4">
+          <div className="group mx-auto grid h-44 w-44 place-items-center transition-transform duration-200 hover:scale-[1.02]" title={`${main?.label || 'Lotes'}: ${main?.value || 0}`}>
+            <div
+              className="grid h-full w-full place-items-center"
+              style={{ background: conicGradient(data, total), borderRadius: '50%' }}
+            >
+              <div className="grid h-28 w-28 place-items-center bg-white transition-transform duration-200 group-hover:scale-95" style={{ borderRadius: '50%' }}>
+                <div className="text-center">
+                  <p className="text-3xl font-semibold tabular-nums" style={{ color: BRAND.ink }}>{total}</p>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">lotes</p>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-1">
+          <div className="grid grid-cols-2 gap-2">
             {data.map((item) => (
-              <div key={item.key} className="flex items-center justify-between gap-3 border-b py-2 last:border-b-0" style={{ borderColor: BRAND.border }}>
-                <span className="flex min-w-0 items-center gap-2 text-sm text-slate-600">
-                  <span className="h-2.5 w-2.5 shrink-0" style={{ background: item.color }} />
-                  <span className="truncate">{item.label}</span>
-                </span>
-                <span className="font-semibold tabular-nums" style={{ color: BRAND.ink }}>{item.value}</span>
+              <div key={item.key} className="group border p-2 transition-colors hover:bg-slate-50" style={{ borderColor: BRAND.border, borderRadius: 4 }} title={`${item.label}: ${item.value}`}>
+                <span className="block h-1 w-8 transition-all group-hover:w-12" style={{ background: item.color }} />
+                <p className="mt-2 truncate text-[11px] font-medium text-slate-500">{item.label}</p>
+                <p className="text-lg font-semibold tabular-nums" style={{ color: BRAND.ink }}>{item.value}</p>
               </div>
             ))}
           </div>
-        </>
+        </div>
       ) : (
         <p className="py-10 text-center text-sm text-slate-400">Aun no hay lotes registrados.</p>
       )}
@@ -193,28 +264,56 @@ function LotStatusDistribution({ data }: { data: { key: string; label: string; v
 }
 
 function LeadOrigins({ rows }: { rows: { channel: string; total: number }[] }) {
-  const total = rows.reduce((sum, item) => sum + Number(item.total || 0), 0);
+  const data = rows.filter((item) => Number(item.total || 0) > 0);
+  const total = data.reduce((sum, item) => sum + Number(item.total || 0), 0);
+  const max = data.reduce((largest, item) => Math.max(largest, Number(item.total || 0)), 0);
+  const values = data.map((item) => Number(item.total || 0));
+  const points = sparklinePoints(values, 260, 110);
 
   return (
-    <SectionShell title="Origen de leads" subtitle="Lectura secundaria">
+    <SectionShell title="Origen de leads" subtitle="Lectura secundaria" className="h-full">
       {total ? (
-        <div className="space-y-2">
-          {rows.map((item) => {
-            const color = BRAND.blue;
-            return (
-              <div key={item.channel} className="grid grid-cols-[minmax(0,1fr)_2rem] items-center gap-3">
-                <div className="min-w-0">
+        <div className="space-y-4">
+          <div className="group relative h-36 overflow-hidden border p-3" style={{ borderColor: BRAND.border, borderRadius: 4 }}>
+            <div className="absolute inset-0 grid grid-rows-4">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <span key={index} className="border-t first:border-t-0" style={{ borderColor: BRAND.border }} />
+              ))}
+            </div>
+            <svg className="relative h-full w-full overflow-visible" viewBox="0 0 260 110" preserveAspectRatio="none" aria-hidden="true">
+              <polyline points={points} fill="none" stroke={BRAND.blue} strokeWidth="3" strokeLinejoin="round" strokeLinecap="round" />
+              {data.map((item, index) => {
+                const [x, y] = points.split(' ')[index].split(',').map(Number);
+                return (
+                  <g key={item.channel}>
+                    <line x1={x} x2={x} y1={110} y2={y} stroke={BRAND.blue} strokeOpacity="0.14" strokeWidth="10" />
+                    <circle cx={x} cy={y} r="4" fill="white" stroke={BRAND.blue} strokeWidth="2">
+                      <title>{`${item.channel}: ${item.total}`}</title>
+                    </circle>
+                  </g>
+                );
+              })}
+            </svg>
+            <div className="pointer-events-none absolute right-3 top-3 border bg-white px-2 py-1 text-xs font-semibold tabular-nums opacity-0 transition-opacity group-hover:opacity-100" style={{ borderColor: BRAND.border, borderRadius: 3, color: BRAND.ink }}>
+              Total {total}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {data.map((item) => {
+              const value = Number(item.total || 0);
+              return (
+                <div key={item.channel} className="group border px-2 py-2" style={{ borderColor: BRAND.border, borderRadius: 4 }} title={`${item.channel}: ${value}`}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate text-xs font-medium capitalize text-slate-600">{item.channel}</span>
+                    <span className="truncate text-[11px] font-medium capitalize text-slate-500">{item.channel}</span>
+                    <span className="text-xs font-semibold tabular-nums" style={{ color: BRAND.ink }}>{value}</span>
                   </div>
-                  <div className="mt-1 h-1.5" style={{ borderRadius: 2, background: BRAND.mutedLight }}>
-                    <div className="h-full" style={{ width: `${(Number(item.total || 0) / total) * 100}%`, background: color, borderRadius: 2 }} />
+                  <div className="mt-2 h-1 overflow-hidden" style={{ background: BRAND.mutedLight, borderRadius: 2 }}>
+                    <div className="h-full transition-all duration-300 group-hover:brightness-95" style={{ width: `${proportion(value, max, 8)}%`, background: BRAND.blue }} />
                   </div>
                 </div>
-                <span className="text-right text-sm font-semibold tabular-nums">{item.total}</span>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       ) : (
         <p className="py-8 text-center text-sm text-slate-400">Sin leads registrados.</p>
@@ -223,13 +322,54 @@ function LeadOrigins({ rows }: { rows: { channel: string; total: number }[] }) {
   );
 }
 
-function AgentRanking({ rows }: { rows: FormattedDashboard['agentRanking'] }) {
+function AgentRanking({ rows, projects }: { rows: FormattedDashboard['agentRanking']; projects: any[] }) {
   const [page, setPage] = useState(0);
-  const safePage = clampPage(page, rows.length, PAGE_SIZE);
-  const frame = rows.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+  const [projectId, setProjectId] = useState('');
+  const [projectRows, setProjectRows] = useState<FormattedDashboard['agentRanking'] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const activeRows = projectId ? (projectRows || []) : rows;
+  const safePage = clampPage(page, activeRows.length, PAGE_SIZE);
+  const frame = activeRows.slice(safePage * PAGE_SIZE, safePage * PAGE_SIZE + PAGE_SIZE);
+
+  useEffect(() => {
+    setPage(0);
+    if (!projectId) {
+      setProjectRows(null);
+      return;
+    }
+
+    let alive = true;
+    setLoading(true);
+    api.get<any>(`/dashboards/project/${projectId}`)
+      .then((data) => {
+        if (alive) setProjectRows(Array.isArray(data?.agentRanking) ? data.agentRanking : []);
+      })
+      .catch(() => {
+        if (alive) setProjectRows([]);
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+
+    return () => { alive = false; };
+  }, [projectId]);
 
   return (
     <SectionShell title="Ranking de agentes" subtitle="Ventas, monto y comision">
+      <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <span className="text-xs text-slate-500">Filtra el ranking por proyecto sin mezclar datos.</span>
+        <select
+          value={projectId}
+          onChange={(event) => setProjectId(event.target.value)}
+          className="h-9 min-w-[220px] border bg-white px-3 text-sm outline-none"
+          style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.ink }}
+        >
+          <option value="">Todos los proyectos</option>
+          {projects.map((project) => (
+            <option key={project.id} value={project.id}>{project.name}</option>
+          ))}
+        </select>
+      </div>
       <div className="overflow-x-auto">
         <table className="table-base" style={{ tableLayout: 'fixed' }}>
           <colgroup>
@@ -261,55 +401,200 @@ function AgentRanking({ rows }: { rows: FormattedDashboard['agentRanking'] }) {
                 </tr>
               );
             })}
-            {rows.length === 0 && <tr><td className="td-base text-slate-400" colSpan={5}>Sin ventas todavia</td></tr>}
+            {activeRows.length === 0 && <tr><td className="td-base text-slate-400" colSpan={5}>{loading ? 'Cargando ranking...' : 'Sin ventas todavia'}</td></tr>}
           </tbody>
         </table>
       </div>
-      <Pagination page={safePage} total={rows.length} size={PAGE_SIZE} onPage={setPage} />
+      <Pagination page={safePage} total={activeRows.length} size={PAGE_SIZE} onPage={setPage} />
     </SectionShell>
   );
 }
 
-function ActivityList({ title, icon, rows, page, setPage, getLabel, getAmount, empty }: {
-  title: string;
-  icon: ReactNode;
-  rows: any[];
-  page: number;
-  setPage: (page: number) => void;
-  getLabel: (row: any) => string;
-  getAmount: (row: any) => number;
-  empty: string;
+type DashboardMovement = {
+  type: 'venta' | 'pago';
+  label: string;
+  amount: number;
+  date?: string | null;
+  projectId?: number | null;
+  projectName?: string | null;
+  lotCode?: string | null;
+  agentName?: string | null;
+  status?: string | null;
+};
+
+function MovementsCenter({ sales, payments, projectName }: {
+  sales: any[];
+  payments: any[];
+  projectName: (id: number) => string;
 }) {
-  const safePage = clampPage(page, rows.length, ACTIVITY_PAGE_SIZE);
-  const frame = rows.slice(safePage * ACTIVITY_PAGE_SIZE, safePage * ACTIVITY_PAGE_SIZE + ACTIVITY_PAGE_SIZE);
+  const [open, setOpen] = useState(false);
+  const [history, setHistory] = useState<DashboardMovement[]>([]);
+  const [historyPage, setHistoryPage] = useState(0);
+  const [historyTotal, setHistoryTotal] = useState(0);
+  const [showHistory, setShowHistory] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const preview = [...sales.map((sale) => ({
+    type: 'venta' as const,
+    label: sale.fromPayment ? `Pago - ${sale.type || 'confirmado'}` : 'Venta',
+    amount: Number(sale.salePrice || 0),
+    date: movementDate(sale),
+    projectId: sale.projectId ? Number(sale.projectId) : null,
+    projectName: sale.projectId ? projectName(Number(sale.projectId)) : null,
+    lotCode: sale.lotCode || null,
+    agentName: sale.agentName || null,
+    status: sale.status || null,
+  })), ...payments.map((payment) => ({
+    type: 'pago' as const,
+    label: String(payment.type || 'Pago'),
+    amount: Number(payment.amount || 0),
+    date: movementDate(payment),
+    projectId: payment.projectId ? Number(payment.projectId) : null,
+    projectName: payment.projectId ? projectName(Number(payment.projectId)) : null,
+    lotCode: payment.lotCode || null,
+    agentName: payment.agentName || null,
+    status: payment.status || null,
+  }))]
+    .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
+    .slice(0, MOVEMENTS_PREVIEW_SIZE);
+
+  const loadHistory = (page: number) => {
+    setLoading(true);
+    api.get<any>(`/dashboards/movements?page=${page + 1}&limit=${MOVEMENTS_HISTORY_SIZE}`)
+      .then((data) => {
+        setHistory(Array.isArray(data?.items) ? data.items : []);
+        setHistoryTotal(Number(data?.total || 0));
+        setHistoryPage(Math.max(0, Number(data?.page || 1) - 1));
+      })
+      .catch(() => {
+        setHistory([]);
+        setHistoryTotal(0);
+      })
+      .finally(() => setLoading(false));
+  };
+
+  const openHistory = () => {
+    setShowHistory(true);
+    loadHistory(0);
+  };
+
+  const exportRows = async (format: 'excel' | 'pdf') => {
+    const data = await api.get<any>('/dashboards/movements?page=1&limit=5000').catch(() => null);
+    const rows: DashboardMovement[] = Array.isArray(data?.items) ? data.items : history;
+    const tableRows = rows.map((row) => ({
+      Tipo: row.type === 'venta' ? 'Venta' : 'Pago',
+      Movimiento: row.label,
+      Proyecto: row.projectName || (row.projectId ? projectName(Number(row.projectId)) : '-'),
+      Lote: row.lotCode || '-',
+      Agente: row.agentName || '-',
+      Estado: row.status || '-',
+      Fecha: formatShortDate(row.date),
+      Monto: money(row.amount),
+    }));
+
+    if (format === 'excel') {
+      const header = Object.keys(tableRows[0] || { Tipo: '', Movimiento: '', Proyecto: '', Lote: '', Agente: '', Estado: '', Fecha: '', Monto: '' });
+      const content = [header.map(escapeCsv).join(','), ...tableRows.map((row) => header.map((key) => escapeCsv((row as any)[key])).join(','))].join('\n');
+      const blob = new Blob([`\uFEFF${content}`], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'historial-movimientos.csv';
+      link.click();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    const body = tableRows.map((row) => `<tr>${Object.values(row).map((value) => `<td>${escapeHtml(value)}</td>`).join('')}</tr>`).join('');
+    const print = window.open('', '_blank');
+    if (!print) return;
+    print.document.write(`<html><head><title>Historial de movimientos</title><style>body{font-family:Arial,sans-serif;color:${BRAND.ink}}table{width:100%;border-collapse:collapse}th,td{border:1px solid ${BRAND.border};padding:8px;font-size:12px;text-align:left}th{background:${BRAND.mutedLight}}</style></head><body><h2>Historial de movimientos</h2><table><thead><tr>${Object.keys(tableRows[0] || {}).map((key) => `<th>${escapeHtml(key)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></body></html>`);
+    print.document.close();
+    print.print();
+  };
+
+  const renderMovement = (row: DashboardMovement, index: number) => (
+    <li key={`${row.type}-${row.date}-${index}`} className="grid gap-2 border p-3 sm:grid-cols-[7rem_minmax(0,1fr)_auto]" style={{ borderColor: BRAND.border, borderRadius: 4 }}>
+      <span className="text-xs font-semibold uppercase tracking-[0.08em]" style={{ color: row.type === 'venta' ? BRAND.blue : BRAND.muted }}>
+        {row.type === 'venta' ? 'Venta' : 'Pago'}
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-sm font-semibold capitalize" style={{ color: BRAND.ink }}>{row.label}</p>
+        <p className="mt-1 truncate text-xs text-slate-500">
+          {(row.projectName || (row.projectId ? projectName(Number(row.projectId)) : 'Proyecto general'))}
+          {row.lotCode ? ` - Lote ${row.lotCode}` : ''}
+          {row.agentName ? ` - ${row.agentName}` : ''}
+        </p>
+      </div>
+      <div className="text-left sm:text-right">
+        <p className="text-sm font-semibold tabular-nums" style={{ color: BRAND.ink }}>{money(row.amount)}</p>
+        <p className="mt-1 text-xs text-slate-500">{formatShortDate(row.date)}</p>
+      </div>
+    </li>
+  );
 
   return (
-    <section className="border bg-white p-4" style={{ borderColor: BRAND.border, borderRadius: 6 }}>
-      <div className="mb-3 flex items-center gap-2">
-        <span className="grid h-8 w-8 place-items-center rounded-md bg-softblue" style={{ color: BRAND.blue }}>{icon}</span>
-        <h3 className="text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: BRAND.ink }}>{title}</h3>
+    <SectionShell title="Movimientos comerciales" subtitle="Vista general de ventas y pagos">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <span className="grid h-9 w-9 place-items-center bg-softblue" style={{ color: BRAND.blue, borderRadius: 4 }}><FiCreditCard /></span>
+          <div>
+            <p className="text-sm font-semibold" style={{ color: BRAND.ink }}>Ventas y pagos recientes</p>
+            <p className="text-xs text-slate-500">Se muestran juntos desde el historial general.</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => { setOpen(true); setShowHistory(false); }}
+          className="inline-flex h-9 items-center justify-center gap-2 border px-3 text-sm font-semibold"
+          style={{ borderColor: BRAND.blue, color: BRAND.blue, borderRadius: 4 }}
+        >
+          <FiFileText /> Ver ultimos movimientos
+        </button>
       </div>
-      {frame.length ? (
-        <ul className="divide-y divide-slate-100">
-          {frame.map((row, index) => (
-            <li key={`${title}-${safePage}-${index}`} className="flex items-center justify-between gap-3 py-2.5">
-              <span className="truncate text-sm capitalize text-slate-600">{getLabel(row)}</span>
-              <span className="shrink-0 text-sm font-semibold tabular-nums" style={{ color: BRAND.ink }}>{money(getAmount(row))}</span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="py-8 text-center text-sm text-slate-400">{empty}</p>
-      )}
-      <Pagination page={safePage} total={rows.length} size={ACTIVITY_PAGE_SIZE} onPage={setPage} />
-    </section>
+
+      <Modal open={open} onClose={() => setOpen(false)} title={showHistory ? 'Historial de movimientos' : 'Ultimos movimientos'} width="max-w-5xl">
+        <div className="space-y-4 p-4">
+          {!showHistory ? (
+            <>
+              {preview.length ? (
+                <ul className="grid gap-2">{preview.map(renderMovement)}</ul>
+              ) : (
+                <p className="py-8 text-center text-sm text-slate-400">Sin movimientos registrados.</p>
+              )}
+              <div className="flex justify-end border-t pt-4" style={{ borderColor: BRAND.border }}>
+                <button type="button" onClick={openHistory} className="h-9 border px-3 text-sm font-semibold text-white" style={{ background: BRAND.blue, borderColor: BRAND.blue, borderRadius: 4 }}>
+                  Ver historial
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-slate-500">{historyTotal} movimientos registrados</p>
+                <div className="flex flex-wrap gap-2">
+                  <button type="button" onClick={() => exportRows('excel')} className="inline-flex h-8 items-center gap-2 border px-3 text-xs font-semibold" style={{ borderColor: BRAND.border, borderRadius: 4 }}><FiDownload /> Excel</button>
+                  <button type="button" onClick={() => exportRows('pdf')} className="inline-flex h-8 items-center gap-2 border px-3 text-xs font-semibold" style={{ borderColor: BRAND.border, borderRadius: 4 }}><FiDownload /> PDF</button>
+                </div>
+              </div>
+              {loading ? (
+                <p className="py-8 text-center text-sm text-slate-400">Cargando historial...</p>
+              ) : history.length ? (
+                <ul className="grid gap-2">{history.map(renderMovement)}</ul>
+              ) : (
+                <p className="py-8 text-center text-sm text-slate-400">Sin movimientos registrados.</p>
+              )}
+              <Pagination page={historyPage} total={historyTotal} size={MOVEMENTS_HISTORY_SIZE} onPage={loadHistory} />
+            </>
+          )}
+        </div>
+      </Modal>
+    </SectionShell>
   );
 }
 
 export default function GeneralView({ d, compact = false }: { d: FormattedDashboard | null; compact?: boolean }) {
   const [projects, setProjects] = useState<any[]>([]);
-  const [salesPage, setSalesPage] = useState(0);
-  const [paymentsPage, setPaymentsPage] = useState(0);
 
   useEffect(() => {
     api.get<any[]>('/projects')
@@ -336,38 +621,15 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
     <div className="space-y-5">
       <CommercialSummary d={d} />
 
-      <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.45fr)_minmax(320px,.75fr)]">
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
         <ProjectSales rows={salesByProject} />
-        <div className="grid gap-5">
-          <LotStatusDistribution data={lotStatusData} />
-          <LeadOrigins rows={d.leadsByChannel || []} />
-        </div>
+        <LotStatusDistribution data={lotStatusData} />
+        <LeadOrigins rows={d.leadsByChannel || []} />
       </div>
 
-      <AgentRanking rows={d.agentRanking || []} />
+      <AgentRanking rows={d.agentRanking || []} projects={projects} />
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-        <ActivityList
-          title="Ultimas ventas"
-          icon={<FiTag />}
-          rows={d.recentSales || []}
-          page={salesPage}
-          setPage={setSalesPage}
-          getLabel={(sale) => sale.fromPayment ? (sale.type ? `Pago - ${sale.type}` : 'Pago confirmado') : 'Venta'}
-          getAmount={(sale) => Number(sale.salePrice || 0)}
-          empty="Sin ventas"
-        />
-        <ActivityList
-          title="Ultimos pagos"
-          icon={<FiCreditCard />}
-          rows={d.recentPayments || []}
-          page={paymentsPage}
-          setPage={setPaymentsPage}
-          getLabel={(payment) => String(payment.type || 'Pago')}
-          getAmount={(payment) => Number(payment.amount || 0)}
-          empty="Sin pagos"
-        />
-      </div>
+      <MovementsCenter sales={d.recentSales || []} payments={d.recentPayments || []} projectName={projectName} />
     </div>
   );
 }
