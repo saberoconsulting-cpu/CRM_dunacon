@@ -19,6 +19,7 @@ import { ExpenseEntity } from '../shared/infrastructure/entities/expense.entity'
 import { AuditLogEntity } from '../shared/infrastructure/entities/audit-log.entity';
 import { SaleInstallmentEntity } from '../shared/infrastructure/entities/sale-installment.entity';
 import { ProjectDocumentEntity } from '../shared/infrastructure/entities/project-document.entity';
+import { QuoteEntity } from '../shared/infrastructure/entities/quote.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -45,6 +46,7 @@ export const AppDataSource = new DataSource({
     AuditLogEntity,
     SaleInstallmentEntity,
     ProjectDocumentEntity,
+    QuoteEntity,
   ],
   migrations:
     process.env.NODE_ENV === 'production'
