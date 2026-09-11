@@ -1,7 +1,7 @@
 // modules/payments/application/payments.service.ts
 import { BadRequestException, Injectable } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { PaymentEntity } from '../../../shared/infrastructure/entities/payment.entity';
 import { LotEntity } from '../../../shared/infrastructure/entities/lot.entity';
 import { LotStatusHistoryEntity } from '../../../shared/infrastructure/entities/lot-status-history.entity';
@@ -28,6 +28,8 @@ export class PaymentsService {
     @InjectRepository(FinancialTransactionEntity)
     private readonly txnRepo: Repository<FinancialTransactionEntity>,
     private readonly gateway: NotificationsGateway,
+    @InjectDataSource()
+    private readonly dataSource: DataSource,
   ) {}
 
   async register(dto: CreatePaymentDto, actorId: number) {
@@ -37,72 +39,81 @@ export class PaymentsService {
     const clientId = typeof clientRaw === 'number' ? clientRaw : undefined;
     const agentId = typeof agentRaw === 'number' ? agentRaw : undefined;
 
-    const payment = this.paymentRepo.create({
-      projectId: dto.projectId,
-      lotId: dto.lotId,
-      clientId,
-      agentId,
-      type: dto.type,
-      amount: String(dto.amount),
-      paymentMethod: dto.paymentMethod || 'otro',
-      reference: dto.reference || undefined,
-      dueDate: dto.dueDate || undefined,
-      status: dto.dueDate ? 'pendiente' : 'pagado',
-      paidAt: dto.dueDate ? undefined : new Date(),
-      note: dto.note,
-      createdBy: actorId,
+    // El pago, el movimiento financiero, el historial y el estado del lote deben
+    // quedar todos o ninguno: antes cada save() era independiente y un fallo a
+    // mitad de camino (o la validación de "lote ya tiene asesor" de abajo) podía
+    // dejar el pago registrado sin su movimiento contable o sin actualizar el lote.
+    let lotStatusChanged = false;
+    const saved = await this.dataSource.transaction(async (manager) => {
+      const payment = manager.create(PaymentEntity, {
+        projectId: dto.projectId,
+        lotId: dto.lotId,
+        clientId,
+        agentId,
+        type: dto.type,
+        amount: String(dto.amount),
+        paymentMethod: dto.paymentMethod || 'otro',
+        reference: dto.reference || undefined,
+        dueDate: dto.dueDate || undefined,
+        status: dto.dueDate ? 'pendiente' : 'pagado',
+        paidAt: dto.dueDate ? undefined : new Date(),
+        note: dto.note,
+        createdBy: actorId,
+      });
+      // Si no hay fecha de vencimiento, se considera pago inmediato (pagado)
+      if (!dto.dueDate) payment.status = 'pagado';
+      const savedPayment = await manager.save(payment);
+      if (!savedPayment || !savedPayment.id) {
+        throw new Error('No se pudo registrar el pago');
+      }
+
+      // Registrar movimiento financiero inmutable (ingreso)
+      await manager.save(FinancialTransactionEntity, {
+        projectId: dto.projectId,
+        lotId: dto.lotId,
+        clientId,
+        paymentId: savedPayment.id,
+        createdBy: actorId,
+        type: 'ingreso',
+        category: dto.type,
+        concept: `Pago ${dto.type} del lote ${lot?.code ?? ''}`,
+        amount: String(dto.amount),
+      });
+
+      // Asesor/responsable automático y bloqueo de venta "robada".
+      // Reservar/adelantar = compromete el lote a su vendedor (regla de negocio).
+      if (lot && TYPE_STATUS[dto.type] && lot.status !== 'vendido') {
+        const claim = dto.agentId != null && !Number.isNaN(Number(dto.agentId)) ? Number(dto.agentId) : (actorId || null);
+        const owning = lot.agentId == null ? null : Number(lot.agentId);
+        if (owning && claim && owning !== claim) {
+          const msg = 'Este lote ya tiene un asesor responsable de su venta.';
+          throw new BadRequestException(msg + ' Puedes verlo, pero para gestionarlo o reasignarlo pídelo al administrador (evita registrar ventas duplicadas o ajenas).');
+        }
+        if (!owning && claim) {
+          lot.agentId = claim; // queda el responsable de esta venta
+        }
+
+        // Actualizar estado comercial del lote según el tipo de pago
+        const target = TYPE_STATUS[dto.type];
+        if (lot.status !== target) {
+          await manager.save(LotStatusHistoryEntity, {
+            lotId: lot.id,
+            fromStatus: lot.status,
+            toStatus: target,
+            userId: actorId,
+            note: `Pago por ${dto.type}`,
+          });
+          lot.status = target;
+          await manager.save(LotEntity, lot);
+          lotStatusChanged = true;
+        }
+      }
+
+      return savedPayment;
     });
-    // Si no hay fecha de vencimiento, se considera pago inmediato (pagado)
-    if (!dto.dueDate) payment.status = 'pagado';
-    const saved = await this.paymentRepo.save(payment);
-    if (!saved || !saved.id) {
-      throw new Error('No se pudo registrar el pago');
-    }
 
-    // Registrar movimiento financiero inmutable (ingreso)
-    await this.txnRepo.save({
-      projectId: dto.projectId,
-      lotId: dto.lotId,
-      clientId,
-      paymentId: saved.id,
-      createdBy: actorId,
-      type: 'ingreso',
-      category: dto.type,
-      concept: `Pago ${dto.type} del lote ${lot?.code ?? ''}`,
-      amount: String(dto.amount),
-    });
-
-    // Asesor/responsable automático y bloqueo de venta "robada".
-    // Reservar/adelantar = compromete el lote a su vendedor (regla de negocio).
-    if (lot && TYPE_STATUS[dto.type] && lot.status !== 'vendido') {
-      const claim = dto.agentId != null && !Number.isNaN(Number(dto.agentId)) ? Number(dto.agentId) : (actorId || null);
-      const owning = lot.agentId == null ? null : Number(lot.agentId);
-      if (owning && claim && owning !== claim) {
-        const msg = 'Este lote ya tiene un asesor responsable de su venta.';
-        throw new BadRequestException(msg + ' Puedes verlo, pero para gestionarlo o reasignarlo pídelo al administrador (evita registrar ventas duplicadas o ajenas).');
-      }
-      if (!owning && claim) {
-        lot.agentId = claim; // queda el responsable de esta venta
-      }
-    }
-    // Actualizar estado comercial del lote según el tipo de pago
-    if (lot && TYPE_STATUS[dto.type] && lot.status !== 'vendido') {
-      const target = TYPE_STATUS[dto.type];
-      if (lot.status !== target) {
-        await this.historyRepo.save({
-          lotId: lot.id,
-          fromStatus: lot.status,
-          toStatus: target,
-          userId: actorId,
-          note: `Pago por ${dto.type}`,
-        });
-        lot.status = target;
-        await this.lotRepo.save(lot);
-        this.gateway.emitToAll('lot.updated', lot);
-      }
-    }
-
-    // Emitir evento en tiempo real
+    // Eventos en tiempo real, solo una vez comprometida la transacción.
+    if (lotStatusChanged && lot) this.gateway.emitToAll('lot.updated', lot);
     this.gateway.emitToAll('payment.created', saved);
     return saved;
   }
