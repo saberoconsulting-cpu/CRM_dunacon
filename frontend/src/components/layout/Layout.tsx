@@ -33,7 +33,7 @@ function projectNav(projectId: number): NavItem[] {
     { href: `/projects/${projectId}/lots`, label: 'Lotización', icon: <FiLayers />, roles: ['superadmin', 'admin', 'agent'] },
     { href: `/projects/${projectId}/clients`, label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
     { href: `/projects/${projectId}/sales`, label: 'Ventas', icon: <FiTag />, roles: ['superadmin', 'admin', 'agent'] },
-    { href: `/projects/${projectId}/payments`, label: 'Pagos', icon: <FiCreditCard />, roles: ['superadmin', 'admin', 'agent'] },
+    { href: `/projects/${projectId}/payments`, label: 'Pago de Lotes', icon: <FiCreditCard />, roles: ['superadmin', 'admin', 'agent'] },
     { href: `/projects/${projectId}/finances`, label: 'Finanzas', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
     { href: `/projects/${projectId}/campaigns`, label: 'Campañas', icon: <FiVolume2 />, roles: ['superadmin', 'admin'] },
   ];

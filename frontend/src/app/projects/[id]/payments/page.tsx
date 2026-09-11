@@ -5,5 +5,5 @@ import PaymentsView from '@/components/features/payments/PaymentsView';
 
 export default function ProjectPaymentsPage() {
   const { id } = useParams<{ id: string }>();
-  return <Layout title="Pagos e ingresos"><PaymentsView lockedProjectId={Number(id)} /></Layout>;
+  return <Layout title="Pago de Lotes"><PaymentsView lockedProjectId={Number(id)} /></Layout>;
 }
