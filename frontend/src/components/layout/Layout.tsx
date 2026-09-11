@@ -9,6 +9,7 @@ import { User, UserRole } from '@/lib/types';
 import {
   FiHome, FiMap, FiLayers, FiUsers, FiTag, FiCreditCard, FiPieChart,
   FiVolume2, FiAward, FiUserCheck, FiSettings, FiUser, FiLogOut, FiBell, FiArrowLeft, FiCheckCircle,
+  FiFileText,
 } from 'react-icons/fi';
 
 interface NavItem { href: string; label: string; icon: JSX.Element; roles: UserRole[] }
@@ -31,6 +32,7 @@ function projectNav(projectId: number): NavItem[] {
   return [
     { href: `/projects/${projectId}`, label: 'DashBoard', icon: <FiMap />, roles: ['superadmin', 'admin', 'agent'] },
     { href: `/projects/${projectId}/lots`, label: 'Lotización', icon: <FiLayers />, roles: ['superadmin', 'admin', 'agent'] },
+    { href: `/projects/${projectId}/quotes`, label: 'Cotizaciones Lotes', icon: <FiFileText />, roles: ['superadmin', 'admin', 'agent'] },
     { href: `/projects/${projectId}/clients`, label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
     { href: `/projects/${projectId}/sales`, label: 'Ventas', icon: <FiTag />, roles: ['superadmin', 'admin', 'agent'] },
     { href: `/projects/${projectId}/payments`, label: 'Pago de Lotes', icon: <FiCreditCard />, roles: ['superadmin', 'admin', 'agent'] },
