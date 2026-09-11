@@ -46,6 +46,17 @@ export class LotEntity {
   @Column({ name: 'selling_stage', length: 20, default: 'disponible' })
   sellingStage: string;
 
+  // --- Ampliado: vista "Lotización" del cliente. Informativos, no alimentan
+  // el flujo de ventas/comisiones (ese sigue usando "price"). ---
+  @Column({ length: 80, nullable: true })
+  type?: string;
+
+  @Column({ name: 'sale_price', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  salePrice?: string;
+
+  @Column({ name: 'final_price', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  finalPrice?: string;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
