@@ -215,8 +215,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <tr style={{ background: '#0B2F6E' }}>
                   <td className="td-base font-bold text-white" colSpan={3}>Totales ({rows.length})</td>
                   <td className="td-base font-bold text-white">{formatMoney(total)}</td>
-                  <td className="td-base" colSpan={4}></td>
-                  <td className="td-base font-bold text-white" colSpan={2}>{formatMoney(comm)}</td>
+                  <td className="td-base" colSpan={6}></td>
+                  <td className="td-base font-bold text-white">{formatMoney(comm)}</td>
                 </tr>
               </tfoot>
             </table>
