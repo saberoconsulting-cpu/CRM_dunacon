@@ -4,7 +4,7 @@ import { Toaster, toast, Field, StatCard } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { formatMoney, formatDate } from '@/lib/types';
 
-type T = { id: number; type: string; category: string; concept: string; amount: string; txn_date: string; projectId?: number | null };
+type T = { id: number; type: string; category: string; concept: string; amount: string; txnDate: string; projectId?: number | null };
 
 const CATS = ['marketing', 'mantenimiento', 'obra', 'administracion', 'comisiones', 'otros'];
 
@@ -125,7 +125,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                     <td className="td-base capitalize">{t.category}</td>
                     <td className="td-base">{t.concept}</td>
                     <td className="td-base font-medium">{formatMoney(t.amount)}</td>
-                    <td className="td-base">{formatDate(t.txn_date)}</td>
+                    <td className="td-base">{formatDate(t.txnDate)}</td>
                   </tr>
                 ))}
               </tbody>
