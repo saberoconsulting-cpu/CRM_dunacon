@@ -2,7 +2,7 @@
 // src/components/charts/Charts.tsx
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid,
-  PieChart, Pie, Cell, Legend, LineChart, Line,
+  PieChart, Pie, Cell, Legend, LineChart, Line, ComposedChart,
 } from 'recharts';
 
 export function IngresosVsEgresos({ data }: { data: { mes: string; ingreso: number; egreso: number }[] }) {
@@ -47,6 +47,28 @@ export function DistribucionPie({ data, colorMap }: { data: { name: string; valu
         <Tooltip formatter={(v: any) => Number(v).toLocaleString('es-PE')} />
         <Legend />
       </PieChart>
+    </ResponsiveContainer>
+  );
+}
+
+// Barra (eje izquierdo) + línea (eje derecho) — ej. "Pagos vs Morosidad": el
+// monto pagado y el monto moroso viven en escalas distintas y se comparan mes
+// a mes sin que uno aplaste al otro visualmente.
+export function DobleEje({ data, barKey, barName, lineKey, lineName, barColor = '#1877F2', lineColor = '#DC2626' }: {
+  data: any[]; barKey: string; barName: string; lineKey: string; lineName: string; barColor?: string; lineColor?: string;
+}) {
+  return (
+    <ResponsiveContainer width="100%" height={260}>
+      <ComposedChart data={data}>
+        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+        <XAxis dataKey="month" fontSize={11} />
+        <YAxis yAxisId="left" fontSize={11} />
+        <YAxis yAxisId="right" orientation="right" fontSize={11} />
+        <Tooltip formatter={(v: any) => 'S/ ' + Number(v).toLocaleString('es-PE')} />
+        <Legend />
+        <Bar yAxisId="left" dataKey={barKey} name={barName} fill={barColor} radius={[4, 4, 0, 0]} />
+        <Line yAxisId="right" type="monotone" dataKey={lineKey} name={lineName} stroke={lineColor} strokeWidth={2} dot={{ r: 3 }} />
+      </ComposedChart>
     </ResponsiveContainer>
   );
 }
