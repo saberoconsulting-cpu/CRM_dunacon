@@ -26,6 +26,14 @@ export class CreateSaleDto {
   @IsNumber()
   commissionRate?: number;
 
+  @IsOptional()
+  @IsNumber()
+  commissionAmount?: number;
+
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string;
+
   // Fraccionamiento opcional
   @IsOptional()
   @IsNumber()
@@ -33,7 +41,23 @@ export class CreateSaleDto {
 
   @IsOptional()
   @IsNumber()
+  cuotaInicial?: number;
+
+  @IsOptional()
+  @IsNumber()
+  saldoFinanciar?: number;
+
+  @IsOptional()
+  @IsNumber()
   valorCuota?: number;
+
+  @IsOptional()
+  @IsString()
+  interestType?: 'sin_intereses' | 'tea';
+
+  @IsOptional()
+  @IsNumber()
+  tea?: number;
 
   @IsOptional()
   @IsString()

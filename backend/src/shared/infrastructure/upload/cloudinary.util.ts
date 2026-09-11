@@ -24,16 +24,16 @@ export function cloudinaryConfigured(): boolean {
 /** Sube un buffer/image y devuelve URL segura pública. */
 export async function uploadToCloudinary(
   buffer: Buffer,
-  folder: 'covers' | 'plans' | 'uploads',
+  folder: 'covers' | 'plans' | 'uploads' | 'documents',
 ): Promise<{ secure_url: string; public_id: string }> {
   if (!cloudinaryConfigured()) {
     throw new Error(
-      'Cloudinary no configurado (CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET).',
+      'Cloudinary no configurado (CLOUDINARY_CLOUD_NAME/API_KEY/API_KEY/API_SECRET).',
     );
   }
   return new Promise((resolve, reject) => {
     cloudinary.uploader
-      .upload_stream({ resource_type: 'image', folder }, (err, res) => {
+      .upload_stream({ resource_type: 'auto', folder }, (err, res) => {
         if (err) return reject(err);
         if (!res) return reject(new Error('Cloudinary sin resultado'));
         resolve({ secure_url: res.secure_url, public_id: res.public_id });
