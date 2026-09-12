@@ -4,6 +4,7 @@ import { FiArrowDown, FiCreditCard, FiDownload, FiFileText, FiLayers, FiTag, FiU
 import { api } from '@/lib/api';
 import { FormattedDashboard } from '@/lib/dboard';
 import { BRAND, LOT_STATUS_COLOR, formatMoney } from '@/lib/types';
+import { printHtml } from '@/lib/print';
 import { Modal } from '@/components/ui/ui';
 
 const LOT_LABEL: Record<string, string> = {
@@ -596,9 +597,7 @@ function MovementsCenter({ sales, payments, projects, projectName }: {
       return;
     }
 
-    const print = window.open('', '_blank');
-    if (!print) return;
-    print.document.write(`
+    printHtml(`
       <html>
         <head><title>Historial de movimientos</title><style>${styles}</style></head>
         <body>
@@ -612,8 +611,6 @@ function MovementsCenter({ sales, payments, projects, projectName }: {
         </body>
       </html>
     `);
-    print.document.close();
-    print.onload = () => print.print();
   };
 
   const renderMovement = (row: DashboardMovement, index: number) => (

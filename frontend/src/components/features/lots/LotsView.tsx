@@ -4,6 +4,7 @@ import { Toaster, toast, EmptyState } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import { Lot, formatMoney, LOT_STATUS_LABEL, LOT_STATUS_COLOR } from '@/lib/types';
+import { printHtml } from '@/lib/print';
 import { FiDownload, FiLayers } from 'react-icons/fi';
 
 export default function LotsView({ lockedProjectId }: { lockedProjectId?: number }) {
@@ -133,9 +134,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
       ? lotGroups().map((g) => pdfTable(`Manzana ${g.blockName}${g.blockAddress ? ` - ${g.blockAddress}` : ''}`, g.items)).join('')
       : pdfTable('Listado general de lotes', sortedLots);
     const t = totals(viewMode === 'blocks' ? lots : sortedLots);
-    const print = window.open('', '_blank');
-    if (!print) return;
-    print.document.write(`
+    printHtml(`
       <html>
         <head>
           <title>Lotes - ${escapeHtml(projectName)}</title>
@@ -184,8 +183,6 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
         </body>
       </html>
     `);
-    print.document.close();
-    print.onload = () => print.print();
   }
 
   function renderTable(items: Lot[], key: string, header?: { blockName: string; blockAddress: string | null }) {

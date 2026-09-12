@@ -18,7 +18,7 @@ import {
 import { FiArrowDownCircle, FiCamera, FiDollarSign, FiPieChart, FiTag, FiTrendingUp, FiUsers } from 'react-icons/fi';
 import { IoLocationSharp } from 'react-icons/io5';
 import Layout from '@/components/layout/Layout';
-import { LegendChips, Toaster, toast } from '@/components/ui/ui';
+import { Toaster, toast } from '@/components/ui/ui';
 import InteractivePlan from '@/components/features/plan/InteractivePlan';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import { api, getToken, uploadFile } from '@/lib/api';
@@ -26,6 +26,25 @@ import { getSocket } from '@/lib/socket';
 import { Block, Lot, formatMoney, LOT_STATUS_COLOR, LOT_STATUS_LABEL } from '@/lib/types';
 
 const LOT_STATUSES = ['disponible', 'reservado', 'adelanto', 'primera_cuota', 'vendido'] as const;
+const PROJECT_PLAN_STATUS_COLOR = {
+  disponible: '#1F9D63',
+  reservado: '#F2B94B',
+  adelanto: '#F2B94B',
+  primera_cuota: '#F2B94B',
+  vendido: '#DC2626',
+};
+const PROJECT_PLAN_STATUS_LABEL = {
+  disponible: 'Disponible',
+  reservado: 'Reservado',
+  adelanto: 'Reservado',
+  primera_cuota: 'Reservado',
+  vendido: 'Vendido',
+};
+const PROJECT_PLAN_LEGEND = [
+  { label: 'Disponible', color: PROJECT_PLAN_STATUS_COLOR.disponible },
+  { label: 'Reservado', color: PROJECT_PLAN_STATUS_COLOR.reservado },
+  { label: 'Vendido', color: PROJECT_PLAN_STATUS_COLOR.vendido },
+];
 const LEAD_CHANNEL_LABEL: Record<string, string> = {
   facebook: 'Facebook',
   tiktok: 'TikTok',
@@ -91,6 +110,19 @@ function ReportCard({ title, subtitle, children }: { title: string; subtitle?: s
 
 function EmptyReport({ text }: { text: string }) {
   return <div className="grid h-[230px] place-items-center text-center text-sm text-slate-400">{text}</div>;
+}
+
+function ProjectPlanLegend() {
+  return (
+    <div className="flex flex-wrap items-center gap-3 text-xs">
+      {PROJECT_PLAN_LEGEND.map((item) => (
+        <span key={item.label} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+          {item.label}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function DonutReport({ data, colorMap }: { data: ChartDatum[]; colorMap: (name: string) => string }) {
@@ -266,7 +298,7 @@ export default function ProjectPage() {
   return (
     <Layout title={project.name} titleLogoUrl={project.logoImageUrl}>
       <Toaster />
-      <LotDetailModal lotId={selectedLot} onClose={() => setSelectedLot(null)} onChanged={loadAll} />
+      <LotDetailModal lotId={selectedLot} onClose={() => setSelectedLot(null)} onChanged={loadAll} compact />
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <div className="card flex flex-wrap items-center gap-4 xl:col-span-3">
@@ -310,7 +342,7 @@ export default function ProjectPage() {
             <div>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                 <h3 className="font-semibold">Plano interactivo</h3>
-                <LegendChips />
+                <ProjectPlanLegend />
                 <div className="flex gap-2">
                   <a href={`/projects/${projectId}/plan-editor`} className="btn-primary !h-8 text-xs">Editar plano</a>
                 </div>
@@ -326,6 +358,9 @@ export default function ProjectPage() {
                   onBlockClick={(block) => setBlockFilter(blockFilter === block.id ? null : block.id)}
                   onLotClick={(lot) => setSelectedLot(lot.id)}
                   selectedLotId={selectedLot}
+                  lotStatusColors={PROJECT_PLAN_STATUS_COLOR}
+                  lotStatusLabels={PROJECT_PLAN_STATUS_LABEL}
+                  tooltipMode="status"
                 />
               </div>
             </div>

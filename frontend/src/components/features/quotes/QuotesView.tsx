@@ -1,17 +1,183 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Toaster, toast, Field, EmptyState } from '@/components/ui/ui';
+import { FiDownload, FiEye } from 'react-icons/fi';
+import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/types';
+import { printHtml } from '@/lib/print';
 
 type Q = {
-  id: number; lotId: number; lotCode?: string | null; clientName: string;
+  id: number; projectId: number; lotId: number; lotCode?: string | null; clientName: string;
   finalPriceUsd: number; cuotaInicialUsd: number; totalCuotas: number;
   paymentMethod: string; exchangeRate: number; createdAt: string;
 };
 
+type ScheduleRow = {
+  month: number; saldoInicial: number; interes: number; amortizacionCapital: number;
+  amortizacionExtraordinaria: number; cuota: number; saldoFinal: number;
+};
+
 const fmtUsd = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtPen = (n: number) => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const PAY_LABEL: Record<string, string> = { contado: 'Contado', credito: 'Credito' };
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function buildQuoteHtml(data: any, schedule: ScheduleRow[], docType: 'cotizacion' | 'financiamiento') {
+  const { quote, lot, block, project } = data;
+  const adminLogoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
+  const projectLogoUrl = project?.logoImageUrl || '';
+  const rate = Number(quote.exchangeRate || 0);
+  const toPen = (usd: number) => usd * rate;
+  const generatedAt = new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' });
+  const saldo = Math.max(0, Number(quote.finalPriceUsd || 0) - Number(quote.cuotaInicialUsd || 0));
+  const start = new Date(quote.createdAt || Date.now());
+  const dueDate = (m: number) => new Date(start.getFullYear(), start.getMonth() + m, start.getDate()).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const summaryRows: [string, number][] = [
+    ['Precio del lote', Number(quote.lotPriceUsd || 0)],
+    ['Bono descuento', -Number(quote.bonoDescuentoUsd || 0)],
+    ['Bono especial', -Number(quote.bonoEspecialUsd || 0)],
+    ['Precio final', Number(quote.finalPriceUsd || 0)],
+  ];
+  if (quote.paymentMethod === 'credito') {
+    summaryRows.push(['Cuota inicial', -Number(quote.cuotaInicialUsd || 0)]);
+    summaryRows.push(['Saldo a financiar', saldo]);
+  }
+  const summaryHtml = summaryRows.map(([label, usd]) => `
+    <tr><td>${escapeHtml(label)}</td><td class="num">${escapeHtml(fmtUsd(usd))}</td><td class="num">${escapeHtml(fmtPen(toPen(usd)))}</td></tr>
+  `).join('');
+  const detailRows = [
+    ['Cliente', quote.clientName],
+    ['Correo', quote.clientEmail || '-'],
+    ['Telefono', quote.clientPhone || '-'],
+    ['Proyecto', project?.name || '-'],
+    ['Lote', lot?.code || '-'],
+    ['Direccion', block?.address || lot?.blockAddress || '-'],
+    ['Area', `${Number(lot?.areaM2 || 0).toLocaleString('es-PE')} m2`],
+    ['Precio US$/m2', fmtUsd(Number(quote.pricePerM2Usd || 0))],
+    ['Forma de pago', PAY_LABEL[quote.paymentMethod] || quote.paymentMethod],
+    ['Tipo de cambio', `S/ ${Number(quote.exchangeRate || 0).toFixed(4)}`],
+  ].map(([label, value]) => `<tr><td class="label">${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join('');
+  const scheduleRows = schedule.map((row) => `
+    <tr>
+      <td>${row.month}</td>
+      <td>${escapeHtml(dueDate(row.month))}</td>
+      <td class="num">${escapeHtml(fmtUsd(row.saldoInicial))}</td>
+      <td class="num">${escapeHtml(fmtUsd(row.amortizacionCapital))}</td>
+      <td class="num">${escapeHtml(fmtUsd(row.amortizacionExtraordinaria))}</td>
+      <td class="num">${escapeHtml(fmtUsd(row.interes))}</td>
+      <td class="num strong">${escapeHtml(fmtUsd(row.cuota))}</td>
+      <td class="num">${escapeHtml(fmtUsd(row.saldoFinal))}</td>
+    </tr>
+  `).join('');
+  const isFinancing = docType === 'financiamiento';
+  const title = isFinancing ? 'Cronograma de financiamiento' : 'Cotizacion de lote';
+  const subtitle = `${project?.name || 'Proyecto'} - Lote ${lot?.code || quote.lotId}`;
+
+  return `
+    <html>
+      <head>
+        <title>${escapeHtml(title)} Q${quote.id}</title>
+        <style>
+          body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white}
+          .watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.055;z-index:-1}
+          .watermark img{width:560px;max-width:72vw}
+          .brand{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}
+          .logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}
+          .eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+          h1{margin:0;font-size:24px;line-height:1.15;color:#111827} h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
+          p{margin:4px 0 0;color:#6B7280;font-size:12px}
+          .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}
+          .summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}
+          .summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+          .summary strong{display:block;margin-top:4px;color:#111827;font-size:12px}
+          table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}
+          th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:10px;text-align:left;text-transform:uppercase}
+          td{border:1px solid #E5E7EB;padding:8px 7px;font-size:11px;vertical-align:top}
+          tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}
+          .num{text-align:right;white-space:nowrap}.strong{font-weight:700;color:#1259C4}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:10px;text-align:right}
+          @media print{body{margin:18px}.brand,.summary{break-inside:avoid}thead{display:table-header-group}.watermark{position:fixed}}
+        </style>
+      </head>
+      <body>
+        <div class="watermark"><img src="${escapeHtml(adminLogoUrl)}" alt="" /></div>
+        <div class="brand">
+          <div><p class="eyebrow">${escapeHtml(title)}</p><h1>Q${quote.id} - ${escapeHtml(subtitle)}</h1><p>Generado ${escapeHtml(generatedAt)}</p></div>
+          <div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div>
+        </div>
+        <div class="summary">
+          <div><span>Precio final</span><strong>${escapeHtml(fmtUsd(Number(quote.finalPriceUsd || 0)))}</strong></div>
+          <div><span>Cuota inicial</span><strong>${quote.paymentMethod === 'credito' ? escapeHtml(fmtUsd(Number(quote.cuotaInicialUsd || 0))) : 'Contado'}</strong></div>
+          <div><span>Saldo</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
+          <div><span>Cuotas</span><strong>${Number(quote.totalCuotas || 0)}</strong></div>
+        </div>
+        <h2>Datos de la cotizacion</h2>
+        <table><tbody>${detailRows}</tbody></table>
+        <h2>Resumen comercial</h2>
+        <table><thead><tr><th>Concepto</th><th>US$</th><th>S/</th></tr></thead><tbody>${summaryHtml}</tbody></table>
+        ${quote.paymentMethod === 'credito' ? `
+          <h2>Financiamiento</h2>
+          <div class="summary">
+            <div><span>Interes</span><strong>${quote.interestType === 'tea' ? `TEA ${Number(quote.tea || 0)}%` : 'Sin intereses'}</strong></div>
+            <div><span>Valor cuota</span><strong>${escapeHtml(fmtUsd(Number(quote.valorCuotaUsd || 0)))}</strong></div>
+            <div><span>Plazo</span><strong>${Number(quote.totalCuotas || 0)} meses</strong></div>
+            <div><span>Tipo cambio</span><strong>S/ ${Number(quote.exchangeRate || 0).toFixed(4)}</strong></div>
+          </div>
+          ${isFinancing ? `<table><thead><tr><th>Mes</th><th>Fecha</th><th>Saldo inicial</th><th>Amort. capital</th><th>Amort. extra</th><th>Interes</th><th>Cuota</th><th>Saldo final</th></tr></thead><tbody>${scheduleRows || '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody></table>` : ''}
+        ` : ''}
+        <div class="footer">Dunacon - CRM Inmobiliario</div>
+      </body>
+    </html>
+  `;
+}
+
+function QuoteDocumentModal({ doc, onClose }: { doc: { id: number; type: 'cotizacion' | 'financiamiento' }; onClose: () => void }) {
+  const [data, setData] = useState<any>(null);
+  const [schedule, setSchedule] = useState<ScheduleRow[]>([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setData(null); setSchedule([]); setError('');
+    Promise.all([
+      api.get<any>(`/quotes/${doc.id}`),
+      doc.type === 'financiamiento' ? api.get<ScheduleRow[]>(`/quotes/${doc.id}/schedule`) : Promise.resolve([]),
+    ]).then(([quoteData, rows]) => {
+      setData(quoteData);
+      setSchedule(rows || []);
+    }).catch((e: any) => setError(e.message || 'No se pudo cargar el documento'));
+  }, [doc.id, doc.type]);
+
+  const html = data ? buildQuoteHtml(data, schedule, doc.type) : '';
+
+  return (
+    <Modal open onClose={onClose} title={doc.type === 'financiamiento' ? 'Financiamiento' : 'Cotizacion'} width="max-w-5xl">
+      <div className="space-y-3">
+        <div className="flex justify-end">
+          <button className="btn-primary !h-8 text-xs" disabled={!data} onClick={() => printHtml(html)}>
+            <FiDownload /> Descargar PDF
+          </button>
+        </div>
+        {error ? (
+          <div className="rounded-lg border p-6 text-center text-sm text-slate-400" style={{ borderColor: '#E5E7EB' }}>{error}</div>
+        ) : !data ? (
+          <div className="rounded-lg border p-6 text-center text-sm text-slate-400" style={{ borderColor: '#E5E7EB' }}>Cargando documento...</div>
+        ) : (
+          <div className="max-h-[70vh] overflow-auto rounded-lg border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
+            <iframe title="Vista previa del documento" srcDoc={html} className="h-[70vh] w-full rounded-md bg-white" />
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
 
 export default function QuotesView({ lockedProjectId }: { lockedProjectId?: number }) {
   const searchParams = useSearchParams();
@@ -19,19 +185,17 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [loading, setLoading] = useState(true);
   const [lots, setLots] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
+  const [doc, setDoc] = useState<{ id: number; type: 'cotizacion' | 'financiamiento' } | null>(null);
 
-  // Cliente
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
   const [clientPhone, setClientPhone] = useState('');
-  // Lote / precio
   const [lotId, setLotId] = useState(0);
   const [pricePerM2Usd, setPricePerM2Usd] = useState(0);
   const [lotPriceUsd, setLotPriceUsd] = useState(0);
   const [bonoDescuento, setBonoDescuento] = useState(0);
   const [bonoEspecial, setBonoEspecial] = useState(0);
   const [exchangeRate, setExchangeRate] = useState(3.75);
-  // Financiamiento
   const [paymentMethod, setPaymentMethod] = useState<'contado' | 'credito'>('credito');
   const [cuotaInicialUsd, setCuotaInicialUsd] = useState(0);
   const [totalCuotas, setTotalCuotas] = useState(60);
@@ -42,13 +206,11 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     const q = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
     api.get<Q[]>(`/quotes${q}`).then((d) => setRows(d || [])).catch((e: any) => toast(e.message, 'err')).finally(() => setLoading(false));
   }
+
   useEffect(() => { load(); }, [lockedProjectId]);
   useEffect(() => {
     api.get<any[]>('/lots?limit=500').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
   }, []);
-
-  // Si venimos desde "Cotizar" en la ficha de un lote (?lotId=X), abrir el
-  // formulario ya con ese lote elegido.
   useEffect(() => {
     const pre = searchParams?.get('lotId');
     if (pre) { selectLot(Number(pre)); setOpen(true); }
@@ -68,7 +230,6 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     }
   }
 
-  // Recalcular el precio del lote cuando cambia el precio por m² a mano.
   function onPricePerM2Change(v: number) {
     setPricePerM2Usd(v);
     if (selectedLot) setLotPriceUsd(Number((v * Number(selectedLot.areaM2)).toFixed(2)));
@@ -99,7 +260,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
         tea: paymentMethod === 'credito' && interestType === 'tea' ? tea : undefined,
         exchangeRate,
       });
-      toast('Cotización generada'); setOpen(false); resetForm(); load();
+      toast('Cotizacion generada'); setOpen(false); resetForm(); load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
 
@@ -111,14 +272,14 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h3 className="font-semibold">Cotizaciones de lotes</h3>
-              <p className="text-sm mt-0.5" style={{ color: '#6B7280' }}>Calcula el financiamiento y genera la Cotización y el cronograma de pagos para el cliente.</p>
+              <p className="text-sm mt-0.5" style={{ color: '#6B7280' }}>Calcula el financiamiento y genera la cotizacion y el cronograma de pagos para el cliente.</p>
             </div>
-            <button className="btn-primary" onClick={() => setOpen(true)}>Nueva cotización</button>
+            <button className="btn-primary" onClick={() => setOpen(true)}>Nueva cotizacion</button>
           </div>
         </div>
         <div className="card p-0 overflow-auto">
-          {loading ? <p className="p-4 text-slate-400">Cargando…</p>
-            : rows.length === 0 ? <EmptyState text="Aún no hay cotizaciones generadas." />
+          {loading ? <p className="p-4 text-slate-400">Cargando...</p>
+            : rows.length === 0 ? <EmptyState text="Aun no hay cotizaciones generadas." />
             : (
             <table className="table-base" style={{ width: '100%', minWidth: 760 }}>
               <thead><tr>
@@ -134,12 +295,12 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                     <td className="td-base">{q.clientName}</td>
                     <td className="td-base font-medium">{fmtUsd(q.finalPriceUsd)}</td>
                     <td className="td-base">{q.paymentMethod === 'credito' ? fmtUsd(q.cuotaInicialUsd) : 'Contado'}</td>
-                    <td className="td-base">{q.totalCuotas || '—'}</td>
+                    <td className="td-base">{q.totalCuotas || '-'}</td>
                     <td className="td-base">{formatDate(q.createdAt)}</td>
                     <td className="td-base whitespace-nowrap">
-                      <button className="btn-secondary !h-7 !px-2 text-xs mr-1" onClick={() => window.open(`/projects/${lockedProjectId}/quotes/${q.id}/cotizacion`, '_blank')}>Ver Cotización</button>
+                      <button className="btn-secondary !h-7 !px-2 text-xs mr-1" onClick={() => setDoc({ id: q.id, type: 'cotizacion' })}><FiEye /> Ver Cotizacion</button>
                       {q.paymentMethod === 'credito' && (
-                        <button className="btn-secondary !h-7 !px-2 text-xs" onClick={() => window.open(`/projects/${lockedProjectId}/quotes/${q.id}/financiamiento`, '_blank')}>Ver Financiamiento</button>
+                        <button className="btn-secondary !h-7 !px-2 text-xs" onClick={() => setDoc({ id: q.id, type: 'financiamiento' })}><FiEye /> Ver Financiamiento</button>
                       )}
                     </td>
                   </tr>
@@ -160,25 +321,25 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             <h4 className="font-semibold text-sm text-slate-700 mb-2">Cliente</h4>
             <Field label="Nombres *"><input className="input" value={clientName} onChange={(e) => setClientName(e.target.value)} /></Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Correo electrónico"><input className="input" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} /></Field>
-              <Field label="Teléfono"><input className="input" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} /></Field>
+              <Field label="Correo electronico"><input className="input" value={clientEmail} onChange={(e) => setClientEmail(e.target.value)} /></Field>
+              <Field label="Telefono"><input className="input" value={clientPhone} onChange={(e) => setClientPhone(e.target.value)} /></Field>
             </div>
 
             <h4 className="font-semibold text-sm text-slate-700 mb-2 mt-4">Lote</h4>
             <Field label="Lote elegido *">
               <select className="input" value={lotId} onChange={(e) => selectLot(Number(e.target.value))}>
-                <option value={0}>Selecciona…</option>
-                {availableLots.map((l: any) => <option key={l.id} value={l.id}>Lote {l.code}{l.blockAddress ? ` — ${l.blockAddress}` : ''}</option>)}
+                <option value={0}>Selecciona...</option>
+                {availableLots.map((l: any) => <option key={l.id} value={l.id}>Lote {l.code}{l.blockAddress ? ` - ${l.blockAddress}` : ''}</option>)}
               </select>
             </Field>
             {selectedLot && (
               <div className="grid grid-cols-2 gap-3 text-sm mb-2">
-                <div><span className="label">Dirección</span><p>{selectedLot.blockAddress || '—'}</p></div>
-                <div><span className="label">Área (m²)</span><p>{selectedLot.areaM2}</p></div>
+                <div><span className="label">Direccion</span><p>{selectedLot.blockAddress || '-'}</p></div>
+                <div><span className="label">Area (m2)</span><p>{selectedLot.areaM2}</p></div>
               </div>
             )}
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Precio US$/m²"><input type="number" className="input" value={pricePerM2Usd || ''} onChange={(e) => onPricePerM2Change(Number(e.target.value))} /></Field>
+              <Field label="Precio US$/m2"><input type="number" className="input" value={pricePerM2Usd || ''} onChange={(e) => onPricePerM2Change(Number(e.target.value))} /></Field>
               <Field label="Precio del lote US$"><input type="number" className="input" value={lotPriceUsd || ''} onChange={(e) => setLotPriceUsd(Number(e.target.value))} /></Field>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -193,7 +354,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             <Field label="Forma de pago">
               <select className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as any)}>
                 <option value="contado">Contado</option>
-                <option value="credito">Crédito</option>
+                <option value="credito">Credito</option>
               </select>
             </Field>
             {paymentMethod === 'credito' && (
@@ -203,7 +364,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                   <Field label="Plazo (meses)"><input type="number" className="input" value={totalCuotas || ''} onChange={(e) => setTotalCuotas(Number(e.target.value))} /></Field>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Interés">
+                  <Field label="Interes">
                     <select className="input" value={interestType} onChange={(e) => setInterestType(e.target.value as any)}>
                       <option value="sin_intereses">Sin intereses</option>
                       <option value="tea">Con TEA</option>
@@ -221,11 +382,12 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
 
             <div className="flex justify-end gap-2 pt-4 mt-1 border-t">
               <button className="btn-neutral" onClick={() => setOpen(false)}>Cancelar</button>
-              <button className="btn-primary" onClick={guardar}>Generar cotización</button>
+              <button className="btn-primary" onClick={guardar}>Generar cotizacion</button>
             </div>
           </div>
         </div>
       )}
+      {doc && <QuoteDocumentModal doc={doc} onClose={() => setDoc(null)} />}
     </>
   );
 }

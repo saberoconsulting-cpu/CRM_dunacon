@@ -258,7 +258,7 @@ export class SalesService {
       .leftJoinAndSelect(LotEntity, 'l', 'l.id = s.lot_id')
       .select([
         's.id', 's.projectId', 's.lotId', 's.clientId', 's.agentId',
-        's.salePrice', 's.saleDate', 's.commission', 's.conditions', 's.status', 's.createdAt',
+        's.salePrice', 's.saleDate', 's.commission', 's.financingBase', 's.valorCuota', 's.conditions', 's.status', 's.createdAt',
       ])
       // Postgres pliega a minúsculas cualquier alias sin comillas (AS agentName
       // vuelve "agentname"), por eso van entre comillas dobles — mismo bug que
@@ -286,6 +286,8 @@ export class SalesService {
       agentId: r.s_agent_id ? Number(r.s_agent_id) : null,
       salePrice: Number(r.s_sale_price), saleDate: r.s_sale_date,
       commission: Number(r.s_commission), conditions: r.s_conditions,
+      financingBase: Number(r.s_financing_base || 0),
+      valorCuota: Number(r.s_valor_cuota || 0),
       status: r.s_status, createdAt: r.s_created_at,
       agentName: r.agentName || null, lotCode: r.lotCode || null,
       approvalStatus: r.approvalStatus || 'pendiente',

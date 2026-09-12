@@ -3,16 +3,27 @@ import { useEffect, useState, useCallback } from 'react';
 import { Toaster, toast, Field, EmptyState, StatCard } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { formatMoney, formatDate } from '@/lib/types';
+import { printHtml } from '@/lib/print';
 import ProjectDocuments from './ProjectDocuments';
+import { FiDownload } from 'react-icons/fi';
 
 type S = {
   id: number; projectId: number; lotId: number; clientId?: number | null; agentId?: number | null;
   salePrice: string; saleDate: string; commission: string; agentName?: string | null; clientName?: string | null;
   lotCode?: string | null; conditions?: string | null; approvalStatus?: string; totalCuotas?: number;
-  interestType?: string; tea?: number;
+  interestType?: string; tea?: number; financingBase?: number; valorCuota?: number; planStatus?: string;
 };
 
 const PAYMENT_METHODS = ['Contado', 'Al crédito'];
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
 
 export default function SalesView({ lockedProjectId }: { lockedProjectId?: number }) {
   const [rows, setRows] = useState<S[]>([]);
@@ -139,6 +150,48 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     catch (e: any) { toast(e.message, 'err'); }
   }
 
+  async function exportSalePdf(s: S) {
+    const schedule: any[] = await api.get<any[]>(`/sales/${s.id}/schedule`).catch(() => []);
+    const project = projects.find((p: any) => Number(p.id) === Number(s.projectId));
+    const adminLogoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
+    const projectLogoUrl = project?.logoImageUrl || '';
+    const formaPago = Number(s.totalCuotas || 0) > 0 ? 'Al credito' : 'Contado';
+    const salePriceValue = Number(s.salePrice || 0);
+    const commission = Number(s.commission || 0);
+    const financingBase = Number(s.financingBase || salePriceValue);
+    const valorCuota = Number(s.valorCuota || schedule[0]?.amount || 0);
+    const paidInstallments = schedule.filter((row) => row.status === 'pagado').length;
+    const detailRows = [
+      ['Proyecto', project?.name || `Proyecto ${s.projectId}`],
+      ['Lote', s.lotCode || `Lote ${s.lotId}`],
+      ['Cliente', s.clientName || '-'],
+      ['Agente', s.agentName || '-'],
+      ['Precio Venta', formatMoney(s.salePrice)],
+      ['Fecha', formatDate(s.saleDate)],
+      ['Forma de Pago', formaPago],
+      ['Nro de Cuotas', s.totalCuotas || 0],
+      ['Comision', formatMoney(commission)],
+      ['Saldo a Financiar', formatMoney(financingBase)],
+      ['Interes', s.interestType === 'tea' ? `Con TEA = ${Number(s.tea || 0)}%` : 'Sin intereses'],
+      ['Estado', s.approvalStatus === 'pendiente' ? 'Pendiente' : 'Aprobada'],
+    ];
+    const scheduleRows = schedule.map((row) => `
+      <tr><td>Cuota ${escapeHtml(row.installmentNo || '-')}</td><td>${escapeHtml(formatDate(row.dueDate))}</td><td class="num">${escapeHtml(formatMoney(row.amount))}</td><td>${escapeHtml(row.status || '-')}</td></tr>
+    `).join('');
+    printHtml(`
+      <html><head><title>Ficha de venta V${s.id}</title><style>
+        body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white}.brand{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}.logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}.eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}h1{margin:0;font-size:24px;line-height:1.15;color:#111827}h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}p{margin:4px 0 0;color:#6B7280;font-size:12px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}.summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}.summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.summary strong{display:block;margin-top:4px;color:#111827;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:10px;text-align:left;text-transform:uppercase}td{border:1px solid #E5E7EB;padding:8px 7px;font-size:11px;vertical-align:top}tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}.num{text-align:right;white-space:nowrap;font-weight:700;color:#1259C4}.watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.06;z-index:-1}.watermark img{width:560px;max-width:72vw}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:10px;text-align:right}@media print{body{margin:18px}thead{display:table-header-group}.brand,.summary{break-inside:avoid}.watermark{position:fixed}}
+      </style></head><body>
+        <div class="watermark"><img src="${escapeHtml(adminLogoUrl)}" alt="" /></div>
+        <div class="brand"><div><p class="eyebrow">Ficha de venta</p><h1>Venta V${s.id} - ${escapeHtml(s.lotCode || `Lote ${s.lotId}`)}</h1><p>${escapeHtml(project?.name || `Proyecto ${s.projectId}`)} - generado ${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div></div>
+        <div class="summary"><div><span>Precio venta</span><strong>${escapeHtml(formatMoney(s.salePrice))}</strong></div><div><span>Comision</span><strong>${escapeHtml(formatMoney(commission))}</strong></div><div><span>Forma de pago</span><strong>${escapeHtml(formaPago)}</strong></div><div><span>Cuota</span><strong>${escapeHtml(valorCuota ? formatMoney(valorCuota) : '-')}</strong></div></div>
+        <h2>Datos de la venta</h2><table><tbody>${detailRows.map(([label, value]) => `<tr><td class="label">${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join('')}</tbody></table>
+        <h2>Financiamiento</h2><table><thead><tr><th>Cuota</th><th>Vencimiento</th><th>Monto</th><th>Estado</th></tr></thead><tbody>${scheduleRows || '<tr><td colspan="4">Sin cronograma registrado.</td></tr>'}</tbody></table>
+        <div class="summary"><div><span>Cuotas</span><strong>${Number(s.totalCuotas || 0)}</strong></div><div><span>Pagadas</span><strong>${paidInstallments}</strong></div><div><span>Pendientes</span><strong>${Math.max(0, schedule.length - paidInstallments)}</strong></div><div><span>Plan</span><strong>${escapeHtml(s.planStatus || 'pendiente')}</strong></div></div><div class="footer">Dunacon - CRM Inmobiliario</div>
+      </body></html>
+    `);
+  }
+
   const total = rows.reduce((s, r) => s + Number(r.salePrice || 0), 0);
   const comm = rows.reduce((s, r) => s + Number(r.commission || 0), 0);
 
@@ -169,6 +222,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <th className="th-base">Precio</th><th className="th-base">Forma de pago</th><th className="th-base">Cuotas</th>
                 <th className="th-base">Cuotas sin intereses</th><th className="th-base">Fecha</th>
                 <th className="th-base">Agente</th><th className="th-base">Comisión</th><th className="th-base" style={{ textAlign: 'center' }}>Acción</th>
+                <th className="th-base" style={{ textAlign: 'center' }}>Ficha</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {pending.map((s) => (
@@ -183,6 +237,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     <td className="td-base">{formatDate(s.saleDate)}</td>
                     <td className="td-base">{s.agentName || '—'}</td>
                     <td className="td-base">{formatMoney(s.commission)}</td>
+                    <td className="td-base" style={{ textAlign: 'center' }}>
+                      <button type="button" className="inline-grid h-8 w-8 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
+                        <FiDownload />
+                      </button>
+                    </td>
                     <td className="td-base whitespace-nowrap">
                       <div className="flex justify-center gap-1.5">
                         <button className="btn-primary !h-7 text-xs" onClick={() => aprobar(s)}>Aprobar</button>
@@ -205,6 +264,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <th className="th-base">Precio</th><th className="th-base">Forma de pago</th><th className="th-base">Cuotas</th>
                 <th className="th-base">Cuotas sin intereses</th><th className="th-base">Estado</th>
                 <th className="th-base">Fecha</th><th className="th-base">Agente</th><th className="th-base">Comisión</th>
+                <th className="th-base" style={{ textAlign: 'center' }}>Ficha</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map((s) => (
@@ -220,6 +280,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     <td className="td-base">{formatDate(s.saleDate)}</td>
                     <td className="td-base">{s.agentName || '—'}</td>
                     <td className="td-base">{formatMoney(s.commission)}</td>
+                    <td className="td-base" style={{ textAlign: 'center' }}>
+                      <button type="button" className="inline-grid h-8 w-8 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
+                        <FiDownload />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -229,6 +294,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   <td className="td-base font-bold text-white">{formatMoney(total)}</td>
                   <td className="td-base" colSpan={6}></td>
                   <td className="td-base font-bold text-white">{formatMoney(comm)}</td>
+                  <td className="td-base"></td>
                 </tr>
               </tfoot>
             </table>

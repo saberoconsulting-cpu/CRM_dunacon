@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Modal, toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { LOT_STATUS_COLOR, LOT_STATUS_LABEL, LotStatus, formatMoney, formatDate } from '@/lib/types';
+import { printHtml } from '@/lib/print';
 import { FiDownload } from 'react-icons/fi';
 
 type Row = { id: number; lotId: number; fromStatus: string; toStatus: string; createdAt: string; type?: string; amount?: string|number; paidAt?: string }
@@ -55,8 +56,8 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, '&#039;');
 }
 
-export default function LotDetailModal({ lotId, onClose, onChanged }: {
-  lotId: number | null; onClose: () => void; onChanged?: () => void;
+export default function LotDetailModal({ lotId, onClose, onChanged, compact = false }: {
+  lotId: number | null; onClose: () => void; onChanged?: () => void; compact?: boolean;
 }) {
   const [lot, setLot] = useState<any>(null);
   const [block, setBlock] = useState<any>(null);
@@ -151,9 +152,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged }: {
         <td>${escapeHtml(q.status || '—')}</td>
       </tr>
     `).join('');
-    const print = window.open('', '_blank');
-    if (!print) return;
-    print.document.write(`
+    const html = `
       <html>
         <head>
           <title>Ficha lote ${escapeHtml(lot.code)}</title>
@@ -229,9 +228,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged }: {
           <div class="footer">Dunacon - CRM Inmobiliario</div>
         </body>
       </html>
-    `);
-    print.document.close();
-    print.onload = () => print.print();
+    `;
+    printHtml(html);
   }
 
   const statusColor = lot ? ((LOT_STATUS_COLOR as any)[lot.status] || '#64748b') : '#64748b';
@@ -251,7 +249,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged }: {
 
   if (!lotId) return null;
   return (
-    <Modal open={!!lot} onClose={onClose} title={lot ? `Detalle del lote ${lot.code}` : ''} width="max-w-xl">
+    <Modal open={!!lot} onClose={onClose} title={lot ? (compact ? 'Detalle del Lote' : `Detalle del lote ${lot.code}`) : ''} width={compact ? 'max-w-md' : 'max-w-xl'}>
       {lot && (
         <div className="space-y-4">
           {/* Cabecera de estado — se repinta cuando el lote cambia de estado */}
@@ -340,7 +338,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged }: {
                 ))}
               </div>
 
-              {canEdit && (
+              {canEdit && !compact && (
                 <div className="border-t pt-4">
                   <h4 className="font-semibold text-sm text-slate-700 mb-2">Editar Lotización</h4>
                   <div className="flex gap-2 items-end flex-wrap">
@@ -358,7 +356,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged }: {
                 </div>
               )}
 
-              {(amountPaid > 0 || schedule.length > 0 || saleFn) && (
+              {!compact && (amountPaid > 0 || schedule.length > 0 || saleFn) && (
                 <div className="border rounded-2xl p-4" style={{ borderColor: '#e5e7eb' }}>
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="font-semibold text-sm text-slate-800">Financiamiento del lote</h4>
@@ -405,11 +403,11 @@ export default function LotDetailModal({ lotId, onClose, onChanged }: {
                 <button onClick={() => setView('vender')} className="btn-primary flex-1">Vender</button>
               </div>
 
-              <div className="border-t pt-4">
+              {!compact && <div className="border-t pt-4">
                 <h4 className="font-semibold text-sm text-slate-700 mb-2">Pagos</h4>
                 <PagosTable rows={payments} />
-              </div>
-              <div className="border-t pt-4">
+              </div>}
+              {!compact && <div className="border-t pt-4">
                 <h4 className="font-semibold text-sm text-slate-700 mb-2">Historial de estados</h4>
                 <ul className="space-y-1 text-sm">
                   {history.map((h) => (
@@ -417,7 +415,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged }: {
                   ))}
                   {history.length===0 && <li className="text-slate-400">Sin cambios</li>}
                 </ul>
-              </div>
+              </div>}
             </>
           )}
 

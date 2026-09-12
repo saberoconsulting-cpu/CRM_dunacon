@@ -2,7 +2,7 @@
 // src/components/interactive-plan/InteractivePlan.tsx
 import { useEffect, useRef, useState } from 'react';
 import { FiLock, FiRotateCcw, FiUnlock } from 'react-icons/fi';
-import { Block, Lot, Point, LOT_STATUS_COLOR, LOT_STATUS_LABEL, formatMoney, pointsToString } from '@/lib/types';
+import { Block, Lot, LotStatus, Point, LOT_STATUS_COLOR, LOT_STATUS_LABEL, formatMoney, pointsToString } from '@/lib/types';
 
 interface Props {
   imageUrl?: string | null;
@@ -15,6 +15,9 @@ interface Props {
   highlightBlockId?: number | null;
   selectedLotId?: number | null;
   interactive?: boolean;
+  lotStatusColors?: Partial<Record<LotStatus, string>>;
+  lotStatusLabels?: Partial<Record<LotStatus, string>>;
+  tooltipMode?: 'full' | 'status';
 }
 
 const SVG_W = 1000;
@@ -38,6 +41,7 @@ function blockTone(index: number, highlighted: boolean) {
 export default function InteractivePlan({
   imageUrl, blocks, lots, imageW, imageH,
   onBlockClick, onLotClick, highlightBlockId, selectedLotId, interactive = true,
+  lotStatusColors, lotStatusLabels, tooltipMode = 'full',
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -140,6 +144,14 @@ export default function InteractivePlan({
   const centroid = (pts: Point[]) =>
     pts.reduce((a, p) => ({ x: a.x + p.x / pts.length, y: a.y + p.y / pts.length }), { x: 0, y: 0 });
 
+  const visualStatus = (lot: Lot): LotStatus => {
+    if (lot.sellingStage === 'vendido' || lot.status === 'vendido') return 'vendido';
+    if (lot.sellingStage === 'separado') return 'reservado';
+    return lot.status;
+  };
+  const statusColor = (status: LotStatus) => lotStatusColors?.[status] || LOT_STATUS_COLOR[status];
+  const statusLabel = (status: LotStatus) => lotStatusLabels?.[status] || LOT_STATUS_LABEL[status];
+
   return (
     <div
       ref={containerRef}
@@ -188,7 +200,8 @@ export default function InteractivePlan({
           {lots.map((lot) => {
             const sold = lot.sellingStage === 'vendido' || lot.status === 'vendido';
             const locked = lot.sellingStage === 'separado' && !sold;
-            const color = sold ? LOT_STATUS_COLOR.vendido : locked ? LOT_STATUS_COLOR.reservado : LOT_STATUS_COLOR[lot.status];
+            const currentStatus = visualStatus(lot);
+            const color = statusColor(currentStatus);
             const sel = selectedLotId === lot.id;
             const dim = highlightBlockId != null && lot.blockId !== highlightBlockId;
             return (
@@ -222,13 +235,20 @@ export default function InteractivePlan({
               </g>
             );
           })}
-          {tooltip && (
+          {tooltip && tooltipMode === 'status' && (
+            <g pointerEvents="none">
+              <rect x={tooltip.lot.points[0].x} y={tooltip.lot.points[0].y - 54} width={126} height={48} rx={8} fill="#0f172a" fillOpacity={0.96} />
+              <text x={tooltip.lot.points[0].x + 10} y={tooltip.lot.points[0].y - 34} fontSize="13" fontWeight="700" fill="#fff">{tooltip.lot.code}</text>
+              <text x={tooltip.lot.points[0].x + 10} y={tooltip.lot.points[0].y - 16} fontSize="11" fontWeight="700" fill={statusColor(visualStatus(tooltip.lot))}>{statusLabel(visualStatus(tooltip.lot))}</text>
+            </g>
+          )}
+          {tooltip && tooltipMode === 'full' && (
             <g pointerEvents="none">
               <rect x={tooltip.lot.points[0].x} y={tooltip.lot.points[0].y - 94} width={190} height={92} rx={8} fill="#0f172a" fillOpacity={0.96} />
               <text x={tooltip.lot.points[0].x + 10} y={tooltip.lot.points[0].y - 74} fontSize="13" fontWeight="700" fill="#fff">{tooltip.lot.code}</text>
               <text x={tooltip.lot.points[0].x + 10} y={tooltip.lot.points[0].y - 56} fontSize="11" fill="#cbd5e1">Área: {tooltip.lot.areaM2} m² · Manz {tooltip.lot.blockId ?? '-'}</text>
               <text x={tooltip.lot.points[0].x + 10} y={tooltip.lot.points[0].y - 40} fontSize="11" fill="#cbd5e1">{formatMoney(tooltip.lot.price)}</text>
-              <text x={tooltip.lot.points[0].x + 10} y={tooltip.lot.points[0].y - 24} fontSize="11" fontWeight="700" fill={LOT_STATUS_COLOR[tooltip.lot.status]}>{LOT_STATUS_LABEL[tooltip.lot.status]}</text>
+              <text x={tooltip.lot.points[0].x + 10} y={tooltip.lot.points[0].y - 24} fontSize="11" fontWeight="700" fill={statusColor(visualStatus(tooltip.lot))}>{statusLabel(visualStatus(tooltip.lot))}</text>
             </g>
           )}
         </svg>
