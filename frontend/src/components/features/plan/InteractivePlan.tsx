@@ -1,6 +1,7 @@
 'use client';
 // src/components/interactive-plan/InteractivePlan.tsx
 import { useEffect, useRef, useState } from 'react';
+import { FiLock, FiRotateCcw, FiUnlock } from 'react-icons/fi';
 import { Block, Lot, Point, LOT_STATUS_COLOR, LOT_STATUS_LABEL, formatMoney, pointsToString } from '@/lib/types';
 
 interface Props {
@@ -18,6 +19,21 @@ interface Props {
 
 const SVG_W = 1000;
 const SVG_H = 800;
+const VIEW_ASPECT = SVG_W / SVG_H;
+
+const BLOCK_COLORS = [
+  { fill: 'rgba(20,184,166,0.18)', stroke: '#0F766E', label: '#115E59' },
+  { fill: 'rgba(244,114,182,0.18)', stroke: '#BE185D', label: '#9D174D' },
+  { fill: 'rgba(132,204,22,0.18)', stroke: '#4D7C0F', label: '#3F6212' },
+  { fill: 'rgba(6,182,212,0.18)', stroke: '#0E7490', label: '#155E75' },
+  { fill: 'rgba(249,115,22,0.16)', stroke: '#C2410C', label: '#9A3412' },
+  { fill: 'rgba(100,116,139,0.14)', stroke: '#475569', label: '#334155' },
+];
+
+function blockTone(index: number, highlighted: boolean) {
+  if (highlighted) return { fill: '#A9C9FB', stroke: '#1877F2', label: '#1259C4' };
+  return BLOCK_COLORS[index % BLOCK_COLORS.length];
+}
 
 export default function InteractivePlan({
   imageUrl, blocks, lots, imageW, imageH,
@@ -28,6 +44,7 @@ export default function InteractivePlan({
   const [t, setT] = useState({ x: 0, y: 0 });
   const [tooltip, setTooltip] = useState<{ lot: Lot; x: number; y: number } | null>(null);
   const [drag, setDrag] = useState<null | { sx: number; sy: number; ox: number; oy: number }>(null);
+  const [viewLocked, setViewLocked] = useState(true);
   const svgRef = useRef<SVGSVGElement>(null);
 
   const imgScale = Math.min(SVG_W / imageW, SVG_H / imageH);
@@ -36,22 +53,44 @@ export default function InteractivePlan({
   const imgOffsetX = (SVG_W - imgW) / 2;
   const imgOffsetY = (SVG_H - imgH) / 2;
 
+  function applyViewBox(x: number, y: number, w: number) {
+    const next = SVG_W / w;
+    setScale(next);
+    setT({ x: -x * next, y: -y * next });
+  }
+
+  function imageViewBox() {
+    if (!imageUrl || !imageW || !imageH) return { x: 0, y: 0, w: SVG_W };
+    const padding = 18;
+    let x = imgOffsetX - padding;
+    let y = imgOffsetY - padding;
+    let w = imgW + padding * 2;
+    let h = imgH + padding * 2;
+    const aspect = w / h;
+
+    if (aspect > VIEW_ASPECT) {
+      h = w / VIEW_ASPECT;
+      y = imgOffsetY + imgH / 2 - h / 2;
+    } else {
+      w = h * VIEW_ASPECT;
+      x = imgOffsetX + imgW / 2 - w / 2;
+    }
+
+    return { x: Math.max(0, x), y: Math.max(0, y), w: Math.min(SVG_W, w) };
+  }
+
+  function resetView() {
+    const fit = imageViewBox();
+    applyViewBox(fit.x, fit.y, fit.w);
+  }
+
   // El plano queda fijo (sin panning): su vista solo cambia con los botones + / − .
   // Si no hay imagen asignada todavía, dejamos el SVG centrado completo.
   useEffect(() => {
-    const fit = () => {
-      const el = containerRef.current;
-      if (!el) return;
-      const cw = el.clientWidth || 800;
-      const ch = el.clientHeight || 600;
-      const s = Math.min(cw / SVG_W, ch / SVG_H);
-      setScale(s);
-      setT({ x: (cw - SVG_W * s) / 2, y: (ch - SVG_H * s) / 2 });
-    };
-    fit();
-    window.addEventListener('resize', fit);
-    return () => window.removeEventListener('resize', fit);
-  }, []);
+    resetView();
+    window.addEventListener('resize', resetView);
+    return () => window.removeEventListener('resize', resetView);
+  }, [imageUrl, imageW, imageH]);
 
   // Zoom centrado en el plano (usado solo por los botones + / -).
   function zoomAt(clientX: number, clientY: number, factor: number) {
@@ -68,10 +107,12 @@ export default function InteractivePlan({
 
   function onWheel(e: any) {
     e.preventDefault?.();
+    if (viewLocked) return;
     zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1 / 1.15 : 1.15);
   }
 
   function onPointerDown(e: any) {
+    if (viewLocked) return;
     if (e.target && e.target.closest?.('button')) return;
     setDrag({ sx: e.clientX, sy: e.clientY, ox: t.x, oy: t.y });
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
@@ -113,31 +154,33 @@ export default function InteractivePlan({
     >
       <svg
         ref={svgRef}
-        className="absolute inset-0 w-full h-full cursor-grab active:cursor-grabbing"
+        className={`absolute inset-0 h-full w-full ${viewLocked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
         viewBox={`${-t.x / scale} ${-t.y / scale} ${SVG_W / scale} ${SVG_H / scale}`}
       >
           {imageUrl && (
             <image href={imageUrl} x={imgOffsetX} y={imgOffsetY} width={imgW} height={imgH} preserveAspectRatio="xMidYMid meet" />
           )}
 
-          {blocks.map((b) => {
+          {blocks.map((b, index) => {
             const hi = highlightBlockId === b.id;
+            const tone = blockTone(index, hi);
             return (
               <polygon
                 key={`b-${b.id}`}
                 points={pointsToString(b.points)}
-                fill={hi ? '#A9C9FB' : 'rgba(148,163,184,0.10)'}
-                stroke={hi ? '#1877F2' : '#CBD5E1'}
+                fill={tone.fill}
+                stroke={tone.stroke}
                 strokeWidth={hi ? 3 : 1.2}
                 style={{ cursor: interactive ? 'pointer' : 'default' }}
                 onClick={(e) => { e.stopPropagation(); if (interactive && onBlockClick) onBlockClick(b); }}
               />
             );
           })}
-          {blocks.map((b) => {
+          {blocks.map((b, index) => {
             const c = centroid(b.points);
+            const tone = blockTone(index, highlightBlockId === b.id);
             return (
-              <text key={`bl-${b.id}`} x={c.x} y={c.y - 5} fontSize="26" fontWeight="700" textAnchor="middle" fill="#475569" opacity={0.9} style={{ pointerEvents: 'none' }}>
+              <text key={`bl-${b.id}`} x={c.x} y={c.y - 5} fontSize="26" fontWeight="800" textAnchor="middle" fill={tone.label} opacity={0.95} stroke="#fff" strokeWidth={4} paintOrder="stroke" style={{ pointerEvents: 'none' }}>
                 {b.name}
               </text>
             );
@@ -145,7 +188,7 @@ export default function InteractivePlan({
           {lots.map((lot) => {
             const sold = lot.sellingStage === 'vendido' || lot.status === 'vendido';
             const locked = lot.sellingStage === 'separado' && !sold;
-            const color = sold ? '#1877F2' : locked ? '#F2B94B' : LOT_STATUS_COLOR[lot.status];
+            const color = sold ? LOT_STATUS_COLOR.vendido : locked ? LOT_STATUS_COLOR.reservado : LOT_STATUS_COLOR[lot.status];
             const sel = selectedLotId === lot.id;
             const dim = highlightBlockId != null && lot.blockId !== highlightBlockId;
             return (
@@ -157,7 +200,7 @@ export default function InteractivePlan({
                   strokeWidth={locked || sold ? 2.4 : sel ? 3 : 1.4}
                   style={{ cursor: interactive ? 'pointer' : 'default' }}
                   onMouseEnter={(e) => { setTooltip({ lot, x: lot.points[0].x, y: lot.points[0].y }); ((e.currentTarget) as any).style.fillOpacity = '0.85'; }}
-                  onMouseLeave={(e) => { setTooltip(null); ((e.currentTarget) as any).style.fillOpacity = '0.6'; }}
+                  onMouseLeave={(e) => { setTooltip(null); ((e.currentTarget) as any).style.fillOpacity = locked ? '0.88' : sold ? '0.72' : '0.6'; }}
                   onClick={(e) => { e.stopPropagation(); if (interactive && onLotClick) onLotClick(lot); }}
                 />
                 {(() => { const c = centroid(lot.points); return (
@@ -192,8 +235,16 @@ export default function InteractivePlan({
 
         <div className="absolute top-3 right-3 z-10 flex flex-col gap-1.5">
           <button type="button" onClick={() => zoomCentered(1.25)} className="bg-white/90 hover:bg-white rounded-lg w-9 h-9 text-slate-700 shadow font-bold text-lg" title="Acercar (+)">+</button>
-          <button type="button" onClick={() => zoomCentered(0.8)} className="bg-white/90 hover:bg-white rounded-lg w-9 h-9 text-slate-700 shadow font-bold text-lg" title="Alejar (−)">−</button>
-          <button type="button" onClick={() => { const el = containerRef.current; if (el) { const cw = el.clientWidth || 800; const ch = el.clientHeight || 600; const s = Math.min(cw / SVG_W, ch / SVG_H); setScale(s); setT({ x: (cw - SVG_W * s) / 2, y: (ch - SVG_H * s) / 2 }); } }} className="bg-white/90 hover:bg-white rounded-lg w-9 h-9 text-slate-700 shadow font-semibold text-sm" title="Restablecer vista (encuadre inicial)">⟳</button>
+          <button type="button" onClick={() => zoomCentered(0.8)} className="bg-white/90 hover:bg-white rounded-lg w-9 h-9 text-slate-700 shadow font-bold text-lg" title="Alejar (-)">-</button>
+          <button
+            type="button"
+            onClick={() => setViewLocked((value) => !value)}
+            className={`grid h-9 w-9 place-items-center rounded-lg shadow transition-colors ${viewLocked ? 'bg-[#1877F2] text-white' : 'bg-white/90 text-slate-700 hover:bg-white'}`}
+            title={viewLocked ? 'Vista fija activada' : 'Liberar movimiento del plano'}
+          >
+            {viewLocked ? <FiLock /> : <FiUnlock />}
+          </button>
+          <button type="button" onClick={resetView} className="grid h-9 w-9 place-items-center rounded-lg bg-white/90 text-slate-700 shadow hover:bg-white" title="Restablecer vista"><FiRotateCcw /></button>
         </div>
       </div>
     );

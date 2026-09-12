@@ -16,7 +16,8 @@ const LOT_LABEL: Record<string, string> = {
 
 const PAGE_SIZE = 10;
 const MOVEMENTS_PREVIEW_SIZE = 8;
-const MOVEMENTS_HISTORY_SIZE = 10;
+const MOVEMENTS_HISTORY_SIZE = 5000;
+const MOVEMENTS_EXPORT_SIZE = 100000;
 
 function money(value: unknown): string {
   return formatMoney(Number(value || 0));
@@ -57,6 +58,16 @@ function escapeHtml(value: unknown) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+function movementQuery(params: { page: number; limit: number; projectId?: string; type?: string }) {
+  const q = new URLSearchParams({
+    page: String(params.page),
+    limit: String(params.limit),
+  });
+  if (params.projectId) q.set('projectId', params.projectId);
+  if (params.type) q.set('type', params.type);
+  return q.toString();
 }
 
 function conicGradient(data: { value: number; color: string }[], total: number) {
@@ -422,9 +433,10 @@ type DashboardMovement = {
   status?: string | null;
 };
 
-function MovementsCenter({ sales, payments, projectName }: {
+function MovementsCenter({ sales, payments, projects, projectName }: {
   sales: any[];
   payments: any[];
+  projects: any[];
   projectName: (id: number) => string;
 }) {
   const [open, setOpen] = useState(false);
@@ -433,6 +445,8 @@ function MovementsCenter({ sales, payments, projectName }: {
   const [historyTotal, setHistoryTotal] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [historyProjectId, setHistoryProjectId] = useState('');
+  const [historyType, setHistoryType] = useState('');
 
   const preview = [...sales.map((sale) => ({
     type: 'venta' as const,
@@ -460,7 +474,12 @@ function MovementsCenter({ sales, payments, projectName }: {
 
   const loadHistory = (page: number) => {
     setLoading(true);
-    api.get<any>(`/dashboards/movements?page=${page + 1}&limit=${MOVEMENTS_HISTORY_SIZE}`)
+    api.get<any>(`/dashboards/movements?${movementQuery({
+      page: page + 1,
+      limit: MOVEMENTS_HISTORY_SIZE,
+      projectId: historyProjectId,
+      type: historyType,
+    })}`)
       .then((data) => {
         setHistory(Array.isArray(data?.items) ? data.items : []);
         setHistoryTotal(Number(data?.total || 0));
@@ -478,8 +497,17 @@ function MovementsCenter({ sales, payments, projectName }: {
     loadHistory(0);
   };
 
+  useEffect(() => {
+    if (open && showHistory) loadHistory(0);
+  }, [historyProjectId, historyType]);
+
   const exportRows = async (format: 'excel' | 'pdf') => {
-    const data = await api.get<any>('/dashboards/movements?page=1&limit=5000').catch(() => null);
+    const data = await api.get<any>(`/dashboards/movements?${movementQuery({
+      page: 1,
+      limit: MOVEMENTS_EXPORT_SIZE,
+      projectId: historyProjectId,
+      type: historyType,
+    })}`).catch(() => null);
     const rows: DashboardMovement[] = Array.isArray(data?.items) ? data.items : history;
     const tableRows = rows.map((row) => ({
       Tipo: row.type === 'venta' ? 'Venta' : 'Pago',
@@ -571,7 +599,32 @@ function MovementsCenter({ sales, payments, projectName }: {
           ) : (
             <>
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-sm text-slate-500">{historyTotal} movimientos registrados</p>
+                <div>
+                  <p className="text-sm text-slate-500">{historyTotal} movimientos registrados</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <select
+                      value={historyProjectId}
+                      onChange={(event) => setHistoryProjectId(event.target.value)}
+                      className="h-8 min-w-[220px] border bg-white px-2 text-xs font-semibold outline-none"
+                      style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.ink }}
+                    >
+                      <option value="">Todos los proyectos</option>
+                      {projects.map((project) => (
+                        <option key={project.id} value={project.id}>{project.name}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={historyType}
+                      onChange={(event) => setHistoryType(event.target.value)}
+                      className="h-8 min-w-[130px] border bg-white px-2 text-xs font-semibold outline-none"
+                      style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.ink }}
+                    >
+                      <option value="">Ventas y pagos</option>
+                      <option value="venta">Solo ventas</option>
+                      <option value="pago">Solo pagos</option>
+                    </select>
+                  </div>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   <button type="button" onClick={() => exportRows('excel')} className="inline-flex h-8 items-center gap-2 border px-3 text-xs font-semibold" style={{ borderColor: BRAND.border, borderRadius: 4 }}><FiDownload /> Excel</button>
                   <button type="button" onClick={() => exportRows('pdf')} className="inline-flex h-8 items-center gap-2 border px-3 text-xs font-semibold" style={{ borderColor: BRAND.border, borderRadius: 4 }}><FiDownload /> PDF</button>
@@ -629,7 +682,7 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
 
       <AgentRanking rows={d.agentRanking || []} projects={projects} />
 
-      <MovementsCenter sales={d.recentSales || []} payments={d.recentPayments || []} projectName={projectName} />
+      <MovementsCenter sales={d.recentSales || []} payments={d.recentPayments || []} projects={projects} projectName={projectName} />
     </div>
   );
 }

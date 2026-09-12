@@ -9,6 +9,7 @@ import { FinancialTransactionEntity } from '../../../shared/infrastructure/entit
 import { PaymentEntity } from '../../../shared/infrastructure/entities/payment.entity';
 import { ExpenseEntity } from '../../../shared/infrastructure/entities/expense.entity';
 import { UserEntity } from '../../../shared/infrastructure/entities/user.entity';
+import { ProjectEntity } from '../../../shared/infrastructure/entities/project.entity';
 
 @Injectable()
 export class DashboardsService {
@@ -54,6 +55,77 @@ export class DashboardsService {
 
     if (projectId != null) qb.where('s.project_id = :projectId', { projectId });
     return qb.getRawMany();
+  }
+
+  async movements(options: { page?: number; limit?: number; projectId?: number; type?: string }) {
+    const page = Math.max(1, Number(options.page || 1));
+    const limit = Math.min(100000, Math.max(1, Number(options.limit || 10)));
+    const projectId = options.projectId ? Number(options.projectId) : null;
+    const type = options.type === 'venta' || options.type === 'pago' ? options.type : '';
+
+    const saleRows = type === 'pago'
+      ? []
+      : await this.saleRepo
+        .createQueryBuilder('s')
+        .leftJoin(ProjectEntity, 'pr', 'pr.id = s.project_id')
+        .leftJoin(LotEntity, 'l', 'l.id = s.lot_id')
+        .leftJoin(UserEntity, 'u', 'u.id = s.agent_id')
+        .select("'venta'", 'type')
+        .addSelect('s.id', 'id')
+        .addSelect("'Venta'", 'label')
+        .addSelect('s.sale_price', 'amount')
+        .addSelect('s.created_at', 'date')
+        .addSelect('s.project_id', 'projectId')
+        .addSelect('pr.name', 'projectName')
+        .addSelect('l.code', 'lotCode')
+        .addSelect('u.name', 'agentName')
+        .addSelect('s.status', 'status')
+        .where(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
+        .getRawMany();
+
+    const paymentRows = type === 'venta'
+      ? []
+      : await this.paymentRepo
+        .createQueryBuilder('p')
+        .leftJoin(ProjectEntity, 'pr', 'pr.id = p.project_id')
+        .leftJoin(LotEntity, 'l', 'l.id = p.lot_id')
+        .leftJoin(UserEntity, 'u', 'u.id = p.agent_id')
+        .select("'pago'", 'type')
+        .addSelect('p.id', 'id')
+        .addSelect("COALESCE(p.type, 'Pago')", 'label')
+        .addSelect('p.amount', 'amount')
+        .addSelect('COALESCE(p.paid_at, p.created_at)', 'date')
+        .addSelect('p.project_id', 'projectId')
+        .addSelect('pr.name', 'projectName')
+        .addSelect('l.code', 'lotCode')
+        .addSelect('u.name', 'agentName')
+        .addSelect('p.status', 'status')
+        .where(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
+        .getRawMany();
+
+    const rows = [...saleRows, ...paymentRows]
+      .map((row) => ({
+        id: Number(row.id),
+        type: row.type,
+        label: row.label,
+        amount: Number(row.amount || 0),
+        date: row.date,
+        projectId: row.projectId != null ? Number(row.projectId) : null,
+        projectName: row.projectName || null,
+        lotCode: row.lotCode || null,
+        agentName: row.agentName || null,
+        status: row.status || null,
+      }))
+      .sort((a, b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+
+    const total = rows.length;
+    const start = (page - 1) * limit;
+    return {
+      items: rows.slice(start, start + limit),
+      total,
+      page,
+      limit,
+    };
   }
 
   async general() {

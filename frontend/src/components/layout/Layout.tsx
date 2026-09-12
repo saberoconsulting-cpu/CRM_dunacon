@@ -49,19 +49,19 @@ const GLOBAL_END_NAV: NavItem[] = [
 
 function projectNav(projectId: number): NavItem[] {
   return [
-    { number: 1, href: `/projects/${projectId}`, label: 'Inicio - DashBoard', icon: <FiHome />, roles: ['superadmin', 'admin', 'agent'] },
+    { number: 1, href: `/projects/${projectId}`, label: 'Dashboard', icon: <FiHome />, roles: ['superadmin', 'admin', 'agent'] },
     { number: 2, href: `/projects/${projectId}/lots`, label: 'Lotizacion', icon: <FiLayers />, roles: ['superadmin', 'admin', 'agent'] },
     { number: 3, href: `/projects/${projectId}/plan-editor`, label: 'Plano', icon: <FiMap />, roles: ['superadmin', 'admin', 'agent'] },
-    { number: 4, href: `/projects/${projectId}/quotes`, label: 'Cotizaciones Lotes', icon: <FiFileText />, roles: ['superadmin', 'admin', 'agent'] },
+    { number: 4, href: `/projects/${projectId}/quotes`, label: 'Cotizaciones', icon: <FiFileText />, roles: ['superadmin', 'admin', 'agent'] },
     { number: 5, href: `/projects/${projectId}/sales`, label: 'Ventas', icon: <FiTag />, roles: ['superadmin', 'admin', 'agent'] },
-    { number: 6, href: `/projects/${projectId}/payments`, label: 'Pago de Lotes', icon: <FiCreditCard />, roles: ['superadmin', 'admin', 'agent'] },
+    { number: 6, href: `/projects/${projectId}/payments`, label: 'Pagos de lotes', icon: <FiCreditCard />, roles: ['superadmin', 'admin', 'agent'] },
     { number: 7, href: `/projects/${projectId}/finances`, label: 'Finanzas', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
     { number: 8, href: `/projects/${projectId}/campaigns`, label: 'Campanas', icon: <FiVolume2 />, roles: ['superadmin', 'admin'] },
     { number: 9, href: `/projects/${projectId}/clients`, label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
-    { number: 10, href: '#estado-cc-bancos', label: 'Estado CC - Bancos', icon: <FiCreditCard />, roles: ['superadmin', 'admin'], soon: true },
-    { number: 11, href: '#ppto-obra', label: 'Ppto. Obra', icon: <FiLayers />, roles: ['superadmin', 'admin'], soon: true },
-    { number: 12, href: '#estado-resultados', label: 'Estado Resultados', icon: <FiPieChart />, roles: ['superadmin', 'admin'], soon: true },
-    { number: 13, href: '#flujo-caja', label: 'Flujo de Caja', icon: <FiPieChart />, roles: ['superadmin', 'admin'], soon: true },
+    { number: 10, href: '#estado-cc-bancos', label: 'Cuentas y bancos', icon: <FiCreditCard />, roles: ['superadmin', 'admin'], soon: true },
+    { number: 11, href: '#ppto-obra', label: 'Presupuesto de obra', icon: <FiLayers />, roles: ['superadmin', 'admin'], soon: true },
+    { number: 12, href: '#estado-resultados', label: 'Estado de resultados', icon: <FiPieChart />, roles: ['superadmin', 'admin'], soon: true },
+    { number: 13, href: '#flujo-caja', label: 'Flujo de caja', icon: <FiPieChart />, roles: ['superadmin', 'admin'], soon: true },
   ];
 }
 
@@ -232,20 +232,14 @@ export default function Layout({ children, title }: { children: ReactNode; title
         onClick={() => navigate(item.href)}
         disabled={disabled}
         title={!showLabels ? item.label : undefined}
-        className={`group relative flex w-full items-center overflow-hidden border text-left text-sm transition-colors ${showLabels ? 'gap-2.5 px-3' : 'justify-center px-0'} ${disabled ? 'cursor-not-allowed bg-[#FAFAFA] text-slate-400' : active ? 'bg-softblue text-[#171717]' : 'bg-white text-[#171717] hover:bg-[#F8FAFC]'}`}
-        style={{ height: 38, borderColor: active ? BRAND.blue : BRAND.border, borderRadius: 2, fontWeight: active ? 700 : 600 }}
+        className={`relative flex w-full items-center overflow-hidden rounded-md text-sm transition-colors ${showLabels ? 'gap-3 px-3' : 'justify-center px-0'} ${disabled ? 'cursor-not-allowed text-slate-400' : active ? 'text-white shadow-sm' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
+        style={{ height: 38, fontWeight: active ? 600 : 500, background: active && !disabled ? BRAND.blue : undefined }}
       >
-        {showLabels ? (
-          <>
-            <span className="shrink-0 tabular-nums">{item.number}-</span>
-            <span className="min-w-0 flex-1 truncate">{item.label}</span>
-            {disabled && <span className="shrink-0 text-[10px] font-semibold uppercase text-slate-400">Proximamente</span>}
-          </>
-        ) : (
-          <span className="shrink-0" style={{ fontSize: 16 }}>{item.icon}</span>
-        )}
+        <span className="shrink-0" style={{ fontSize: 16 }}>{item.icon}</span>
+        {showLabels && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
+        {showLabels && disabled && <span className="shrink-0 text-[10px] font-semibold uppercase text-slate-400">Proximamente</span>}
         {badge && !disabled && (
-          <span className={`${showLabels ? 'ml-1' : 'absolute right-1 top-1'} grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-bold text-white`} style={{ background: BRAND.blue }}>
+          <span className={`${showLabels ? 'ml-auto' : 'absolute right-1 top-1'} grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-bold text-white`} style={{ background: active ? BRAND.blueDark : BRAND.blue }}>
             {pendingApp.count}
           </span>
         )}

@@ -6,6 +6,20 @@ import { Modal as _m, toast, Field } from '@/components/ui/ui';
 
 const SVG_W = 1000;
 const SVG_H = 800;
+const LIST_PAGE_SIZE = 10;
+const BLOCK_COLORS = [
+  { fill: 'rgba(20,184,166,0.18)', stroke: '#0F766E', label: '#115E59' },
+  { fill: 'rgba(244,114,182,0.18)', stroke: '#BE185D', label: '#9D174D' },
+  { fill: 'rgba(132,204,22,0.18)', stroke: '#4D7C0F', label: '#3F6212' },
+  { fill: 'rgba(6,182,212,0.18)', stroke: '#0E7490', label: '#155E75' },
+  { fill: 'rgba(249,115,22,0.16)', stroke: '#C2410C', label: '#9A3412' },
+  { fill: 'rgba(100,116,139,0.14)', stroke: '#475569', label: '#334155' },
+];
+
+function blockTone(index: number, highlighted: boolean) {
+  if (highlighted) return { fill: 'rgba(24,119,242,0.25)', stroke: '#1877F2', label: '#1259C4' };
+  return BLOCK_COLORS[index % BLOCK_COLORS.length];
+}
 
 export default function PlanEditor({ projectId }: { projectId: number }) {
   const svgRef = useRef<SVGSVGElement>(null);
@@ -18,6 +32,7 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
   const [selectedBlk, setSelectedBlk] = useState<number | null>(null);
   const [lotInfo, setLotInfo] = useState<{ code: string; area: number; price: number; type: string; salePrice: number; finalPrice: number }>({ code: '', area: 0, price: 0, type: '', salePrice: 0, finalPrice: 0 });
   const dim = useRef({ w: SVG_W, h: SVG_H });
+  const [blockPage, setBlockPage] = useState(0);
   const [lotPage, setLotPage] = useState(0);
 
 
@@ -188,16 +203,15 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
         <div className="lg:col-span-2 card overflow-hidden !p-0 relative bg-slate-100" style={{ aspectRatio: '1000 / 800' }}>
           <svg ref={svgRef} viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="w-full h-full cursor-crosshair" onClick={addNode}>
             {imgUrl && <image href={imgUrl} x={imgX} y={imgY} width={imgW} height={imgH} preserveAspectRatio="xMidYMid meet" />}
-            {blocks.map((b) => { const c = labelPoint(b);
-              const tone = ['rgba(250,204,21,0.18)', 'rgba(96,165,250,0.16)', 'rgba(52,211,153,0.16)', 'rgba(192,132,252,0.16)', 'rgba(251,146,60,0.16)'];
-              const t = tone[b.id % tone.length];
+            {blocks.map((b, index) => { const c = labelPoint(b);
               const hi = selectedBlk === b.id && mode === 'none';
+              const tone = blockTone(index, hi);
               return (
               <g key={b.id} onClick={(e) => { if (mode === 'none') { e.stopPropagation(); setSelectedBlk(selectedBlk === b.id ? null : b.id); } }} style={{ pointerEvents: mode === 'lot' ? 'none' : 'auto' }}>
-                <polygon points={b.points.map((p) => `${p.x},${p.y}`).join(' ')} fill={hi ? 'rgba(24,119,242,0.25)' : t} stroke={hi ? '#1877F2' : '#64748b'} strokeWidth={hi ? 2.5 : 1.2} />
+                <polygon points={b.points.map((p) => `${p.x},${p.y}`).join(' ')} fill={tone.fill} stroke={tone.stroke} strokeWidth={hi ? 2.5 : 1.2} />
                 <text x={c.x} y={c.y} fontSize={26} fontWeight={800} textAnchor="middle" dominantBaseline="central"
-                  fill="#FFFFFF"
-                  stroke="#171717" strokeWidth={4} paintOrder="stroke" strokeLinejoin="round"
+                  fill={tone.label}
+                  stroke="#FFFFFF" strokeWidth={4} paintOrder="stroke" strokeLinejoin="round"
                   style={{ pointerEvents: 'none', letterSpacing: '.5px' }}>{b.name}</text>
               </g>
             ); })}
@@ -255,13 +269,21 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
         <div className="card min-w-0">
           <h4 className="font-semibold mb-2">Manzanas ({blocks.length})</h4>
           <ul className="space-y-2 text-sm">
-            {blocks.map((b) => (
-              <li key={b.id} className="rounded-lg border p-2" style={{ borderColor: '#E5E7EB', background: selectedBlk === b.id ? '#E7F0FE' : '#fff' }}>
+            {(() => {
+              const total = blocks.length;
+              const pageMax = Math.max(0, Math.ceil(total / LIST_PAGE_SIZE) - 1);
+              const page = Math.min(blockPage, pageMax);
+              const start = page * LIST_PAGE_SIZE;
+              return blocks.slice(start, start + LIST_PAGE_SIZE).map((b, index) => {
+              const globalIndex = start + index;
+              const tone = blockTone(globalIndex, selectedBlk === b.id);
+              return (
+              <li key={b.id} className="rounded-lg border p-2" style={{ borderColor: tone.stroke, background: selectedBlk === b.id ? '#E7F0FE' : '#fff' }}>
                 <div className="flex items-center justify-between gap-2">
                   <button onClick={() => setSelectedBlk(selectedBlk === b.id ? null : b.id)}
                     className="flex items-center gap-2.5 flex-1 min-w-0 text-left font-bold"
                     style={{ color: '#171717' }}>
-                    <span className="grid place-items-center w-7 h-7 rounded-md text-white font-bold shrink-0" style={{ background: selectedBlk === b.id ? '#1877F2' : '#171717' }}>{b.name}</span>
+                    <span className="grid place-items-center w-7 h-7 rounded-md text-white font-bold shrink-0" style={{ background: tone.stroke }}>{b.name}</span>
                     <span className="min-w-0">
                       <span className="block truncate">Manzana {b.name}</span>
                       <span className="block text-xs font-medium" style={{ color: countLotsIn(b) ? '#067a46' : '#94a3b8' }}>
@@ -276,16 +298,34 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
                   </span>
                 </div>
               </li>
-            ))}
-            {blocks.length === 0 && <li className="text-xs" style={{ color: '#94a3b8' }}>Aún no hay manzanas dibujadas.</li>}
+            ); });
+            })()}
+            {blocks.length === 0 && <li className="text-xs" style={{ color: '#94a3b8' }}>Aun no hay manzanas dibujadas.</li>}
           </ul>
+          {blocks.length > LIST_PAGE_SIZE && (
+            <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2" style={{ borderColor: '#EEF0F2' }}>
+              <button
+                className="btn-neutral !h-7 !px-2 text-xs"
+                disabled={blockPage <= 0}
+                onClick={() => setBlockPage((v) => Math.max(0, v - 1))}
+              >Anterior</button>
+              <span className="text-xs" style={{ color: '#6B7280' }}>
+                Pagina {Math.min(blockPage, Math.floor((blocks.length - 1) / LIST_PAGE_SIZE)) + 1} de {Math.max(1, Math.ceil(blocks.length / LIST_PAGE_SIZE))}
+              </span>
+              <button
+                className="btn-neutral !h-7 !px-2 text-xs"
+                disabled={blockPage >= Math.max(0, Math.ceil(blocks.length / LIST_PAGE_SIZE) - 1)}
+                onClick={() => setBlockPage((v) => v + 1)}
+              >Siguiente</button>
+            </div>
+          )}
         </div>
 
         <div className="card min-w-0">
           <h4 className="font-semibold mb-2">Lotes ({lots.length})</h4>
           <ul className="space-y-1 text-sm">
             {(() => {
-              const PER = 15;
+              const PER = LIST_PAGE_SIZE;
               const total = lots.length;
               const pageMax = Math.max(0, Math.ceil(total / PER) - 1);
               const page = Math.min(lotPage, pageMax);
@@ -303,21 +343,21 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
             })()}
             {lots.length === 0 && <li className="text-xs" style={{ color: '#94a3b8' }}>Aún no hay lotes.</li>}
           </ul>
-          {lots.length > 15 && (
+          {lots.length > LIST_PAGE_SIZE && (
             <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2" style={{ borderColor: '#EEF0F2' }}>
               <button
                 className="btn-neutral !h-7 !px-2 text-xs"
                 disabled={lotPage <= 0}
                 onClick={() => setLotPage((v) => Math.max(0, v - 1))}
-              >← Anterior</button>
+              >Anterior</button>
               <span className="text-xs" style={{ color: '#6B7280' }}>
-                Página {Math.min(lotPage, Math.floor((lots.length - 1) / 15)) + 1} de {Math.max(1, Math.ceil(lots.length / 15))}
+                Pagina {Math.min(lotPage, Math.floor((lots.length - 1) / LIST_PAGE_SIZE)) + 1} de {Math.max(1, Math.ceil(lots.length / LIST_PAGE_SIZE))}
               </span>
               <button
                 className="btn-neutral !h-7 !px-2 text-xs"
-                disabled={lotPage >= Math.max(0, Math.ceil(lots.length / 15) - 1)}
+                disabled={lotPage >= Math.max(0, Math.ceil(lots.length / LIST_PAGE_SIZE) - 1)}
                 onClick={() => setLotPage((v) => v + 1)}
-              >Siguiente →</button>
+              >Siguiente</button>
             </div>
           )}
         </div>

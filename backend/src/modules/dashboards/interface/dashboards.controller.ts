@@ -1,5 +1,5 @@
 // modules/dashboards/interface/dashboards.controller.ts
-import { Controller, Get, Param, ParseIntPipe, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Query, UseGuards } from '@nestjs/common';
 import { DashboardsService } from '../application/dashboards.service';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/application/guards/roles.guard';
@@ -26,5 +26,21 @@ export class DashboardsController {
   @Get('project/:projectId')
   project(@Param('projectId', ParseIntPipe) projectId: number) {
     return this.dashboardsService.project(projectId);
+  }
+
+  @Get('movements')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  movements(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('projectId') projectId?: string,
+    @Query('type') type?: string,
+  ) {
+    return this.dashboardsService.movements({
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+      projectId: projectId ? Number(projectId) : undefined,
+      type,
+    });
   }
 }

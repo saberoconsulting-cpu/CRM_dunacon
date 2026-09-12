@@ -16,7 +16,7 @@ export const LOT_STATUS_COLOR: Record<LotStatus, string> = {
   reservado: '#F2B94B', // Amarillo sobrio
   adelanto: '#4B83C4', // Azul sobrio
   primera_cuota: '#8064A2', // Violeta sobrio
-  vendido: '#1877F2', // Azul de marca
+  vendido: '#DC2626', // Rojo comercial para distinguir vendidos en el plano
 };
 
 // Identidad de marca (usada en planos/gráficos)
