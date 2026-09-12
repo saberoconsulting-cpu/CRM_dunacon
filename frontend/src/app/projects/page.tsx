@@ -4,7 +4,7 @@ import Layout from '@/components/layout/Layout';
 import { Toaster, toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api, uploadFile } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { FiCamera, FiEdit3, FiMap, FiMapPin, FiTrash2 } from 'react-icons/fi';
+import { FiCamera, FiEdit3, FiMap, FiMapPin, FiMoreVertical, FiTrash2 } from 'react-icons/fi';
 import { BRAND, Project, formatMoney } from '@/lib/types';
 import ProjectsMap from '@/components/features/projects/ProjectsMap';
 
@@ -17,8 +17,10 @@ export default function ProjectsPage() {
   const [editId, setEditId] = useState<number | null>(null);
   const [openMap, setOpenMap] = useState(false);
   const [mapProjectId, setMapProjectId] = useState<number | null>(null);
+  const [actionsProjectId, setActionsProjectId] = useState<number | null>(null);
   const [form, setForm] = useState<any>({});
   const [cover, setCover] = useState<File | null>(null);
+  const [logo, setLogo] = useState<File | null>(null);
   const setf = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
   const projectActionBase = 'inline-flex h-10 min-w-0 items-center justify-center gap-2 border px-2 text-xs font-semibold transition-colors';
 
@@ -38,8 +40,9 @@ export default function ProjectsPage() {
         referencePrice: form.referencePrice ? Number(form.referencePrice) : undefined,
       });
       if (cover) { await uploadFile(`/projects/cover/${created?.id || 1}`, cover); }
+      if (logo) { await uploadFile(`/projects/logo/${created?.id || 1}`, logo); }
       toast('Proyecto creado');
-      setOpenCreate(false); setForm({}); setCover(null);
+      setOpenCreate(false); setForm({}); setCover(null); setLogo(null);
       api.get<any>('/projects').then(setProjects).catch(() => {});
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -115,7 +118,58 @@ export default function ProjectsPage() {
                 {p.coverImageUrl ? <img src={p.coverImageUrl} className="object-cover w-full h-full" alt="" /> : (
                   <div className="flex items-center justify-center h-full text-white text-4xl"><FiMap /></div>
                 )}
-                <span className="absolute top-2 right-2 badge text-xs bg-white/90 text-[#171717] flex items-center gap-1"><span className={`w-1.5 h-1.5 rounded-full ${p.status==='active'?'bg-emerald-500':'bg-slate-400'}`} /> {p.status === 'active' ? 'Activo' : 'Inactivo'}</span>
+                <span className="absolute left-2 top-2 badge text-xs bg-white/90 text-[#171717] flex items-center gap-1"><span className={`w-1.5 h-1.5 rounded-full ${p.status==='active'?'bg-emerald-500':'bg-slate-400'}`} /> {p.status === 'active' ? 'Activo' : 'Inactivo'}</span>
+                {canEdit && (
+                  <div className="absolute right-2 top-2">
+                    <button
+                      type="button"
+                      className="grid h-8 w-8 place-items-center rounded-md bg-white/95 text-[#374151] shadow-sm transition-colors hover:bg-white"
+                      onClick={() => setActionsProjectId((current) => current === p.id ? null : p.id)}
+                      aria-label={`Opciones de ${p.name}`}
+                      title="Opciones"
+                    >
+                      <FiMoreVertical />
+                    </button>
+                    {actionsProjectId === p.id && (
+                      <>
+                        <div className="fixed inset-0 z-30" onClick={() => setActionsProjectId(null)} />
+                        <div className="absolute right-0 top-10 z-40 w-44 overflow-hidden rounded-md border bg-white p-1 shadow-xl" style={{ borderColor: BRAND.border }}>
+                          <label className="flex h-9 cursor-pointer items-center gap-2 rounded px-2 text-sm text-[#374151] hover:bg-[#F3F4F6]">
+                            <FiCamera className="shrink-0" />
+                            <span className="truncate">Imagen</span>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                e.target.value = '';
+                                setActionsProjectId(null);
+                                reemplazarImagen(p.id, f);
+                              }}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            className="flex h-9 w-full items-center gap-2 rounded px-2 text-left text-sm text-[#374151] hover:bg-[#F3F4F6]"
+                            onClick={() => { setActionsProjectId(null); abrirEdicion(p); }}
+                          >
+                            <FiEdit3 className="shrink-0" />
+                            <span className="truncate">Ubicacion</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="flex h-9 w-full items-center gap-2 rounded px-2 text-left text-sm text-[#B42318] hover:bg-red-50"
+                            onClick={() => { setActionsProjectId(null); eliminarProyecto(p.id); }}
+                          >
+                            <FiTrash2 className="shrink-0" />
+                            <span className="truncate">Eliminar</span>
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
                 <div className="absolute bottom-0 inset-x-0 p-3 bg-gradient-to-t from-black/70 to-transparent text-white">
                   <div className="font-semibold">{p.name}</div>
                   <div className="text-xs opacity-90">{p.location}</div>
@@ -131,30 +185,7 @@ export default function ProjectsPage() {
                   </div>
                 )}
                 {p.referencePrice && <div className="text-xs text-slate-400 mb-3">Precio ref: {formatMoney(p.referencePrice)}</div>}
-                {canEdit && (
-                  <div className="grid grid-cols-2 gap-2 mb-3">
-                    <label
-                      className={`${projectActionBase} cursor-pointer bg-white hover:bg-slate-50`}
-                      style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.ink }}
-                      title="Actualizar imagen"
-                    >
-                      <FiCamera className="shrink-0" />
-                      <span className="truncate">Imagen</span>
-                      <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; reemplazarImagen(p.id, f); }} />
-                    </label>
-                    <button
-                      type="button"
-                      className={`${projectActionBase} bg-white hover:bg-slate-50`}
-                      style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.ink }}
-                      onClick={() => abrirEdicion(p)}
-                      title="Actualizar ubicacion"
-                    >
-                      <FiEdit3 className="shrink-0" />
-                      <span className="truncate">Ubicacion</span>
-                    </button>
-                  </div>
-                )}
-                <div className={canEdit ? 'grid grid-cols-3 gap-2' : 'grid grid-cols-[3rem_minmax(0,1fr)] gap-2'}>
+                <div className="grid grid-cols-2 gap-2">
                   <button
                     className={`${projectActionBase} bg-white hover:bg-slate-50`}
                     style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.blue }}
@@ -163,7 +194,7 @@ export default function ProjectsPage() {
                     onClick={() => abrirMapaProyecto(p)}
                   >
                     <FiMapPin className="shrink-0" />
-                    {canEdit && <span className="truncate">Mapa</span>}
+                    <span className="truncate">Mapa</span>
                   </button>
                   <button
                     type="button"
@@ -172,20 +203,8 @@ export default function ProjectsPage() {
                     onClick={() => router.push(`/projects/${p.id}`)}
                   >
                     <FiMap className="shrink-0" />
-                    <span className="truncate">{canEdit ? 'Proyecto' : 'Ver proyecto y plano'}</span>
+                    <span className="truncate">Proyecto</span>
                   </button>
-                  {canEdit && (
-                    <button
-                      type="button"
-                      className={`${projectActionBase} bg-white hover:bg-red-50`}
-                      style={{ borderColor: BRAND.border, borderRadius: 4, color: '#B42318' }}
-                      onClick={() => eliminarProyecto(p.id)}
-                      title="Eliminar proyecto"
-                    >
-                      <FiTrash2 className="shrink-0" />
-                      <span className="truncate">Eliminar</span>
-                    </button>
-                  )}
                 </div>
               </div>
             </div>
@@ -206,6 +225,7 @@ export default function ProjectsPage() {
               <Field label="Longitud (mapa)"><input className="input" value={form.longitude || ''} onChange={(e) => setf('longitude', e.target.value)} /></Field>
             </div>
             <Field label="Precio referencial (S/)"><input type="number" className="input" value={form.referencePrice || ''} onChange={(e) => setf('referencePrice', e.target.value)} /></Field>
+            <Field label="Logo"><input type="file" accept="image/*" onChange={(e) => setLogo(e.target.files?.[0] || null)} /></Field>
             <Field label="Portada"><input type="file" accept="image/*" onChange={(e) => setCover(e.target.files?.[0] || null)} /></Field>
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-neutral" onClick={() => setOpenCreate(false)}>Cancelar</button>

@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { Modal, toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { LOT_STATUS_COLOR, LOT_STATUS_LABEL, LotStatus, formatMoney, formatDate } from '@/lib/types';
+import { FiDownload } from 'react-icons/fi';
 
 type Row = { id: number; lotId: number; fromStatus: string; toStatus: string; createdAt: string; type?: string; amount?: string|number; paidAt?: string }
 
@@ -43,6 +44,15 @@ function detailStatusColor(status: string) {
   if (status === 'primera_cuota') return '#7151A6';
   if (status === 'vendido') return '#1877F2';
   return (LOT_STATUS_COLOR as any)[status] || '#64748b';
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 export default function LotDetailModal({ lotId, onClose, onChanged }: {
@@ -102,6 +112,128 @@ export default function LotDetailModal({ lotId, onClose, onChanged }: {
     window.location.href = `/projects/${lot.projectId}/quotes?lotId=${lot.id}`;
   }
 
+  function exportLotPdf() {
+    if (!lot) return;
+    const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
+    const rows = [
+      ['Num. Lote', lot.code || '—'],
+      ['Direccion', block?.address || lot.blockAddress || (block?.name ? `Manzana ${block.name}` : '—')],
+      ['Tipo', lot.type || '—'],
+      ['Estado', LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status],
+      ['Area', formatArea(lot.areaM2)],
+      ['Dimensiones', inferDimensions(lot)],
+      ['Precio por m2', pricePerM2 ? formatMoney(pricePerM2) : '—'],
+      ['Precio de Venta', lot.salePrice ? formatMoney(lot.salePrice) : '—'],
+      ['Precio Final', lot.finalPrice ? formatMoney(lot.finalPrice) : '—'],
+      ['Cliente', lot.clientName || '—'],
+    ];
+    const paymentRows = payments.map((p: any) => `
+      <tr>
+        <td>${escapeHtml(p.type || '—')}</td>
+        <td>${escapeHtml(p.paymentMethod || '—')}</td>
+        <td class="num">${escapeHtml(formatMoney(p.amount))}</td>
+        <td>${escapeHtml(p.status || '—')}</td>
+        <td>${escapeHtml(formatDate(p.paidAt || p.createdAt || ''))}</td>
+      </tr>
+    `).join('');
+    const historyRows = history.map((h) => `
+      <tr>
+        <td>${escapeHtml(LOT_STATUS_LABEL[h.fromStatus as LotStatus] || h.fromStatus || '—')}</td>
+        <td>${escapeHtml(LOT_STATUS_LABEL[h.toStatus as LotStatus] || h.toStatus || '—')}</td>
+        <td>${escapeHtml(formatDate(h.createdAt))}</td>
+      </tr>
+    `).join('');
+    const scheduleRows = schedule.map((q: any) => `
+      <tr>
+        <td>Cuota ${escapeHtml(q.installmentNo || '—')}</td>
+        <td>${escapeHtml(formatDate(q.dueDate))}</td>
+        <td class="num">${escapeHtml(formatMoney(q.amount))}</td>
+        <td>${escapeHtml(q.status || '—')}</td>
+      </tr>
+    `).join('');
+    const print = window.open('', '_blank');
+    if (!print) return;
+    print.document.write(`
+      <html>
+        <head>
+          <title>Ficha lote ${escapeHtml(lot.code)}</title>
+          <style>
+            body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white}
+            .brand{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}
+            .brand img{height:42px;max-width:180px;object-fit:contain}
+            .eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+            h1{margin:0;font-size:24px;line-height:1.15;color:#111827}
+            h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
+            p{margin:4px 0 0;color:#6B7280;font-size:12px}
+            .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 18px}
+            .summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:10px;border-radius:6px}
+            .summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+            .summary strong{display:block;margin-top:4px;color:#111827;font-size:13px}
+            table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}
+            th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:10px;text-align:left;text-transform:uppercase}
+            td{border:1px solid #E5E7EB;padding:8px 7px;font-size:11px;vertical-align:top}
+            tbody tr:nth-child(even){background:#F8FAFC}
+            .label{background:#D8E8FF;font-weight:700;color:#111827;width:38%}
+            .num{text-align:right;white-space:nowrap;font-weight:700;color:#1259C4}
+            .status{display:inline-block;border-radius:999px;padding:4px 9px;background:${detailStatusColor(lot.status)}22;color:${detailStatusColor(lot.status)};font-weight:700}
+            .watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.06;z-index:-1}
+            .watermark img{width:560px;max-width:72vw}
+            .footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:10px;text-align:right}
+            @media print{body{margin:18px}thead{display:table-header-group}.brand,.summary{break-inside:avoid}.watermark{position:fixed}}
+          </style>
+        </head>
+        <body>
+          <div class="watermark"><img src="${escapeHtml(logoUrl)}" alt="" /></div>
+          <div class="brand">
+            <div>
+              <p class="eyebrow">Ficha de lote</p>
+              <h1>Lote ${escapeHtml(lot.code)}</h1>
+              <p>Generado ${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+            </div>
+            <img src="${escapeHtml(logoUrl)}" alt="Dunacon" />
+          </div>
+          <div class="summary">
+            <div><span>Estado</span><strong>${escapeHtml(LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status)}</strong></div>
+            <div><span>Area</span><strong>${escapeHtml(formatArea(lot.areaM2))}</strong></div>
+            <div><span>Precio final</span><strong>${escapeHtml(lot.finalPrice ? formatMoney(lot.finalPrice) : lot.salePrice ? formatMoney(lot.salePrice) : formatMoney(lot.price))}</strong></div>
+          </div>
+          <h2>Informacion del lote</h2>
+          <table><tbody>
+            ${rows.map(([label, value]) => `<tr><td class="label">${escapeHtml(label)}</td><td>${label === 'Estado' ? `<span class="status">${escapeHtml(value)}</span>` : escapeHtml(value)}</td></tr>`).join('')}
+          </tbody></table>
+          <h2>Pagos</h2>
+          <table>
+            <thead><tr><th>Tipo</th><th>Medio</th><th>Monto</th><th>Estado</th><th>Fecha</th></tr></thead>
+            <tbody>${paymentRows || '<tr><td colspan="5">Sin pagos registrados.</td></tr>'}</tbody>
+          </table>
+          <h2>Financiamiento del lote</h2>
+          <div class="summary">
+            <div><span>Valor del lote</span><strong>${escapeHtml(formatMoney(unitPrice))}</strong></div>
+            <div><span>Total abonado</span><strong>${escapeHtml(formatMoney(amountPaid))}</strong></div>
+            <div><span>Saldo por pagar</span><strong>${escapeHtml(formatMoney(remaining))}</strong></div>
+            <div><span>Avance</span><strong>${donePct}%</strong></div>
+            <div><span>Valor cuota</span><strong>${escapeHtml(formatMoney(aheadPayment))}</strong></div>
+            <div><span>Cuotas</span><strong>${schedule.length}</strong></div>
+            <div><span>Pagadas</span><strong>${closed}</strong></div>
+            <div><span>Pendientes</span><strong>${Math.max(0, schedule.length - closed)}</strong></div>
+          </div>
+          <table>
+            <thead><tr><th>Cuota</th><th>Vencimiento</th><th>Monto</th><th>Estado</th></tr></thead>
+            <tbody>${scheduleRows || '<tr><td colspan="4">Sin cronograma registrado.</td></tr>'}</tbody>
+          </table>
+          <h2>Historial de estados</h2>
+          <table>
+            <thead><tr><th>Desde</th><th>Hacia</th><th>Fecha</th></tr></thead>
+            <tbody>${historyRows || '<tr><td colspan="3">Sin cambios registrados.</td></tr>'}</tbody>
+          </table>
+          <div class="footer">Dunacon - CRM Inmobiliario</div>
+        </body>
+      </html>
+    `);
+    print.document.close();
+    print.onload = () => print.print();
+  }
+
   const statusColor = lot ? ((LOT_STATUS_COLOR as any)[lot.status] || '#64748b') : '#64748b';
   const tableStatusColor = lot ? detailStatusColor(lot.status) : '#64748b';
   const pricePerM2 = lot && Number(lot.areaM2) > 0 ? Number(lot.price) / Number(lot.areaM2) : 0;
@@ -138,6 +270,18 @@ export default function LotDetailModal({ lotId, onClose, onChanged }: {
 
           {view === 'detalle' && (
             <>
+              <div className="flex justify-end">
+                <button
+                  type="button"
+                  onClick={exportLotPdf}
+                  className="grid h-9 w-9 place-items-center rounded-md border bg-white text-[#1877F2] transition-colors hover:bg-[#F3F4F6]"
+                  style={{ borderColor: '#E5E7EB' }}
+                  aria-label="Exportar ficha PDF"
+                  title="Exportar ficha PDF"
+                >
+                  <FiDownload />
+                </button>
+              </div>
               <div className="overflow-hidden rounded-xl border bg-white shadow-sm" style={{ borderColor: '#CBD5E1' }}>
                 {[
                   { label: 'Núm. Lote', value: lot.code || '—' },

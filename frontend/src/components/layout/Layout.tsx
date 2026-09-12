@@ -6,6 +6,7 @@ import {
   FiAward,
   FiBell,
   FiCheckCircle,
+  FiChevronDown,
   FiChevronLeft,
   FiChevronRight,
   FiCreditCard,
@@ -79,7 +80,7 @@ function writeSidebarPreference(collapsed: boolean) {
   } catch {}
 }
 
-export default function Layout({ children, title }: { children: ReactNode; title?: string }) {
+export default function Layout({ children, title, titleLogoUrl }: { children: ReactNode; title?: string; titleLogoUrl?: string | null }) {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
@@ -87,8 +88,9 @@ export default function Layout({ children, title }: { children: ReactNode; title
   const [collapsed, setCollapsed] = useState(false);
   const [pendingApp, setPendingApp] = useState<{ count: number; rows: any[] }>({ count: 0, rows: [] });
   const [bellOpen, setBellOpen] = useState(false);
-  const [activeProject, setActiveProject] = useState<{ id: number; name: string } | null>(null);
-  const [projectOptions, setProjectOptions] = useState<{ id: number; name: string }[]>([]);
+  const [activeProject, setActiveProject] = useState<{ id: number; name: string; logoImageUrl?: string | null } | null>(null);
+  const [projectOptions, setProjectOptions] = useState<{ id: number; name: string; logoImageUrl?: string | null }[]>([]);
+  const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
 
   const activeProjectId = useMemo(() => {
     const match = pathname.match(/^\/projects\/(\d+)/);
@@ -115,7 +117,7 @@ export default function Layout({ children, title }: { children: ReactNode; title
     }
 
     api.get<any>(`/projects/${activeProjectId}`)
-      .then((project) => setActiveProject({ id: activeProjectId, name: project?.name || `Proyecto ${activeProjectId}` }))
+      .then((project) => setActiveProject({ id: activeProjectId, name: project?.name || `Proyecto ${activeProjectId}`, logoImageUrl: project?.logoImageUrl || null }))
       .catch(() => setActiveProject({ id: activeProjectId, name: `Proyecto ${activeProjectId}` }));
   }, [activeProjectId]);
 
@@ -128,7 +130,7 @@ export default function Layout({ children, title }: { children: ReactNode; title
     api.get<any[]>('/projects')
       .then((data) => {
         const rows = Array.isArray(data) ? data : ((data as any)?.items || []);
-        setProjectOptions(rows.map((project: any) => ({ id: Number(project.id), name: project.name || `Proyecto ${project.id}` })));
+        setProjectOptions(rows.map((project: any) => ({ id: Number(project.id), name: project.name || `Proyecto ${project.id}`, logoImageUrl: project.logoImageUrl || null })));
       })
       .catch(() => setProjectOptions([]));
   }, [activeProjectId]);
@@ -165,7 +167,7 @@ export default function Layout({ children, title }: { children: ReactNode; title
   const visiblePrimary = (isProjectContext ? projectNav(activeProjectId) : GLOBAL_NAV).filter((item) => item.roles.includes(user.role));
   const visibleEnd = isProjectContext ? [] : GLOBAL_END_NAV.filter((item) => item.roles.includes(user.role));
   const showLabels = drawerOpen || !collapsed;
-  const sidebarWidth = collapsed ? 76 : 284;
+  const sidebarWidth = collapsed ? 76 : 248;
   const userInitial = user.name?.trim()?.charAt(0)?.toUpperCase() || user.email?.charAt(0)?.toUpperCase() || 'U';
 
   function isActive(href: string) {
@@ -178,6 +180,7 @@ export default function Layout({ children, title }: { children: ReactNode; title
     if (href.startsWith('#')) return;
     router.push(href);
     setDrawerOpen(false);
+    setProjectSwitcherOpen(false);
   }
 
   function logout() {
@@ -207,13 +210,13 @@ export default function Layout({ children, title }: { children: ReactNode; title
         type="button"
         onClick={() => navigate(item.href)}
         title={!showLabels ? item.label : undefined}
-        className={`relative flex w-full items-center overflow-hidden rounded-md text-sm transition-colors ${showLabels ? 'gap-3 px-3' : 'justify-center px-0'} ${active ? 'text-white shadow-sm' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
+        className={`relative w-full overflow-hidden rounded-md text-sm transition-colors ${showLabels ? 'grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-3 px-3 text-left' : 'flex items-center justify-center px-0'} ${active ? 'text-white shadow-sm' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
         style={{ height: 38, fontWeight: active ? 600 : 500, background: active ? BRAND.blue : undefined }}
       >
-        <span className="shrink-0" style={{ fontSize: 16 }}>{item.icon}</span>
-        {showLabels && <span className="truncate">{item.label}</span>}
+        <span className="grid w-5 shrink-0 place-items-center" style={{ fontSize: 16 }}>{item.icon}</span>
+        {showLabels && <span className="min-w-0 truncate text-left">{item.label}</span>}
         {badge && (
-          <span className={`${showLabels ? 'ml-auto' : 'absolute right-1 top-1'} grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-bold text-white`} style={{ background: active ? BRAND.blueDark : BRAND.blue }}>
+          <span className={`${showLabels ? '' : 'absolute right-1 top-1'} grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-bold text-white`} style={{ background: active ? BRAND.blueDark : BRAND.blue }}>
             {pendingApp.count}
           </span>
         )}
@@ -232,14 +235,14 @@ export default function Layout({ children, title }: { children: ReactNode; title
         onClick={() => navigate(item.href)}
         disabled={disabled}
         title={!showLabels ? item.label : undefined}
-        className={`relative flex w-full items-center overflow-hidden rounded-md text-sm transition-colors ${showLabels ? 'gap-3 px-3' : 'justify-center px-0'} ${disabled ? 'cursor-not-allowed text-slate-400' : active ? 'text-white shadow-sm' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
+        className={`relative w-full overflow-hidden rounded-md text-sm transition-colors ${showLabels ? 'grid grid-cols-[1.25rem_minmax(0,1fr)_auto] items-center gap-3 px-3 text-left' : 'flex items-center justify-center px-0'} ${disabled ? 'cursor-not-allowed text-slate-400' : active ? 'text-white shadow-sm' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
         style={{ height: 38, fontWeight: active ? 600 : 500, background: active && !disabled ? BRAND.blue : undefined }}
       >
-        <span className="shrink-0" style={{ fontSize: 16 }}>{item.icon}</span>
-        {showLabels && <span className="min-w-0 flex-1 truncate">{item.label}</span>}
+        <span className="grid w-5 shrink-0 place-items-center" style={{ fontSize: 16 }}>{item.icon}</span>
+        {showLabels && <span className="min-w-0 truncate text-left">{item.label}</span>}
         {showLabels && disabled && <span className="shrink-0 text-[10px] font-semibold uppercase text-slate-400">Proximamente</span>}
         {badge && !disabled && (
-          <span className={`${showLabels ? 'ml-auto' : 'absolute right-1 top-1'} grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-bold text-white`} style={{ background: active ? BRAND.blueDark : BRAND.blue }}>
+          <span className={`${showLabels ? '' : 'absolute right-1 top-1'} grid h-5 min-w-5 place-items-center rounded-full px-1 text-[10px] font-bold text-white`} style={{ background: active ? BRAND.blueDark : BRAND.blue }}>
             {pendingApp.count}
           </span>
         )}
@@ -253,30 +256,72 @@ export default function Layout({ children, title }: { children: ReactNode; title
       style={{ borderColor: BRAND.border, width: drawerOpen ? undefined : sidebarWidth }}
     >
       {isProjectContext ? (
-        <div className="shrink-0 border-b p-3" style={{ borderColor: BRAND.border }}>
+        <div className="shrink-0 border-b p-2" style={{ borderColor: BRAND.border }}>
           {showLabels ? (
-            <div className="grid grid-cols-[7.5rem_minmax(0,1fr)_2rem] border bg-white" style={{ borderColor: BRAND.ink, borderRadius: 2 }}>
+            <div className="relative flex h-8 items-center gap-1.5">
               <button
                 type="button"
                 onClick={() => navigate('/projects')}
-                className="flex items-center justify-center border-r px-2 text-sm font-bold"
-                style={{ borderColor: BRAND.ink, color: BRAND.ink }}
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-md border bg-white text-[#374151] transition-colors hover:bg-[#F3F4F6]"
+                style={{ borderColor: BRAND.border }}
+                aria-label="Volver a proyectos"
+                title="Volver a proyectos"
               >
-                Proyecto
+                <FiArrowLeft />
               </button>
-              <select
-                className="min-w-0 bg-white px-2 text-sm font-bold outline-none"
-                value={activeProjectId || ''}
-                onChange={(event) => navigate(`/projects/${event.target.value}`)}
-                style={{ color: BRAND.ink }}
+              <button
+                type="button"
+                className="flex h-8 min-w-0 flex-1 items-center justify-center gap-2 rounded-md border bg-white px-2 text-sm font-semibold text-[#171717] transition-colors hover:bg-[#F3F4F6]"
+                style={{ borderColor: BRAND.border }}
+                onClick={() => setProjectSwitcherOpen((value) => !value)}
+                title={activeProject?.name || 'Cambiar proyecto'}
               >
-                {(projectOptions.length ? projectOptions : activeProject ? [activeProject] : []).map((project) => (
-                  <option key={project.id} value={project.id}>{project.name}</option>
-                ))}
-              </select>
-              <button type="button" onClick={toggleCollapsed} className="grid place-items-center border-l text-[#374151] md:grid" style={{ borderColor: BRAND.ink }}>
+                {activeProject?.logoImageUrl ? (
+                  <img src={activeProject.logoImageUrl} alt={activeProject.name} className="max-h-5 max-w-[8.5rem] object-contain" />
+                ) : (
+                  <span className="truncate">{activeProject?.name || 'Proyecto'}</span>
+                )}
+                <FiChevronDown className="shrink-0 text-[#6B7280]" style={{ fontSize: 14 }} />
+              </button>
+              <button
+                type="button"
+                onClick={toggleCollapsed}
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-md border bg-white text-[#374151] transition-colors hover:bg-[#F3F4F6] md:grid"
+                style={{ borderColor: BRAND.border }}
+                aria-label="Contraer menu"
+                title="Contraer menu"
+              >
                 <FiChevronLeft />
               </button>
+              {projectSwitcherOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setProjectSwitcherOpen(false)} />
+                  <div
+                    className="fixed top-2 z-50 max-h-[calc(100vh-1rem)] w-72 overflow-auto rounded-md border bg-white p-2 shadow-2xl"
+                    style={{ borderColor: BRAND.border, left: drawerOpen ? 'min(90vw, 320px)' : sidebarWidth + 8 }}
+                  >
+                    <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: BRAND.muted }}>Cambiar proyecto</p>
+                    {(projectOptions.length ? projectOptions : activeProject ? [activeProject] : []).map((project) => (
+                      <button
+                        key={project.id}
+                        type="button"
+                        onClick={() => navigate(`/projects/${project.id}`)}
+                        className={`flex h-10 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors ${Number(project.id) === Number(activeProjectId) ? 'bg-softblue font-semibold' : 'hover:bg-[#F3F4F6]'}`}
+                        style={{ color: BRAND.ink }}
+                      >
+                        {project.logoImageUrl ? (
+                          <img src={project.logoImageUrl} alt="" className="h-6 w-10 shrink-0 object-contain" />
+                        ) : (
+                          <span className="grid h-6 w-10 shrink-0 place-items-center rounded bg-softblue text-[10px] font-bold" style={{ color: BRAND.blue }}>
+                            {project.name.trim().charAt(0).toUpperCase() || 'P'}
+                          </span>
+                        )}
+                        <span className="min-w-0 flex-1 truncate">{project.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           ) : (
             <button
@@ -325,11 +370,11 @@ export default function Layout({ children, title }: { children: ReactNode; title
               type="button"
               onClick={() => navigate('/profile')}
               title={!showLabels ? 'Perfil' : undefined}
-              className={`flex w-full items-center overflow-hidden rounded-md text-sm ${showLabels ? 'gap-3 px-3' : 'justify-center px-0'} ${isActive('/profile') ? 'text-white shadow-sm' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
+              className={`w-full overflow-hidden rounded-md text-sm ${showLabels ? 'grid grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-3 px-3 text-left' : 'flex items-center justify-center px-0'} ${isActive('/profile') ? 'text-white shadow-sm' : 'text-[#374151] hover:bg-[#F3F4F6]'}`}
               style={{ height: 38, fontWeight: 500, background: isActive('/profile') ? BRAND.blue : undefined }}
             >
-              <span className="shrink-0" style={{ fontSize: 16 }}><FiUser /></span>
-              {showLabels && <span className="truncate">Perfil</span>}
+              <span className="grid w-5 shrink-0 place-items-center" style={{ fontSize: 16 }}><FiUser /></span>
+              {showLabels && <span className="min-w-0 truncate text-left">Perfil</span>}
             </button>
           </>
         )}
@@ -361,11 +406,11 @@ export default function Layout({ children, title }: { children: ReactNode; title
           type="button"
           onClick={logout}
           title={!showLabels ? 'Cerrar sesion' : undefined}
-          className={`flex w-full items-center rounded-md text-sm text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#1877F2] ${showLabels ? 'gap-3 px-3' : 'justify-center px-0'}`}
+          className={`w-full rounded-md text-sm text-[#6B7280] hover:bg-[#F3F4F6] hover:text-[#1877F2] ${showLabels ? 'grid grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-3 px-3 text-left' : 'flex items-center justify-center px-0'}`}
           style={{ height: 34 }}
         >
-          <span className="shrink-0" style={{ fontSize: 16 }}><FiLogOut /></span>
-          {showLabels && <span className="truncate">Cerrar sesion</span>}
+          <span className="grid w-5 shrink-0 place-items-center" style={{ fontSize: 16 }}><FiLogOut /></span>
+          {showLabels && <span className="min-w-0 truncate text-left">Cerrar sesion</span>}
         </button>
       </div>
     </aside>
@@ -382,7 +427,11 @@ export default function Layout({ children, title }: { children: ReactNode; title
             <FiMenu style={{ fontSize: 22 }} />
           </button>
           <div className="min-w-0 flex-1">
-            {title && <h1 className="truncate" style={{ fontSize: 17 }}>{title}</h1>}
+            {titleLogoUrl ? (
+              <img src={titleLogoUrl} alt={title || 'Proyecto'} className="h-8 max-w-48 object-contain" />
+            ) : (
+              title && <h1 className="truncate" style={{ fontSize: 17 }}>{title}</h1>
+            )}
           </div>
           {canManage && (
             <span className="hidden items-center gap-1.5 rounded-md bg-softblue px-3 sm:inline-flex" style={{ height: 28, fontSize: 12, color: BRAND.blue }}>

@@ -30,6 +30,9 @@ export class ProjectEntity {
   @Column({ name: 'cover_image_url', length: 500, nullable: true })
   coverImageUrl: string;
 
+  @Column({ name: 'logo_image_url', length: 500, nullable: true })
+  logoImageUrl: string;
+
   @Column({ length: 20, default: 'active' })
   status: string;
 

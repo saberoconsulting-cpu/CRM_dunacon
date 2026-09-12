@@ -141,6 +141,15 @@ export class ProjectsService {
     return project;
   }
 
+  async updateLogo(id: number, logoImageUrl: string, actorId: number) {
+    const project = await this.projectRepo.findOne({ where: { id } });
+    if (!project) throw new NotFoundException('Proyecto no encontrado');
+    project.logoImageUrl = logoImageUrl;
+    await this.projectRepo.save(project);
+    await this.audit(actorId, 'SUBIR_LOGO_PROYECTO', 'projects', id);
+    return project;
+  }
+
   async deleteProject(id: number, actorId: number) {
     const project = await this.projectRepo.findOne({ where: { id } });
     if (!project) throw new NotFoundException('Proyecto no encontrado');

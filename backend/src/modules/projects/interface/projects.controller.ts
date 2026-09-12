@@ -94,6 +94,18 @@ export class ProjectsController {
     return this.projectsService.updateCover(id, up.secure_url, actorId);
   }
 
+  @Post('logo/:id')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  async uploadLogo(
+    @Param('id', ParseIntPipe) id: number,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser('id') actorId: number,
+  ) {
+    const up = await uploadToCloudinary(file.buffer, 'project-logos');
+    return this.projectsService.updateLogo(id, up.secure_url, actorId);
+  }
+
   @Post(':id/documents')
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
   async uploadDocument(

@@ -81,6 +81,7 @@ export interface Project {
   latitude?: number;
   longitude?: number;
   coverImageUrl?: string;
+  logoImageUrl?: string;
   status: 'active' | 'inactive';
   referencePrice?: number;
   stats?: { total: number; disponibles: number; reservados: number; adelantos: number; primeras: number; vendidos: number };

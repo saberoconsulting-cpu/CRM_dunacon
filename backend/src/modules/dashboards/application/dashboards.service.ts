@@ -276,7 +276,7 @@ export class DashboardsService {
   }
 
   async project(projectId: number) {
-    const [total, lotStats, salesByPeriod, income, expense, agentRanking] = await Promise.all([
+    const [total, lotStats, salesByPeriod, income, expense, inventory, soldValue, agentRanking] = await Promise.all([
       this.lotRepo.count({ where: { projectId } }),
       this.lotRepo.createQueryBuilder('l').where('l.project_id = :projectId', { projectId })
         .select('l.status', 'status').addSelect('COUNT(*)', 'total').groupBy('l.status').getRawMany(),
@@ -287,13 +287,19 @@ export class DashboardsService {
         .select('COALESCE(SUM(t.amount),0)', 'total').getRawOne(),
       this.txnRepo.createQueryBuilder('t').where('t.project_id = :projectId AND t.type=\'egreso\'', { projectId })
         .select('COALESCE(SUM(t.amount),0)', 'total').getRawOne(),
+      this.lotRepo.createQueryBuilder('l').where('l.project_id = :projectId', { projectId })
+        .select('COALESCE(SUM(COALESCE(l.sale_price, l.price)),0)', 'total').getRawOne(),
+      this.lotRepo.createQueryBuilder('l').where('l.project_id = :projectId AND l.status = :status', { projectId, status: 'vendido' })
+        .select('COALESCE(SUM(COALESCE(l.sale_price, l.price)),0)', 'total').getRawOne(),
       this.agentRankingQuery(projectId),
     ]);
     const lotMap = Object.fromEntries(lotStats.map((r) => [r.status, Number(r.total)]));
     const totalIncome = Number(income?.total || 0);
     const totalExpense = Number(expense?.total || 0);
+    const inventoryValue = Number(inventory?.total || 0);
+    const soldListValue = Number(soldValue?.total || 0);
     return {
-      cards: { total, lots: lotMap, income: totalIncome, expense: totalExpense, profit: totalIncome - totalExpense },
+      cards: { total, lots: lotMap, income: totalIncome, expense: totalExpense, profit: totalIncome - totalExpense, inventoryValue, soldListValue },
       salesByPeriod: salesByPeriod.map((r) => ({ date: r.date, total: Number(r.total), amount: Number(r.amount) })),
       agentRanking: this.mapAgentRanking(agentRanking),
     };

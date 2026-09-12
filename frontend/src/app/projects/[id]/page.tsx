@@ -144,6 +144,7 @@ export default function ProjectPage() {
   const [search, setSearch] = useState('');
   const [perPage, setPerPage] = useState(10);
   const [lotPage, setLotPage] = useState(0);
+  const [agentPage, setAgentPage] = useState(0);
   const [leadsByChannel, setLeadsByChannel] = useState<{ channel: string; total: number }[]>([]);
 
   async function loadAll() {
@@ -167,6 +168,17 @@ export default function ProjectPage() {
       const updated = await uploadFile(`/projects/cover/${projectId}`, file);
       setProject((current: any | null) => ({ ...(current || {}), coverImageUrl: updated?.coverImageUrl || current?.coverImageUrl }));
       toast('Imagen de portada actualizada');
+    } catch (e: any) {
+      toast(e.message, 'err');
+    }
+  }
+
+  async function reemplazarLogo(file?: File) {
+    if (!file) return;
+    try {
+      const updated = await uploadFile(`/projects/logo/${projectId}`, file);
+      setProject((current: any | null) => ({ ...(current || {}), logoImageUrl: updated?.logoImageUrl || current?.logoImageUrl }));
+      toast('Logo del proyecto actualizado');
     } catch (e: any) {
       toast(e.message, 'err');
     }
@@ -227,9 +239,13 @@ export default function ProjectPage() {
   const expense = asNumber(stats?.cards?.expense);
   const profit = asNumber(stats?.cards?.profit);
   const soldLots = countByStatus('vendido');
-  const inventoryValue = sumBy(lots, (lot) => lot.price);
-  const soldListValue = amountByStatus('vendido');
+  const inventoryValue = stats?.cards?.inventoryValue != null ? asNumber(stats.cards.inventoryValue) : sumBy(lots, (lot) => lot.finalPrice ?? lot.salePrice ?? lot.price);
+  const soldListValue = stats?.cards?.soldListValue != null ? asNumber(stats.cards.soldListValue) : sumBy(lots.filter((lot) => lot.status === 'vendido'), (lot) => lot.finalPrice ?? lot.salePrice ?? lot.price);
   const agentRanking = (stats?.agentRanking || []) as AgentRanking[];
+  const agentPageSize = 10;
+  const agentPages = Math.max(1, Math.ceil(agentRanking.length / agentPageSize));
+  const safeAgentPage = Math.min(agentPage, agentPages - 1);
+  const agentFrame = agentRanking.slice(safeAgentPage * agentPageSize, safeAgentPage * agentPageSize + agentPageSize);
   const financialRows = [
     ['Ingresos registrados', money(income)],
     ['Egresos registrados', money(expense)],
@@ -248,7 +264,7 @@ export default function ProjectPage() {
   }
 
   return (
-    <Layout title={project.name}>
+    <Layout title={project.name} titleLogoUrl={project.logoImageUrl}>
       <Toaster />
       <LotDetailModal lotId={selectedLot} onClose={() => setSelectedLot(null)} onChanged={loadAll} />
 
@@ -264,8 +280,13 @@ export default function ProjectPage() {
             </span>
           </div>
           {canEdit && (
-            <div className="flex flex-col gap-2">
-              <label className="btn-neutral !h-8 cursor-pointer text-xs">
+            <div className="flex w-48 flex-col gap-2">
+              <label className="btn-neutral !h-8 cursor-pointer justify-center text-xs">
+                <FiCamera />
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; reemplazarLogo(file); }} />
+                Cambiar logo
+              </label>
+              <label className="btn-neutral !h-8 cursor-pointer justify-center text-xs">
                 <FiCamera />
                 <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; reemplazarPortada(file); }} />
                 Actualizar imagen
@@ -292,7 +313,6 @@ export default function ProjectPage() {
                 <LegendChips />
                 <div className="flex gap-2">
                   <a href={`/projects/${projectId}/plan-editor`} className="btn-primary !h-8 text-xs">Editar plano</a>
-                  <button className="btn-neutral text-xs" onClick={() => setBlockFilter(null)}>Ver todos</button>
                 </div>
               </div>
               <div className="overflow-hidden rounded-lg border bg-white" style={{ height: '560px', borderColor: '#E5E7EB' }}>
@@ -431,16 +451,18 @@ export default function ProjectPage() {
                 <BarReport data={lotAmountData} colorMap={lotColorByLabel} valuePrefix="S/ " />
               </ReportCard>
 
-              <ReportCard title="Origen de leads" subtitle="Clientes/leads asociados al proyecto">
-                <DonutReport data={leadsChartData} colorMap={(name) => LEAD_CHANNEL_COLOR[name] || '#9AA1AB'} />
-              </ReportCard>
+              {totalLeads > 0 && (
+                <ReportCard title="Origen de leads" subtitle="Clientes/leads asociados al proyecto">
+                  <DonutReport data={leadsChartData} colorMap={(name) => LEAD_CHANNEL_COLOR[name] || '#9AA1AB'} />
+                </ReportCard>
+              )}
 
-              <ReportCard title="Resumen financiero" subtitle="Transacciones y valores registrados">
+              <ReportCard title="Resumen financiero" subtitle="Solo datos de este proyecto">
                 <div className="space-y-2">
                   {financialRows.map(([label, value]) => (
-                    <div key={label} className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border bg-white px-3 py-2" style={{ borderColor: '#E5E7EB' }}>
-                      <span className="truncate text-xs font-semibold" style={{ color: '#111827' }}>{label}</span>
-                      <span className="min-w-24 text-right text-sm font-bold tabular-nums" style={{ color: '#1259C4' }}>{value}</span>
+                    <div key={label} className="flex items-center justify-between gap-4 rounded-md border bg-white px-3 py-2" style={{ borderColor: '#E5E7EB' }}>
+                      <span className="min-w-0 text-xs font-semibold leading-4" style={{ color: '#111827' }}>{label}</span>
+                      <span className="shrink-0 text-right text-sm font-bold tabular-nums" style={{ color: '#1259C4' }}>{value}</span>
                     </div>
                   ))}
                 </div>
@@ -458,9 +480,9 @@ export default function ProjectPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {agentRanking.map((agent, index) => (
+                      {agentFrame.map((agent, index) => (
                         <tr key={`${agent.agentId || 'none'}-${index}`} className="border-t" style={{ borderColor: '#EEF0F2' }}>
-                          <td className="td-base">{index + 1}</td>
+                          <td className="td-base">{safeAgentPage * agentPageSize + index + 1}</td>
                           <td className="td-base truncate font-medium">{agent.agentName || 'Sin agente'}</td>
                           <td className="td-base text-right tabular-nums">{agent.salesCount}</td>
                           <td className="td-base text-right text-xs font-semibold tabular-nums">{money(agent.salesAmount)}</td>
@@ -471,6 +493,18 @@ export default function ProjectPage() {
                       )}
                     </tbody>
                   </table>
+                  {agentRanking.length > agentPageSize && (
+                    <div className="flex items-center justify-between gap-2 border-t px-3 py-2" style={{ borderColor: '#EEF0F2' }}>
+                      <span className="text-xs text-slate-500">
+                        Mostrando {safeAgentPage * agentPageSize + 1}-{Math.min(agentRanking.length, (safeAgentPage + 1) * agentPageSize)} de {agentRanking.length}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button className="btn-neutral !h-7 !px-2 text-xs" disabled={safeAgentPage <= 0} onClick={() => setAgentPage((v) => Math.max(0, v - 1))}>Anterior</button>
+                        <span className="px-2 text-xs font-semibold text-slate-500">{safeAgentPage + 1}/{agentPages}</span>
+                        <button className="btn-neutral !h-7 !px-2 text-xs" disabled={safeAgentPage >= agentPages - 1} onClick={() => setAgentPage((v) => Math.min(agentPages - 1, v + 1))}>Siguiente</button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </ReportCard>
             </div>

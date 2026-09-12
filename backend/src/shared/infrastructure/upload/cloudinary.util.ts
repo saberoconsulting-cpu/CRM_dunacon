@@ -24,7 +24,7 @@ export function cloudinaryConfigured(): boolean {
 /** Sube un buffer/image y devuelve URL segura pública. */
 export async function uploadToCloudinary(
   buffer: Buffer,
-  folder: 'covers' | 'plans' | 'uploads' | 'documents',
+  folder: 'covers' | 'plans' | 'uploads' | 'documents' | 'project-logos',
 ): Promise<{ secure_url: string; public_id: string }> {
   if (!cloudinaryConfigured()) {
     throw new Error(

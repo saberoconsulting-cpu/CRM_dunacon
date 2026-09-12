@@ -47,10 +47,6 @@ function formatShortDate(value?: string | null) {
   return date.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
-function escapeCsv(value: unknown) {
-  return `"${String(value ?? '').replace(/"/g, '""')}"`;
-}
-
 function escapeHtml(value: unknown) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -68,6 +64,19 @@ function movementQuery(params: { page: number; limit: number; projectId?: string
   if (params.projectId) q.set('projectId', params.projectId);
   if (params.type) q.set('type', params.type);
   return q.toString();
+}
+
+function formatExportDate(value?: string | null) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return date.toLocaleString('es-PE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 function conicGradient(data: { value: number; color: string }[], total: number) {
@@ -508,37 +517,103 @@ function MovementsCenter({ sales, payments, projects, projectName }: {
       projectId: historyProjectId,
       type: historyType,
     })}`).catch(() => null);
-    const rows: DashboardMovement[] = Array.isArray(data?.items) ? data.items : history;
+    const rows: DashboardMovement[] = (Array.isArray(data?.items) ? data.items : history)
+      .slice()
+      .sort((a: DashboardMovement, b: DashboardMovement) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime());
+    const selectedProject = historyProjectId ? projects.find((project) => String(project.id) === String(historyProjectId))?.name || projectName(Number(historyProjectId)) : 'Todos los proyectos';
+    const selectedType = historyType === 'venta' ? 'Solo ventas' : historyType === 'pago' ? 'Solo pagos' : 'Ventas y pagos';
+    const generatedAt = new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' });
+    const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
+    const totalAmount = rows.reduce((total, row) => total + Number(row.amount || 0), 0);
+    const totalSales = rows.filter((row) => row.type === 'venta').reduce((total, row) => total + Number(row.amount || 0), 0);
+    const totalPayments = rows.filter((row) => row.type === 'pago').reduce((total, row) => total + Number(row.amount || 0), 0);
+    const columns = ['Fecha', 'Tipo', 'Movimiento', 'Proyecto', 'Lote', 'Agente', 'Estado', 'Monto'];
     const tableRows = rows.map((row) => ({
+      Fecha: formatExportDate(row.date),
       Tipo: row.type === 'venta' ? 'Venta' : 'Pago',
-      Movimiento: row.label,
+      Movimiento: row.label || '-',
       Proyecto: row.projectName || (row.projectId ? projectName(Number(row.projectId)) : '-'),
       Lote: row.lotCode || '-',
       Agente: row.agentName || '-',
       Estado: row.status || '-',
-      Fecha: formatShortDate(row.date),
       Monto: money(row.amount),
     }));
+    const summaryHtml = `
+      <div class="summary">
+        <div><span>Proyecto</span><strong>${escapeHtml(selectedProject)}</strong></div>
+        <div><span>Filtro</span><strong>${escapeHtml(selectedType)}</strong></div>
+        <div><span>Movimientos</span><strong>${rows.length}</strong></div>
+        <div><span>Total ventas</span><strong>${escapeHtml(money(totalSales))}</strong></div>
+        <div><span>Total pagos</span><strong>${escapeHtml(money(totalPayments))}</strong></div>
+        <div><span>Total general</span><strong>${escapeHtml(money(totalAmount))}</strong></div>
+      </div>
+    `;
+    const tableHead = columns.map((key) => `<th>${escapeHtml(key)}</th>`).join('');
+    const tableBody = tableRows.length
+      ? tableRows.map((row) => `<tr>${columns.map((key) => `<td class="${key === 'Monto' ? 'amount' : ''}">${escapeHtml((row as any)[key])}</td>`).join('')}</tr>`).join('')
+      : `<tr><td colspan="${columns.length}" class="empty">Sin movimientos registrados.</td></tr>`;
+    const styles = `
+      body{font-family:Arial,Helvetica,sans-serif;color:#171717;margin:28px}
+      .brand{display:flex;align-items:center;justify-content:space-between;gap:24px;border-bottom:3px solid ${BRAND.blue};padding-bottom:14px;margin-bottom:18px}
+      .brand img{height:44px;max-width:180px;object-fit:contain}
+      .brand h1{margin:0;font-size:22px;color:#171717}
+      .brand p{margin:4px 0 0 0;font-size:12px;color:#6B7280}
+      .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:16px 0 18px}
+      .summary div{border:1px solid ${BRAND.border};background:#F8FAFC;padding:9px 10px}
+      .summary span{display:block;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:#6B7280}
+      .summary strong{display:block;margin-top:3px;font-size:13px;color:#171717}
+      table{width:100%;border-collapse:collapse;table-layout:fixed}
+      th{background:${BRAND.blue};color:white;border:1px solid ${BRAND.blue};padding:9px 8px;font-size:11px;text-align:left;text-transform:uppercase}
+      td{border:1px solid ${BRAND.border};padding:8px;font-size:11px;vertical-align:top}
+      tbody tr:nth-child(even){background:#F8FAFC}
+      .amount{text-align:right;font-weight:700;color:#1259C4;white-space:nowrap}
+      .empty{text-align:center;color:#6B7280;padding:18px}
+      .watermark{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%) rotate(-28deg);font-size:72px;font-weight:800;color:rgba(24,119,242,.06);z-index:-1;white-space:nowrap}
+      @media print{body{margin:18px}.brand{break-inside:avoid}.summary{break-inside:avoid}thead{display:table-header-group}.watermark{position:fixed}}
+    `;
 
     if (format === 'excel') {
-      const header = Object.keys(tableRows[0] || { Tipo: '', Movimiento: '', Proyecto: '', Lote: '', Agente: '', Estado: '', Fecha: '', Monto: '' });
-      const content = [header.map(escapeCsv).join(','), ...tableRows.map((row) => header.map((key) => escapeCsv((row as any)[key])).join(','))].join('\n');
-      const blob = new Blob([`\uFEFF${content}`], { type: 'text/csv;charset=utf-8;' });
+      const html = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">
+          <head><meta charset="utf-8"><style>${styles}</style></head>
+          <body>
+            <div class="brand">
+              <div><h1>Historial de movimientos</h1><p>Generado: ${escapeHtml(generatedAt)}</p></div>
+              <img src="${escapeHtml(logoUrl)}" alt="Dunacon" />
+            </div>
+            ${summaryHtml}
+            <table><thead><tr>${tableHead}</tr></thead><tbody>${tableBody}</tbody></table>
+          </body>
+        </html>
+      `;
+      const blob = new Blob([`\uFEFF${html}`], { type: 'application/vnd.ms-excel;charset=utf-8;' });
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = 'historial-movimientos.csv';
+      link.download = 'historial-movimientos.xls';
       link.click();
       URL.revokeObjectURL(url);
       return;
     }
 
-    const body = tableRows.map((row) => `<tr>${Object.values(row).map((value) => `<td>${escapeHtml(value)}</td>`).join('')}</tr>`).join('');
     const print = window.open('', '_blank');
     if (!print) return;
-    print.document.write(`<html><head><title>Historial de movimientos</title><style>body{font-family:Arial,sans-serif;color:${BRAND.ink}}table{width:100%;border-collapse:collapse}th,td{border:1px solid ${BRAND.border};padding:8px;font-size:12px;text-align:left}th{background:${BRAND.mutedLight}}</style></head><body><h2>Historial de movimientos</h2><table><thead><tr>${Object.keys(tableRows[0] || {}).map((key) => `<th>${escapeHtml(key)}</th>`).join('')}</tr></thead><tbody>${body}</tbody></table></body></html>`);
+    print.document.write(`
+      <html>
+        <head><title>Historial de movimientos</title><style>${styles}</style></head>
+        <body>
+          <div class="watermark">DUNACON</div>
+          <div class="brand">
+            <div><h1>Historial de movimientos</h1><p>Generado: ${escapeHtml(generatedAt)}</p></div>
+            <img src="${escapeHtml(logoUrl)}" alt="Dunacon" />
+          </div>
+          ${summaryHtml}
+          <table><thead><tr>${tableHead}</tr></thead><tbody>${tableBody}</tbody></table>
+        </body>
+      </html>
+    `);
     print.document.close();
-    print.print();
+    print.onload = () => print.print();
   };
 
   const renderMovement = (row: DashboardMovement, index: number) => (
