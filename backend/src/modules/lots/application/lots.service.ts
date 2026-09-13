@@ -8,6 +8,7 @@ import { PaymentEntity } from '../../../shared/infrastructure/entities/payment.e
 import { ClientEntity } from '../../../shared/infrastructure/entities/client.entity';
 import { UserEntity } from '../../../shared/infrastructure/entities/user.entity';
 import { BlockEntity } from '../../../shared/infrastructure/entities/block.entity';
+import { PlanEntity } from '../../../shared/infrastructure/entities/plan.entity';
 
 @Injectable()
 export class LotsService {
@@ -24,6 +25,8 @@ export class LotsService {
     private readonly userRepo: Repository<UserEntity>,
     @InjectRepository(BlockEntity)
     private readonly blockRepo: Repository<BlockEntity>,
+    @InjectRepository(PlanEntity)
+    private readonly planRepo: Repository<PlanEntity>,
   ) {}
 
   // Listado global con filtros
@@ -108,16 +111,19 @@ export class LotsService {
     let client: ClientEntity | null = null;
     let agent: { id: number; name: string; email: string; phone: string | null } | null = null;
     let block: BlockEntity | null = null;
+    let plan: PlanEntity | null = null;
     if (lot.clientId) client = await this.clientRepo.findOne({ where: { id: lot.clientId } });
     if (lot.agentId) {
       const a = await this.userRepo.findOne({ where: { id: lot.agentId } });
       if (a) agent = { id: a.id, name: a.name, email: a.email, phone: a.phone };
     }
     if (lot.blockId) block = await this.blockRepo.findOne({ where: { id: lot.blockId } });
+    if (lot.planId) plan = await this.planRepo.findOne({ where: { id: lot.planId } });
+    if (!plan && lot.projectId) plan = await this.planRepo.findOne({ where: { projectId: lot.projectId } });
     const totalPaid = payments
       .filter((p) => p.status === 'pagado')
       .reduce((s, p) => s + Number(p.amount), 0);
     const balance = Number(lot.price) - totalPaid;
-    return { lot, history, payments, client, agent, block, totalPaid, balance };
+    return { lot, history, payments, client, agent, block, plan, totalPaid, balance };
   }
 }

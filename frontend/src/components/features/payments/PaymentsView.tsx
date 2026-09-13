@@ -16,7 +16,7 @@ import {
 } from 'recharts';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { formatMoney, formatDate } from '@/lib/types';
-import { FiActivity, FiAlertTriangle, FiArrowUpRight, FiCamera, FiCreditCard, FiDollarSign, FiTrendingUp, FiUpload } from 'react-icons/fi';
+import { FiActivity, FiAlertTriangle, FiCamera, FiCreditCard, FiDollarSign, FiMoreVertical, FiTrendingUp, FiUpload } from 'react-icons/fi';
 
 type P = {
   id: number; projectId: number; lotId: number; type: string; amount: string;
@@ -121,15 +121,14 @@ function KpiTile({ label, value, helper, icon, accent, trend }: {
   trend?: number;
 }) {
   return (
-    <div className="rounded-md border bg-white p-3 shadow-sm" style={{ borderColor: BORDER }}>
-      <div className="flex items-start justify-between gap-3">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md" style={{ background: `${accent}14`, color: accent }}>
+    <div className="rounded-md border bg-white px-4 py-3 shadow-sm" style={{ borderColor: BORDER }}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="min-w-0 truncate text-[11px] font-semibold uppercase" style={{ color: MUTED }}>{label}</p>
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md" style={{ background: `${accent}12`, color: accent }}>
           {icon}
         </span>
-        {trend != null && <TrendBadge value={trend} label="" />}
       </div>
-      <p className="mt-3 text-[11px] font-semibold uppercase" style={{ color: MUTED }}>{label}</p>
-      <p className="mt-0.5 truncate text-xl font-bold tabular-nums" style={{ color: INK }}>{value}</p>
+      <p className="mt-2 truncate text-xl font-bold tabular-nums" style={{ color: INK }}>{value}</p>
       <p className="mt-0.5 truncate text-[11px]" style={{ color: MUTED }}>{helper}</p>
     </div>
   );
@@ -162,7 +161,7 @@ function PaymentMethodRanking({ items }: { items: Array<{ name: string; value: n
   };
 
   return (
-    <div className="space-y-3 px-5 py-4">
+    <div className="space-y-3 px-4 py-3">
       {items.map((item) => {
         const color = colors[item.method] || '#94A3B8';
         return (
@@ -177,6 +176,36 @@ function PaymentMethodRanking({ items }: { items: Array<{ name: string; value: n
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function ChartMenu({ rows }: { rows: Array<[string, string]> }) {
+  return (
+    <details className="relative">
+      <summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md border bg-white text-slate-500 hover:bg-slate-50" style={{ borderColor: BORDER }}>
+        <FiMoreVertical />
+      </summary>
+      <div className="absolute right-0 top-9 z-20 w-56 rounded-md border bg-white p-2 shadow-xl" style={{ borderColor: BORDER }}>
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-xs">
+            <span style={{ color: MUTED }}>{label}</span>
+            <b className="tabular-nums" style={{ color: INK }}>{value}</b>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function ChartHeader({ title, subtitle, menuRows }: { title: string; subtitle: string; menuRows: Array<[string, string]> }) {
+  return (
+    <div className="flex items-start justify-between gap-3 border-b px-4 py-3" style={{ borderColor: BORDER }}>
+      <div className="min-w-0">
+        <h3 className="truncate text-sm font-semibold" style={{ color: INK }}>{title}</h3>
+        <p className="mt-0.5 text-xs" style={{ color: MUTED }}>{subtitle}</p>
+      </div>
+      <ChartMenu rows={menuRows} />
     </div>
   );
 }
@@ -325,134 +354,108 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
           <KpiTile label="Tasa de cobro" value={pct(collectionRate)} helper={`${pct(delinquencyRate)} de mora sobre cartera`} icon={<FiActivity />} accent={BLUE_DARK} trend={rateTrend} />
         </div>
 
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]">
           <div className="card overflow-hidden p-0">
-            <div className="space-y-3 border-b px-5 py-4" style={{ borderColor: BORDER }}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-semibold" style={{ color: INK }}>Flujo de caja cobrado</h3>
-                  <p className="mt-1 text-xs" style={{ color: MUTED }}>Tendencia mensual de pagos confirmados. Pasa el mouse para ver el monto exacto.</p>
-                </div>
-                <span className="rounded-full px-3 py-1 text-xs font-bold" style={{ background: '#EAF7EE', color: GREEN }}>
-                  Ultimo mes: {money(currentCollected)}
-                </span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                <MiniMetric label="Mes actual" value={money(currentCollected)} color={GREEN} />
-                <MiniMetric label="Mes anterior" value={money(previousCollected)} />
-                <div className="col-span-2 flex items-center rounded-md border bg-white px-3 py-2 sm:col-span-1" style={{ borderColor: BORDER }}>
-                  <TrendBadge value={collectedTrend} />
-                </div>
-              </div>
-            </div>
+            <ChartHeader
+              title="Flujo de caja cobrado"
+              subtitle="Pagos confirmados por mes."
+              menuRows={[
+                ['Mes actual', money(currentCollected)],
+                ['Mes anterior', money(previousCollected)],
+                ['Variacion', pct(collectedTrend)],
+                ['Total cobrado', money(totalCollected)],
+              ]}
+            />
             {byMonth.length ? (
-              <div className="h-[260px] px-3 pt-4">
+              <div className="h-[500px] px-4 pt-5">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={byMonth.map((r) => ({ month: r.month, cobrado: Number(r.monto || 0) }))} margin={{ left: 8, right: 20, top: 12, bottom: 8 }}>
-                    <defs>
-                      <linearGradient id="cashGradient" x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="0%" stopColor={BLUE} stopOpacity={0.34} />
-                        <stop offset="100%" stopColor={BLUE} stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
+                  <ComposedChart data={byMonth.map((r) => ({ month: r.month, cobrado: Number(r.monto || 0) }))} margin={{ left: 8, right: 20, top: 12, bottom: 16 }}>
                     <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
                     <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
                     <YAxis tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
-                    <Tooltip content={<FinanceTooltip />} cursor={{ stroke: BLUE, strokeWidth: 1, strokeDasharray: '4 4' }} />
-                    <Area type="monotone" dataKey="cobrado" name="Caja cobrada" stroke={BLUE} strokeWidth={3} fill="url(#cashGradient)" activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }} />
-                  </AreaChart>
+                    <Tooltip content={<FinanceTooltip />} cursor={{ fill: '#F8FAFC' }} />
+                    <Bar dataKey="cobrado" name="Caja cobrada" fill={BLUE} radius={[7, 7, 0, 0]} barSize={18} />
+                    <Line type="monotone" dataKey="cobrado" name="Tendencia" stroke={GREEN} strokeWidth={2} dot={{ r: 3, strokeWidth: 2 }} activeDot={{ r: 6 }} />
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
             ) : <EmptyChart text="Sin pagos confirmados todavia." />}
           </div>
 
-          <div className="card overflow-hidden p-0">
-            <div className="border-b px-5 py-4" style={{ borderColor: BORDER }}>
-              <h3 className="font-semibold" style={{ color: INK }}>Canales de cobro</h3>
-              <p className="mt-1 text-xs" style={{ color: MUTED }}>Ranking por medio de pago confirmado, sin barras sobredimensionadas.</p>
-            </div>
-            {methodBars.length ? (
-              <PaymentMethodRanking items={methodBars} />
-            ) : <EmptyChart text="Aun no hay pagos pagados para mostrar canales." />}
-          </div>
-        </div>
+          <aside className="min-h-0 xl:max-h-[560px] xl:overflow-y-auto xl:pr-1">
+            <div className="space-y-4">
+              <div className="card overflow-hidden p-0">
+                <ChartHeader
+                  title="Canales de cobro"
+                  subtitle="Medios de pago confirmados."
+                  menuRows={[
+                    ['Total cobrado', money(totalCollected)],
+                    ['Canales activos', String(methodBars.length)],
+                    ['Pagos', String(methods.reduce((sum, item) => sum + Number(item.total || 0), 0))],
+                  ]}
+                />
+                {methodBars.length ? (
+                  <PaymentMethodRanking items={methodBars} />
+                ) : <EmptyChart text="Aun no hay pagos pagados para mostrar canales." />}
+              </div>
 
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-          <div className="card overflow-hidden p-0">
-            <div className="space-y-3 border-b px-5 py-4" style={{ borderColor: BORDER }}>
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-semibold" style={{ color: INK }}>Ventas aprobadas vs caja cobrada</h3>
-                  <p className="mt-1 text-xs" style={{ color: MUTED }}>Compara lo vendido con lo efectivamente recaudado por mes.</p>
-                </div>
-                <span className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold" style={{ background: '#EAF3FF', color: BLUE }}>
-                  <FiArrowUpRight /> Ratio {pct(collectionRate)}
-                </span>
+              <div className="card overflow-hidden p-0">
+                <ChartHeader
+                  title="Ventas vs caja"
+                  subtitle="Vendido aprobado frente a cobrado."
+                  menuRows={[
+                    ['Vendido actual', money(currentSales)],
+                    ['Caja actual', money(currentCollected)],
+                    ['Ratio actual', pct(currentCollectionRate)],
+                    ['Mes anterior', pct(previousCollectionRate)],
+                    ['Variacion ratio', pct(rateTrend)],
+                  ]}
+                />
+                {financialTimeline.length ? (
+                  <div className="h-[230px] px-3 pt-3">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={financialTimeline} margin={{ left: 0, right: 8, top: 8, bottom: 8 }}>
+                        <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
+                        <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} />
+                        <YAxis yAxisId="money" tickFormatter={shortMoney} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={52} />
+                        <Tooltip content={<FinanceTooltip />} />
+                        <Bar yAxisId="money" dataKey="vendido" name="Ventas aprobadas" fill="#D8E0EA" radius={[5, 5, 0, 0]} barSize={10} />
+                        <Line yAxisId="money" type="monotone" dataKey="cobrado" name="Caja cobrada" stroke={GREEN} strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 5 }} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : <EmptyChart text="Aun no hay ventas o pagos para comparar." />}
               </div>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                <MiniMetric label="Vendido actual" value={money(currentSales)} color={BLUE} />
-                <MiniMetric label="Caja actual" value={money(currentCollected)} color={GREEN} />
-                <MiniMetric label="Ratio actual" value={pct(currentCollectionRate)} color={BLUE_DARK} />
-                <div className="flex items-center rounded-md border bg-white px-3 py-2" style={{ borderColor: BORDER }}>
-                  <TrendBadge value={rateTrend} />
-                </div>
-              </div>
-            </div>
-            {financialTimeline.length ? (
-              <div className="h-[260px] px-3 pt-4">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={financialTimeline} margin={{ left: 8, right: 18, top: 12, bottom: 8 }}>
-                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
-                    <YAxis yAxisId="money" tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
-                    <YAxis yAxisId="rate" orientation="right" tickFormatter={(v) => `${v}%`} domain={[0, 100]} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={38} />
-                    <Tooltip content={<FinanceTooltip />} />
-                    <Bar yAxisId="money" dataKey="vendido" name="Ventas aprobadas" fill="#D8E0EA" radius={[6, 6, 0, 0]} barSize={12} />
-                    <Line yAxisId="money" type="monotone" dataKey="cobrado" name="Caja cobrada" stroke={GREEN} strokeWidth={3} dot={{ r: 3, strokeWidth: 2 }} activeDot={{ r: 6 }} />
-                    <Line yAxisId="rate" type="monotone" dataKey="collectionRate" name="% cobro" stroke={BLUE} strokeWidth={2} strokeDasharray="5 5" dot={false} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-            ) : <EmptyChart text="Aun no hay ventas o pagos para comparar." />}
-          </div>
 
-          <div className="card overflow-hidden p-0">
-            <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BORDER }}>
-              <div>
-                <h3 className="font-semibold" style={{ color: INK }}>Riesgo de morosidad</h3>
-                <p className="mt-1 text-xs" style={{ color: MUTED }}>Pagos cobrados frente a cuotas vencidas por mes.</p>
+              <div className="card overflow-hidden p-0">
+                <ChartHeader
+                  title="Riesgo de morosidad"
+                  subtitle="Cobrado frente a cuotas vencidas."
+                  menuRows={[
+                    ['Cobrado actual', money(currentCollected)],
+                    ['Mora actual', money(currentOverdue)],
+                    ['Mora mes anterior', money(previousOverdue)],
+                    ['Tasa actual', pct(currentDelinquencyRate || delinquencyRate)],
+                    ['Variacion', pct(delinquencyTrend)],
+                  ]}
+                />
+                {financialTimeline.length ? (
+                  <div className="h-[230px] px-3 pt-3">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={financialTimeline} margin={{ left: 0, right: 8, top: 8, bottom: 8 }}>
+                        <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
+                        <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} />
+                        <YAxis yAxisId="money" tickFormatter={shortMoney} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={52} />
+                        <Tooltip content={<FinanceTooltip />} />
+                        <Bar yAxisId="money" dataKey="moroso" name="Mora vencida" fill="#FCA5A5" radius={[5, 5, 0, 0]} barSize={10} />
+                        <Line yAxisId="money" type="monotone" dataKey="cobrado" name="Cobrado" stroke={GREEN} strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 5 }} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
+                  </div>
+                ) : <EmptyChart text="Sin datos suficientes todavia." />}
               </div>
-              <span className="rounded-full px-3 py-1 text-xs font-bold" style={{ background: '#FEE2E2', color: RED }}>
-                Mora {pct(currentDelinquencyRate || delinquencyRate)}
-              </span>
             </div>
-            {financialTimeline.length ? (
-              <>
-              <div className="grid grid-cols-2 gap-2 px-5 pt-4 sm:grid-cols-4">
-                <MiniMetric label="Cobrado actual" value={money(currentCollected)} color={GREEN} />
-                <MiniMetric label="Mora actual" value={money(currentOverdue)} color={RED} />
-                <MiniMetric label="Mes anterior" value={money(previousOverdue)} />
-                <div className="flex items-center rounded-md border bg-white px-3 py-2" style={{ borderColor: BORDER }}>
-                  <TrendBadge value={delinquencyTrend} />
-                </div>
-              </div>
-              <div className="h-[260px] px-3 pt-4">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={financialTimeline} margin={{ left: 8, right: 18, top: 12, bottom: 8 }}>
-                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
-                    <YAxis yAxisId="money" tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
-                    <YAxis yAxisId="rate" orientation="right" tickFormatter={(v) => `${v}%`} domain={[0, 100]} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={38} />
-                    <Tooltip content={<FinanceTooltip />} />
-                    <Bar yAxisId="money" dataKey="moroso" name="Mora vencida" fill="#FCA5A5" radius={[6, 6, 0, 0]} barSize={12} />
-                    <Line yAxisId="money" type="monotone" dataKey="cobrado" name="Cobrado" stroke={GREEN} strokeWidth={3} dot={{ r: 3, strokeWidth: 2 }} activeDot={{ r: 6 }} />
-                    <Line yAxisId="rate" type="monotone" dataKey="delinquencyRate" name="% mora" stroke={AMBER} strokeWidth={2} strokeDasharray="5 5" dot={false} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-              </>
-            ) : <EmptyChart text="Sin datos suficientes todavia." />}
-          </div>
+          </aside>
         </div>
         <div className="card">
           <div className="flex flex-wrap items-center justify-between gap-3">

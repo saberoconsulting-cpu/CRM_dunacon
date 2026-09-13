@@ -14,7 +14,7 @@ import {
   FiTrash2,
 } from 'react-icons/fi';
 import { Toaster, toast, Field } from '@/components/ui/ui';
-import { api } from '@/lib/api';
+import { api, uploadFile } from '@/lib/api';
 import { BRAND, formatMoney } from '@/lib/types';
 
 type BudgetCategory = 'costo_terreno' | 'costo_directo' | 'costo_indirecto' | 'gastos_ventas_admin' | 'gastos_financieros_impuestos';
@@ -30,6 +30,28 @@ type BudgetItem = {
   currency: string;
   sortOrder: number;
   isActive: boolean;
+};
+
+type ImportPreviewRow = {
+  rowNumber: number;
+  category: BudgetCategory | '';
+  code: string;
+  parentCode?: string | null;
+  name: string;
+  description?: string | null;
+  amount: number;
+  currency: string;
+  sortOrder: number;
+  errors: string[];
+};
+
+type ImportPreview = {
+  sheet: string;
+  totalRows: number;
+  validRows: number;
+  errors: Array<{ rowNumber: number; message: string }>;
+  rows: ImportPreviewRow[];
+  expectedColumns: string[];
 };
 
 const CATEGORIES: Array<{ key: BudgetCategory; label: string; letter: string; color: string; helper: string }> = [
@@ -66,6 +88,8 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<BudgetItem | null>(null);
   const [form, setForm] = useState<any>({});
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [importing, setImporting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -163,6 +187,37 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     }
   }
 
+  async function previewExcel(file?: File) {
+    if (!file) return;
+    setImporting(true);
+    try {
+      const data = await uploadFile('/construction-budget/import/preview', file);
+      setPreview(data);
+      toast(data.errors?.length ? 'Excel leido con observaciones' : 'Excel listo para importar');
+    } catch (error: any) {
+      toast(error?.message || 'No se pudo leer el Excel', 'err');
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  async function confirmImport() {
+    if (!preview?.rows?.length) return;
+    if (preview.errors?.length) return toast('Corrige los errores del Excel antes de importar', 'err');
+    setImporting(true);
+    try {
+      const data = await api.post<any>('/construction-budget/import', { projectId, rows: preview.rows });
+      setItems(data?.items || []);
+      setSummary(data?.summary || { categories: {}, grandTotal: 0 });
+      setPreview(null);
+      toast(`Importacion completa: ${data.imported || 0} filas`);
+    } catch (error: any) {
+      toast(error?.message || 'No se pudo importar el Excel', 'err');
+    } finally {
+      setImporting(false);
+    }
+  }
+
   function renderItem(item: BudgetItem & { children?: BudgetItem[] }, level = 0) {
     return (
       <div key={item.id} className="border-t" style={{ borderColor: '#EEF2F7' }}>
@@ -201,9 +256,18 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                 Partidas y subpartidas por proyecto. Estos montos alimentan automaticamente la columna Proyectado del Estado de Resultados.
               </p>
             </div>
-            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:w-auto lg:min-w-[520px]">
+            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4 lg:w-auto lg:min-w-[640px]">
               <button className="btn-neutral w-full justify-center whitespace-nowrap" onClick={load} disabled={loading}><FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar</button>
               <button className="btn-outline w-full justify-center whitespace-nowrap" onClick={seedBase}><FiFilePlus /> Cargar estructura base</button>
+              <label className="btn-outline w-full cursor-pointer justify-center whitespace-nowrap">
+                <FiFilePlus /> Importar Excel
+                <input
+                  type="file"
+                  accept=".xlsx,.xls"
+                  className="hidden"
+                  onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; previewExcel(file); }}
+                />
+              </label>
               <button className="btn-primary w-full justify-center whitespace-nowrap" onClick={() => openCreate('costo_directo')}><FiPlus /> Nueva partida</button>
             </div>
           </div>
@@ -220,6 +284,61 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
             ))}
           </div>
         </section>
+
+        {preview && (
+          <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
+            <div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: BORDER }}>
+              <div>
+                <h3 className="font-semibold" style={{ color: INK }}>Vista previa del Excel</h3>
+                <p className="mt-1 text-xs" style={{ color: MUTED }}>
+                  Hoja {preview.sheet} - {preview.validRows}/{preview.totalRows} filas validas - Columnas esperadas: {preview.expectedColumns.join(', ')}
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button className="btn-neutral !h-8 text-xs" onClick={() => setPreview(null)} disabled={importing}>Cancelar</button>
+                <button className="btn-primary !h-8 text-xs" onClick={confirmImport} disabled={importing || preview.errors.length > 0}>
+                  {importing ? 'Importando...' : 'Confirmar importacion'}
+                </button>
+              </div>
+            </div>
+            {preview.errors.length > 0 && (
+              <div className="border-b bg-red-50 px-5 py-3 text-xs text-red-700" style={{ borderColor: '#FECACA' }}>
+                <b>{preview.errors.length} errores:</b> {preview.errors.slice(0, 6).map((error) => `Fila ${error.rowNumber}: ${error.message}`).join(' - ')}
+                {preview.errors.length > 6 ? ' - ...' : ''}
+              </div>
+            )}
+            <div className="overflow-auto">
+              <table className="table-base" style={{ minWidth: 960, width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th className="th-base">Fila</th>
+                    <th className="th-base">Categoria</th>
+                    <th className="th-base">Codigo</th>
+                    <th className="th-base">Padre</th>
+                    <th className="th-base">Partida</th>
+                    <th className="th-base">Monto</th>
+                    <th className="th-base">Estado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {preview.rows.slice(0, 80).map((row) => (
+                    <tr key={`${row.rowNumber}-${row.code}`}>
+                      <td className="td-base text-slate-400">{row.rowNumber}</td>
+                      <td className="td-base">{CATEGORIES.find((cat) => cat.key === row.category)?.label || row.category || '-'}</td>
+                      <td className="td-base font-semibold">{row.code}</td>
+                      <td className="td-base">{row.parentCode || '-'}</td>
+                      <td className="td-base">{row.name}</td>
+                      <td className="td-base font-semibold tabular-nums">{money(row.amount)}</td>
+                      <td className="td-base">
+                        {row.errors.length ? <span className="badge bg-red-100 text-red-700">{row.errors.join(', ')}</span> : <span className="badge bg-emerald-50 text-emerald-700">OK</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
 
         <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
           {loading ? (

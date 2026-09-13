@@ -1,4 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/application/guards/roles.guard';
 import { Roles } from '../../../shared/application/decorators/roles.decorator';
@@ -26,6 +28,19 @@ export class ConstructionBudgetController {
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
   seed(@Body('projectId') projectId: number, @CurrentUser('id') actorId: number) {
     return this.budgetService.seed(Number(projectId), actorId);
+  }
+
+  @Post('import/preview')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } }))
+  previewImport(@UploadedFile() file: Express.Multer.File) {
+    return this.budgetService.previewExcel(file);
+  }
+
+  @Post('import')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  importRows(@Body('projectId') projectId: number, @Body('rows') rows: any[], @CurrentUser('id') actorId: number) {
+    return this.budgetService.importRows(Number(projectId), rows, actorId);
   }
 
   @Post()
