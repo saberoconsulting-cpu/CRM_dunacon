@@ -35,11 +35,16 @@ export class CampaignsService {
     return saved;
   }
 
-  async list(projectId?: number) {
+  async list(projectId?: number, paging?: { page?: number; limit?: number }) {
     const where = projectId ? { projectId } : {};
-    const campaigns = await this.campaignRepo.find({ where, order: { createdAt: 'DESC' } });
-    // Métricas: leads, costo por lead, ventas atribuidas e ingreso
-    return Promise.all(
+    const page = Math.max(1, paging?.page ?? 1);
+    const limit = Math.min(200, Math.max(1, paging?.limit ?? 20));
+    const usePaging = !!(paging?.page || paging?.limit);
+    const [campaigns, total] = usePaging
+      ? await this.campaignRepo.findAndCount({ where, order: { createdAt: 'DESC' }, skip: (page - 1) * limit, take: limit })
+      : [await this.campaignRepo.find({ where, order: { createdAt: 'DESC' } }), 0] as [CampaignEntity[], number];
+
+    const items = await Promise.all(
       campaigns.map(async (c) => {
         const leads = await this.clientRepo.count({ where: { campaignId: c.id } });
         const sales = await this.saleRepo
@@ -53,8 +58,10 @@ export class CampaignsService {
         return { ...c, metrics: { leads, costPerLead, attributedIncome } };
       }),
     );
-  }
 
+    if (!usePaging) return items;
+    return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
+  }
   async update(id: number, dto: Partial<CampaignEntity>, actorId: number) {
     const campaign = await this.campaignRepo.findOne({ where: { id } });
     if (!campaign) throw new NotFoundException('Campaña no encontrada');

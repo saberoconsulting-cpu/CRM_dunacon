@@ -20,8 +20,15 @@ export class CampaignsController {
   constructor(private readonly campaignsService: CampaignsService) {}
 
   @Get()
-  list(@Query('projectId') projectId?: string) {
-    return this.campaignsService.list(projectId ? Number(projectId) : undefined);
+  list(
+    @Query('projectId') projectId?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.campaignsService.list(projectId ? Number(projectId) : undefined, {
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
+    });
   }
 
   @Post()

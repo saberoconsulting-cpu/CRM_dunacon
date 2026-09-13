@@ -10,7 +10,7 @@ export class CreateExpenseDto {
 
   @IsOptional()
   @IsString()
-  expenseClass?: 'inversion' | 'financiamiento' | 'compra_terreno' | 'operacion';
+  expenseClass?: 'inversion' | 'financiamiento' | 'compra_terreno' | 'operacion' | 'costo_indirecto' | 'ventas_admin' | 'impuestos';
 
   @IsString()
   @IsNotEmpty()

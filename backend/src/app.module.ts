@@ -23,6 +23,7 @@ import { SaleInstallmentEntity } from './shared/infrastructure/entities/sale-ins
 import { AppSettingEntity } from './shared/infrastructure/entities/app-setting.entity';
 import { ProjectDocumentEntity } from './shared/infrastructure/entities/project-document.entity';
 import { QuoteEntity } from './shared/infrastructure/entities/quote.entity';
+import { ConstructionBudgetItemEntity } from './shared/infrastructure/entities/construction-budget-item.entity';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ProjectsModule } from './modules/projects/projects.module';
@@ -36,6 +37,7 @@ import { FinancesModule } from './modules/finances/finances.module';
 import { SettingsModule } from './modules/settings/settings.module';
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { QuotesModule } from './modules/quotes/quotes.module';
+import { ConstructionBudgetModule } from './modules/construction-budget/construction-budget.module';
 
 @Module({
   imports: [
@@ -60,6 +62,7 @@ import { QuotesModule } from './modules/quotes/quotes.module';
         AppSettingEntity,
         ProjectDocumentEntity,
         QuoteEntity,
+        ConstructionBudgetItemEntity,
       ],
       synchronize: false,
       logging: false,
@@ -77,6 +80,7 @@ import { QuotesModule } from './modules/quotes/quotes.module';
     SettingsModule,
     DashboardsModule,
     QuotesModule,
+    ConstructionBudgetModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

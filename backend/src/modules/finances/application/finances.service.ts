@@ -7,6 +7,7 @@ import { ExpenseEntity } from '../../../shared/infrastructure/entities/expense.e
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
 import { CreateExpenseDto, CreateAdditionalIncomeDto } from './dto/finance.dto';
+import { ConstructionBudgetService } from '../../construction-budget/application/construction-budget.service';
 
 @Injectable()
 export class FinancesService {
@@ -18,6 +19,7 @@ export class FinancesService {
     @InjectRepository(AuditLogEntity)
     private readonly auditRepo: Repository<AuditLogEntity>,
     private readonly gateway: NotificationsGateway,
+    private readonly constructionBudgetService: ConstructionBudgetService,
   ) {}
 
   async audit(userId: number, action: string, entity?: string, entityId?: number) {
@@ -71,6 +73,8 @@ export class FinancesService {
     category?: string;
     from?: string;
     to?: string;
+    page?: number;
+    limit?: number;
   }) {
     const qb = this.txnRepo.createQueryBuilder('t')
       .orderBy('t.txn_date', 'DESC');
@@ -79,6 +83,15 @@ export class FinancesService {
     if (filters.category) qb.andWhere('t.category = :category', { category: filters.category });
     if (filters.from) qb.andWhere('t.txn_date >= :from', { from: filters.from });
     if (filters.to) qb.andWhere('t.txn_date <= :to', { to: filters.to });
+    if (filters.page || filters.limit) {
+      const page = Math.max(1, filters.page ?? 1);
+      const limit = Math.min(200, Math.max(1, filters.limit ?? 20));
+      const [items, total] = await qb
+        .skip((page - 1) * limit)
+        .take(limit)
+        .getManyAndCount();
+      return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
+    }
     return qb.getMany();
   }
 
@@ -169,6 +182,9 @@ export class FinancesService {
       financiamiento: 0,
       compra_terreno: 0,
       operacion: 0,
+      costo_indirecto: 0,
+      ventas_admin: 0,
+      impuestos: 0,
     };
     for (const r of byClass) clsTotals[r.cls || 'operacion'] = Number(r.total);
 
@@ -176,14 +192,29 @@ export class FinancesService {
       inversion: clsTotals.inversion,
       financiamiento: clsTotals.financiamiento,
       compra_terreno: clsTotals.compra_terreno,
+      costo_indirecto: clsTotals.costo_indirecto,
+      ventas_admin: clsTotals.ventas_admin,
+      impuestos: clsTotals.impuestos,
       operacion: clsTotals.operacion,
     };
     const egresosTotal = Object.values(egresosClasificados).reduce((a, b) => a + b, 0);
+    const budgetTotals = projectId ? await this.constructionBudgetService.totalsByProject(projectId) : await this.constructionBudgetService.totalsByProject();
+    const projected = {
+      compra_terreno: budgetTotals.costo_terreno,
+      inversion: budgetTotals.costo_directo,
+      costo_indirecto: budgetTotals.costo_indirecto,
+      ventas_admin: budgetTotals.gastos_ventas_admin,
+      financiamiento: budgetTotals.gastos_financieros_impuestos,
+      impuestos: budgetTotals.gastos_financieros_impuestos,
+      total_costos: Object.values(budgetTotals).reduce((sum, value) => sum + Number(value || 0), 0),
+    };
     return {
       ingresos: income,
       egresos_total: egresosT,
       egresos_clasificados: egresosClasificados,
       egresos_por_clases: egresosTotal,
+      proyectado: projected,
+      presupuesto_obra: budgetTotals,
       utilidad: income - egresosT,
     };
   }

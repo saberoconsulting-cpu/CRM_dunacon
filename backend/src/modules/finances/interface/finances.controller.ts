@@ -35,10 +35,14 @@ export class FinancesController {
     @Query('category') category?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
   ) {
     return this.financesService.transactions({
       projectId: projectId ? Number(projectId) : undefined,
       type, category, from, to,
+      page: page ? Number(page) : undefined,
+      limit: limit ? Number(limit) : undefined,
     });
   }
 
