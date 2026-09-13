@@ -4,7 +4,6 @@ import { Toaster, toast, Field, EmptyState, StatCard } from '@/components/ui/ui'
 import { api } from '@/lib/api';
 import { formatMoney, formatDate } from '@/lib/types';
 import { printHtml } from '@/lib/print';
-import ProjectDocuments from './ProjectDocuments';
 import { FiDownload } from 'react-icons/fi';
 
 type S = {
@@ -300,8 +299,6 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             </table>
             )}
         </div>
-
-        {lockedProjectId && <ProjectDocuments projectId={lockedProjectId} />}
       </div>
 
       {open && (

@@ -27,6 +27,7 @@ import {
 import { api, clearSession, getSessionUser, getToken } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import { BRAND, User, UserRole } from '@/lib/types';
+import ProjectDocuments from '@/components/features/projects/ProjectDocuments';
 
 interface NavItem {
   href: string;
@@ -60,8 +61,8 @@ function projectNav(projectId: number): NavItem[] {
     { number: 8, href: `/projects/${projectId}/campaigns`, label: 'Campanas', icon: <FiVolume2 />, roles: ['superadmin', 'admin'] },
     { number: 9, href: `/projects/${projectId}/clients`, label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
     { number: 10, href: '#estado-cc-bancos', label: 'Cuentas y bancos', icon: <FiCreditCard />, roles: ['superadmin', 'admin'], soon: true },
-    { number: 11, href: '#ppto-obra', label: 'Presupuesto de obra', icon: <FiLayers />, roles: ['superadmin', 'admin'], soon: true },
-    { number: 12, href: '#estado-resultados', label: 'Estado de resultados', icon: <FiPieChart />, roles: ['superadmin', 'admin'], soon: true },
+    { number: 11, href: `/projects/${projectId}/construction-budget`, label: 'Presupuesto de obra', icon: <FiLayers />, roles: ['superadmin', 'admin'] },
+    { number: 12, href: `/projects/${projectId}/income-statement`, label: 'Estado de resultados', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
     { number: 13, href: '#flujo-caja', label: 'Flujo de caja', icon: <FiPieChart />, roles: ['superadmin', 'admin'], soon: true },
   ];
 }
@@ -91,6 +92,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const [activeProject, setActiveProject] = useState<{ id: number; name: string; logoImageUrl?: string | null } | null>(null);
   const [projectOptions, setProjectOptions] = useState<{ id: number; name: string; logoImageUrl?: string | null }[]>([]);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
+  const [projectDocumentsOpen, setProjectDocumentsOpen] = useState(false);
 
   const activeProjectId = useMemo(() => {
     const match = pathname.match(/^\/projects\/(\d+)/);
@@ -433,6 +435,16 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
               title && <h1 className="truncate" style={{ fontSize: 17 }}>{title}</h1>
             )}
           </div>
+          {isProjectContext && activeProjectId && (
+            <button
+              type="button"
+              onClick={() => setProjectDocumentsOpen(true)}
+              className="hidden h-8 items-center gap-2 rounded-md border bg-white px-3 text-xs font-semibold text-[#1877F2] transition-colors hover:bg-softblue sm:inline-flex"
+              style={{ borderColor: BRAND.border }}
+            >
+              <FiFileText /> Documentos del proyecto
+            </button>
+          )}
           {canManage && (
             <span className="hidden items-center gap-1.5 rounded-md bg-softblue px-3 sm:inline-flex" style={{ height: 28, fontSize: 12, color: BRAND.blue }}>
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: BRAND.blue }} /> Acceso de administracion
@@ -479,6 +491,21 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
         </header>
         <main className="flex-1 overflow-y-auto bg-canvas p-4 sm:p-5 md:p-6">{children}</main>
       </div>
+      {projectDocumentsOpen && activeProjectId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setProjectDocumentsOpen(false)} />
+          <div className="relative max-h-[92vh] w-full max-w-5xl overflow-y-auto rounded-md border bg-white p-5 shadow-2xl" style={{ borderColor: BRAND.border }}>
+            <div className="mb-4 flex items-center justify-between gap-3 border-b pb-3" style={{ borderColor: BRAND.border }}>
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold" style={{ color: BRAND.ink }}>{activeProject?.name || 'Proyecto'}</p>
+                <p className="text-xs" style={{ color: BRAND.muted }}>Archivos comerciales, cotizaciones y financiamiento.</p>
+              </div>
+              <button className="btn-neutral !h-8 text-sm" onClick={() => setProjectDocumentsOpen(false)}>Cerrar</button>
+            </div>
+            <ProjectDocuments projectId={activeProjectId} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

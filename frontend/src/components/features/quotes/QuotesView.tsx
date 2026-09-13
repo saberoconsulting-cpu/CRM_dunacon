@@ -31,6 +31,75 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, '&#039;');
 }
 
+function pointsToAttr(points: any[]) {
+  return (Array.isArray(points) ? points : [])
+    .map((point) => `${Number(point.x || 0)},${Number(point.y || 0)}`)
+    .join(' ');
+}
+
+function centroid(points: any[]) {
+  const pts = Array.isArray(points) ? points : [];
+  if (!pts.length) return { x: 0, y: 0 };
+  return pts.reduce((acc, point) => ({ x: acc.x + Number(point.x || 0) / pts.length, y: acc.y + Number(point.y || 0) / pts.length }), { x: 0, y: 0 });
+}
+
+function absoluteAssetUrl(url?: string | null) {
+  if (!url) return '';
+  if (/^https?:\/\//i.test(url)) return url;
+  if (typeof window !== 'undefined') return `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
+  return url;
+}
+
+function buildPlanHtml(data: any) {
+  const { quote, lot } = data;
+  const planData = data?.planData || {};
+  const plan = planData?.plan;
+  const lots = Array.isArray(planData?.lots) ? planData.lots : [];
+  const selected = lots.find((item: any) => Number(item.id) === Number(quote?.lotId)) || lot;
+  const selectedPoints = Array.isArray(selected?.points) ? selected.points : [];
+  const imageUrl = absoluteAssetUrl(plan?.imageUrl);
+  if (!imageUrl || !selectedPoints.length) return '';
+
+  const SVG_W = 1000;
+  const SVG_H = 800;
+  const imageW = Number(plan?.imageWidth || 1000);
+  const imageH = Number(plan?.imageHeight || 800);
+  const scale = Math.min(SVG_W / imageW, SVG_H / imageH);
+  const imgW = imageW * scale;
+  const imgH = imageH * scale;
+  const imgX = (SVG_W - imgW) / 2;
+  const imgY = (SVG_H - imgH) / 2;
+  const selectedCenter = centroid(selectedPoints);
+  const otherLots = lots
+    .filter((item: any) => Number(item.id) !== Number(quote?.lotId) && Array.isArray(item.points) && item.points.length)
+    .map((item: any) => `<polygon points="${escapeHtml(pointsToAttr(item.points))}" class="lot-muted" />`)
+    .join('');
+
+  return `
+    <h2>Ubicacion en plano</h2>
+    <div class="plan-card">
+      <div class="plan-head">
+        <div><strong>Plano del proyecto</strong><span>Lote cotizado resaltado</span></div>
+        <b>Lote ${escapeHtml(selected?.code || lot?.code || quote?.lotId)}</b>
+      </div>
+      <svg class="plan-svg" viewBox="0 0 ${SVG_W} ${SVG_H}" role="img" aria-label="Plano del lote cotizado">
+        <defs>
+          <filter id="lotShadow" x="-20%" y="-20%" width="140%" height="140%">
+            <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#0F172A" flood-opacity=".22"/>
+          </filter>
+        </defs>
+        <rect x="0" y="0" width="${SVG_W}" height="${SVG_H}" fill="#F8FAFC" />
+        <image href="${escapeHtml(imageUrl)}" x="${imgX}" y="${imgY}" width="${imgW}" height="${imgH}" preserveAspectRatio="xMidYMid meet" />
+        ${otherLots}
+        <polygon points="${escapeHtml(pointsToAttr(selectedPoints))}" class="lot-selected" filter="url(#lotShadow)" />
+        <circle cx="${selectedCenter.x}" cy="${selectedCenter.y}" r="30" class="lot-pulse" />
+        <text x="${selectedCenter.x}" y="${selectedCenter.y - 4}" class="lot-code">${escapeHtml(selected?.code || lot?.code || String(quote?.lotId || ''))}</text>
+        <text x="${selectedCenter.x}" y="${selectedCenter.y + 20}" class="lot-area">${Number(selected?.areaM2 || lot?.areaM2 || 0).toLocaleString('es-PE')} m2</text>
+      </svg>
+    </div>
+  `;
+}
+
 function buildQuoteHtml(data: any, schedule: ScheduleRow[], docType: 'cotizacion' | 'financiamiento') {
   const { quote, lot, block, project } = data;
   const adminLogoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
@@ -81,6 +150,7 @@ function buildQuoteHtml(data: any, schedule: ScheduleRow[], docType: 'cotizacion
   const isFinancing = docType === 'financiamiento';
   const title = isFinancing ? 'Cronograma de financiamiento' : 'Cotizacion de lote';
   const subtitle = `${project?.name || 'Proyecto'} - Lote ${lot?.code || quote.lotId}`;
+  const planHtml = buildPlanHtml(data);
 
   return `
     <html>
@@ -104,7 +174,16 @@ function buildQuoteHtml(data: any, schedule: ScheduleRow[], docType: 'cotizacion
           td{border:1px solid #E5E7EB;padding:8px 7px;font-size:11px;vertical-align:top}
           tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}
           .num{text-align:right;white-space:nowrap}.strong{font-weight:700;color:#1259C4}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:10px;text-align:right}
-          @media print{body{margin:18px}.brand,.summary{break-inside:avoid}thead{display:table-header-group}.watermark{position:fixed}}
+          .plan-card{border:1px solid #E5E7EB;border-radius:12px;overflow:hidden;margin:8px 0 16px;background:#F8FAFC;break-inside:avoid;box-shadow:0 8px 24px rgba(15,23,42,.06)}
+          .plan-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid #E5E7EB;background:white}
+          .plan-head strong{display:block;font-size:12px;color:#111827}.plan-head span{display:block;margin-top:2px;font-size:10px;color:#6B7280}.plan-head b{border-radius:999px;background:#EAF3FF;color:#1259C4;padding:5px 10px;font-size:11px}
+          .plan-svg{display:block;width:100%;height:auto;max-height:430px;background:#EEF2F7}
+          .lot-muted{fill:rgba(148,163,184,.20);stroke:#94A3B8;stroke-width:1.2}
+          .lot-selected{fill:rgba(24,119,242,.74);stroke:#063B87;stroke-width:4}
+          .lot-pulse{fill:rgba(255,255,255,.92);stroke:#1877F2;stroke-width:3}
+          .lot-code{font-size:18px;font-weight:800;text-anchor:middle;fill:#063B87}
+          .lot-area{font-size:12px;font-weight:700;text-anchor:middle;fill:#1259C4}
+          @media print{body{margin:18px}.brand,.summary,.plan-card{break-inside:avoid}thead{display:table-header-group}.watermark{position:fixed}}
         </style>
       </head>
       <body>
@@ -123,6 +202,7 @@ function buildQuoteHtml(data: any, schedule: ScheduleRow[], docType: 'cotizacion
         <table><tbody>${detailRows}</tbody></table>
         <h2>Resumen comercial</h2>
         <table><thead><tr><th>Concepto</th><th>US$</th><th>S/</th></tr></thead><tbody>${summaryHtml}</tbody></table>
+        ${planHtml}
         ${quote.paymentMethod === 'credito' ? `
           <h2>Financiamiento</h2>
           <div class="summary">
@@ -149,8 +229,11 @@ function QuoteDocumentModal({ doc, onClose }: { doc: { id: number; type: 'cotiza
     Promise.all([
       api.get<any>(`/quotes/${doc.id}`),
       doc.type === 'financiamiento' ? api.get<ScheduleRow[]>(`/quotes/${doc.id}/schedule`) : Promise.resolve([]),
-    ]).then(([quoteData, rows]) => {
-      setData(quoteData);
+    ]).then(async ([quoteData, rows]) => {
+      const planData = quoteData?.quote?.projectId
+        ? await api.get<any>(`/plan/project/${quoteData.quote.projectId}`).catch(() => null)
+        : null;
+      setData({ ...quoteData, planData });
       setSchedule(rows || []);
     }).catch((e: any) => setError(e.message || 'No se pudo cargar el documento'));
   }, [doc.id, doc.type]);

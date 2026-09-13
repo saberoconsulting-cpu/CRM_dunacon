@@ -1,31 +1,47 @@
 'use client';
-// Mapa interactivo estilo buscador inmobiliario.
-// Panel izquierdo (~360px) con tarjetas ricas + mapa derecha (flex-1, MapLibre + OSM).
-import { useEffect, useRef, useState, useCallback } from 'react';
-import maplibregl from 'maplibre-gl';
-import { Project, formatMoney } from '@/lib/types';
-import { IoLocationSharp } from 'react-icons/io5';
 
-interface Props { projects: Project[]; onOpen: (id: number) => void; focusProjectId?: number | null; }
+import { useCallback, useEffect, useRef, useState } from 'react';
+import maplibregl from 'maplibre-gl';
+import { FiExternalLink, FiMapPin } from 'react-icons/fi';
+import { BRAND, Project, formatMoney } from '@/lib/types';
+
+interface Props {
+  projects: Project[];
+  onOpen: (id: number) => void;
+  focusProjectId?: number | null;
+}
 
 const OSM = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+const MARKER_ICON = '/logo/map.png';
 const STYLE: any = {
   version: 8,
-  sources: { osm: { type: 'raster', tiles: [OSM], tileSize: 256, attribution: '© OpenStreetMap' } },
+  sources: {
+    osm: {
+      type: 'raster',
+      tiles: [OSM],
+      tileSize: 256,
+      attribution: 'OpenStreetMap',
+    },
+  },
   layers: [
-    { id: 'bg', type: 'background', paint: { 'background-color': '#f2efe9' } },
+    { id: 'bg', type: 'background', paint: { 'background-color': BRAND.canvas } },
     { id: 'osm', type: 'raster', source: 'osm', minzoom: 0, maxzoom: 19 },
   ],
 };
 
-function stageTag(p: Project) {
-  if (p.status === 'inactive') return { t: 'Inactivo', c: '#6B7280', b: '#F1F2F4' };
-  return { t: 'Preventa', c: '#125A3B', b: '#EAF7EE' };
+function stageTag(project: Project) {
+  if (project.status === 'inactive') return { label: 'Inactivo', color: BRAND.muted, bg: BRAND.mutedLight };
+  return { label: 'Activo', color: BRAND.blueDark, bg: '#EAF2FF' };
 }
 
-function hasCoords(p: Project): boolean {
-  const la = Number(p.latitude), lo = Number(p.longitude);
-  return isFinite(la) && isFinite(lo) && la !== 0 && lo !== 0;
+function hasCoords(project: Project): boolean {
+  const lat = Number(project.latitude);
+  const lng = Number(project.longitude);
+  return Number.isFinite(lat) && Number.isFinite(lng) && lat !== 0 && lng !== 0;
+}
+
+function coords(project: Project): [number, number] {
+  return [Number(project.longitude), Number(project.latitude)];
 }
 
 export default function ProjectsMap({ projects, onOpen, focusProjectId = null }: Props) {
@@ -35,183 +51,263 @@ export default function ProjectsMap({ projects, onOpen, focusProjectId = null }:
   const [active, setActive] = useState<number | null>(focusProjectId);
   const [fit, setFit] = useState(!focusProjectId);
 
-  // Crear mapa una única vez
   useEffect(() => {
     if (!host.current || mapRef.current) return;
-    const m = new maplibregl.Map({
-      container: host.current!,
+
+    const map = new maplibregl.Map({
+      container: host.current,
       style: STYLE,
       center: [-77.0369, -12.0464],
       zoom: 5,
       attributionControl: false,
     });
-    mapRef.current = m;
-    m.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-    m.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-    m.on('load', () => { try { m.resize(); } catch {} redraw(); });
-    // Re-dimensionar al abrir el modal (guarda contra contenedor en 0)
+
+    mapRef.current = map;
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    map.on('load', () => {
+      try {
+        map.resize();
+      } catch {}
+      redraw();
+    });
+
     let tries = 0;
     const timer = window.setInterval(() => {
-      tries++;
-      try { if (mapRef.current) mapRef.current.resize(); } catch {}
-      if (host.current && host.current.offsetWidth > 0 && host.current.offsetHeight > 0) {
-        if (tries > 1) window.clearInterval(timer);
-      }
+      tries += 1;
+      try {
+        mapRef.current?.resize();
+      } catch {}
+      if (host.current?.offsetWidth && host.current?.offsetHeight && tries > 1) window.clearInterval(timer);
       if (tries > 25) window.clearInterval(timer);
     }, 120);
-    return () => window.clearInterval(timer);
+
+    return () => {
+      window.clearInterval(timer);
+      try {
+        map.remove();
+      } catch {}
+      mapRef.current = null;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const redraw = useCallback(() => {
-    const m = mapRef.current;
-    if (!m || !host.current || host.current.offsetWidth === 0) return;
-    markersRef.current.forEach((x) => { try { x.remove(); } catch {} });
-    markersRef.current = [];
-    const placed = projects.filter(hasCoords);
+    const map = mapRef.current;
+    if (!map || !host.current || host.current.offsetWidth === 0) return;
 
-    const focused = focusProjectId ? placed.find((p) => p.id === focusProjectId) : null;
+    markersRef.current.forEach((marker) => {
+      try {
+        marker.remove();
+      } catch {}
+    });
+    markersRef.current = [];
+
+    const placed = projects.filter(hasCoords);
+    const focused = focusProjectId ? placed.find((project) => project.id === focusProjectId) : null;
 
     if (focused) {
       setFit(false);
       setActive(focused.id);
       try {
-        m.easeTo({ center: [Number(focused.longitude), Number(focused.latitude)], zoom: 14, duration: 700 });
+        map.easeTo({ center: coords(focused), zoom: 14, duration: 700 });
       } catch {}
     } else if (fit && placed.length) {
       setFit(false);
       try {
         if (placed.length === 1) {
-          const [lo, la] = [Number(placed[0].longitude), Number(placed[0].latitude)];
-          m.easeTo({ center: [lo, la], zoom: 13 });
+          map.easeTo({ center: coords(placed[0]), zoom: 13, duration: 600 });
         } else {
-          const b = new maplibregl.LngLatBounds();
-          placed.forEach((p) => b.extend([Number(p.longitude), Number(p.latitude)]));
-          m.fitBounds(b, { padding: 70, maxZoom: 13, duration: 700 });
+          const bounds = new maplibregl.LngLatBounds();
+          placed.forEach((project) => bounds.extend(coords(project)));
+          map.fitBounds(bounds, { padding: 76, maxZoom: 13, duration: 700 });
         }
       } catch {}
     }
 
-    // Pines con popup informativo
-    placed.forEach((p) => {
-      const st = stageTag(p);
-      const el = document.createElement('div');
-      const pin = document.createElement('div');
-      pin.style.cssText =
-        'display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;' +
-        'background:#1877F2;color:#fff;font-weight:800;border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer;transform:translate(-15px,-15px)';
-      pin.textContent = (p.name || 'P').charAt(0).toUpperCase();
-      el.appendChild(pin);
+    placed.forEach((project) => {
+      const tag = stageTag(project);
+      const isActive = active === project.id;
+      const marker = document.createElement('button');
+      marker.type = 'button';
+      marker.title = `Abrir ${project.name}`;
+      marker.setAttribute('aria-label', `Abrir ${project.name}`);
+      marker.style.cssText = [
+        'width:46px',
+        'height:46px',
+        'border:0',
+        'padding:0',
+        'background:transparent',
+        'cursor:pointer',
+        'transform:translate(-23px,-42px)',
+        'filter:drop-shadow(0 8px 14px rgba(16,24,40,.24))',
+      ].join(';');
 
-      const pop = new maplibregl.Popup({ offset: 14, closeButton: true, maxWidth: '300px' }).setHTML(
-        `<div style="display:flex;gap:10px;min-width:216px">
-          ${p.coverImageUrl
-            ? `<img src="${p.coverImageUrl}" style="width:66px;height:66px;object-fit:cover;border-radius:8px;flex:0 0 auto"/>`
-            : `<div style="width:66px;height:66px;border-radius:8px;background:#f1f2f4;display:grid;place-items:center;color:#9AA1AB;font-weight:800">${(p.name||'P').charAt(0).toUpperCase()}</div>`}
-          <div style="min-width:0">
-            <span style="display:inline-block;font-size:10px;color:${st.c};background:${st.b};padding:2px 8px;border-radius:99px;font-weight:800">${st.t}</span>
-            <div style="font-weight:800;margin-top:5px;font-size:13px;color:#171717">${p.name}</div>
-            <div style="color:#6b7280;font-size:11px">${p.location || 'Ubicación por definir'}</div>
-            ${p.referencePrice ? `<div style="color:#0d9e58;font-weight:800;font-size:12px;margin-top:4px">Desde ${formatMoney(p.referencePrice)}</div>` : ''}
-          </div></div>
-          <button data-goto="${p.id}" style="margin-top:8px;width:100%;background:#1877F2;color:#fff;border:0;padding:7px 0;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer">Ver proyecto →</button>`
-      );
-      pop.on('open', () => {
-        const b = pop.getElement().querySelector<HTMLElement>(`[data-goto="${p.id}"]`);
-        if (b && !b.dataset.bound) {
-          b.dataset.bound = '1';
-          b.addEventListener('click', () => { pop.remove(); onOpen(p.id); });
-        }
-        // no centrar al abrir desde pin (ya está centrado)
+      const icon = document.createElement('img');
+      icon.src = MARKER_ICON;
+      icon.alt = '';
+      icon.style.cssText = [
+        'display:block',
+        'width:46px',
+        'height:46px',
+        'object-fit:contain',
+        `outline:${isActive ? `3px solid ${BRAND.blue}` : '0 solid transparent'}`,
+        'outline-offset:2px',
+        'border-radius:50%',
+        'transition:transform .16s ease, outline .16s ease',
+      ].join(';');
+      marker.appendChild(icon);
+
+      marker.addEventListener('mouseenter', () => {
+        icon.style.transform = 'translateY(-2px) scale(1.05)';
       });
-      const mk = new maplibregl.Marker({ element: el })
-        .setLngLat([Number(p.longitude), Number(p.latitude)])
-        .setPopup(pop)
-        .addTo(m);
-      el.onclick = () => {
-        // MapLibre abre el popup automáticamente; solo aseguramos centrar sin cerrar.
-        try { m.easeTo({ center: [Number(p.longitude), Number(p.latitude)], zoom: Math.max(12, m.getZoom()) }); } catch {}
-      };
-      markersRef.current.push(mk);
-    });
-    if (active != null && !placed.some((p) => p.id === active)) setActive(null);
-  }, [projects, active, fit, onOpen, focusProjectId]);
+      marker.addEventListener('mouseleave', () => {
+        icon.style.transform = 'translateY(0) scale(1)';
+      });
+      marker.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        setActive(project.id);
+        onOpen(project.id);
+      });
 
-  useEffect(() => { redraw(); }, [redraw]);
+      const popup = new maplibregl.Popup({
+        closeButton: false,
+        closeOnClick: false,
+        offset: 18,
+        maxWidth: '280px',
+      }).setHTML(
+        `<div style="min-width:210px;font-family:Inter,system-ui,sans-serif">
+          <div style="display:flex;gap:10px;align-items:center">
+            ${
+              project.coverImageUrl
+                ? `<img src="${project.coverImageUrl}" style="width:54px;height:54px;object-fit:cover;border-radius:4px;flex:0 0 auto;border:1px solid ${BRAND.border}"/>`
+                : `<div style="width:54px;height:54px;border-radius:4px;background:${BRAND.mutedLight};display:grid;place-items:center;color:${BRAND.blue};font-weight:700;border:1px solid ${BRAND.border}">${(project.name || 'P').charAt(0).toUpperCase()}</div>`
+            }
+            <div style="min-width:0">
+              <span style="display:inline-flex;align-items:center;height:20px;color:${tag.color};background:${tag.bg};padding:0 8px;border-radius:999px;font-size:11px;font-weight:700">${tag.label}</span>
+              <div style="margin-top:5px;font-size:13px;font-weight:700;color:${BRAND.ink};white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${project.name}</div>
+              <div style="margin-top:2px;color:${BRAND.muted};font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${project.location || 'Ubicacion por definir'}</div>
+            </div>
+          </div>
+          ${project.referencePrice ? `<div style="margin-top:8px;color:${BRAND.blueDark};font-size:12px;font-weight:700">Desde ${formatMoney(project.referencePrice)}</div>` : ''}
+          <div style="margin-top:8px;color:${BRAND.muted};font-size:11px">Clic en el icono para abrir el proyecto</div>
+        </div>`
+      );
+
+      marker.addEventListener('mouseenter', () => popup.setLngLat(coords(project)).addTo(map));
+      marker.addEventListener('mouseleave', () => popup.remove());
+
+      const mapMarker = new maplibregl.Marker({ element: marker, anchor: 'bottom' })
+        .setLngLat(coords(project))
+        .addTo(map);
+
+      markersRef.current.push(mapMarker);
+    });
+
+    if (active != null && !placed.some((project) => project.id === active)) setActive(null);
+  }, [projects, active, fit, focusProjectId, onOpen]);
+
+  useEffect(() => {
+    redraw();
+  }, [redraw]);
 
   function focus(project: Project) {
-    const m = mapRef.current;
+    const map = mapRef.current;
     setActive(project.id);
-    if (hasCoords(project) && m) {
-      try { m.flyTo({ center: [Number(project.longitude), Number(project.latitude)], zoom: 13, speed: 1.1, curve: 1.25 }); } catch {}
-    } else {
-      onOpen(project.id);
-    }
+    if (!hasCoords(project) || !map) return;
+
+    try {
+      map.flyTo({ center: coords(project), zoom: 13, speed: 1.1, curve: 1.25 });
+    } catch {}
   }
+
   const sorted = [...projects].sort((a, b) => String(a.name).localeCompare(String(b.name)));
-  const hidden = projects.filter((p) => !hasCoords(p));
+  const hidden = projects.filter((project) => !hasCoords(project));
 
   return (
-    <div className="flex h-full min-h-[520px] flex-col overflow-hidden md:flex-row">
-      <aside
-        className="w-full shrink-0 overflow-y-auto border-b bg-white md:w-[300px] md:border-b-0 md:border-r"
-        style={{ borderColor: '#E5E7EB', maxHeight: '100%' }}
-      >
-        <div className="border-b px-4 py-3" style={{ borderColor: '#EEF0F2' }}>
-          <p className="text-lg font-extrabold text-[#171717]">Proyectos</p>
-          <p className="text-xs text-slate-500">{projects.length} proyectos · desplázate y haz clic</p>
+    <div className="flex h-full min-h-[520px] flex-col overflow-hidden border bg-white md:flex-row" style={{ borderColor: BRAND.border }}>
+      <aside className="w-full shrink-0 overflow-y-auto border-b bg-white md:w-[312px] md:border-b-0 md:border-r" style={{ borderColor: BRAND.border }}>
+        <div className="border-b px-4 py-3" style={{ borderColor: BRAND.border }}>
+          <p className="text-base font-semibold" style={{ color: BRAND.ink }}>Proyectos</p>
+          <p className="text-xs" style={{ color: BRAND.muted }}>{projects.length} proyectos ubicados en el CRM</p>
         </div>
-        <div className="space-y-3 p-3">
-          {sorted.map((p) => {
-            const st1 = stageTag(p);
-            const isA = active === p.id;
+
+        <div className="space-y-2 p-3">
+          {sorted.map((project) => {
+            const tag = stageTag(project);
+            const selected = active === project.id;
+            const located = hasCoords(project);
+
             return (
-              <div key={p.id} onClick={() => focus(p)}
-                className={`group cursor-pointer overflow-hidden rounded-xl border transition hover:shadow-md ${isA ? 'ring-2' : ''}`}
-                style={{ borderColor: isA ? '#1877F2' : '#E7E9EC', background: isA ? '#E7F0FE' : '#fff' }}>
-                <div className="relative">
-                  {p.coverImageUrl ? (
-                    <img src={p.coverImageUrl} alt="" className="h-14 w-full object-cover" />
+              <article
+                key={project.id}
+                className="group overflow-hidden rounded-md border bg-white transition-colors"
+                style={{ borderColor: selected ? BRAND.blue : BRAND.border, boxShadow: selected ? '0 0 0 2px rgba(24,119,242,.12)' : undefined }}
+              >
+                <button type="button" onClick={() => focus(project)} className="flex w-full gap-3 p-3 text-left transition-colors hover:bg-[#F8FAFC]">
+                  {project.coverImageUrl ? (
+                    <img src={project.coverImageUrl} alt="" className="h-16 w-20 shrink-0 rounded object-cover" />
                   ) : (
-                    <div className="grid h-14 w-full place-items-center text-xs text-slate-300" style={{ background: '#F3F4F6' }}>Sin imagen</div>
+                    <span className="grid h-16 w-20 shrink-0 place-items-center rounded bg-softblue text-sm font-bold" style={{ color: BRAND.blue }}>
+                      {project.name?.trim().charAt(0).toUpperCase() || 'P'}
+                    </span>
                   )}
-                  <span className="absolute left-2 top-2 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase"
-                    style={{ color: st1.c, background: st1.b }}>{st1.t}</span>
-                </div>
-                <div className="p-3">
-                  <p className="truncate font-extrabold text-[#171717]">{p.name}</p>
-                  <p className="mt-0.5 truncate text-xs text-slate-500 inline-flex items-center gap-1"><IoLocationSharp /> {p.location || 'Ubicación por definir'}</p>
-                  {p.referencePrice ? (
-                    <p className="mt-1 text-sm"><span className="text-xs text-slate-400">Desde </span><span className="font-extrabold" style={{ color: '#0f9d58' }}>{formatMoney(p.referencePrice)}</span></p>
-                  ) : (
-                    <p className="mt-1 text-xs" style={{ color: '#9AA1AB' }}>Precio base no publicado</p>
-                  )}
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <span className="rounded bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{hasCoords(p) ? 'Con ubicación' : 'Sin geolocalización'}</span>
-                    <button onClick={(e) => { e.stopPropagation(); onOpen(p.id); }} className="text-xs font-bold" style={{ color: '#1877F2' }}>Ver detalles →</button>
-                  </div>
-                </div>
-              </div>
+
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-2">
+                      <span className="min-w-0 truncate text-sm font-semibold" style={{ color: BRAND.ink }}>{project.name}</span>
+                      <span className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ color: tag.color, background: tag.bg }}>
+                        {tag.label}
+                      </span>
+                    </span>
+                    <span className="mt-1 flex min-w-0 items-center gap-1 text-xs" style={{ color: BRAND.muted }}>
+                      <FiMapPin className="shrink-0" />
+                      <span className="truncate">{project.location || 'Ubicacion por definir'}</span>
+                    </span>
+                    <span className="mt-2 flex items-center justify-between gap-2">
+                      <span className="truncate text-xs font-medium" style={{ color: located ? BRAND.blueDark : BRAND.muted }}>
+                        {located ? 'Con coordenadas' : 'Sin geolocalizacion'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onOpen(project.id);
+                        }}
+                        className="grid h-7 w-7 shrink-0 place-items-center rounded-md border bg-white transition-colors hover:bg-softblue"
+                        style={{ borderColor: BRAND.border, color: BRAND.blue }}
+                        title="Abrir proyecto"
+                        aria-label={`Abrir ${project.name}`}
+                      >
+                        <FiExternalLink />
+                      </button>
+                    </span>
+                    {project.referencePrice ? <span className="mt-1 block text-xs font-semibold" style={{ color: BRAND.blueDark }}>Desde {formatMoney(project.referencePrice)}</span> : null}
+                  </span>
+                </button>
+              </article>
             );
           })}
-          {projects.length === 0 && <p className="pt-6 text-center text-xs text-slate-400">Aún no hay proyectos.</p>}
+
+          {projects.length === 0 && <p className="py-8 text-center text-xs" style={{ color: BRAND.muted }}>Aun no hay proyectos.</p>}
         </div>
+
         {hidden.length > 0 && (
-          <div className="px-4 pb-4 text-xs text-slate-400">
-            Sin coordenadas (no se dibujan): {hidden.map((p) => p.name).join(', ')}. Edita el proyecto para geolocalizarlo.
+          <div className="border-t px-4 py-3 text-xs" style={{ borderColor: BRAND.border, color: BRAND.muted }}>
+            Sin coordenadas: {hidden.map((project) => project.name).join(', ')}. Edita el proyecto para verlo en el mapa.
           </div>
         )}
       </aside>
-      {/* B. Mapa principal a la derecha */}
-      <div className="relative min-w-0 flex-1">
-        <div ref={host} style={{ height: 560, width: '100%' }} className="block" />
+
+      <div className="relative min-w-0 flex-1 bg-[#EEF1F5]">
+        <div ref={host} className="h-full min-h-[560px] w-full" />
         {projects.length === 0 && (
-          <div className="absolute inset-0 grid place-items-center px-6 text-center text-sm text-slate-500">
-            Aún no hay proyectos. Crea uno y geolocalízalo para verlo aquí.
+          <div className="absolute inset-0 grid place-items-center px-6 text-center text-sm" style={{ color: BRAND.muted }}>
+            Aun no hay proyectos. Crea uno y geolocalizalo para verlo aqui.
           </div>
         )}
       </div>
     </div>
   );
 }
-

@@ -257,7 +257,7 @@ export default function ProjectsPage() {
       {openMap && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3">
           <div className="absolute inset-0 bg-black/60" onClick={() => setOpenMap(false)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-6xl h-[88vh] max-h-[92vh] flex flex-col p-4">
+          <div className="relative flex h-[88vh] max-h-[92vh] w-full max-w-6xl flex-col rounded-md border bg-white p-4 shadow-2xl" style={{ borderColor: BRAND.border }}>
             <div className="flex items-center justify-between mb-3">
               <div>
                 <h3 className="text-lg font-semibold" style={{ color: '#171717' }}>Proyectos en el mapa</h3>
@@ -265,7 +265,7 @@ export default function ProjectsPage() {
               </div>
               <button className="btn-neutral !h-8 text-sm" onClick={() => setOpenMap(false)}>Cerrar</button>
             </div>
-            <div className="flex-1 min-h-0 rounded-xl overflow-hidden"><ProjectsMap projects={projects} focusProjectId={mapProjectId} onOpen={(id) => { setOpenMap(false); router.push(`/projects/${id}`); }} /></div>
+            <div className="min-h-0 flex-1 overflow-hidden rounded-md"><ProjectsMap projects={projects} focusProjectId={mapProjectId} onOpen={(id) => { setOpenMap(false); router.push(`/projects/${id}`); }} /></div>
           </div>
         </div>
       )}

@@ -7,17 +7,69 @@ const fmtUsd = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { 
 const fmtPen = (n: number) => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const PAY_LABEL: Record<string, string> = { contado: 'Contado', credito: 'Crédito' };
 
+function pointsToAttr(points: any[]) {
+  return (Array.isArray(points) ? points : []).map((point) => `${Number(point.x || 0)},${Number(point.y || 0)}`).join(' ');
+}
+
+function centroid(points: any[]) {
+  const pts = Array.isArray(points) ? points : [];
+  if (!pts.length) return { x: 0, y: 0 };
+  return pts.reduce((acc, point) => ({ x: acc.x + Number(point.x || 0) / pts.length, y: acc.y + Number(point.y || 0) / pts.length }), { x: 0, y: 0 });
+}
+
+function QuotePlanPreview({ planData, quote, lot }: { planData: any; quote: any; lot: any }) {
+  const plan = planData?.plan;
+  const lots = Array.isArray(planData?.lots) ? planData.lots : [];
+  const selected = lots.find((item: any) => Number(item.id) === Number(quote?.lotId)) || lot;
+  const points = Array.isArray(selected?.points) ? selected.points : [];
+  if (!plan?.imageUrl || !points.length) return null;
+
+  const SVG_W = 1000;
+  const SVG_H = 800;
+  const imageW = Number(plan.imageWidth || 1000);
+  const imageH = Number(plan.imageHeight || 800);
+  const scale = Math.min(SVG_W / imageW, SVG_H / imageH);
+  const imgW = imageW * scale;
+  const imgH = imageH * scale;
+  const imgX = (SVG_W - imgW) / 2;
+  const imgY = (SVG_H - imgH) / 2;
+  const c = centroid(points);
+
+  return (
+    <div className="px-6 pb-6">
+      <h3 className="font-semibold text-sm text-slate-700 mb-2">Ubicacion en plano</h3>
+      <div className="overflow-hidden rounded-xl border bg-slate-50" style={{ borderColor: '#E5E7EB' }}>
+        <div className="flex items-center justify-between border-b bg-white px-3 py-2" style={{ borderColor: '#E5E7EB' }}>
+          <span className="text-xs font-semibold text-slate-600">Lote cotizado resaltado</span>
+          <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: '#EAF3FF', color: '#1259C4' }}>Lote {selected?.code || lot?.code}</span>
+        </div>
+        <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="block w-full" role="img" aria-label="Plano del lote cotizado">
+          <rect width={SVG_W} height={SVG_H} fill="#F8FAFC" />
+          <image href={plan.imageUrl} x={imgX} y={imgY} width={imgW} height={imgH} preserveAspectRatio="xMidYMid meet" />
+          {lots.filter((item: any) => Number(item.id) !== Number(quote?.lotId) && Array.isArray(item.points)).map((item: any) => (
+            <polygon key={item.id} points={pointsToAttr(item.points)} fill="rgba(148,163,184,.20)" stroke="#94A3B8" strokeWidth={1.2} />
+          ))}
+          <polygon points={pointsToAttr(points)} fill="rgba(24,119,242,.74)" stroke="#063B87" strokeWidth={4} />
+          <circle cx={c.x} cy={c.y} r={30} fill="rgba(255,255,255,.94)" stroke="#1877F2" strokeWidth={3} />
+          <text x={c.x} y={c.y - 4} textAnchor="middle" fontSize={18} fontWeight={800} fill="#063B87">{selected?.code || lot?.code}</text>
+          <text x={c.x} y={c.y + 20} textAnchor="middle" fontSize={12} fontWeight={700} fill="#1259C4">{Number(selected?.areaM2 || lot?.areaM2 || 0).toLocaleString('es-PE')} m2</text>
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 export default function CotizacionDocPage() {
   const { quoteId } = useParams<{ id: string; quoteId: string }>();
   const [data, setData] = useState<any>(null);
-  const [planImageUrl, setPlanImageUrl] = useState('');
+  const [planData, setPlanData] = useState<any>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
     api.get<any>(`/quotes/${quoteId}`)
       .then((d) => {
         setData(d);
-        api.get<any>(`/plan/project/${d.quote.projectId}`).then((pl) => setPlanImageUrl(pl?.plan?.imageUrl || '')).catch(() => {});
+        api.get<any>(`/plan/project/${d.quote.projectId}`).then(setPlanData).catch(() => {});
       })
       .catch((e: any) => setError(e.message || 'No se pudo cargar la cotización'));
   }, [quoteId]);
@@ -100,12 +152,7 @@ export default function CotizacionDocPage() {
             <p className="text-xs text-slate-400 mt-1">Tipo de cambio referencial: S/ {rate.toFixed(4)} por US$ 1.00</p>
           </div>
 
-          {planImageUrl && (
-            <div className="px-6 pb-6">
-              <h3 className="font-semibold text-sm text-slate-700 mb-2">Plano del proyecto</h3>
-              <img src={planImageUrl} alt="Plano del proyecto" className="w-full rounded-lg border" style={{ borderColor: '#E5E7EB' }} />
-            </div>
-          )}
+          <QuotePlanPreview planData={planData} quote={quote} lot={lot} />
         </div>
         <p className="text-xs text-center text-slate-400 mt-6">
           Este documento es de carácter informativo. Las condiciones están sujetas a variación.

@@ -1,11 +1,24 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { Toaster, toast, Field, EmptyState, StatCard } from '@/components/ui/ui';
+import { Toaster, toast, Field, EmptyState } from '@/components/ui/ui';
 import { api, uploadFile } from '@/lib/api';
-import { DistribucionPie, LineaTiempo, DobleEje } from '@/components/ui/charts/Charts';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  ComposedChart,
+  Line,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { formatMoney, formatDate } from '@/lib/types';
-import { FiUpload, FiCamera } from 'react-icons/fi';
+import { FiActivity, FiAlertTriangle, FiArrowUpRight, FiCamera, FiCreditCard, FiDollarSign, FiTrendingUp, FiUpload } from 'react-icons/fi';
 
 type P = {
   id: number; projectId: number; lotId: number; type: string; amount: string;
@@ -21,6 +34,108 @@ const METHODS = [
   ['efectivo', 'Efectivo / oficina'], ['otro', 'Otro'],
 ];
 const METHOD_LABEL: Record<string, string> = Object.fromEntries(METHODS.map(([v, l]) => [v, l]));
+const BLUE = '#1877F2';
+const BLUE_DARK = '#1259C4';
+const BORDER = '#E5E7EB';
+const MUTED = '#64748B';
+const INK = '#0F172A';
+const GREEN = '#16A36A';
+const RED = '#DC2626';
+const AMBER = '#D97706';
+
+function money(n: number) {
+  return formatMoney(Number(n || 0));
+}
+
+function shortMoney(n: number) {
+  const value = Number(n || 0);
+  if (Math.abs(value) >= 1000000) return `S/ ${(value / 1000000).toLocaleString('es-PE', { maximumFractionDigits: 1 })}M`;
+  if (Math.abs(value) >= 1000) return `S/ ${(value / 1000).toLocaleString('es-PE', { maximumFractionDigits: 0 })}k`;
+  return `S/ ${value.toLocaleString('es-PE', { maximumFractionDigits: 0 })}`;
+}
+
+function pct(n: number) {
+  if (!Number.isFinite(n)) return '0.0%';
+  return `${n.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+function monthLabel(month: string) {
+  const [year, rawMonth] = String(month || '').split('-');
+  const date = new Date(Number(year), Number(rawMonth || 1) - 1, 1);
+  if (Number.isNaN(date.getTime())) return month || '-';
+  return date.toLocaleDateString('es-PE', { month: 'short', year: '2-digit' }).replace('.', '');
+}
+
+function sumRows(items: any[], key = 'monto') {
+  return (items || []).reduce((sum, item) => sum + Number(item?.[key] || 0), 0);
+}
+
+function lastValue(items: any[], key = 'monto') {
+  const last = (items || [])[Math.max(0, (items || []).length - 1)];
+  return Number(last?.[key] || 0);
+}
+
+function previousValue(items: any[], key = 'monto') {
+  const prev = (items || [])[Math.max(0, (items || []).length - 2)];
+  return Number(prev?.[key] || 0);
+}
+
+function variation(current: number, previous: number) {
+  if (!previous) return current > 0 ? 100 : 0;
+  return ((current - previous) / previous) * 100;
+}
+
+function FinanceTooltip({ active, payload, label }: any) {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="rounded-lg border bg-white px-3 py-2 shadow-xl" style={{ borderColor: BORDER }}>
+      <p className="mb-1 text-xs font-semibold" style={{ color: INK }}>{monthLabel(label)}</p>
+      <div className="space-y-1">
+        {payload.map((entry: any) => (
+          <div key={entry.dataKey} className="flex items-center justify-between gap-5 text-xs">
+            <span className="inline-flex items-center gap-1.5" style={{ color: MUTED }}>
+              <span className="h-2 w-2 rounded-full" style={{ background: entry.color }} />
+              {entry.name}
+            </span>
+            <b style={{ color: INK }}>{String(entry.dataKey).includes('Rate') || String(entry.name).includes('%') ? pct(Number(entry.value || 0)) : money(Number(entry.value || 0))}</b>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function KpiTile({ label, value, helper, icon, accent, trend }: {
+  label: string;
+  value: string;
+  helper: string;
+  icon: JSX.Element;
+  accent: string;
+  trend?: number;
+}) {
+  const trendColor = trend == null ? MUTED : trend >= 0 ? GREEN : RED;
+  return (
+    <div className="group rounded-md border bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg" style={{ borderColor: BORDER }}>
+      <div className="flex items-start justify-between gap-3">
+        <span className="grid h-10 w-10 place-items-center rounded-md" style={{ background: `${accent}16`, color: accent }}>
+          {icon}
+        </span>
+        {trend != null && (
+          <span className="rounded-full px-2 py-0.5 text-[11px] font-bold" style={{ background: `${trendColor}16`, color: trendColor }}>
+            {trend >= 0 ? '+' : ''}{pct(trend)}
+          </span>
+        )}
+      </div>
+      <p className="mt-4 text-xs font-semibold uppercase tracking-wide" style={{ color: MUTED }}>{label}</p>
+      <p className="mt-1 text-2xl font-bold tabular-nums" style={{ color: INK }}>{value}</p>
+      <p className="mt-1 text-xs" style={{ color: MUTED }}>{helper}</p>
+    </div>
+  );
+}
+
+function EmptyChart({ text }: { text: string }) {
+  return <div className="grid h-[260px] place-items-center text-center text-sm text-slate-400">{text}</div>;
+}
 
 export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: number }) {
   const [rows, setRows] = useState<P[]>([]);
@@ -118,6 +233,28 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const totalPrecioVenta = rows.reduce((s, p) => s + Number(p.salePrice || 0), 0);
   const pctPago = totalPrecioVenta > 0 ? (totalPagado / totalPrecioVenta) * 100 : 0;
   const pendingPct = meta.total > 0 ? (meta.pendingCount / meta.total) * 100 : 0;
+  const byMonth = (cash?.byMonth || []) as { month: string; monto: number }[];
+  const salesByMonth = (cash?.salesByMonth || []) as { month: string; monto: number }[];
+  const overdueByMonth = (cash?.overdueByMonth || []) as { month: string; monto: number }[];
+  const methods = (cash?.methods || []) as { method: string; total: number; monto: number }[];
+  const financialTimeline = mergeFinancialMonths(byMonth, overdueByMonth, salesByMonth);
+  const totalCollected = sumRows(methods);
+  const totalSalesApproved = sumRows(salesByMonth);
+  const totalOverdue = sumRows(overdueByMonth);
+  const collectionRate = totalSalesApproved > 0 ? (totalCollected / totalSalesApproved) * 100 : 0;
+  const delinquencyRate = (totalCollected + totalOverdue) > 0 ? (totalOverdue / (totalCollected + totalOverdue)) * 100 : 0;
+  const currentCollected = lastValue(byMonth);
+  const previousCollected = previousValue(byMonth);
+  const collectedTrend = variation(currentCollected, previousCollected);
+  const currentSales = lastValue(salesByMonth);
+  const previousSales = previousValue(salesByMonth);
+  const salesTrend = variation(currentSales, previousSales);
+  const methodBars = methods.map((m) => ({
+    name: METHOD_LABEL[m.method] || m.method || 'Otro',
+    value: Number(m.monto || 0),
+    count: Number(m.total || 0),
+    method: m.method || 'otro',
+  }));
 
   return (
     <>
@@ -128,53 +265,125 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             <b>{overdue.length}</b> cuotas vencidas detectadas. Regístralas para actualizar la cartera.
           </div>
         )}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Registros (filtrados)" value={meta.total} />
-          <StatCard label="Total abonado (pagado)" value={'S/ ' + ((cash?.methods || []).reduce((s: number, m: any) => s + Number(m.monto || 0), 0)).toLocaleString('es-PE')} color="#257849" />
-          <StatCard label="Medios usados" value={(cash?.methods || []).length} color="#B45309" />
-          <StatCard label="Meses con recaudo" value={(cash?.byMonth || []).length} color="#1259C4" />
-          <StatCard label="Total venta (lotes)" value={meta.distinctLots} color="#171717" />
-          <StatCard label="Pagos pendientes" value={meta.pendingCount} color="#B45309" />
-          <StatCard label="Pagos pendientes %" value={`${pendingPct.toFixed(1)}%`} color="#DC2626" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiTile label="Caja cobrada" value={money(totalCollected)} helper="Pagos confirmados en caja" icon={<FiDollarSign />} accent={GREEN} trend={collectedTrend} />
+          <KpiTile label="Ventas aprobadas" value={money(totalSalesApproved)} helper={`${meta.distinctLots} lotes con movimiento`} icon={<FiTrendingUp />} accent={BLUE} trend={salesTrend} />
+          <KpiTile label="Mora vencida" value={money(totalOverdue)} helper={`${overdue.length} cuotas vencidas detectadas`} icon={<FiAlertTriangle />} accent={RED} />
+          <KpiTile label="Tasa de cobro" value={pct(collectionRate)} helper={`${pct(delinquencyRate)} de mora sobre cartera`} icon={<FiActivity />} accent={BLUE_DARK} />
         </div>
 
-        {/* Caja / canales de ingreso */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-          <div className="card">
-            <h3 className="font-semibold mb-3">¿Por dónde entran más pagos?</h3>
-            <div style={{ height: 240 }}>
-              {cash?.methods?.length ? (
-                <DistribucionPie data={cash.methods.map((m: any) => ({ name: String(m.method || 'otro'), value: Number(m.monto || 0) }))}
-                  colorMap={(n) => ({ yape: '#7C3AED', plin: '#7C3AED', transferencia: '#2563EB', deposito: '#0EA5E9', cheque_gerencia: '#0F766E', tarjeta: '#171717', efectivo: '#1877F2', otro: '#9AA1AB' })[n] || '#9AA1AB'} />
-              ) : <p className="py-10 text-center text-sm text-slate-400">Aún no hay pagos pagados para mostrar la distribución.</p>}
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
+          <div className="card overflow-hidden p-0">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BORDER }}>
+              <div>
+                <h3 className="font-semibold" style={{ color: INK }}>Flujo de caja cobrado</h3>
+                <p className="mt-1 text-xs" style={{ color: MUTED }}>Tendencia mensual de pagos confirmados. Pasa el mouse para ver el monto exacto.</p>
+              </div>
+              <span className="rounded-full px-3 py-1 text-xs font-bold" style={{ background: '#EAF7EE', color: GREEN }}>
+                Ultimo mes: {money(currentCollected)}
+              </span>
             </div>
+            {byMonth.length ? (
+              <div className="h-[300px] px-3 pt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={byMonth.map((r) => ({ month: r.month, cobrado: Number(r.monto || 0) }))} margin={{ left: 8, right: 20, top: 12, bottom: 8 }}>
+                    <defs>
+                      <linearGradient id="cashGradient" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stopColor={BLUE} stopOpacity={0.34} />
+                        <stop offset="100%" stopColor={BLUE} stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
+                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
+                    <Tooltip content={<FinanceTooltip />} cursor={{ stroke: BLUE, strokeWidth: 1, strokeDasharray: '4 4' }} />
+                    <Area type="monotone" dataKey="cobrado" name="Caja cobrada" stroke={BLUE} strokeWidth={3} fill="url(#cashGradient)" activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : <EmptyChart text="Sin pagos confirmados todavia." />}
           </div>
-          <div className="card">
-            <h3 className="font-semibold mb-3">Recaudación por mes</h3>
-            <LineaTiempo data={(cash?.byMonth || []).map((r: any) => ({ mes: r.month, valor: Number(r.monto || 0) }))} xKey="mes" yKey="valor" color="#7C3AED" />
-            {(cash?.byMonth || []).length === 0 && <p className="py-10 text-center text-sm text-slate-400">Sin datos de recaudación todavía.</p>}
+
+          <div className="card overflow-hidden p-0">
+            <div className="border-b px-5 py-4" style={{ borderColor: BORDER }}>
+              <h3 className="font-semibold" style={{ color: INK }}>Canales de cobro</h3>
+              <p className="mt-1 text-xs" style={{ color: MUTED }}>Ranking por medio de pago confirmado.</p>
+            </div>
+            {methodBars.length ? (
+              <div className="h-[300px] px-2 pt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={methodBars} layout="vertical" margin={{ left: 8, right: 20, top: 4, bottom: 8 }}>
+                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" horizontal={false} />
+                    <XAxis type="number" tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: MUTED }} width={108} axisLine={false} tickLine={false} />
+                    <Tooltip formatter={(value: any, name: any, item: any) => [money(Number(value || 0)), `${item?.payload?.count || 0} pagos`]} cursor={{ fill: '#F1F5F9' }} />
+                    <Bar dataKey="value" radius={[0, 8, 8, 0]}>
+                      {methodBars.map((entry) => <Cell key={entry.method} fill={({ yape: '#7C3AED', plin: '#7C3AED', transferencia: BLUE, deposito: '#0EA5E9', cheque_gerencia: '#0F766E', tarjeta: INK, efectivo: BLUE_DARK, otro: '#94A3B8' } as any)[entry.method] || '#94A3B8'} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            ) : <EmptyChart text="Aun no hay pagos pagados para mostrar canales." />}
           </div>
         </div>
 
-        {/* Ventas por mes / Pagos vs Morosidad */}
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-          <div className="card">
-            <h3 className="font-semibold mb-3">Ventas por mes (S/)</h3>
-            {cash?.salesByMonth?.length ? (
-              <LineaTiempo data={cash.salesByMonth.map((r: any) => ({ mes: r.month, valor: Number(r.monto || 0) }))} xKey="mes" yKey="valor" color="#1877F2" />
-            ) : <p className="py-10 text-center text-sm text-slate-400">Aún no hay ventas aprobadas para mostrar.</p>}
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+          <div className="card overflow-hidden p-0">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BORDER }}>
+              <div>
+                <h3 className="font-semibold" style={{ color: INK }}>Ventas aprobadas vs caja cobrada</h3>
+                <p className="mt-1 text-xs" style={{ color: MUTED }}>Compara lo vendido con lo efectivamente recaudado por mes.</p>
+              </div>
+              <span className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-bold" style={{ background: '#EAF3FF', color: BLUE }}>
+                <FiArrowUpRight /> Ratio {pct(collectionRate)}
+              </span>
+            </div>
+            {financialTimeline.length ? (
+              <div className="h-[300px] px-3 pt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={financialTimeline} margin={{ left: 8, right: 18, top: 12, bottom: 8 }}>
+                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
+                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="money" tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
+                    <YAxis yAxisId="rate" orientation="right" tickFormatter={(v) => `${v}%`} domain={[0, 100]} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={38} />
+                    <Tooltip content={<FinanceTooltip />} />
+                    <Bar yAxisId="money" dataKey="vendido" name="Ventas aprobadas" fill="#CBD5E1" radius={[8, 8, 0, 0]} />
+                    <Bar yAxisId="money" dataKey="cobrado" name="Caja cobrada" fill={BLUE} radius={[8, 8, 0, 0]} />
+                    <Line yAxisId="rate" type="monotone" dataKey="collectionRate" name="% cobro" stroke={GREEN} strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 6 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            ) : <EmptyChart text="Aun no hay ventas o pagos para comparar." />}
           </div>
-          <div className="card">
-            <h3 className="font-semibold mb-3">Pagos vs Morosidad</h3>
-            {cash?.byMonth?.length || cash?.overdueByMonth?.length ? (
-              <DobleEje
-                data={mergeByMonth(cash?.byMonth || [], cash?.overdueByMonth || [])}
-                barKey="pagado" barName="Pagado" lineKey="moroso" lineName="Moroso"
-              />
-            ) : <p className="py-10 text-center text-sm text-slate-400">Sin datos suficientes todavía.</p>}
+
+          <div className="card overflow-hidden p-0">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BORDER }}>
+              <div>
+                <h3 className="font-semibold" style={{ color: INK }}>Riesgo de morosidad</h3>
+                <p className="mt-1 text-xs" style={{ color: MUTED }}>Pagos cobrados frente a cuotas vencidas por mes.</p>
+              </div>
+              <span className="rounded-full px-3 py-1 text-xs font-bold" style={{ background: '#FEE2E2', color: RED }}>
+                Mora {pct(delinquencyRate)}
+              </span>
+            </div>
+            {financialTimeline.length ? (
+              <div className="h-[300px] px-3 pt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={financialTimeline} margin={{ left: 8, right: 18, top: 12, bottom: 8 }}>
+                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
+                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="money" tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
+                    <YAxis yAxisId="rate" orientation="right" tickFormatter={(v) => `${v}%`} domain={[0, 100]} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={38} />
+                    <Tooltip content={<FinanceTooltip />} />
+                    <Bar yAxisId="money" dataKey="cobrado" name="Cobrado" fill={GREEN} radius={[8, 8, 0, 0]} />
+                    <Bar yAxisId="money" dataKey="moroso" name="Mora vencida" fill={RED} radius={[8, 8, 0, 0]} />
+                    <Line yAxisId="rate" type="monotone" dataKey="delinquencyRate" name="% mora" stroke={AMBER} strokeWidth={3} dot={{ r: 3 }} activeDot={{ r: 6 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </div>
+            ) : <EmptyChart text="Sin datos suficientes todavia." />}
           </div>
         </div>
-
         <div className="card">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h3 className="font-semibold">Historial de pagos</h3>
@@ -310,4 +519,32 @@ function mergeByMonth(paid: { month: string; monto: number }[], overdue: { month
   const paidMap = Object.fromEntries(paid.map((r) => [r.month, r.monto]));
   const overdueMap = Object.fromEntries(overdue.map((r) => [r.month, r.monto]));
   return months.map((month) => ({ month, pagado: paidMap[month] || 0, moroso: overdueMap[month] || 0 }));
+}
+
+function mergeFinancialMonths(
+  paid: { month: string; monto: number }[],
+  overdue: { month: string; monto: number }[],
+  sales: { month: string; monto: number }[],
+) {
+  const months = Array.from(new Set([
+    ...paid.map((r) => r.month),
+    ...overdue.map((r) => r.month),
+    ...sales.map((r) => r.month),
+  ])).filter(Boolean).sort();
+  const paidMap = Object.fromEntries(paid.map((r) => [r.month, Number(r.monto || 0)]));
+  const overdueMap = Object.fromEntries(overdue.map((r) => [r.month, Number(r.monto || 0)]));
+  const salesMap = Object.fromEntries(sales.map((r) => [r.month, Number(r.monto || 0)]));
+  return months.map((month) => {
+    const cobrado = paidMap[month] || 0;
+    const moroso = overdueMap[month] || 0;
+    const vendido = salesMap[month] || 0;
+    return {
+      month,
+      cobrado,
+      moroso,
+      vendido,
+      collectionRate: vendido > 0 ? Math.min(100, (cobrado / vendido) * 100) : 0,
+      delinquencyRate: cobrado + moroso > 0 ? (moroso / (cobrado + moroso)) * 100 : 0,
+    };
+  });
 }
