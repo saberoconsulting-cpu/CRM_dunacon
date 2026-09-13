@@ -367,18 +367,30 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
               ]}
             />
             {byMonth.length ? (
-              <div className="h-[500px] px-4 pt-5">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={byMonth.map((r) => ({ month: r.month, cobrado: Number(r.monto || 0) }))} margin={{ left: 8, right: 20, top: 12, bottom: 16 }}>
-                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
-                    <YAxis tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
-                    <Tooltip content={<FinanceTooltip />} cursor={{ fill: '#F8FAFC' }} />
-                    <Bar dataKey="cobrado" name="Caja cobrada" fill={BLUE} radius={[7, 7, 0, 0]} barSize={18} />
-                    <Line type="monotone" dataKey="cobrado" name="Tendencia" stroke={GREEN} strokeWidth={2} dot={{ r: 3, strokeWidth: 2 }} activeDot={{ r: 6 }} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
+              <>
+                <div className="grid grid-cols-3 gap-2 border-b px-4 py-3" style={{ borderColor: BORDER }}>
+                  <MiniMetric label="Mes actual" value={money(currentCollected)} color={GREEN} />
+                  <MiniMetric label="Mes anterior" value={money(previousCollected)} />
+                  <MiniMetric label="Variacion" value={pct(collectedTrend)} color={collectedTrend >= 0 ? GREEN : RED} />
+                </div>
+                <div className="h-[420px] px-4 pt-5">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={byMonth.map((r) => ({ month: r.month, cobrado: Number(r.monto || 0) }))} margin={{ left: 8, right: 20, top: 12, bottom: 16 }}>
+                      <defs>
+                        <linearGradient id="cashMainGradient" x1="0" x2="0" y1="0" y2="1">
+                          <stop offset="0%" stopColor={BLUE} stopOpacity={0.22} />
+                          <stop offset="100%" stopColor={BLUE} stopOpacity={0.02} />
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
+                      <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                      <YAxis tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
+                      <Tooltip content={<FinanceTooltip />} cursor={{ stroke: BLUE, strokeWidth: 1, strokeDasharray: '4 4' }} />
+                      <Area type="monotone" dataKey="cobrado" name="Caja cobrada" stroke={BLUE} strokeWidth={3} fill="url(#cashMainGradient)" activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              </>
             ) : <EmptyChart text="Sin pagos confirmados todavia." />}
           </div>
 
@@ -419,7 +431,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                         <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} />
                         <YAxis yAxisId="money" tickFormatter={shortMoney} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={52} />
                         <Tooltip content={<FinanceTooltip />} />
-                        <Bar yAxisId="money" dataKey="vendido" name="Ventas aprobadas" fill="#D8E0EA" radius={[5, 5, 0, 0]} barSize={10} />
+                        <Bar yAxisId="money" dataKey="vendido" name="Ventas aprobadas" fill="#E2E8F0" radius={[4, 4, 0, 0]} barSize={6} />
                         <Line yAxisId="money" type="monotone" dataKey="cobrado" name="Caja cobrada" stroke={GREEN} strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 5 }} />
                       </ComposedChart>
                     </ResponsiveContainer>
@@ -447,7 +459,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                         <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} />
                         <YAxis yAxisId="money" tickFormatter={shortMoney} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={52} />
                         <Tooltip content={<FinanceTooltip />} />
-                        <Bar yAxisId="money" dataKey="moroso" name="Mora vencida" fill="#FCA5A5" radius={[5, 5, 0, 0]} barSize={10} />
+                        <Bar yAxisId="money" dataKey="moroso" name="Mora vencida" fill="#FECACA" radius={[4, 4, 0, 0]} barSize={6} />
                         <Line yAxisId="money" type="monotone" dataKey="cobrado" name="Cobrado" stroke={GREEN} strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 5 }} />
                       </ComposedChart>
                     </ResponsiveContainer>

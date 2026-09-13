@@ -40,6 +40,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [projectId, setProjectId] = useState(lockedProjectId || 0);
   const [lotId, setLotId] = useState(0);
   const [clientId, setClientId] = useState(0);
+  const [clientName, setClientName] = useState('');
   const [agentId, setAgentId] = useState(0);
   const [salePrice, setSalePrice] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('Contado');
@@ -87,7 +88,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const lot = lots.find((l: any) => l.id === id);
     if (lot) {
       setSalePrice(Number(lot.salePrice || lot.price || 0));
-      if (lot.clientId) setClientId(Number(lot.clientId));
+      if (lot.clientId) {
+        setClientId(Number(lot.clientId));
+        const client = clients.find((c: any) => Number(c.id) === Number(lot.clientId));
+        setClientName(client?.fullName || client?.full_name || lot.clientName || '');
+      }
     }
   }
 
@@ -96,7 +101,38 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   function selectQuote(q: any) {
     setLotId(q.lotId);
     setSalePrice(Math.round(Number(q.finalPriceUsd) * Number(q.exchangeRate)));
+    setClientName(q.clientName || '');
     setShowCotizaciones(false);
+  }
+
+  async function assignClientByName(showToast = true) {
+    const name = clientName.trim();
+    if (!name) {
+      toast('Ingresa el nombre del cliente real.', 'err');
+      return 0;
+    }
+
+    const existing = clients.find((c: any) => {
+      const fullName = String(c.fullName || c.full_name || '').trim().toLowerCase();
+      return fullName === name.toLowerCase();
+    });
+    if (existing) {
+      setClientId(Number(existing.id));
+      if (showToast) toast('Cliente asignado');
+      return Number(existing.id);
+    }
+
+    const created = await api.post<any>('/clients', {
+      fullName: name,
+      projectInterestId: lockedProjectId || projectId || undefined,
+      agentId: agentId || undefined,
+      pipelineStatus: 'ganado',
+      source: 'venta_directa',
+    });
+    setClients((current) => [created, ...current]);
+    setClientId(Number(created.id));
+    if (showToast) toast('Cliente creado y asignado');
+    return Number(created.id);
   }
 
   // Calculadora en vivo: comisión, saldo a financiar, tramos de cuotas.
@@ -115,14 +151,16 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
 
   async function registrar() {
     if (!lotId) return toast('Selecciona un lote', 'err');
-    if (!clientId) return toast('Selecciona el cliente que adquiere/lote', 'err');
+    if (!clientName.trim() && !clientId) return toast('Ingresa el nombre del cliente real.', 'err');
     if (!agentId) return toast('Selecciona el agente', 'err');
     if (!salePrice) return toast('Ingresa el precio de venta', 'err');
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
+      const resolvedClientId = clientId || await assignClientByName(false);
+      if (!resolvedClientId) return;
       await api.post('/sales', {
         projectId: lockedProjectId || projectId || lot?.projectId || 1, lotId: Number(lotId),
-        clientId: clientId || undefined, agentId: Number(agentId), salePrice,
+        clientId: resolvedClientId, agentId: Number(agentId), salePrice,
         paymentMethod,
         totalCuotas: paymentMethod === 'Contado' ? undefined : (totalCuotas || undefined),
         cuotaInicial: paymentMethod === 'Contado' ? undefined : (cuotaInicial || undefined),
@@ -133,7 +171,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         saleDate: saleDate || undefined, conditions: conditions || undefined,
       });
       toast('Separación registrada. Queda pendiente de validación.');
-      setOpen(false); setLotId(0); setClientId(0); setConditions(''); setSalePrice(0);
+      setOpen(false); setLotId(0); setClientId(0); setClientName(''); setConditions(''); setSalePrice(0);
       setPaymentMethod('Contado'); setTotalCuotas(0); setCuotaInicial(0); setInterestType('sin_intereses'); setTea(0);
       setApplyCommission(false); setCommissionRate(0); setSaleDate(''); setAgentId(0); setPreview(null);
       load();
@@ -360,8 +398,40 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-              <Field label="Cliente"><select className="input" value={clientId} onChange={(e) => setClientId(Number(e.target.value))}><option value={0}>— Sin asignar —</option>{clients.map((c: any) => <option key={c.id} value={c.id}>{(c.fullName || c.full_name || '— Sin nombre —')}</option>)}</select></Field>
+              <div className="hidden"><Field label="Cliente"><select className="input" value={clientId} onChange={(e) => setClientId(Number(e.target.value))}><option value={0}>— Sin asignar —</option>{clients.map((c: any) => <option key={c.id} value={c.id}>{(c.fullName || c.full_name || '— Sin nombre —')}</option>)}</select></Field></div>
               <Field label="Agente *"><select className="input" value={agentId} onChange={(e) => setAgentId(Number(e.target.value))}><option value={0}>Selecciona…</option>{agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+            </div>
+
+            <div className="mt-3 rounded-md border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                <Field label="Nombre del cliente *">
+                  <input
+                    className="input"
+                    value={clientName}
+                    onChange={(e) => { setClientName(e.target.value); setClientId(0); }}
+                    placeholder="Escribe el cliente real"
+                  />
+                </Field>
+                <button type="button" className="btn-neutral" onClick={() => assignClientByName(true)}>Asignar</button>
+              </div>
+              {clientId > 0 && <p className="mt-2 text-xs text-emerald-600">Cliente asignado a la venta.</p>}
+              <div className="mt-3">
+                <Field label="Buscar cliente existente (opcional)">
+                  <select
+                    className="input"
+                    value={clientId}
+                    onChange={(e) => {
+                      const id = Number(e.target.value);
+                      setClientId(id);
+                      const client = clients.find((c: any) => Number(c.id) === id);
+                      setClientName(client ? (client.fullName || client.full_name || '') : '');
+                    }}
+                  >
+                    <option value={0}>Nuevo cliente o sin seleccionar</option>
+                    {clients.map((c: any) => <option key={c.id} value={c.id}>{(c.fullName || c.full_name || 'Sin nombre')}</option>)}
+                  </select>
+                </Field>
+              </div>
             </div>
 
             {/* Monto y fecha */}
