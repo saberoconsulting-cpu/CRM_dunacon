@@ -191,8 +191,8 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
       <Toaster />
       <div className="space-y-5">
         <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
-          <div className="flex flex-col gap-4 px-5 py-5 sm:flex-row sm:items-center sm:justify-between">
-            <div>
+          <div className="flex flex-col gap-4 px-5 py-5 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
               <div className="inline-flex items-center gap-2 rounded-md px-3 py-1 text-xs font-bold" style={{ background: '#EAF3FF', color: BRAND.blue }}>
                 <FiBriefcase /> Modulo 11
               </div>
@@ -201,10 +201,10 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                 Partidas y subpartidas por proyecto. Estos montos alimentan automaticamente la columna Proyectado del Estado de Resultados.
               </p>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <button className="btn-neutral" onClick={load} disabled={loading}><FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar</button>
-              <button className="btn-outline" onClick={seedBase}><FiFilePlus /> Cargar estructura base</button>
-              <button className="btn-primary" onClick={() => openCreate('costo_directo')}><FiPlus /> Nueva partida</button>
+            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-3 lg:w-auto lg:min-w-[520px]">
+              <button className="btn-neutral w-full justify-center whitespace-nowrap" onClick={load} disabled={loading}><FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar</button>
+              <button className="btn-outline w-full justify-center whitespace-nowrap" onClick={seedBase}><FiFilePlus /> Cargar estructura base</button>
+              <button className="btn-primary w-full justify-center whitespace-nowrap" onClick={() => openCreate('costo_directo')}><FiPlus /> Nueva partida</button>
             </div>
           </div>
           <div className="grid gap-3 border-t bg-[#F8FAFC] p-4 sm:grid-cols-2 xl:grid-cols-6" style={{ borderColor: BORDER }}>

@@ -95,7 +95,7 @@ function MetricTile({ label, value, icon, tone = '#1877F2' }: { label: string; v
 
 function ReportCard({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
   return (
-    <section className="min-w-[360px] snap-start rounded-lg border bg-white p-4 sm:min-w-[390px]" style={{ borderColor: '#E5E7EB', boxShadow: '0 10px 24px rgba(15,23,42,.06)' }}>
+    <section className="w-[calc(100vw-56px)] min-w-[300px] snap-start rounded-lg border bg-white p-4 sm:w-[390px] sm:min-w-[390px] xl:w-full xl:min-w-0" style={{ borderColor: '#E5E7EB', boxShadow: '0 10px 24px rgba(15,23,42,.06)' }}>
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold uppercase" style={{ color: '#111827' }}>{title}</h3>
@@ -328,7 +328,7 @@ export default function ProjectPage() {
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6 xl:col-span-3">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:col-span-3 xl:grid-cols-6">
           <MetricTile label="Leads del proyecto" value={totalLeads} icon={<FiUsers />} />
           <MetricTile label="Ventas registradas" value={salesCount} icon={<FiTag />} tone="#111827" />
           <MetricTile label="Ingresos" value={money(income)} icon={<FiDollarSign />} tone="#0F8B5F" />
@@ -337,7 +337,7 @@ export default function ProjectPage() {
           <MetricTile label="Lotes vendidos" value={soldLots} icon={<FiPieChart />} tone="#6B7280" />
         </div>
 
-        <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1fr)_430px] xl:col-span-3">
+        <div className="grid grid-cols-1 gap-5 xl:col-span-3 xl:grid-cols-[minmax(0,1fr)_430px]">
           <div className="min-w-0 space-y-5">
             <div>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
@@ -468,7 +468,7 @@ export default function ProjectPage() {
             </div>
           </div>
 
-          <aside className="min-w-0 rounded-lg border bg-[#F8FAFC] p-3 2xl:sticky 2xl:top-4 2xl:h-[calc(100vh-120px)]" style={{ borderColor: '#E5E7EB' }}>
+          <aside className="min-w-0 rounded-lg border bg-[#F8FAFC] p-3 xl:sticky xl:top-4 xl:h-[calc(100vh-120px)]" style={{ borderColor: '#E5E7EB' }}>
             <div className="mb-3 flex items-center justify-between gap-3 px-1">
               <div>
                 <p className="text-sm font-semibold" style={{ color: '#111827' }}>Reportes del proyecto</p>
@@ -477,7 +477,7 @@ export default function ProjectPage() {
               <span className="rounded-full border bg-white px-2 py-1 text-[11px] font-semibold text-slate-500">Data real</span>
             </div>
 
-            <div className="flex snap-x gap-3 overflow-x-auto pb-2 2xl:h-[calc(100%-48px)] 2xl:flex-col 2xl:snap-y 2xl:overflow-y-auto 2xl:overflow-x-hidden">
+            <div className="flex snap-x gap-3 overflow-x-auto pb-2 xl:h-[calc(100%-48px)] xl:flex-col xl:snap-y xl:overflow-y-auto xl:overflow-x-hidden">
               <ReportCard title="Lotes por estado" subtitle="Conteo real de unidades">
                 <DonutReport data={lotCountData} colorMap={lotColorByLabel} />
               </ReportCard>
