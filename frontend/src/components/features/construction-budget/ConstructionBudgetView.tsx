@@ -256,10 +256,10 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                 Partidas y subpartidas por proyecto. Estos montos alimentan automaticamente la columna Proyectado del Estado de Resultados.
               </p>
             </div>
-            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4 lg:w-auto lg:min-w-[640px]">
-              <button className="btn-neutral w-full justify-center whitespace-nowrap" onClick={load} disabled={loading}><FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar</button>
-              <button className="btn-outline w-full justify-center whitespace-nowrap" onClick={seedBase}><FiFilePlus /> Cargar estructura base</button>
-              <label className="btn-outline w-full cursor-pointer justify-center whitespace-nowrap">
+            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:max-w-[520px] lg:flex-wrap lg:justify-end">
+              <button className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={load} disabled={loading}><FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar</button>
+              <button className="btn-outline w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={seedBase}><FiFilePlus /> Base</button>
+              <label className="btn-outline w-full cursor-pointer justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto">
                 <FiFilePlus /> Importar Excel
                 <input
                   type="file"
@@ -268,7 +268,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                   onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; previewExcel(file); }}
                 />
               </label>
-              <button className="btn-primary w-full justify-center whitespace-nowrap" onClick={() => openCreate('costo_directo')}><FiPlus /> Nueva partida</button>
+              <button className="btn-primary w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={() => openCreate('costo_directo')}><FiPlus /> Nueva partida</button>
             </div>
           </div>
           <div className="grid gap-3 border-t bg-[#F8FAFC] p-4 sm:grid-cols-2 xl:grid-cols-6" style={{ borderColor: BORDER }}>

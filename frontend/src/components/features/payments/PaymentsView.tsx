@@ -424,17 +424,36 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   ]}
                 />
                 {financialTimeline.length ? (
-                  <div className="h-[230px] px-3 pt-3">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={financialTimeline} margin={{ left: 0, right: 8, top: 8, bottom: 8 }}>
-                        <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
-                        <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} />
-                        <YAxis yAxisId="money" tickFormatter={shortMoney} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={52} />
-                        <Tooltip content={<FinanceTooltip />} />
-                        <Bar yAxisId="money" dataKey="vendido" name="Ventas aprobadas" fill="#E2E8F0" radius={[4, 4, 0, 0]} barSize={6} />
-                        <Line yAxisId="money" type="monotone" dataKey="cobrado" name="Caja cobrada" stroke={GREEN} strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 5 }} />
-                      </ComposedChart>
-                    </ResponsiveContainer>
+                  <div className="px-4 py-4">
+                    <div className="flex items-end justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-medium" style={{ color: MUTED }}>Caja cobrada</p>
+                        <p className="mt-1 text-2xl font-bold tabular-nums" style={{ color: GREEN }}>{money(currentCollected)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-medium" style={{ color: MUTED }}>Vendido aprobado</p>
+                        <p className="mt-1 text-lg font-semibold tabular-nums" style={{ color: INK }}>{money(currentSales)}</p>
+                      </div>
+                    </div>
+                    <div className="mt-4">
+                      <div className="mb-2 flex items-center justify-between text-xs">
+                        <span style={{ color: MUTED }}>Avance de cobranza</span>
+                        <b style={{ color: BLUE }}>{pct(currentCollectionRate)}</b>
+                      </div>
+                      <div className="h-3 overflow-hidden rounded-full bg-slate-100">
+                        <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, currentCollectionRate))}%`, background: GREEN }} />
+                      </div>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <div className="rounded-md bg-slate-50 px-3 py-2">
+                        <p className="text-[11px]" style={{ color: MUTED }}>Pendiente por cobrar</p>
+                        <p className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: INK }}>{money(Math.max(0, currentSales - currentCollected))}</p>
+                      </div>
+                      <div className="rounded-md bg-slate-50 px-3 py-2">
+                        <p className="text-[11px]" style={{ color: MUTED }}>Mes anterior</p>
+                        <p className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: BLUE_DARK }}>{pct(previousCollectionRate)}</p>
+                      </div>
+                    </div>
                   </div>
                 ) : <EmptyChart text="Aun no hay ventas o pagos para comparar." />}
               </div>
@@ -452,17 +471,37 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   ]}
                 />
                 {financialTimeline.length ? (
-                  <div className="h-[230px] px-3 pt-3">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={financialTimeline} margin={{ left: 0, right: 8, top: 8, bottom: 8 }}>
-                        <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
-                        <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} />
-                        <YAxis yAxisId="money" tickFormatter={shortMoney} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} width={52} />
-                        <Tooltip content={<FinanceTooltip />} />
-                        <Bar yAxisId="money" dataKey="moroso" name="Mora vencida" fill="#FECACA" radius={[4, 4, 0, 0]} barSize={6} />
-                        <Line yAxisId="money" type="monotone" dataKey="cobrado" name="Cobrado" stroke={GREEN} strokeWidth={2.5} dot={{ r: 2 }} activeDot={{ r: 5 }} />
-                      </ComposedChart>
-                    </ResponsiveContainer>
+                  <div className="px-4 py-4">
+                    <div className="flex items-center gap-4">
+                      <div
+                        className="grid h-28 w-28 shrink-0 place-items-center rounded-full"
+                        style={{ background: `conic-gradient(${RED} 0 ${Math.min(100, Math.max(0, currentDelinquencyRate || delinquencyRate))}%, #EAF7EE 0 100%)` }}
+                      >
+                        <div className="grid h-20 w-20 place-items-center rounded-full bg-white text-center">
+                          <span className="text-lg font-bold tabular-nums" style={{ color: RED }}>{pct(currentDelinquencyRate || delinquencyRate)}</span>
+                        </div>
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-3">
+                        <div>
+                          <p className="text-xs font-medium" style={{ color: MUTED }}>Mora actual</p>
+                          <p className="text-xl font-bold tabular-nums" style={{ color: RED }}>{money(currentOverdue)}</p>
+                        </div>
+                        <div>
+                          <p className="text-xs font-medium" style={{ color: MUTED }}>Cobrado actual</p>
+                          <p className="text-base font-bold tabular-nums" style={{ color: GREEN }}>{money(currentCollected)}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-4 grid grid-cols-2 gap-2">
+                      <div className="rounded-md bg-red-50 px-3 py-2">
+                        <p className="text-[11px]" style={{ color: MUTED }}>Mes anterior</p>
+                        <p className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: RED }}>{money(previousOverdue)}</p>
+                      </div>
+                      <div className="rounded-md bg-slate-50 px-3 py-2">
+                        <p className="text-[11px]" style={{ color: MUTED }}>Variacion</p>
+                        <p className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: delinquencyTrend > 0 ? RED : GREEN }}>{pct(delinquencyTrend)}</p>
+                      </div>
+                    </div>
                   </div>
                 ) : <EmptyChart text="Sin datos suficientes todavia." />}
               </div>
