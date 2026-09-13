@@ -156,9 +156,10 @@ export class ConstructionBudgetService {
 
     const normalized = rows.map((row) => this.normalizeImportPayload(row));
     const duplicateCodes = this.findDuplicates(normalized.map((row) => row.code));
+    const normalizedCodes = new Set(normalized.map((row) => budgetCodeKey(row.code)).filter(Boolean));
     for (const row of normalized) {
-      if (duplicateCodes.has(row.code)) row.errors.push(`Codigo duplicado en el Excel: ${row.code}`);
-      if (row.parentCode && !normalized.some((candidate) => candidate.code === row.parentCode)) {
+      if (duplicateCodes.has(budgetCodeKey(row.code))) row.errors.push(`Codigo duplicado en el Excel: ${row.code}`);
+      if (row.parentCode && !normalizedCodes.has(budgetCodeKey(row.parentCode))) {
         const existingParent = await this.budgetRepo.findOne({ where: { projectId, code: row.parentCode, isActive: true } });
         if (!existingParent) row.errors.push(`No existe la partida padre ${row.parentCode}`);
       }
@@ -168,16 +169,17 @@ export class ConstructionBudgetService {
     if (errors.length) throw new BadRequestException({ message: 'Corrige el Excel antes de importar', errors });
 
     const existingItems = await this.budgetRepo.find({ where: { projectId, isActive: true } });
-    const byCode = new Map(existingItems.map((item) => [item.code.trim().toUpperCase(), item]));
+    const byCode = new Map(existingItems.map((item) => [budgetCodeKey(item.code), item]));
     const importedByCode = new Map<string, ConstructionBudgetItemEntity>();
     const pending = [...normalized].sort((a, b) => codeDepth(a.code) - codeDepth(b.code) || a.sortOrder - b.sortOrder);
     let created = 0;
     let updated = 0;
 
     for (const row of pending) {
-      const key = row.code.trim().toUpperCase();
+      const key = budgetCodeKey(row.code);
       let item = byCode.get(key);
-      const parent = row.parentCode ? importedByCode.get(row.parentCode.toUpperCase()) || byCode.get(row.parentCode.toUpperCase()) : null;
+      const parentKey = budgetCodeKey(row.parentCode);
+      const parent = parentKey ? importedByCode.get(parentKey) || byCode.get(parentKey) : null;
 
       if (!item) {
         item = this.budgetRepo.create({ projectId, createdBy: actorId || null });
@@ -287,7 +289,7 @@ export class ConstructionBudgetService {
   private findDuplicates(values: string[]) {
     const seen = new Set<string>();
     const duplicates = new Set<string>();
-    for (const value of values.map((item) => item.trim().toUpperCase()).filter(Boolean)) {
+    for (const value of values.map((item) => budgetCodeKey(item)).filter(Boolean)) {
       if (seen.has(value)) duplicates.add(value);
       seen.add(value);
     }
@@ -341,6 +343,10 @@ function normalizeHeader(value: string) {
 
 function cleanCell(value: unknown) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function budgetCodeKey(value: unknown) {
+  return cleanCell(value).toUpperCase();
 }
 
 function parseAmount(value: unknown) {

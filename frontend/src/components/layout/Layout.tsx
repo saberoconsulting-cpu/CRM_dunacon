@@ -34,6 +34,7 @@ interface NavItem {
   label: string;
   icon: JSX.Element;
   roles: UserRole[];
+  key?: string;
   number?: number;
   soon?: boolean;
 }
@@ -51,19 +52,19 @@ const GLOBAL_END_NAV: NavItem[] = [
 
 function projectNav(projectId: number): NavItem[] {
   return [
-    { number: 1, href: `/projects/${projectId}`, label: 'Dashboard', icon: <FiHome />, roles: ['superadmin', 'admin', 'agent'] },
-    { number: 2, href: `/projects/${projectId}/lots`, label: 'Lotizacion', icon: <FiLayers />, roles: ['superadmin', 'admin', 'agent'] },
-    { number: 3, href: `/projects/${projectId}/plan-editor`, label: 'Plano', icon: <FiMap />, roles: ['superadmin', 'admin', 'agent'] },
-    { number: 4, href: `/projects/${projectId}/quotes`, label: 'Cotizaciones', icon: <FiFileText />, roles: ['superadmin', 'admin', 'agent'] },
-    { number: 5, href: `/projects/${projectId}/sales`, label: 'Ventas', icon: <FiTag />, roles: ['superadmin', 'admin', 'agent'] },
-    { number: 6, href: `/projects/${projectId}/payments`, label: 'Pagos de lotes', icon: <FiCreditCard />, roles: ['superadmin', 'admin', 'agent'] },
-    { number: 7, href: `/projects/${projectId}/finances`, label: 'Finanzas', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
-    { number: 8, href: `/projects/${projectId}/campaigns`, label: 'Campanas', icon: <FiVolume2 />, roles: ['superadmin', 'admin'] },
-    { number: 9, href: `/projects/${projectId}/clients`, label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
-    { number: 10, href: '#estado-cc-bancos', label: 'Cuentas y bancos', icon: <FiCreditCard />, roles: ['superadmin', 'admin'], soon: true },
-    { number: 11, href: `/projects/${projectId}/construction-budget`, label: 'Presupuesto de obra', icon: <FiLayers />, roles: ['superadmin', 'admin'] },
-    { number: 12, href: `/projects/${projectId}/income-statement`, label: 'Estado de resultados', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
-    { number: 13, href: '#flujo-caja', label: 'Flujo de caja', icon: <FiPieChart />, roles: ['superadmin', 'admin'], soon: true },
+    { key: 'dashboard', number: 1, href: `/projects/${projectId}`, label: 'Dashboard', icon: <FiHome />, roles: ['superadmin', 'admin', 'agent'] },
+    { key: 'lots', number: 2, href: `/projects/${projectId}/lots`, label: 'Lotizacion', icon: <FiLayers />, roles: ['superadmin', 'admin', 'agent'] },
+    { key: 'plan', number: 3, href: `/projects/${projectId}/plan-editor`, label: 'Plano', icon: <FiMap />, roles: ['superadmin', 'admin', 'agent'] },
+    { key: 'quotes', number: 4, href: `/projects/${projectId}/quotes`, label: 'Cotizaciones', icon: <FiFileText />, roles: ['superadmin', 'admin', 'agent'] },
+    { key: 'sales', number: 5, href: `/projects/${projectId}/sales`, label: 'Ventas', icon: <FiTag />, roles: ['superadmin', 'admin', 'agent'] },
+    { key: 'payments', number: 6, href: `/projects/${projectId}/payments`, label: 'Pagos de lotes', icon: <FiCreditCard />, roles: ['superadmin', 'admin', 'agent'] },
+    { key: 'finances', number: 7, href: `/projects/${projectId}/finances`, label: 'Finanzas', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
+    { key: 'campaigns', number: 8, href: `/projects/${projectId}/campaigns`, label: 'Campanas', icon: <FiVolume2 />, roles: ['superadmin', 'admin'] },
+    { key: 'clients', number: 9, href: `/projects/${projectId}/clients`, label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
+    { key: 'banking', number: 10, href: '#estado-cc-bancos', label: 'Cuentas y bancos', icon: <FiCreditCard />, roles: ['superadmin', 'admin'], soon: true },
+    { key: 'construction-budget', number: 11, href: `/projects/${projectId}/construction-budget`, label: 'Presupuesto de obra', icon: <FiLayers />, roles: ['superadmin', 'admin'] },
+    { key: 'income-statement', number: 12, href: `/projects/${projectId}/income-statement`, label: 'Estado de resultados', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
+    { key: 'cashflow', number: 13, href: '#flujo-caja', label: 'Flujo de caja', icon: <FiPieChart />, roles: ['superadmin', 'admin'], soon: true },
   ];
 }
 
@@ -93,6 +94,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const [projectOptions, setProjectOptions] = useState<{ id: number; name: string; logoImageUrl?: string | null }[]>([]);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [projectDocumentsOpen, setProjectDocumentsOpen] = useState(false);
+  const [moduleAccess, setModuleAccess] = useState<Record<number, string[] | null>>({});
 
   const activeProjectId = useMemo(() => {
     const match = pathname.match(/^\/projects\/(\d+)/);
@@ -162,11 +164,25 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
     return () => { events.forEach((event) => socket.off(event as any, listener as any)); };
   }, [user]);
 
+  useEffect(() => {
+    if (!user) return;
+    api.get<any>('/users/access')
+      .then((data) => {
+        const next: Record<number, string[] | null> = {};
+        for (const row of data?.projects || []) next[Number(row.projectId)] = Array.isArray(row.modules) ? row.modules : null;
+        setModuleAccess(next);
+      })
+      .catch(() => setModuleAccess({}));
+  }, [user]);
+
   if (!user) return null;
 
   const canManage = user.role === 'superadmin' || user.role === 'admin';
   const isProjectContext = activeProjectId != null;
-  const visiblePrimary = (isProjectContext ? projectNav(activeProjectId) : GLOBAL_NAV).filter((item) => item.roles.includes(user.role));
+  const projectAllowedModules = activeProjectId ? moduleAccess[activeProjectId] : null;
+  const visiblePrimary = (isProjectContext ? projectNav(activeProjectId) : GLOBAL_NAV)
+    .filter((item) => item.roles.includes(user.role))
+    .filter((item) => !isProjectContext || user.role === 'superadmin' || !Array.isArray(projectAllowedModules) || projectAllowedModules.includes(item.key || ''));
   const visibleEnd = isProjectContext ? [] : GLOBAL_END_NAV.filter((item) => item.roles.includes(user.role));
   const showLabels = drawerOpen || !collapsed;
   const sidebarWidth = collapsed ? 76 : 248;

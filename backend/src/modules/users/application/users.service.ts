@@ -35,6 +35,16 @@ export class UsersService {
     await this.auditRepo.save({ userId, action, entity, entityId });
   }
 
+  private buildProjectRows(userId: number, projectIds: number[] = [], projectAccess?: Array<{ projectId: number; modules?: string[] }>) {
+    const accessByProject = new Map((projectAccess || []).map((item) => [Number(item.projectId), Array.isArray(item.modules) ? item.modules : []]));
+    const ids = Array.from(new Set([...(projectIds || []).map(Number), ...Array.from(accessByProject.keys())])).filter(Boolean);
+    return ids.map((projectId) => ({
+      userId,
+      projectId,
+      allowedModules: accessByProject.has(projectId) ? accessByProject.get(projectId)! : null,
+    }));
+  }
+
   async createAgent(dto: CreateAgentDto, actorId: number) {
     const existing = await this.userRepo.findOne({ where: { email: dto.email } });
     if (existing) throw new BadRequestException('El correo ya está registrado');
@@ -50,11 +60,8 @@ export class UsersService {
       monthlyGoalAmount: String(dto.monthlyGoalAmount ?? 0),
     });
     const saved = await this.userRepo.save(user);
-    if (dto.projectIds?.length) {
-      await this.userProjectRepo.save(
-        dto.projectIds.map((projectId) => ({ userId: saved.id, projectId })),
-      );
-    }
+    const projectRows = this.buildProjectRows(saved.id, dto.projectIds, dto.projectAccess);
+    if (projectRows.length) await this.userProjectRepo.save(projectRows);
     await this.audit(actorId, 'CREAR_AGENTE', 'users', saved.id);
     return saved;
   }
@@ -71,11 +78,8 @@ export class UsersService {
       passwordHash: await bcrypt.hash(dto.password, 10),
     });
     const saved = await this.userRepo.save(user);
-    if (dto.projectIds?.length) {
-      await this.userProjectRepo.save(
-        dto.projectIds.map((projectId) => ({ userId: saved.id, projectId })),
-      );
-    }
+    const projectRows = this.buildProjectRows(saved.id, dto.projectIds, dto.projectAccess);
+    if (projectRows.length) await this.userProjectRepo.save(projectRows);
     await this.audit(actorId, 'CREAR_ADMIN', 'users', saved.id);
     return saved;
   }
@@ -113,11 +117,10 @@ export class UsersService {
     if (dto.monthlyGoalLots !== undefined) user.monthlyGoalLots = dto.monthlyGoalLots;
     if (dto.monthlyGoalAmount !== undefined) user.monthlyGoalAmount = String(dto.monthlyGoalAmount);
     const saved = await this.userRepo.save(user);
-    if (dto.projectIds) {
+    if (dto.projectIds || dto.projectAccess) {
       await this.userProjectRepo.delete({ userId: id });
-      if (dto.projectIds.length) {
-        await this.userProjectRepo.save(dto.projectIds.map((projectId) => ({ userId: id, projectId })));
-      }
+      const projectRows = this.buildProjectRows(id, dto.projectIds || [], dto.projectAccess);
+      if (projectRows.length) await this.userProjectRepo.save(projectRows);
     }
     await this.audit(actorId, 'EDITAR_USUARIO', 'users', id);
     return saved;
@@ -153,5 +156,18 @@ export class UsersService {
   async projectsOf(userId: number) {
     const rows = await this.userProjectRepo.find({ where: { userId } });
     return rows.map((r) => r.projectId);
+  }
+
+  async accessOf(userId: number) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+    const rows = await this.userProjectRepo.find({ where: { userId } });
+    return {
+      role: user.role,
+      projects: rows.map((row) => ({
+        projectId: row.projectId,
+        modules: row.allowedModules,
+      })),
+    };
   }
 }

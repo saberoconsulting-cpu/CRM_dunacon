@@ -9,6 +9,15 @@ import {
   MinLength,
 } from 'class-validator';
 
+export class ProjectAccessDto {
+  @IsNumber()
+  projectId!: number;
+
+  @IsArray()
+  @IsString({ each: true })
+  modules!: string[];
+}
+
 export class CreateAgentDto {
   @IsString()
   @IsNotEmpty()
@@ -28,6 +37,10 @@ export class CreateAgentDto {
   @IsArray()
   @IsNumber({}, { each: true })
   projectIds!: number[];
+
+  @IsOptional()
+  @IsArray()
+  projectAccess?: ProjectAccessDto[];
 
   @IsNumber()
   commissionRate!: number;

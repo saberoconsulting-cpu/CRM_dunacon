@@ -87,6 +87,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
   const [openCats, setOpenCats] = useState<Record<string, boolean>>({});
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<BudgetItem | null>(null);
+  const [deleting, setDeleting] = useState<BudgetItem | null>(null);
   const [form, setForm] = useState<any>({});
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [importing, setImporting] = useState(false);
@@ -177,10 +178,10 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
   }
 
   async function remove(item: BudgetItem) {
-    if (!confirm(`Eliminar la partida ${item.code} - ${item.name}?`)) return;
     try {
       await api.delete(`/construction-budget/${item.id}`);
       toast('Partida eliminada');
+      setDeleting(null);
       load();
     } catch (error: any) {
       toast(error?.message || 'No se pudo eliminar', 'err');
@@ -207,9 +208,9 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     setImporting(true);
     try {
       const data = await api.post<any>('/construction-budget/import', { projectId, rows: preview.rows });
-      setItems(data?.items || []);
-      setSummary(data?.summary || { categories: {}, grandTotal: 0 });
       setPreview(null);
+      setOpenCats(Object.fromEntries(CATEGORIES.map((cat) => [cat.key, true])));
+      await load();
       toast(`Importacion completa: ${data.imported || 0} filas`);
     } catch (error: any) {
       toast(error?.message || 'No se pudo importar el Excel', 'err');
@@ -233,7 +234,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
           <div className="flex justify-end gap-1">
             <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Agregar subpartida" onClick={() => openCreate(item.category, item.id)}><FiPlus /></button>
             <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Editar" onClick={() => openEdit(item)}><FiEdit3 /></button>
-            <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-red-50 hover:text-red-600" title="Eliminar" onClick={() => remove(item)}><FiTrash2 /></button>
+            <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-red-50 hover:text-red-600" title="Eliminar" onClick={() => setDeleting(item)}><FiTrash2 /></button>
           </div>
         </div>
         {(item.children || []).map((child) => renderItem(child, level + 1))}
@@ -412,6 +413,35 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-neutral" onClick={() => setModalOpen(false)}>Cancelar</button>
               <button className="btn-primary" onClick={save}><FiDollarSign /> Guardar presupuesto</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleting && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-900/50" onClick={() => setDeleting(null)} />
+          <div className="relative w-full max-w-md rounded-lg bg-white p-5 shadow-2xl">
+            <div className="flex items-start gap-3">
+              <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-red-50 text-red-600">
+                <FiTrash2 />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold" style={{ color: INK }}>Eliminar partida</h3>
+                <p className="mt-1 text-sm" style={{ color: MUTED }}>
+                  Esta partida se retirara del presupuesto del proyecto.
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 rounded-md border bg-slate-50 p-3" style={{ borderColor: BORDER }}>
+              <p className="text-xs font-bold uppercase" style={{ color: MUTED }}>Partida seleccionada</p>
+              <p className="mt-1 text-sm font-semibold" style={{ color: INK }}>{deleting.code} - {deleting.name}</p>
+            </div>
+            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button className="btn-neutral justify-center" onClick={() => setDeleting(null)}>Cancelar</button>
+              <button className="btn-primary justify-center bg-red-600 hover:bg-red-700" onClick={() => remove(deleting)}>
+                <FiTrash2 /> Eliminar
+              </button>
             </div>
           </div>
         </div>

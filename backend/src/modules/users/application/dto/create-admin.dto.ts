@@ -9,6 +9,15 @@ import {
   MinLength,
 } from 'class-validator';
 
+export class ProjectAccessDto {
+  @IsNumber()
+  projectId!: number;
+
+  @IsArray()
+  @IsString({ each: true })
+  modules!: string[];
+}
+
 export class CreateAdminDto {
   @IsString()
   @IsNotEmpty()
@@ -28,4 +37,8 @@ export class CreateAdminDto {
   @IsArray()
   @IsNumber({}, { each: true })
   projectIds!: number[];
+
+  @IsOptional()
+  @IsArray()
+  projectAccess?: ProjectAccessDto[];
 }

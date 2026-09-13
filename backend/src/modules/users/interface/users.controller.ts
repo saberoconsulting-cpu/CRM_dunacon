@@ -30,6 +30,11 @@ export class UsersController {
     return this.usersService.list(role, status);
   }
 
+  @Get('access')
+  access(@CurrentUser('id') userId: number) {
+    return this.usersService.accessOf(userId);
+  }
+
   @Get('agents')
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
   agents() {

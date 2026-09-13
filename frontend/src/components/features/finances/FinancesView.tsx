@@ -108,17 +108,19 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
         )}
         <div className="card">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="font-semibold">Flujo financiero</h3>
-            <div className="flex flex-wrap gap-2">
-              <button className="btn-primary" onClick={() => setOpenExp(true)}>Registrar egreso</button>
-              <button className="btn-outline" onClick={() => setOpenIn(true)}>Registrar ingreso</button>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              <button className="btn-primary whitespace-nowrap" onClick={() => setOpenExp(true)}>Registrar egreso</button>
+              <button className="btn-outline whitespace-nowrap" onClick={() => setOpenIn(true)}>Registrar ingreso</button>
             </div>
           </div>
-          <div className="flex items-center gap-2 mt-3">
-            <span className="badge" style={{ background: '#EAF7EE', color: '#125A3B' }}>Ingreso</span>
-            <span className="badge" style={{ background: '#E7F0FE', color: '#1259C4' }}>Egreso</span>
-            <button className="btn-neutral ml-auto !h-8 text-xs" onClick={() => setCat('')}>Limpiar filtro</button>
+          <div className="mt-3 flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: '#E5E7EB' }}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="badge whitespace-nowrap" style={{ background: '#EAF7EE', color: '#125A3B' }}>Ingreso</span>
+              <span className="badge whitespace-nowrap" style={{ background: '#E7F0FE', color: '#1259C4' }}>Egreso</span>
+            </div>
+            <button className="btn-neutral !h-8 w-full text-xs sm:w-auto" onClick={() => setCat('')}>Limpiar filtro</button>
           </div>
         </div>
         <div className="card p-0 overflow-hidden">

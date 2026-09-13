@@ -8,6 +8,20 @@ import { FiSettings } from 'react-icons/fi';
 
 type U = { id: number; name: string; email: string; phone?: string | null; role: string; status: string; commissionRate?: string; created_at: string; lastLoginAt?: string | null };
 
+const PROJECT_MODULES = [
+  { key: 'dashboard', label: 'Dashboard', roles: ['admin', 'agent'] },
+  { key: 'lots', label: 'Lotizacion', roles: ['admin', 'agent'] },
+  { key: 'plan', label: 'Plano', roles: ['admin', 'agent'] },
+  { key: 'quotes', label: 'Cotizaciones', roles: ['admin', 'agent'] },
+  { key: 'sales', label: 'Ventas', roles: ['admin', 'agent'] },
+  { key: 'payments', label: 'Pagos', roles: ['admin', 'agent'] },
+  { key: 'clients', label: 'Clientes y leads', roles: ['admin', 'agent'] },
+  { key: 'finances', label: 'Finanzas', roles: ['admin'] },
+  { key: 'campaigns', label: 'Campanas', roles: ['admin'] },
+  { key: 'construction-budget', label: 'Presupuesto de obra', roles: ['admin'] },
+  { key: 'income-statement', label: 'Estado de resultados', roles: ['admin'] },
+];
+
 export default function UsersPage() {
   const [rows, setRows] = useState<U[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
@@ -18,6 +32,49 @@ export default function UsersPage() {
   const [formAd, setFormAd] = useState<any>({});
   const fA = (k: string, v: any) => setFormA((p: any) => ({ ...p, [k]: v }));
   const fD = (k: string, v: any) => setFormAd((p: any) => ({ ...p, [k]: v }));
+
+  function defaultModules(userRole: 'admin' | 'agent') {
+    return PROJECT_MODULES.filter((item) => item.roles.includes(userRole)).map((item) => item.key);
+  }
+
+  function modulesFor(form: any, projectId: number, userRole: 'admin' | 'agent') {
+    const row = (form.projectAccess || []).find((item: any) => Number(item.projectId) === Number(projectId));
+    return Array.isArray(row?.modules) ? row.modules : defaultModules(userRole);
+  }
+
+  function projectAccessPayload(form: any, userRole: 'admin' | 'agent') {
+    return (form.projectIds || []).map((projectId: number) => ({
+      projectId: Number(projectId),
+      modules: modulesFor(form, projectId, userRole),
+    }));
+  }
+
+  function setProjectChecked(setter: (value: any) => void, projectId: number, checked: boolean, userRole: 'admin' | 'agent') {
+    setter((current: any) => {
+      const projectIds = checked
+        ? Array.from(new Set([...(current.projectIds || []), projectId]))
+        : (current.projectIds || []).filter((id: number) => Number(id) !== Number(projectId));
+      const projectAccess = checked
+        ? [
+            ...(current.projectAccess || []).filter((item: any) => Number(item.projectId) !== Number(projectId)),
+            { projectId, modules: modulesFor(current, projectId, userRole) },
+          ]
+        : (current.projectAccess || []).filter((item: any) => Number(item.projectId) !== Number(projectId));
+      return { ...current, projectIds, projectAccess };
+    });
+  }
+
+  function setModuleChecked(setter: (value: any) => void, projectId: number, moduleKey: string, checked: boolean, userRole: 'admin' | 'agent') {
+    setter((current: any) => {
+      const currentModules = modulesFor(current, projectId, userRole);
+      const modules = checked ? Array.from(new Set([...currentModules, moduleKey])) : currentModules.filter((key: string) => key !== moduleKey);
+      const projectAccess = [
+        ...(current.projectAccess || []).filter((item: any) => Number(item.projectId) !== Number(projectId)),
+        { projectId, modules },
+      ];
+      return { ...current, projectAccess };
+    });
+  }
 
   const load = useCallback(async () => {
     try {
@@ -34,13 +91,14 @@ export default function UsersPage() {
         name: formA.name, email: formA.email, phone: formA.phone || undefined, password: formA.password,
         projectIds: (formA.projectIds || []).map(Number), commissionRate: Number(formA.commissionRate || 0),
         monthlyGoalLots: Number(formA.monthlyGoalLots || 0), monthlyGoalAmount: Number(formA.monthlyGoalAmount || 0),
+        projectAccess: projectAccessPayload(formA, 'agent'),
       });
       toast('Agente creado'); setOpenAgent(false); setFormA({}); load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
   async function crearAdmin() {
     try {
-      await api.post('/users/admin', { name: formAd.name, email: formAd.email, phone: formAd.phone || undefined, password: formAd.password, projectIds: (formAd.projectIds || []).map(Number) });
+      await api.post('/users/admin', { name: formAd.name, email: formAd.email, phone: formAd.phone || undefined, password: formAd.password, projectIds: (formAd.projectIds || []).map(Number), projectAccess: projectAccessPayload(formAd, 'admin') });
       toast('Administrador creado'); setOpenAdmin(false); setFormAd({}); load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -79,7 +137,7 @@ export default function UsersPage() {
               <option value="admin">Admins</option><option value="superadmin">Superadmins</option>
             </select>
             <button className="btn-primary" onClick={() => setOpenAgent(true)}>Crear agente</button>
-            <button className="btn-outline" onClick={() => setOpenAdmin(true)}>Nuevo admin</button>
+            <button className="btn-outline" onClick={() => setOpenAdmin(true)}>Nuevo gerente</button>
           </div>
         </div>
         <div className="card p-0 overflow-auto">
@@ -113,7 +171,7 @@ export default function UsersPage() {
       {openAgent && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpenAgent(false)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-lg p-6">
+          <div className="relative max-h-[92vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-6">
             <h3 className="font-semibold mb-1" style={{ fontSize: 17 }}>Crear agente</h3>
             <p className="text-sm mb-5" style={{ color: '#6B7280' }}>Define acceso, comisión, meta y proyectos.</p>
             <Field label="Nombre completo *"><input className="input" value={formA.name || ''} onChange={(e) => fA('name', e.target.value)} /></Field>
@@ -122,11 +180,28 @@ export default function UsersPage() {
               <Field label="Teléfono"><input className="input" value={formA.phone || ''} onChange={(e) => fA('phone', e.target.value)} /></Field>
             </div>
             <Field label="Contraseña temporal *"><input type="password" className="input" value={formA.password || ''} onChange={(e) => fA('password', e.target.value)} /></Field>
-            <Field label="Proyectos asignados">
-              <div className="space-y-1">{projects.map((p: any) => (
-                <label key={p.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                  <input type="checkbox" checked={(formA.projectIds || []).includes(p.id)} onChange={(e) => fA('projectIds', e.target.checked ? [...(formA.projectIds || []), p.id] : (formA.projectIds || []).filter((x: number) => x !== p.id))} /> {p.name}
-                </label>))}
+            <Field label="Proyectos asignados y modulos visibles">
+              <div className="space-y-2">{projects.map((p: any) => {
+                const selected = (formA.projectIds || []).includes(p.id);
+                const modules = modulesFor(formA, p.id, 'agent');
+                return (
+                  <div key={p.id} className="rounded-md border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                      <input type="checkbox" checked={selected} onChange={(e) => setProjectChecked(setFormA, p.id, e.target.checked, 'agent')} /> {p.name}
+                    </label>
+                    {selected && (
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {PROJECT_MODULES.filter((module) => module.roles.includes('agent')).map((module) => (
+                          <label key={module.key} className="flex items-center gap-2 rounded-md bg-slate-50 px-2 py-1.5 text-xs">
+                            <input type="checkbox" checked={modules.includes(module.key)} onChange={(e) => setModuleChecked(setFormA, p.id, module.key, e.target.checked, 'agent')} />
+                            {module.label}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               </div>
             </Field>
             <div className="grid grid-cols-3 gap-3">
@@ -145,16 +220,36 @@ export default function UsersPage() {
       {openAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpenAdmin(false)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-lg p-6">
-            <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Nuevo administrador</h3>
+          <div className="relative max-h-[92vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-6">
+            <h3 className="font-semibold mb-1" style={{ fontSize: 17 }}>Nuevo gerente / administrador</h3>
+            <p className="text-sm mb-5" style={{ color: '#6B7280' }}>Define proyectos y partes visibles dentro de cada proyecto.</p>
             <Field label="Nombre completo *"><input className="input" value={formAd.name || ''} onChange={(e) => fD('name', e.target.value)} /></Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Correo *"><input className="input" value={formAd.email || ''} onChange={(e) => fD('email', e.target.value)} /></Field>
               <Field label="Contraseña *"><input type="password" className="input" value={formAd.password || ''} onChange={(e) => fD('password', e.target.value)} /></Field>
             </div>
-            <Field label="Proyectos administrados">
-              <div className="space-y-1">{projects.map((p: any) => (
-                <label key={p.id} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={(formAd.projectIds || []).includes(p.id)} onChange={(e) => fD('projectIds', e.target.checked ? [...(formAd.projectIds || []), p.id] : (formAd.projectIds || []).filter((x: number) => x !== p.id))} /> {p.name}</label>))}
+            <Field label="Proyectos administrados y modulos visibles">
+              <div className="space-y-2">{projects.map((p: any) => {
+                const selected = (formAd.projectIds || []).includes(p.id);
+                const modules = modulesFor(formAd, p.id, 'admin');
+                return (
+                  <div key={p.id} className="rounded-md border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
+                    <label className="flex cursor-pointer items-center gap-2 text-sm font-medium">
+                      <input type="checkbox" checked={selected} onChange={(e) => setProjectChecked(setFormAd, p.id, e.target.checked, 'admin')} /> {p.name}
+                    </label>
+                    {selected && (
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                        {PROJECT_MODULES.filter((module) => module.roles.includes('admin')).map((module) => (
+                          <label key={module.key} className="flex items-center gap-2 rounded-md bg-slate-50 px-2 py-1.5 text-xs">
+                            <input type="checkbox" checked={modules.includes(module.key)} onChange={(e) => setModuleChecked(setFormAd, p.id, module.key, e.target.checked, 'admin')} />
+                            {module.label}
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
               </div>
             </Field>
             <div className="flex justify-end gap-2 pt-2">

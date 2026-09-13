@@ -1,5 +1,5 @@
 // shared/infrastructure/entities/user-project.entity.ts
-import { Entity, PrimaryColumn } from 'typeorm';
+import { Column, Entity, PrimaryColumn } from 'typeorm';
 
 @Entity('user_projects')
 export class UserProjectEntity {
@@ -8,4 +8,7 @@ export class UserProjectEntity {
 
   @PrimaryColumn({ name: 'project_id' })
   projectId: number;
+
+  @Column({ name: 'allowed_modules', type: 'jsonb', nullable: true })
+  allowedModules: string[] | null;
 }

@@ -16,7 +16,8 @@ import {
 } from 'recharts';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { formatMoney, formatDate } from '@/lib/types';
-import { FiActivity, FiAlertTriangle, FiCamera, FiCreditCard, FiDollarSign, FiMoreVertical, FiTrendingUp, FiUpload } from 'react-icons/fi';
+import { printHtml } from '@/lib/print';
+import { FiActivity, FiAlertTriangle, FiCamera, FiCreditCard, FiDollarSign, FiMoreVertical, FiTrendingUp, FiUpload, FiX } from 'react-icons/fi';
 
 type P = {
   id: number; projectId: number; lotId: number; type: string; amount: string;
@@ -45,6 +46,15 @@ function money(n: number) {
   return formatMoney(Number(n || 0));
 }
 
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function shortMoney(n: number) {
   const value = Number(n || 0);
   if (Math.abs(value) >= 1000000) return `S/ ${(value / 1000000).toLocaleString('es-PE', { maximumFractionDigits: 1 })}M`;
@@ -62,6 +72,11 @@ function monthLabel(month: string) {
   const date = new Date(Number(year), Number(rawMonth || 1) - 1, 1);
   if (Number.isNaN(date.getTime())) return month || '-';
   return date.toLocaleDateString('es-PE', { month: 'short', year: '2-digit' }).replace('.', '');
+}
+
+function currentMonthValue() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function sumRows(items: any[], key = 'monto') {
@@ -213,7 +228,9 @@ function ChartHeader({ title, subtitle, menuRows }: { title: string; subtitle: s
 export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: number }) {
   const [rows, setRows] = useState<P[]>([]);
   const [status, setStatus] = useState('');
+  const [pdfMonth, setPdfMonth] = useState(currentMonthValue);
   const [overdue, setOverdue] = useState<P[]>([]);
+  const [showOverdueAlert, setShowOverdueAlert] = useState(true);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
@@ -300,6 +317,97 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     if (window) { try { if (voucherUrl.startsWith('blob:')) URL.revokeObjectURL(voucherUrl); } catch {} setVoucherUrl(URL.createObjectURL(f)); }
   }
 
+  async function exportMonthPdf() {
+    if (!pdfMonth) return toast('Selecciona un mes para descargar el PDF', 'err');
+
+    const q = new URLSearchParams();
+    if (status) q.set('status', status);
+    if (lockedProjectId) q.set('projectId', String(lockedProjectId));
+    q.set('page', '1');
+    q.set('limit', '500');
+
+    let sourceRows = rows;
+    try {
+      const back = (await api.get<any>(`/payments?${q.toString()}`)) || {};
+      sourceRows = Array.isArray(back) ? back : (back.items || rows);
+    } catch {
+      sourceRows = rows;
+    }
+
+    const monthRows = sourceRows.filter((payment) => {
+      const rawDate = payment.paidAt || payment.dueDate || '';
+      return rawDate ? String(rawDate).slice(0, 7) === pdfMonth : false;
+    });
+    if (!monthRows.length) return toast('No hay pagos para ese mes', 'err');
+
+    const total = monthRows.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
+    const monthName = monthLabel(pdfMonth);
+    const generatedAt = new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' });
+    const bodyRows = monthRows.map((payment) => `
+      <tr>
+        <td>${escapeHtml(payment.lotCode || `Lote ${payment.lotId}`)}</td>
+        <td>${escapeHtml(payment.clientName || '-')}</td>
+        <td>${escapeHtml(TYPE_LABEL[payment.type] || payment.type || '-')}</td>
+        <td>${escapeHtml(METHOD_LABEL[payment.paymentMethod || ''] || payment.paymentMethod || '-')}</td>
+        <td>${escapeHtml(payment.reference || '-')}</td>
+        <td class="num">${escapeHtml(formatMoney(payment.amount))}</td>
+        <td>${escapeHtml(payment.status || '-')}</td>
+        <td>${escapeHtml(formatDate(payment.paidAt || payment.dueDate || ''))}</td>
+      </tr>
+    `).join('');
+
+    printHtml(`
+      <html>
+        <head>
+          <title>Historial de pagos - ${escapeHtml(monthName)}</title>
+          <style>
+            body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#111827;background:white}
+            .brand{display:flex;justify-content:space-between;gap:20px;border-bottom:3px solid #1259C4;padding-bottom:12px;margin-bottom:16px}
+            .eyebrow{margin:0 0 4px;color:#1259C4;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em}
+            h1{margin:0;font-size:23px}
+            p{margin:4px 0 0;color:#64748B;font-size:12px}
+            .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}
+            .summary div{border:1px solid #E5E7EB;background:#F8FAFC;border-radius:6px;padding:10px}
+            .summary span{display:block;color:#64748B;font-size:9px;font-weight:700;text-transform:uppercase}
+            .summary strong{display:block;margin-top:4px;font-size:14px;color:#111827}
+            table{width:100%;border-collapse:collapse;table-layout:fixed}
+            th{background:#0B2F6E;color:white;border:1px solid #0B2F6E;padding:7px 6px;font-size:9px;text-align:left;text-transform:uppercase}
+            td{border:1px solid #E5E7EB;padding:7px 6px;font-size:10px;vertical-align:top;word-wrap:break-word}
+            tbody tr:nth-child(even){background:#F8FAFC}
+            .num{text-align:right;font-weight:700;color:#1259C4;white-space:nowrap}
+            .footer{margin-top:14px;border-top:1px solid #E5E7EB;padding-top:8px;color:#64748B;font-size:10px;text-align:right}
+            @media print{body{margin:18px}thead{display:table-header-group}}
+          </style>
+        </head>
+        <body>
+          <div class="brand">
+            <div>
+              <p class="eyebrow">Historial de pagos</p>
+              <h1>${escapeHtml(monthName)}</h1>
+              <p>Generado ${escapeHtml(generatedAt)}</p>
+            </div>
+            <div style="text-align:right">
+              <p class="eyebrow">CRM Inmobiliario</p>
+              <strong>Dunacon</strong>
+            </div>
+          </div>
+          <div class="summary">
+            <div><span>Pagos</span><strong>${monthRows.length}</strong></div>
+            <div><span>Total</span><strong>${escapeHtml(formatMoney(total))}</strong></div>
+            <div><span>Filtro</span><strong>${escapeHtml(status || 'Todos')}</strong></div>
+          </div>
+          <table>
+            <thead>
+              <tr><th>Lote</th><th>Cliente</th><th>Tipo</th><th>Medio</th><th>Referencia</th><th>Monto</th><th>Estado</th><th>Fecha</th></tr>
+            </thead>
+            <tbody>${bodyRows}</tbody>
+          </table>
+          <div class="footer">Dunacon - CRM Inmobiliario</div>
+        </body>
+      </html>
+    `);
+  }
+
   const st = (p: P) => { const bg = BADGE[p.status] || ['#eaedf1', '#6b7280']; return <span className="badge" style={{ background: bg[0], color: bg[1] }}>{p.status}</span>; };
 
   const totalPagado = rows.filter((p) => p.status === 'pagado').reduce((s, p) => s + Number(p.amount || 0), 0);
@@ -342,9 +450,18 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     <>
       <Toaster />
       <div className="space-y-5">
-        {overdue.length > 0 && (
-          <div className="rounded-lg border px-3 py-2 text-sm" style={{ background: '#E7F0FE', borderColor: '#A9C9FB', color: '#1259C4' }}>
-            <b>{overdue.length}</b> cuotas vencidas detectadas. Regístralas para actualizar la cartera.
+        {overdue.length > 0 && showOverdueAlert && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm" style={{ background: '#E7F0FE', borderColor: '#A9C9FB', color: '#1259C4' }}>
+            <span><b>{overdue.length}</b> cuotas vencidas detectadas. Regístralas para actualizar la cartera.</span>
+            <button
+              type="button"
+              className="grid h-7 w-7 shrink-0 place-items-center rounded-md hover:bg-white/60"
+              onClick={() => setShowOverdueAlert(false)}
+              aria-label="Cerrar aviso"
+              title="Cerrar aviso"
+            >
+              <FiX />
+            </button>
           </div>
         )}
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -518,6 +635,14 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 <option value="pendiente">Pendiente</option>
                 <option value="vencido">Vencido</option>
               </select>
+              <input
+                className="input !w-auto"
+                type="month"
+                value={pdfMonth}
+                onChange={(e) => setPdfMonth(e.target.value)}
+                aria-label="Mes para descargar PDF"
+              />
+              <button className="btn-ghost" type="button" onClick={exportMonthPdf}>Descargar PDF</button>
               <button className="btn-primary" onClick={() => setOpen(true)}>Registrar pago</button>
             </div>
           </div>

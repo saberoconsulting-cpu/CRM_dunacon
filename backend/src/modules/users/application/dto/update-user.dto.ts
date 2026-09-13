@@ -6,6 +6,15 @@ import {
   IsString,
 } from 'class-validator';
 
+export class ProjectAccessDto {
+  @IsNumber()
+  projectId!: number;
+
+  @IsArray()
+  @IsString({ each: true })
+  modules!: string[];
+}
+
 export class UpdateUserDto {
   @IsOptional()
   @IsString()
@@ -34,4 +43,8 @@ export class UpdateUserDto {
   @IsOptional()
   @IsArray()
   projectIds?: number[];
+
+  @IsOptional()
+  @IsArray()
+  projectAccess?: ProjectAccessDto[];
 }
