@@ -218,7 +218,9 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
       toast('Este lote ya tiene pagos registrados; no se puede vender nuevamente.', 'err');
       return;
     }
-    setView('vender');
+    // Solo redirigir al apartado de Ventas con el lote precargado.
+    // SalesView lee ?lotId= y abre el modal "Registrar venta" ya con este lote.
+    window.location.href = `/projects/${lot.projectId}/sales?lotId=${lot.id}`;
   }
 
   function exportLotPdf() {

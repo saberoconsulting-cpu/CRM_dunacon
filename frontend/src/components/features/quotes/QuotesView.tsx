@@ -1,10 +1,12 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { FiDownload, FiEye } from 'react-icons/fi';
 import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
+import { PaginationBar } from '@/components/ui/PaginationBar';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/types';
+import { buildQuery, normalizePaginated } from '@/lib/pagination';
 import { printHtml } from '@/lib/print';
 
 type Q = {
@@ -269,6 +271,16 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [lots, setLots] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [doc, setDoc] = useState<{ id: number; type: 'cotizacion' | 'financiamiento' } | null>(null);
+  // Paginación server-side + filtros (buenas prácticas: page/limit en URL del API,
+  // reset a página 1 cuando cambia un filtro, debounce en búsqueda).
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [fPayment, setFPayment] = useState('');
+  const [sort, setSort] = useState('createdAt');
+  const [order, setOrder] = useState<'ASC' | 'DESC'>('DESC');
 
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
@@ -285,12 +297,36 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [interestType, setInterestType] = useState<'sin_intereses' | 'tea'>('sin_intereses');
   const [tea, setTea] = useState(10);
 
-  function load() {
-    const q = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
-    api.get<Q[]>(`/quotes${q}`).then((d) => setRows(d || [])).catch((e: any) => toast(e.message, 'err')).finally(() => setLoading(false));
-  }
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qs = buildQuery({
+        projectId: lockedProjectId,
+        search: debouncedSearch || undefined,
+        paymentMethod: fPayment || undefined,
+        sort, order, page, limit,
+      });
+      const data = await api.get<unknown>(`/quotes${qs ? `?${qs}` : ''}`);
+      const norm = normalizePaginated<Q>(data, page, limit);
+      setRows(norm.items);
+      setMeta({ total: norm.total, totalPages: norm.totalPages });
+      // Si la página actual quedó fuera de rango (ej. se eliminaron registros), volver a la última válida.
+      if (page > norm.totalPages && norm.totalPages >= 1) setPage(norm.totalPages);
+    } catch (e: any) {
+      toast(e.message, 'err');
+    } finally {
+      setLoading(false);
+    }
+  }, [lockedProjectId, debouncedSearch, fPayment, sort, order, page, limit]);
 
-  useEffect(() => { load(); }, [lockedProjectId]);
+  useEffect(() => { load(); }, [load]);
+  // Debounce de 400ms para no disparar un request por cada tecla.
+  useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search.trim()); }, 400);
+    return () => clearTimeout(t);
+  }, [search]);
+  // Reset a página 1 cuando cambia proyecto, búsqueda o filtros.
+  useEffect(() => { setPage(1); }, [lockedProjectId, debouncedSearch, fPayment, sort, order]);
   useEffect(() => {
     api.get<any[]>('/lots?limit=500').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
   }, []);
@@ -343,9 +379,20 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
         tea: paymentMethod === 'credito' && interestType === 'tea' ? tea : undefined,
         exchangeRate,
       });
-      toast('Cotizacion generada'); setOpen(false); resetForm(); load();
+      toast('Cotizacion generada'); setOpen(false); resetForm(); setPage(1); load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
+
+  function toggleSort(field: string) {
+    if (sort === field) {
+      setOrder((o) => (o === 'ASC' ? 'DESC' : 'ASC'));
+    } else {
+      setSort(field);
+      setOrder(field === 'clientName' ? 'ASC' : 'DESC');
+    }
+  }
+
+  const sortArrow = (field: string) => (sort === field ? (order === 'ASC' ? ' ▲' : ' ▼') : '');
 
   return (
     <>
@@ -359,16 +406,42 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             </div>
             <button className="btn-primary" onClick={() => setOpen(true)}>Nueva cotizacion</button>
           </div>
+          <div className="flex flex-wrap items-center gap-2 mt-4">
+            <input
+              className="input !w-64"
+              placeholder="Buscar cliente o lote..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <select className="input !w-auto" value={fPayment} onChange={(e) => setFPayment(e.target.value)}>
+              <option value="">Todos</option>
+              <option value="contado">Contado</option>
+              <option value="credito">Crédito</option>
+            </select>
+            {(search || fPayment) && (
+              <button
+                className="btn-neutral !h-9 text-xs"
+                onClick={() => { setSearch(''); setDebouncedSearch(''); setFPayment(''); }}
+              >
+                Limpiar
+              </button>
+            )}
+          </div>
         </div>
-        <div className="card p-0 overflow-auto">
-          {loading ? <p className="p-4 text-slate-400">Cargando...</p>
+        <div className="card p-0 overflow-hidden">
+          <div className="overflow-auto">
+            {loading ? <p className="p-4 text-slate-400">Cargando...</p>
             : rows.length === 0 ? <EmptyState text="Aun no hay cotizaciones generadas." />
             : (
             <table className="table-base" style={{ width: '100%', minWidth: 760 }}>
               <thead><tr>
-                <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
-                <th className="th-base">Precio final</th><th className="th-base">Cuota inicial</th>
-                <th className="th-base">Cuotas</th><th className="th-base">Fecha</th><th className="th-base"></th>
+                <th className="th-base">Id</th><th className="th-base">Lote</th>
+                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('clientName')}>Cliente{sortArrow('clientName')}</th>
+                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('finalPriceUsd')}>Precio final{sortArrow('finalPriceUsd')}</th>
+                <th className="th-base">Cuota inicial</th>
+                <th className="th-base">Cuotas</th>
+                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')}>Fecha{sortArrow('createdAt')}</th>
+                <th className="th-base"></th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map((q) => (
@@ -391,6 +464,10 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
               </tbody>
             </table>
             )}
+          </div>
+          <div className="bg-white p-3 border-t" style={{ borderColor: '#F0F1F3' }}>
+            <PaginationBar label="Cotizaciones" page={page} totalPages={meta.totalPages} total={meta.total} limit={limit} setPage={setPage} setLimit={setLimit} />
+          </div>
         </div>
       </div>
 

@@ -1,7 +1,10 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Toaster, toast, Field, EmptyState, StatCard } from '@/components/ui/ui';
+import { PaginationBar } from '@/components/ui/PaginationBar';
 import { api } from '@/lib/api';
+import { normalizePaginated, buildQuery } from '@/lib/pagination';
 import { formatMoney, formatDate } from '@/lib/types';
 import { printHtml } from '@/lib/print';
 import { FiDownload } from 'react-icons/fi';
@@ -25,6 +28,7 @@ function escapeHtml(value: unknown) {
 }
 
 export default function SalesView({ lockedProjectId }: { lockedProjectId?: number }) {
+  const searchParams = useSearchParams();
   const [rows, setRows] = useState<S[]>([]);
   const [pending, setPending] = useState<S[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -36,6 +40,25 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [clients, setClients] = useState<any[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
   const [lots, setLots] = useState<any[]>([]);
+  // Paginación server-side + filtros (buenas prácticas: page/limit en el API,
+  // reset a página 1 cuando cambia un filtro, debounce en búsqueda).
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
+  const [summary, setSummary] = useState({ totalSales: 0, totalAmount: 0, totalCommission: 0 });
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [sort, setSort] = useState('saleDate');
+  const [order, setOrder] = useState<'ASC' | 'DESC'>('DESC');
+  function toggleSort(field: string) {
+    if (sort === field) {
+      setOrder((o) => (o === 'ASC' ? 'DESC' : 'ASC'));
+    } else {
+      setSort(field);
+      setOrder('DESC');
+    }
+  }
+  const sortArrow = (field: string) => (sort === field ? (order === 'ASC' ? ' \u25B2' : ' \u25BC') : '');
   // form
   const [projectId, setProjectId] = useState(lockedProjectId || 0);
   const [lotId, setLotId] = useState(0);
@@ -59,27 +82,67 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const role = (() => { if (typeof window !== 'undefined') try { return JSON.parse(localStorage.getItem('crm_user') || '{}').role; } catch { return ''; } return ''; })();
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
-      const q = new URLSearchParams();
-      if (lockedProjectId) q.set('projectId', String(lockedProjectId));
-      const data = await api.get<S[]>(`/sales${q.toString() ? `?${q}` : ''}`);
-      setRows(data || []);
+      const qs = buildQuery({
+        projectId: lockedProjectId,
+        search: debouncedSearch || undefined,
+        sort, order, page, limit,
+      });
+      const data = await api.get<unknown>(`/sales${qs ? `?${qs}` : ''}`);
+      const norm = normalizePaginated<S>(data, page, limit);
+      setRows(norm.items);
+      setMeta({ total: norm.total, totalPages: norm.totalPages });
+      const s = (data as any)?.summary;
+      if (s) setSummary({
+        totalSales: Number(s.totalSales || 0),
+        totalAmount: Number(s.totalAmount || 0),
+        totalCommission: Number(s.totalCommission || 0),
+      });
+      // Si la página quedó fuera de rango, volver a la última válida.
+      if (page > norm.totalPages && norm.totalPages >= 1) setPage(norm.totalPages);
       if (role === 'admin' || role === 'superadmin') {
         try { setPending((await api.get<S[]>('/sales/pending')) || []); } catch { setPending([]); }
       }
     } catch (e: any) { toast(e.message, 'err'); } finally { setLoading(false); }
-  }, [role, lockedProjectId]);
+  }, [role, lockedProjectId, debouncedSearch, sort, order, page, limit]);
 
+  useEffect(() => { load(); }, [load]);
+  // Debounce de 400ms para no disparar un request por cada tecla.
+  useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search.trim()); }, 400);
+    return () => clearTimeout(t);
+  }, [search]);
+  // Reset a pagina 1 cuando cambia proyecto, busqueda u ordenamiento.
+  useEffect(() => { setPage(1); }, [lockedProjectId, debouncedSearch, sort, order]);
   useEffect(() => {
     setIsAdmin(role === 'admin' || role === 'superadmin');
-    load();
     api.get<any[]>('/projects').then(setProjects).catch(() => {});
     api.get<any[]>('/clients').then((d) => setClients(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
     api.get<any[]>('/users/agents').then(setAgents).catch(() => {});
     api.get<any[]>('/lots').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
     const q = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
-    api.get<any[]>(`/quotes${q}`).then((d) => setQuotes(Array.isArray(d) ? d : [])).catch(() => {});
+    api.get<any[]>(`/quotes${q}`).then((d) => setQuotes(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
   }, [load, role, lockedProjectId]);
+
+  // Llegada desde "Ver ficha → Vender": /sales?lotId=123 precarga el lote
+  // y abre el modal "Registrar venta" (solo redirección, sin lógica vieja).
+  useEffect(() => {
+    const pre = Number(searchParams?.get('lotId') || 0);
+    if (!pre || lots.length === 0) return;
+    const lot = lots.find((l: any) => Number(l.id) === pre);
+    if (!lot) return;
+    if (lockedProjectId && Number(lot.projectId) !== Number(lockedProjectId)) return;
+    selectLot(pre);
+    setOpen(true);
+    // Limpiar el query para que recargar no reabra el modal.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('lotId');
+      window.history.replaceState(null, '', url.pathname + (url.search ? `?${url.searchParams}` : ''));
+    } catch { /* noop */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, lots]);
 
   // Al elegir un lote, autocompletar el precio con su "Precio Venta" de
   // Lotización (si no viene de una cotización real seleccionada abajo).
@@ -229,21 +292,27 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     `);
   }
 
-  const total = rows.reduce((s, r) => s + Number(r.salePrice || 0), 0);
-  const comm = rows.reduce((s, r) => s + Number(r.commission || 0), 0);
+  // Resumenes globales (backend, mismos filtros).
+  const total = summary.totalAmount;
+  const comm = summary.totalCommission;
+  const totalSales = summary.totalSales;
 
   return (
     <>
       <Toaster />
       <div className="space-y-5">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Ventas cerradas" value={rows.length} />
+          <StatCard label="Ventas cerradas" value={String(totalSales)} />
           <StatCard label="Monto total vendido" value={formatMoney(total)} color="#171717" />
           <StatCard label="Comisiones devengadas" value={formatMoney(comm)} color="#1259C4" />
-          <StatCard label="Lotes vendidos" value={rows.length} />
+          <StatCard label="Lotes vendidos" value={String(totalSales)} />
         </div>
         <div className="card">
           <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <input className="input !w-64" placeholder="Buscar lote, cliente o agente..." value={search} onChange={(e) => setSearch(e.target.value)} />
+              {search && (<button className="btn-neutral !h-9 text-xs" onClick={() => { setSearch(''); setDebouncedSearch(''); }}>Limpiar</button>)}
+            </div>
             <h3 className="font-semibold">Historial de ventas</h3>
             <button className="btn-primary" onClick={() => setOpen(true)}>Registrar venta</button>
           </div>
@@ -295,12 +364,13 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         <div className="card p-0 overflow-auto">
           {loading ? <p className="p-4 text-slate-400">Cargando…</p>
             : rows.length === 0 ? <EmptyState text="Aún no hay ventas registradas." /> : (
+            <>
             <table className="table-base" style={{ width: '100%', minWidth: 960 }}>
               <thead><tr>
                 <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
-                <th className="th-base">Precio</th><th className="th-base">Forma de pago</th><th className="th-base">Cuotas</th>
+                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('salePrice')}>Precio{sortArrow('salePrice')}</th><th className="th-base">Forma de pago</th><th className="th-base">Cuotas</th>
                 <th className="th-base">Cuotas sin intereses</th><th className="th-base">Estado</th>
-                <th className="th-base">Fecha</th><th className="th-base">Agente</th><th className="th-base">Comisión</th>
+                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('saleDate')}>Fecha{sortArrow('saleDate')}</th><th className="th-base">Agente</th><th className="th-base">Comisión</th>
                 <th className="th-base" style={{ textAlign: 'center' }}>Ficha</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
@@ -327,7 +397,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               </tbody>
               <tfoot>
                 <tr style={{ background: '#0B2F6E' }}>
-                  <td className="td-base font-bold text-white" colSpan={3}>Totales ({rows.length})</td>
+                  <td className="td-base font-bold text-white" colSpan={3}>Totales ({totalSales})</td>
                   <td className="td-base font-bold text-white">{formatMoney(total)}</td>
                   <td className="td-base" colSpan={6}></td>
                   <td className="td-base font-bold text-white">{formatMoney(comm)}</td>
@@ -335,6 +405,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 </tr>
               </tfoot>
             </table>
+            <div className="px-4 pb-4"><PaginationBar page={page} totalPages={meta.totalPages} total={meta.total} limit={limit} setPage={setPage} setLimit={(n) => { setLimit(n); setPage(1); }} label="Ventas" /></div>
+            </>
             )}
         </div>
       </div>
@@ -522,7 +594,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
 
             <div className="flex justify-end gap-2 pt-4 mt-1 border-t">
               <button className="btn-neutral" onClick={() => setOpen(false)}>Cancelar</button>
-              <button className="btn-primary" onClick={registrar}>Registrar venta</button>
+              <button className="btn-primary" onClick={async () => { await registrar(); setPage(1); load(); }}>Registrar venta</button>
             </div>
           </div>
         </div>

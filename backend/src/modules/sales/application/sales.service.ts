@@ -10,8 +10,12 @@ import { UserEntity } from '../../../shared/infrastructure/entities/user.entity'
 import { FinancialTransactionEntity } from '../../../shared/infrastructure/entities/financial-transaction.entity';
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
-import { calcValorCuota } from '../../../shared/domain/finance.util';
-import { CreateSaleDto } from './dto/sale.dto';
+import { calcValorCuota } from '../../../shared/domain/finance.util';import { CreateSaleDto } from './dto/sale.dto';
+import { ListSalesDto } from './dto/list-sales.dto';
+import {
+  buildPaginatedResult,
+  normalizePagination,
+} from '../../../shared/application/dto/pagination.dto';
 
 @Injectable()
 export class SalesService {
@@ -243,14 +247,9 @@ export class SalesService {
   }
 
 
-  async list(filters: {
-    projectId?: number;
-    agentId?: number;
-    from?: string;
-    to?: string;
-    status?: string;
-    search?: string;
-  }) {
+  async list(filters: ListSalesDto) {
+    const { page, limit, skip } = normalizePagination(filters.page, filters.limit, 10);
+
     const qb = this.saleRepo
       .createQueryBuilder('s')
       .leftJoinAndSelect(UserEntity, 'u', 'u.id = s.agent_id')
@@ -276,10 +275,32 @@ export class SalesService {
     if (filters.status) qb.andWhere('s.approval_status = :status', { status: filters.status });
     if (filters.from) qb.andWhere('s.sale_date >= :from', { from: filters.from });
     if (filters.to) qb.andWhere('s.sale_date <= :to', { to: filters.to });
-    if (filters.search) qb.andWhere('l.code ILIKE :search', { search: `%${filters.search}%` });
-    qb.orderBy('s.sale_date', 'DESC');
-    const raw = await qb.getRawMany();
-    return raw.map((r) => ({
+    if (filters.search?.trim()) {
+      const term = `%${filters.search.trim()}%`;
+      qb.andWhere('(l.code ILIKE :search OR c.full_name ILIKE :search OR u.name ILIKE :search)', { search: term });
+    }
+
+    // COUNT y agregados globales se calculan ANTES de aplicar ORDER BY:
+    // Postgres rechaza COUNT(*) con ORDER BY de una columna no agregada.
+    const total = await qb.clone().getCount();
+    // Agregados globales (para las StatCards) con los mismos filtros, sin skip/take.
+    const agg = await qb.clone()
+      .select([])
+      .addSelect('COALESCE(SUM(s.sale_price), 0)', 'sumPrice')
+      .addSelect('COALESCE(SUM(s.commission), 0)', 'sumComm')
+      .getRawOne();
+
+    const sortMap: Record<string, string> = {
+      saleDate: 's.sale_date',
+      salePrice: 's.sale_price',
+      createdAt: 's.created_at',
+    };
+    const sortCol = sortMap[filters.sort || 'saleDate'] || 's.sale_date';
+    const order = String(filters.order || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
+    const pagedQb = qb.clone().orderBy(sortCol, order);
+    // getRawMany no soporta skip/take (solo entidades); se usa offset/limit.
+    const raw = await pagedQb.offset(skip).limit(limit).getRawMany();
+    const items = raw.map((r) => ({
       id: Number(r.s_id), projectId: Number(r.s_project_id), lotId: Number(r.s_lot_id),
       clientId: r.s_client_id ? Number(r.s_client_id) : null,
       clientName: r.clientName || null,
@@ -296,6 +317,15 @@ export class SalesService {
       interestType: r.interestType || 'sin_intereses',
       tea: Number(r.tea || 0),
     }));
+    const result = buildPaginatedResult(items, total, page, limit);
+    return {
+      ...result,
+      summary: {
+        totalSales: total,
+        totalAmount: Number(agg?.sumPrice || 0),
+        totalCommission: Number(agg?.sumComm || 0),
+      },
+    };
   }
 
   /** Financiación / venta vigente de un lote + cronograma de sus cuotas. */
@@ -317,7 +347,8 @@ export class SalesService {
   async pendingApprovals() {
     // Reusa list() para traer lotCode/agentName/commission ya resueltos
     // (antes era un find() plano sin esos joins).
-    return this.list({ status: 'pendiente' });
+    const paged = await this.list({ status: 'pendiente', limit: 100 } as ListSalesDto);
+    return paged.items;
   }
 
   /** Cronograma de una venta aprobada. */

@@ -2,6 +2,7 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { QuotesService } from '../application/quotes.service';
 import { CreateQuoteDto } from '../application/dto/quote.dto';
+import { ListQuotesDto } from '../application/dto/list-quotes.dto';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../shared/application/decorators/current-user.decorator';
 
@@ -10,12 +11,12 @@ import { CurrentUser } from '../../../shared/application/decorators/current-user
 export class QuotesController {
   constructor(private readonly quotesService: QuotesService) {}
 
+  // GET /quotes?projectId=&lotId=&search=&paymentMethod=&sort=&order=&page=&limit=
+  // El ValidationPipe global (transform:true) convierte page/limit a number y
+  // valida rangos; ListQuotesDto aplica whitelist de sort/order.
   @Get()
-  list(@Query('projectId') projectId?: string, @Query('lotId') lotId?: string) {
-    return this.quotesService.list({
-      projectId: projectId ? Number(projectId) : undefined,
-      lotId: lotId ? Number(lotId) : undefined,
-    });
+  list(@Query() query: ListQuotesDto) {
+    return this.quotesService.list(query);
   }
 
   @Get(':id')
