@@ -48,6 +48,13 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [summary, setSummary] = useState({ totalSales: 0, totalAmount: 0, totalCommission: 0 });
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  // Filtros del historial (el backend ya los soporta en ListSalesDto):
+  // estado de aprobación, asesor y rango de fechas de venta.
+  const [statusFilter, setStatusFilter] = useState('');
+  const [agentFilter, setAgentFilter] = useState(0);
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const hasFilters = Boolean(statusFilter || agentFilter || fromDate || toDate || search);
   const [sort, setSort] = useState('saleDate');
   const [order, setOrder] = useState<'ASC' | 'DESC'>('DESC');
   function toggleSort(field: string) {
@@ -87,6 +94,10 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       const qs = buildQuery({
         projectId: lockedProjectId,
         search: debouncedSearch || undefined,
+        status: statusFilter || undefined,
+        agentId: agentFilter || undefined,
+        from: fromDate || undefined,
+        to: toDate || undefined,
         sort, order, page, limit,
       });
       const data = await api.get<unknown>(`/sales${qs ? `?${qs}` : ''}`);
@@ -105,7 +116,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         try { setPending((await api.get<S[]>('/sales/pending')) || []); } catch { setPending([]); }
       }
     } catch (e: any) { toast(e.message, 'err'); } finally { setLoading(false); }
-  }, [role, lockedProjectId, debouncedSearch, sort, order, page, limit]);
+  }, [role, lockedProjectId, debouncedSearch, statusFilter, agentFilter, fromDate, toDate, sort, order, page, limit]);
 
   useEffect(() => { load(); }, [load]);
   // Debounce de 400ms para no disparar un request por cada tecla.
@@ -113,8 +124,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const t = setTimeout(() => { setDebouncedSearch(search.trim()); }, 400);
     return () => clearTimeout(t);
   }, [search]);
-  // Reset a pagina 1 cuando cambia proyecto, busqueda u ordenamiento.
-  useEffect(() => { setPage(1); }, [lockedProjectId, debouncedSearch, sort, order]);
+  // Reset a pagina 1 cuando cambia proyecto, busqueda, filtros u ordenamiento.
+  useEffect(() => { setPage(1); }, [lockedProjectId, debouncedSearch, statusFilter, agentFilter, fromDate, toDate, sort, order]);
+  function limpiarFiltros() {
+    setSearch(''); setDebouncedSearch('');
+    setStatusFilter(''); setAgentFilter(0); setFromDate(''); setToDate('');
+  }
   useEffect(() => {
     setIsAdmin(role === 'admin' || role === 'superadmin');
     api.get<any[]>('/projects').then(setProjects).catch(() => {});
@@ -313,7 +328,24 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               <input className="input !w-64" placeholder="Buscar lote, cliente o agente..." value={search} onChange={(e) => setSearch(e.target.value)} />
               {search && (<button className="btn-neutral !h-9 text-xs" onClick={() => { setSearch(''); setDebouncedSearch(''); }}>Limpiar</button>)}
             </div>
-            <h3 className="font-semibold">Historial de ventas</h3>
+            <div className="flex flex-wrap items-center gap-2">
+              <select className="input !w-auto !h-9 !text-xs" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} title="Estado de aprobación">
+                <option value="">Estado: Todas</option>
+                <option value="aprobada">Aprobadas</option>
+                <option value="pendiente">Pendientes</option>
+              </select>
+              <select className="input !w-auto !h-9 !text-xs" value={agentFilter} onChange={(e) => setAgentFilter(Number(e.target.value))} title="Asesor">
+                <option value={0}>Asesor: Todos</option>
+                {agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <label className="flex items-center gap-1 text-xs text-slate-500">
+                Desde <input className="input !w-36 !h-9 !text-xs" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+              </label>
+              <label className="flex items-center gap-1 text-xs text-slate-500">
+                Hasta <input className="input !w-36 !h-9 !text-xs" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+              </label>
+              {hasFilters && (<button className="btn-neutral !h-9 text-xs" onClick={limpiarFiltros}>Limpiar filtros</button>)}
+            </div>
             <button className="btn-primary" onClick={() => setOpen(true)}>Registrar venta</button>
           </div>
           <p className="text-sm mt-1" style={{ color: '#6B7280' }}>Un lote Vendido no puede volver a venderse. El sistema lo valida.</p>
@@ -367,7 +399,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             <>
             <table className="table-base" style={{ width: '100%', minWidth: 960 }}>
               <thead><tr>
-                <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
+                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')} title="Ordenar por fecha de registro">Id{sortArrow('createdAt')}</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
                 <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('salePrice')}>Precio{sortArrow('salePrice')}</th><th className="th-base">Forma de pago</th><th className="th-base">Cuotas</th>
                 <th className="th-base">Cuotas sin intereses</th><th className="th-base">Estado</th>
                 <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('saleDate')}>Fecha{sortArrow('saleDate')}</th><th className="th-base">Agente</th><th className="th-base">Comisión</th>
