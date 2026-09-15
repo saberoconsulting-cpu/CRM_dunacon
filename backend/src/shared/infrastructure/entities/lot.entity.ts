@@ -18,7 +18,10 @@ export class LotEntity {
   @Column({ name: 'plan_id' })
   planId: number;
 
-  @Column({ name: 'block_id', type: 'bigint', nullable: true })
+  // La BD compartida renombró "block_id" -> "street_id" (migración
+  // "RenameBlocksToStreets1710000000020", no presente en este repo). Se conserva el
+  // nombre de propiedad "blockId" para no romper la API ni el frontend.
+  @Column({ name: 'street_id', type: 'bigint', nullable: true })
   blockId: number | null;
 
   @Column({ length: 50 })

@@ -49,7 +49,7 @@ export class LotsService {
       .createQueryBuilder('l')
       .leftJoinAndSelect(UserEntity, 'u', 'u.id = l.agent_id')
       .leftJoinAndSelect(ClientEntity, 'c', 'c.id = l.client_id')
-      .leftJoinAndSelect(BlockEntity, 'b', 'b.id = l.block_id')
+      .leftJoinAndSelect(BlockEntity, 'b', 'b.id = l.street_id')
       .select([
         'l.id', 'l.projectId', 'l.planId', 'l.blockId', 'l.code',
         'l.areaM2', 'l.price', 'l.status', 'l.clientId', 'l.agentId',
@@ -63,7 +63,7 @@ export class LotsService {
       ]);
 
     if (filters.projectId) qb.andWhere('l.project_id = :projectId', { projectId: filters.projectId });
-    if (filters.blockId) qb.andWhere('l.block_id = :blockId', { blockId: filters.blockId });
+    if (filters.blockId) qb.andWhere('l.street_id = :blockId', { blockId: filters.blockId });
     if (filters.status) qb.andWhere('l.status = :status', { status: filters.status });
     if (filters.agentId) qb.andWhere('l.agent_id = :agentId', { agentId: filters.agentId });
     if (filters.search) qb.andWhere('l.code ILIKE :search', { search: `%${filters.search}%` });
@@ -81,7 +81,7 @@ export class LotsService {
       id: Number(r.l_id),
       projectId: Number(r.l_project_id),
       planId: Number(r.l_plan_id),
-      blockId: r.l_block_id ? Number(r.l_block_id) : null,
+      blockId: r.l_street_id ? Number(r.l_street_id) : null,
       code: r.l_code,
       areaM2: Number(r.l_area_m2),
       price: Number(r.l_price),
