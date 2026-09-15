@@ -5,9 +5,10 @@ import { api, uploadFile } from '@/lib/api';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import { Lot, formatMoney, LOT_STATUS_LABEL, LOT_STATUS_COLOR } from '@/lib/types';
 import { printHtml } from '@/lib/print';
-import { FiDownload, FiLayers } from 'react-icons/fi';
+import { FiDownload, FiLayers, FiCheckCircle, FiBookmark, FiTrendingUp, FiTag, FiFlag } from 'react-icons/fi';
 
 export default function LotsView({ lockedProjectId }: { lockedProjectId?: number }) {
+  const PAGE_SIZE = 15;
   const [lots, setLots] = useState<Lot[]>([]);
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
@@ -16,9 +17,20 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
   const [selected, setSelected] = useState<{ id: number; focus?: 'plan' | 'edit' } | null>(null);
   const [buscar, setBuscar] = useState('');
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(15);
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
+  const [stats, setStats] = useState({ total: 0, vendidos: 0, separados: 0, disponibles: 0, promocion: 0, segundaEtapa: 0 });
   const [viewMode, setViewMode] = useState<'general' | 'blocks'>('general');
+
+  useEffect(() => {
+    const q = new URLSearchParams();
+    if (lockedProjectId || project) q.set('projectId', lockedProjectId ? String(lockedProjectId) : project);
+    api.get<any>(`/lots/stats?${q.toString()}`)
+      .then((d) => setStats({
+        total: Number(d?.total || 0), vendidos: Number(d?.vendidos || 0), separados: Number(d?.separados || 0),
+        disponibles: Number(d?.disponibles || 0), promocion: Number(d?.promocion || 0), segundaEtapa: Number(d?.segundaEtapa || 0),
+      }))
+      .catch(() => {});
+  }, [lockedProjectId, project, lots.length]);
 
   useEffect(() => { if (lockedProjectId) setProject(String(lockedProjectId)); }, [lockedProjectId]);
 
@@ -28,29 +40,20 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
     if (search) q.set('search', search);
     if (project) q.set('projectId', project);
     q.set('page', String(page));
-    q.set('limit', String(limit));
+    q.set('limit', String(PAGE_SIZE));
     try {
       const d = await api.get<any>(`/lots?${q.toString()}`);
       const rows: Lot[] = Array.isArray(d) ? d : (d?.items || []);
       setLots(rows);
-      setMeta({ total: Number(d?.total ?? rows.length), totalPages: Number(d?.totalPages ?? Math.max(1, Math.ceil((d?.total ?? rows.length) / limit))) });
+      setMeta({ total: Number(d?.total ?? rows.length), totalPages: Number(d?.totalPages ?? Math.max(1, Math.ceil((d?.total ?? rows.length) / PAGE_SIZE))) });
     } catch (e: any) { toast(e.message, 'err'); }
   }
-  useEffect(() => { load(); }, [statusFilter, search, project, page, limit]);
+  useEffect(() => { load(); }, [statusFilter, search, project, page]);
   useEffect(() => { api.get<any>('/projects').then((d) => setProyectos(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {}); }, []);
   useEffect(() => { setPage(1); }, [statusFilter, search, project]);
 
   const coll = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
   const sortedLots = lots.slice().sort((a, b) => coll.compare(a.code, b.code));
-  const countByStatus = (status: string) => lots.filter((lot) => lot.status === status).length;
-  const lotSummary = [
-    { label: 'Lotes Totales', value: lots.length },
-    { label: 'Lotes Vendidos', value: countByStatus('vendido') },
-    { label: 'Lotes Separados', value: countByStatus('reservado') + countByStatus('adelanto') + countByStatus('primera_cuota') },
-    { label: 'Lotes Disponibles', value: countByStatus('disponible') },
-    { label: 'Lotes Promoción', value: countByStatus('promocion') },
-    { label: 'Lotes 2da Etapa', value: countByStatus('segunda_etapa') },
-  ];
 
   function totals(items: Lot[]) {
     const totalArea = items.reduce((s, l) => s + Number(l.areaM2 || 0), 0);
@@ -65,10 +68,10 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
   function lotGroups() {
     const groups: Group[] = [];
     for (const l of lots) {
-      const key = l.blockId != null ? String(l.blockId) : 'sin-manzana';
+      const key = (l.streetId ?? l.blockId) != null ? String(l.streetId ?? l.blockId) : 'sin-calle';
       let g = groups.find((x) => x.key === key);
       if (!g) {
-        g = { key, blockName: l.blockName || '—', blockAddress: l.blockAddress || null, items: [] };
+        g = { key, blockName: l.streetName || l.blockName || '—', blockAddress: l.streetAddress || l.blockAddress || null, items: [] };
         groups.push(g);
       }
       g.items.push(l);
@@ -91,7 +94,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
     return items.map((l) => `
       <tr>
         <td>${escapeHtml(l.code)}</td>
-        <td>${escapeHtml(l.blockAddress || '—')}</td>
+        <td>${escapeHtml(l.streetAddress || l.blockAddress || '—')}</td>
         <td>${escapeHtml(l.type || '—')}</td>
         <td class="num">${escapeHtml(`${l.areaM2 || 0} m²`)}</td>
         <td class="num">${escapeHtml(l.price ? formatMoney(l.price) : '—')}</td>
@@ -126,7 +129,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
           <thead>
             <tr>
               <th>Nro. Lote</th><th>Dirección</th><th>Tipo</th><th>Dimensión</th>
-              <th>Precio</th><th>Precio Venta</th><th>Precio Final</th><th>Estado</th><th>Cliente</th>
+              <th>Precio US$/m2</th><th>Precio Venta US$</th><th>Precio Final US$</th><th>Estado</th><th>Cliente</th>
             </tr>
           </thead>
           <tbody>${printRows(items)}${printTotalRow(items)}</tbody>
@@ -141,7 +144,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
       ? (proyectos.find((p: any) => Number(p.id) === Number(lockedProjectId))?.name || 'Proyecto')
       : (project ? proyectos.find((p: any) => String(p.id) === String(project))?.name || 'Proyecto filtrado' : 'Todos los proyectos');
     const content = viewMode === 'blocks'
-      ? lotGroups().map((g) => pdfTable(`Manzana ${g.blockName}${g.blockAddress ? ` - ${g.blockAddress}` : ''}`, g.items)).join('')
+      ? lotGroups().map((g) => pdfTable(`Calle ${g.blockName}${g.blockAddress ? ` - ${g.blockAddress}` : ''}`, g.items)).join('')
       : pdfTable('Listado general de lotes', sortedLots);
     const t = totals(viewMode === 'blocks' ? lots : sortedLots);
     printHtml(`
@@ -178,7 +181,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
             <div>
               <p class="eyebrow">Reporte de lotes</p>
               <h1>${escapeHtml(projectName)}</h1>
-              <p>${viewMode === 'blocks' ? 'Vista por manzanas' : 'Vista general'} · ${lots.length} lotes · ${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+              <p>${viewMode === 'blocks' ? 'Vista por calles' : 'Vista general'} · ${lots.length} lotes · ${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</p>
             </div>
             <img src="${escapeHtml(logoUrl)}" alt="Dunacon" />
           </div>
@@ -218,7 +221,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                 {header.blockAddress ? (
                   <span className="inline-block rounded-md px-2 py-0.5 text-xs font-semibold truncate" style={{ background: '#E7F0FE', color: '#1259C4' }}>{header.blockAddress}</span>
                 ) : (
-                  <p className="font-bold leading-tight">Manzana {header.blockName}</p>
+                  <p className="font-bold leading-tight">Calle {header.blockName}</p>
                 )}
                 <p className="text-xs text-slate-500 mt-0.5">{items.length} lotes · {formatMoney(t.totalArea)} m²</p>
               </div>
@@ -256,7 +259,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
               {items.map((l) => (
                 <tr key={l.id} onClick={() => setSelected({ id: l.id })} className="cursor-pointer hover:bg-slate-50">
                   <td className="td-base font-semibold" style={{ textAlign: 'left' }}>{l.code}</td>
-                  <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.blockAddress || '—'}>{l.blockAddress || '—'}</td>
+                  <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.streetAddress || l.blockAddress || '—'}>{l.streetAddress || l.blockAddress || '—'}</td>
                   <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.type || '—'}>{l.type || '—'}</td>
                   <td className="td-base" style={{ textAlign: 'left' }}>{l.areaM2} m²</td>
                   <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.price ? formatMoney(l.price) : '—'}</td>
@@ -314,10 +317,32 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
       <LotDetailModal lotId={selected?.id || null} initialFocus={selected?.focus} onClose={() => setSelected(null)} onChanged={load} />
 
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-6">
-        {lotSummary.map((item) => (
-          <div key={item.label} className="card card-kpi">
-            <span className="text-xs font-semibold text-slate-600">{item.label}</span>
-            <div className="mt-1 text-2xl font-bold" style={{ color: item.label.includes('Promoción') ? '#F59E0B' : '#1259C4' }}>{item.value}</div>
+        {([
+          { label: 'Lotes Totales', value: stats.total, color: '#1259C4', ring: '#E7F0FE', icon: <FiLayers /> },
+          { label: 'Lotes Vendidos', value: stats.vendidos, color: '#B91C1C', ring: '#FEE2E2', icon: <FiCheckCircle /> },
+          { label: 'Lotes Separados', value: stats.separados, color: '#B45309', ring: '#FEF3C7', icon: <FiBookmark /> },
+          { label: 'Lotes Disponibles', value: stats.disponibles, color: '#047857', ring: '#D1FAE5', icon: <FiTrendingUp /> },
+          { label: 'Lotes Promoción', value: stats.promocion, color: '#7C3AED', ring: '#EDE9FE', icon: <FiTag /> },
+          { label: 'Lotes 2da Etapa', value: stats.segundaEtapa, color: '#0E7490', ring: '#CFFAFE', icon: <FiFlag /> },
+        ] as const).map((k: any) => (
+          <div
+            key={k.label}
+            className="card card-kpi relative overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg"
+            style={{ borderTop: `3px solid ${k.color}` }}
+          >
+            <div
+              className="absolute -right-4 -top-4 w-16 h-16 rounded-full opacity-30"
+              style={{ background: k.ring }}
+            />
+            <div className="flex items-center gap-2">
+              <span className="grid h-7 w-7 place-items-center rounded-md" style={{ background: k.ring, color: k.color }}>
+                {k.icon}
+              </span>
+              <span className="font-semibold text-[11px] uppercase tracking-wide" style={{ color: '#6B7280' }}>{k.label}</span>
+            </div>
+            <div className="mt-2 font-extrabold tabular-nums" style={{ fontSize: 30, color: k.color, lineHeight: 1 }}>
+              {k.value}
+            </div>
           </div>
         ))}
       </div>
@@ -344,7 +369,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
           className={viewMode === 'blocks' ? 'btn-primary' : 'btn-secondary'}
           onClick={() => setViewMode((current) => current === 'general' ? 'blocks' : 'general')}
         >
-          <FiLayers /> {viewMode === 'blocks' ? 'General' : 'Por manzanas'}
+          <FiLayers /> {viewMode === 'blocks' ? 'General' : 'Por calles'}
         </button>
         <button className="btn-secondary" onClick={exportPdf} disabled={!lots.length}>
           <FiDownload /> Exportar PDF
@@ -359,14 +384,14 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
           return lotGroups().map((g) => renderTable(g.items, g.key, { blockName: g.blockName, blockAddress: g.blockAddress }));
           const coll = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
 
-          // Agrupar por manzana real (block_id), no por prefijo del código.
+          // Agrupar por calle real (street_id), no por prefijo del codigo.
           type Group = { key: string; blockName: string; blockAddress: string | null; items: Lot[] };
           const groups: Group[] = [];
           for (const l of lots) {
-            const key = l.blockId != null ? String(l.blockId) : 'sin-manzana';
+            const key = (l.streetId ?? l.blockId) != null ? String(l.streetId ?? l.blockId) : 'sin-calle';
             let g = groups.find((x) => x.key === key);
             if (!g) {
-              g = { key, blockName: l.blockName || '—', blockAddress: l.blockAddress || null, items: [] };
+              g = { key, blockName: l.streetName || l.blockName || '—', blockAddress: l.streetAddress || l.blockAddress || null, items: [] };
               groups.push(g as Group);
             }
             (g as Group).items.push(l);
@@ -389,7 +414,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                       {g.blockAddress ? (
                         <span className="inline-block rounded-md px-2 py-0.5 text-xs font-semibold truncate" style={{ background: '#E7F0FE', color: '#1259C4' }}>{g.blockAddress}</span>
                       ) : (
-                        <p className="font-bold leading-tight">Manzana {g.blockName}</p>
+                        <p className="font-bold leading-tight">Calle {g.blockName}</p>
                       )}
                       <p className="text-xs text-slate-500 mt-0.5">{g.items.length} lotes · {formatMoney(totalArea)} m²</p>
                     </div>
@@ -403,9 +428,9 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                       <th className="th-base" style={{ textAlign: 'left' }}>Dirección</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Tipo</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Dimensión</th>
-                      <th className="th-base" style={{ textAlign: 'right' }}>Precio</th>
-                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta</th>
-                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Final</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio US$/m2</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta US$</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Final US$</th>
                       <th className="th-base" style={{ textAlign: 'center' }}>Estado</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Cliente</th>
                       <th className="th-base"></th>
@@ -451,16 +476,9 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
 
       <div className="mt-4 flex flex-col gap-3 rounded-lg border bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: '#E5E7EB' }}>
         <span className="text-xs text-slate-500">
-          {meta.total ? `Mostrando ${(page - 1) * limit + 1}-${Math.min(meta.total, (page - 1) * limit + lots.length)} de ${meta.total} lotes` : 'Sin lotes'}
+          {meta.total ? `Mostrando ${(page - 1) * PAGE_SIZE + 1}-${Math.min(meta.total, (page - 1) * PAGE_SIZE + lots.length)} de ${meta.total} lotes` : 'Sin lotes'}
         </span>
         <div className="flex flex-wrap items-center gap-2">
-          <select
-            className="input !h-8 !w-auto text-xs"
-            value={limit}
-            onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }}
-          >
-            {[15, 30, 60, 90].map((n) => <option key={n} value={n}>Mostrar {n}</option>)}
-          </select>
           <button className="btn-neutral !h-8 !px-3 text-xs" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Anterior</button>
           <span className="px-2 text-xs font-semibold text-slate-600">Pagina {page} de {meta.totalPages}</span>
           <button className="btn-neutral !h-8 !px-3 text-xs" disabled={page >= meta.totalPages} onClick={() => setPage((current) => Math.min(meta.totalPages, current + 1))}>Siguiente</button>

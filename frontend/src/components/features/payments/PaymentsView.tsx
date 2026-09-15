@@ -693,60 +693,80 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
       </div>
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-md p-6">
-            <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Registrar pago</h3>
-            {!lockedProjectId && (
-              <Field label="Proyecto">
-                <select className="input" value={payProjectId} onChange={(e) => { setPayProjectId(Number(e.target.value)); setLotId(0); setClientId(0); }}>
-                  <option value={0}>Selecciona el proyecto…</option>
-                  {payProjects.map((pr: any) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
-                </select>
-              </Field>
-            )}
-            <Field label="Lote">
-              <select className="input" value={lotId} onChange={(e) => selectLot(Number(e.target.value))}>
-                <option value={0}>{payProjectId ? 'Selecciona el lote…' : 'Primero elige un proyecto'}</option>
-                {availableLots.map((l: any) => <option key={l.id} value={l.id}>Lote {l.code} — {formatMoney(l.price)}</option>)}
-              </select>
-            </Field>
-            <Field label="Cliente">
-              <select className="input" value={clientId} onChange={(e) => setClientId(Number(e.target.value))}>
-                <option value={0}>— Sin asignar —</option>
-                {clients.map((c: any) => <option key={c.id} value={c.id}>{c.fullName || c.full_name || '— Sin nombre —'}</option>)}
-              </select>
-            </Field>
-            <Field label="Tipo">
-              <select className="input" value={payType} onChange={(e) => setPayType(e.target.value)}>
-                <option value="reserva">Reserva</option><option value="adelanto">Cuota inicial</option>
-                <option value="primera_cuota">Cuota normal</option><option value="cuota">Cuota</option>
-              </select>
-            </Field>
-            <Field label="Medio de pago">
-              <select className="input" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
-                {METHODS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-              </select>
-            </Field>
-            <Field label="Referencia (n.º operación Yape/banco)">
-              <input className="input" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Ej: YAP-48592910 / 0293-4521-1000" />
-            </Field>
-            <Field label="Comprobante (baucher o captura)">
-              <div className="flex flex-wrap gap-2">
-                <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
-                  <FiUpload /> <input type="file" accept="image/*" className="hidden" onChange={(e) => { pickVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Subir imagen
-                </label>
-                <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
-                  <FiCamera /> <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pickVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Tomar foto
-                </label>
-                {voucherUrl && <img src={voucherUrl} alt="Voucher" className="w-24 h-24 rounded-lg object-cover border" />}
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => setOpen(false)} />
+          <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+            {/* Cabecera */}
+            <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: '#EEF0F2', background: 'linear-gradient(135deg, #F8FAFF 0%, #FFFFFF 100%)' }}>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#1877F2' }}>Pagos de lotes</p>
+                <h3 className="font-semibold" style={{ fontSize: 17 }}>Registrar pago</h3>
               </div>
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Monto (S/)"><input type="number" className="input" value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></Field>
-              <Field label="Vence (opc.)"><input type="date" className="input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
+              <button type="button" className="grid h-8 w-8 place-items-center rounded-lg border bg-white text-slate-400 hover:text-slate-600 hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => setOpen(false)} aria-label="Cerrar">✕</button>
             </div>
-            <Field label="Nota (opcional)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
-            <div className="flex justify-end gap-2 pt-2">
+
+            {/* Cuerpo */}
+            <div className="px-6 py-5 max-h-[65vh] overflow-y-auto space-y-4">
+              {!lockedProjectId && (
+                <Field label="Proyecto">
+                  <select className="input" value={payProjectId} onChange={(e) => { setPayProjectId(Number(e.target.value)); setLotId(0); setClientId(0); }}>
+                    <option value={0}>Selecciona el proyecto…</option>
+                    {payProjects.map((pr: any) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+                  </select>
+                </Field>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Lote">
+                  <select className="input" value={lotId} onChange={(e) => selectLot(Number(e.target.value))}>
+                    <option value={0}>{payProjectId ? 'Selecciona el lote…' : 'Primero elige un proyecto'}</option>
+                    {availableLots.map((l: any) => <option key={l.id} value={l.id}>Lote {l.code} — {formatMoney(l.price)}</option>)}
+                  </select>
+                </Field>
+                <Field label="Cliente">
+                  <select className="input" value={clientId} onChange={(e) => setClientId(Number(e.target.value))}>
+                    <option value={0}>— Sin asignar —</option>
+                    {clients.map((c: any) => <option key={c.id} value={c.id}>{c.fullName || c.full_name || '— Sin nombre —'}</option>)}
+                  </select>
+                </Field>
+                <Field label="Tipo de pago">
+                  <select className="input" value={payType} onChange={(e) => setPayType(e.target.value)}>
+                    <option value="reserva">Reserva</option><option value="adelanto">Cuota inicial</option>
+                    <option value="primera_cuota">Cuota normal</option><option value="cuota">Cuota</option>
+                  </select>
+                </Field>
+                <Field label="Medio de pago">
+                  <select className="input" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+                    {METHODS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <Field label="Referencia (n.º operación Yape/banco)">
+                <input className="input" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Ej: YAP-48592910 / 0293-4521-1000" />
+              </Field>
+              <Field label="Comprobante (baucher o captura)">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                    <FiUpload /> <input type="file" accept="image/*" className="hidden" onChange={(e) => { pickVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Subir imagen
+                  </label>
+                  <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                    <FiCamera /> <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pickVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Tomar foto
+                  </label>
+                  {voucherUrl && (
+                    <div className="flex items-center gap-2">
+                      <img src={voucherUrl} alt="Voucher" className="w-20 h-20 rounded-lg object-cover border shadow-sm" />
+                      <button type="button" className="text-xs text-red-500 hover:underline" onClick={() => setVoucherUrl('')}>Quitar</button>
+                    </div>
+                  )}
+                </div>
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Monto (S/)"><input type="number" className="input" value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></Field>
+                <Field label="Vence (opcional)"><input type="date" className="input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
+              </div>
+              <Field label="Nota (opcional)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+            </div>
+
+            {/* Pie */}
+            <div className="flex justify-end gap-2 px-6 py-4 border-t bg-canvas" style={{ borderColor: '#EEF0F2' }}>
               <button className="btn-neutral" onClick={() => setOpen(false)}>Cancelar</button>
               <button className="btn-primary" onClick={registrar}>Registrar pago</button>
             </div>

@@ -33,6 +33,7 @@ export class LotsService {
   async list(filters: {
     projectId?: number;
     blockId?: number;
+    streetId?: number;
     status?: string;
     agentId?: number;
     search?: string;
@@ -43,15 +44,16 @@ export class LotsService {
     page?: number;
     limit?: number;
   }) {
+    const paged = filters.page != null || filters.limit != null;
     const page = Math.max(1, filters.page ?? 1);
     const limit = Math.min(200, Math.max(1, filters.limit ?? 20));
     const qb = this.lotRepo
       .createQueryBuilder('l')
       .leftJoinAndSelect(UserEntity, 'u', 'u.id = l.agent_id')
       .leftJoinAndSelect(ClientEntity, 'c', 'c.id = l.client_id')
-      .leftJoinAndSelect(BlockEntity, 'b', 'b.id = l.block_id')
+      .leftJoinAndSelect(BlockEntity, 'b', 'b.id = l.street_id')
       .select([
-        'l.id', 'l.projectId', 'l.planId', 'l.blockId', 'l.code',
+        'l.id', 'l.projectId', 'l.planId', 'l.streetId', 'l.code',
         'l.areaM2', 'l.price', 'l.status', 'l.clientId', 'l.agentId',
         'l.planVoucherUrl',
       ])
@@ -60,11 +62,12 @@ export class LotsService {
       .addSelect([
         'u.name AS "agentName"', 'c.full_name AS "clientName"', 'l.selling_stage AS "sellingStage"',
         'l.type AS "type"', 'l.sale_price AS "salePrice"', 'l.final_price AS "finalPrice"',
-        'b.name AS "blockName"', 'b.address AS "blockAddress"',
+        'b.name AS "streetName"', 'b.address AS "streetAddress"',
       ]);
 
     if (filters.projectId) qb.andWhere('l.project_id = :projectId', { projectId: filters.projectId });
-    if (filters.blockId) qb.andWhere('l.block_id = :blockId', { blockId: filters.blockId });
+    const streetId = filters.streetId ?? filters.blockId;
+    if (streetId) qb.andWhere('l.street_id = :streetId', { streetId });
     if (filters.status) qb.andWhere('l.status = :status', { status: filters.status });
     if (filters.agentId) qb.andWhere('l.agent_id = :agentId', { agentId: filters.agentId });
     if (filters.search) qb.andWhere('l.code ILIKE :search', { search: `%${filters.search}%` });
@@ -75,14 +78,15 @@ export class LotsService {
 
     qb.orderBy('l.code', 'ASC');
     const total = await qb.clone().getCount();
-    qb.skip((page - 1) * limit).take(limit);
+    if (paged) qb.skip((page - 1) * limit).take(limit);
     // Mapear a objetos planos (evita el doble mapeo de TypeORM)
     const raw = await qb.getRawMany();
     const items = raw.map((r) => ({
       id: Number(r.l_id),
       projectId: Number(r.l_project_id),
       planId: Number(r.l_plan_id),
-      blockId: r.l_block_id ? Number(r.l_block_id) : null,
+      streetId: r.l_street_id ? Number(r.l_street_id) : null,
+      blockId: r.l_street_id ? Number(r.l_street_id) : null,
       code: r.l_code,
       areaM2: Number(r.l_area_m2),
       price: Number(r.l_price),
@@ -96,10 +100,36 @@ export class LotsService {
       salePrice: r.salePrice != null ? Number(r.salePrice) : null,
       finalPrice: r.finalPrice != null ? Number(r.finalPrice) : null,
       planVoucherUrl: r.l_plan_voucher_url || null,
-      blockName: r.blockName || null,
-      blockAddress: r.blockAddress || null,
+      streetName: r.streetName || null,
+      streetAddress: r.streetAddress || null,
+      blockName: r.streetName || null,
+      blockAddress: r.streetAddress || null,
     }));
     return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
+  }
+
+  // Resumen de lotización por proyecto (para las tarjetas KPI de la vista).
+  // "Promoción" y "2da Etapa" quedan en 0 hasta que exista ese concepto en datos.
+  async stats(projectId?: number) {
+    const qb = this.lotRepo.createQueryBuilder('l');
+    if (projectId) qb.where('l.project_id = :projectId', { projectId });
+    const [row] = await qb
+      .select('COUNT(*)', 'total')
+      .addSelect(`COUNT(*) FILTER (WHERE l.status = 'vendido')`, 'vendidos')
+      .addSelect(`COUNT(*) FILTER (WHERE l.status = 'disponible')`, 'disponibles')
+      .addSelect(`COUNT(*) FILTER (WHERE l.selling_stage = 'separado')`, 'separados')
+      .addSelect('0', 'promocion')
+      .addSelect('0', 'segundaEtapa')
+      .getRawMany();
+    const r = row || {};
+    return {
+      total: Number(r.total || 0),
+      vendidos: Number(r.vendidos || 0),
+      separados: Number(r.separados || 0),
+      disponibles: Number(r.disponibles || 0),
+      promocion: Number(r.promocion || 0),
+      segundaEtapa: Number(r.segundaEtapa || 0),
+    };
   }
 
   // Ficha completa del lote
@@ -112,20 +142,20 @@ export class LotsService {
     ]);
     let client: ClientEntity | null = null;
     let agent: { id: number; name: string; email: string; phone: string | null } | null = null;
-    let block: BlockEntity | null = null;
+    let street: BlockEntity | null = null;
     let plan: PlanEntity | null = null;
     if (lot.clientId) client = await this.clientRepo.findOne({ where: { id: lot.clientId } });
     if (lot.agentId) {
       const a = await this.userRepo.findOne({ where: { id: lot.agentId } });
       if (a) agent = { id: a.id, name: a.name, email: a.email, phone: a.phone };
     }
-    if (lot.blockId) block = await this.blockRepo.findOne({ where: { id: lot.blockId } });
+    if (lot.streetId) street = await this.blockRepo.findOne({ where: { id: lot.streetId } });
     if (lot.planId) plan = await this.planRepo.findOne({ where: { id: lot.planId } });
     if (!plan && lot.projectId) plan = await this.planRepo.findOne({ where: { projectId: lot.projectId } });
     const totalPaid = payments
       .filter((p) => p.status === 'pagado')
       .reduce((s, p) => s + Number(p.amount), 0);
     const balance = Number(lot.price) - totalPaid;
-    return { lot, history, payments, client, agent, block, plan, totalPaid, balance };
+    return { lot: { ...lot, blockId: lot.streetId }, history, payments, client, agent, street, block: street, plan, totalPaid, balance };
   }
 }

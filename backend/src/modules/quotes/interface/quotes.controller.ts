@@ -2,6 +2,7 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { QuotesService } from '../application/quotes.service';
 import { CreateQuoteDto, UpdateQuoteStatusDto } from '../application/dto/quote.dto';
+import { ListQuotesDto } from '../application/dto/list-quotes.dto';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../shared/application/decorators/current-user.decorator';
 
@@ -11,12 +12,14 @@ export class QuotesController {
   constructor(private readonly quotesService: QuotesService) {}
 
   @Get()
-  list(@Query('projectId') projectId?: string, @Query('lotId') lotId?: string, @Query('status') status?: string) {
-    return this.quotesService.list({
-      projectId: projectId ? Number(projectId) : undefined,
-      lotId: lotId ? Number(lotId) : undefined,
-      status: status || undefined,
-    });
+  list(@Query() query: ListQuotesDto) {
+    return this.quotesService.list(query);
+  }
+
+  @Get('summary')
+  summary(@Query() query: { projectId?: string | number }) {
+    const pid = query.projectId ? Number(query.projectId) : undefined;
+    return this.quotesService.summary(pid);
   }
 
   @Get(':id')

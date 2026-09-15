@@ -18,8 +18,8 @@ export class LotEntity {
   @Column({ name: 'plan_id' })
   planId: number;
 
-  @Column({ name: 'block_id', type: 'bigint', nullable: true })
-  blockId: number | null;
+  @Column({ name: 'street_id', type: 'bigint', nullable: true })
+  streetId: number | null;
 
   @Column({ length: 50 })
   code: string;

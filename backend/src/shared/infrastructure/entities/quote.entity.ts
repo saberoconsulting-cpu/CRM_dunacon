@@ -70,4 +70,5 @@ export class QuoteEntity {
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+
 }

@@ -15,14 +15,14 @@ import {
   Cell,
   Legend,
 } from 'recharts';
-import { FiArrowDownCircle, FiCamera, FiDollarSign, FiPieChart, FiTag, FiTrendingUp, FiUsers } from 'react-icons/fi';
+import { FiArrowDownCircle, FiCamera, FiDollarSign, FiPieChart, FiTag, FiTrendingUp, FiUsers, FiActivity, FiCreditCard, FiMoreVertical, FiAlertTriangle } from 'react-icons/fi';
 import { IoLocationSharp } from 'react-icons/io5';
 import Layout from '@/components/layout/Layout';
 import { Toaster, toast } from '@/components/ui/ui';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import { api, getToken, uploadFile } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
-import { Lot, formatMoney, LOT_STATUS_COLOR, LOT_STATUS_LABEL } from '@/lib/types';
+import { Lot, formatMoney, LOT_STATUS_COLOR, LOT_STATUS_LABEL, BRAND } from '@/lib/types';
 
 const LOT_STATUSES = ['disponible', 'reservado', 'adelanto', 'primera_cuota', 'vendido'] as const;
 const LEAD_CHANNEL_LABEL: Record<string, string> = {
@@ -44,6 +44,16 @@ const LEAD_CHANNEL_COLOR: Record<string, string> = {
 
 type ChartDatum = { name: string; value: number };
 type AgentRanking = { agentId?: number | null; agentName: string; salesCount: number; salesAmount: number; commission: number };
+
+function usdMoney(value: unknown): string {
+  return `US$ ${Number(value || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
+function pct(value: unknown): string {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n)) return '0.0%';
+  return `${n.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
 
 function asNumber(value: unknown): number {
   const n = Number(value || 0);
@@ -92,6 +102,52 @@ function EmptyReport({ text }: { text: string }) {
   return <div className="grid h-[230px] place-items-center text-center text-sm text-slate-400">{text}</div>;
 }
 
+// Menu de opciones de una tarjeta de grafica (mismo patron del dashboard).
+function ChartMenu({ rows }: { rows: Array<[string, string]> }) {
+  return (
+    <details className="relative">
+      <summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md border bg-white text-slate-500 hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }}>
+        <FiMoreVertical />
+      </summary>
+      <div className="absolute right-0 top-9 z-20 w-56 rounded-md border bg-white p-2 shadow-xl" style={{ borderColor: '#E5E7EB' }}>
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-xs">
+            <span style={{ color: '#6B7280' }}>{label}</span>
+            <b className="tabular-nums" style={{ color: '#111827' }}>{value}</b>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+// Cabecera de una tarjeta de grafica, igual a la del dashboard principal.
+function ChartHeader({ title, subtitle, menuRows }: { title: string; subtitle: string; menuRows: Array<[string, string]> }) {
+  return (
+    <div className="flex items-start justify-between gap-3 border-b px-4 py-3" style={{ borderColor: '#E5E7EB' }}>
+      <div className="min-w-0">
+        <h3 className="truncate text-sm font-semibold" style={{ color: '#111827' }}>{title}</h3>
+        <p className="mt-0.5 text-xs" style={{ color: '#6B7280' }}>{subtitle}</p>
+      </div>
+      <ChartMenu rows={menuRows} />
+    </div>
+  );
+}
+
+// Cajon pequeno de indicador (mismo patron del dashboard).
+function KpiTile({ label, value, helper, icon, accent }: { label: string; value: string; helper: string; icon: ReactNode; accent: string }) {
+  return (
+    <div className="rounded-md border bg-white px-4 py-3 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
+      <div className="flex items-center justify-between gap-3">
+        <p className="min-w-0 truncate text-[11px] font-semibold uppercase" style={{ color: '#6B7280' }}>{label}</p>
+        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md" style={{ background: `${accent}12`, color: accent }}>{icon}</span>
+      </div>
+      <p className="mt-2 truncate text-xl font-bold tabular-nums" style={{ color: '#111827' }}>{value}</p>
+      <p className="mt-0.5 truncate text-[11px]" style={{ color: '#6B7280' }}>{helper}</p>
+    </div>
+  );
+}
+
 function DonutReport({ data, colorMap }: { data: ChartDatum[]; colorMap: (name: string) => string }) {
   const visible = data.filter((item) => item.value > 0);
   if (!visible.length) return <EmptyReport text="Sin datos para graficar." />;
@@ -135,20 +191,17 @@ export default function ProjectPage() {
   const [project, setProject] = useState<any>(null);
   const [lots, setLots] = useState<Lot[]>([]);
   const [stats, setStats] = useState<any>(null);
-  const [blockFilter, setBlockFilter] = useState<number | null>(null);
   const [selectedLot, setSelectedLot] = useState<number | null>(null);
   const [canEdit, setCanEdit] = useState(false);
-  const [search, setSearch] = useState('');
-  const [perPage, setPerPage] = useState(10);
-  const [lotPage, setLotPage] = useState(0);
   const [agentPage, setAgentPage] = useState(0);
   const [leadsByChannel, setLeadsByChannel] = useState<{ channel: string; total: number }[]>([]);
+  const [cash, setCash] = useState<any>({ methods: [], byMonth: [], overdueByMonth: [], salesByMonth: [], metrics: {} });
 
   async function loadAll() {
     try {
       const [prj, pl] = await Promise.all([
         api.get<any>(`/projects/${projectId}`),
-        api.get<any>(`/plan/project/${projectId}`).catch(() => ({ plan: null, blocks: [], lots: [] })),
+        api.get<any>(`/plan/project/${projectId}`).catch(() => ({ plan: null, streets: [], blocks: [], lots: [] })),
       ]);
       setProject(prj);
       setLots(pl.lots || []);
@@ -180,7 +233,7 @@ export default function ProjectPage() {
   }
 
   async function borrarProyecto() {
-    if (!confirm(`Eliminar "${project?.name || 'este proyecto'}"?\nSe quitaran plano, manzanas, lotes, ventas y pagos asociados. Esta accion es irreversible.`)) return;
+    if (!confirm(`Eliminar "${project?.name || 'este proyecto'}"?\nSe quitaran plano, calles, lotes, ventas y pagos asociados. Esta accion es irreversible.`)) return;
     try {
       await api.post(`/projects/delete/${projectId}`);
       toast('Proyecto eliminado');
@@ -213,9 +266,9 @@ export default function ProjectPage() {
     if (!projectId) return;
     api.get<any>(`/dashboards/project/${projectId}`).then(setStats).catch(() => {});
     api.get<any[]>(`/clients/metrics/channels?projectId=${projectId}`).then((data) => setLeadsByChannel(data || [])).catch(() => {});
+    api.get<any>(`/payments/caja?projectId=${projectId}`).then(setCash).catch(() => {});
   }, [projectId]);
 
-  const visibleLots = blockFilter ? lots.filter((lot) => lot.blockId === blockFilter) : lots;
   const countByStatus = (status: Lot['status']) => lots.filter((lot) => lot.status === status).length;
   const amountByStatus = (status: Lot['status']) => sumBy(lots.filter((lot) => lot.status === status), (lot) => lot.price);
   const lotCountData = LOT_STATUSES.map((status) => ({ name: LOT_STATUS_LABEL[status], value: countByStatus(status) }));
@@ -248,6 +301,41 @@ export default function ProjectPage() {
     ['Valor lista del inventario', money(inventoryValue)],
     ['Valor lista vendido', money(soldListValue)],
   ];
+
+  // --- Series para las 4 graficas del proyecto (columna 60%) ---
+  const collectedByMonth = (cash?.byMonth || []) as { month: string; monto: number }[];
+  const salesByMonth = (cash?.salesByMonth || []) as { month: string; monto: number }[];
+  const overdueByMonth = (cash?.overdueByMonth || []) as { month: string; monto: number }[];
+  const methods = (cash?.methods || []) as { method: string; total: number; monto: number }[];
+  const cashMetrics = cash?.metrics || {};
+
+  // Totales base.
+  const totalLots = lots.length || asNumber(stats?.cards?.total);
+  const totalLotValue = inventoryValue;
+  const soldLotsCount = soldLots;
+  const soldAmount = soldListValue;
+  const paidAmount = Number(cashMetrics.paidCuotasAmount ?? sumBy(collectedByMonth, (r) => r.monto));
+  const pendingAmount = Number(cashMetrics.pendingAmount ?? 0);
+  const overdueAmount = Number(cashMetrics.overdueAmount ?? sumBy(overdueByMonth, (r) => r.monto));
+
+  // Ventas por año (para el menu de la grafica de ventas).
+  const salesYears = Array.from(new Set(salesByMonth.map((r) => String(r.month || '').slice(0, 4)).filter(Boolean))).sort();
+  const salesByYear = salesYears.map((year) => ({
+    year,
+    vendido: salesByMonth.filter((r) => String(r.month || '').slice(0, 4) === year).reduce((sum, r) => sum + asNumber(r.monto), 0),
+    recaudado: collectedByMonth.filter((r) => String(r.month || '').slice(0, 4) === year).reduce((sum, r) => sum + asNumber(r.monto), 0),
+    moroso: overdueByMonth.filter((r) => String(r.month || '').slice(0, 4) === year).reduce((sum, r) => sum + asNumber(r.monto), 0),
+  }));
+
+  // Estado de resultados del proyecto (para los cajones y la TIR).
+  const costoVentas = soldAmount;
+  const gastosProyecto = expense;
+  const utilidadAntes = soldAmount - costoVentas - gastosProyecto;
+  const igv = Math.max(0, soldAmount - costoVentas) * 0.18;
+  const utilidadNeta = utilidadAntes - igv;
+  const tir = soldAmount > 0 && gastosProyecto > 0 ? (utilidadAntes / gastosProyecto) * 100 : 0;
+  const collectionRate = soldAmount > 0 ? (paidAmount / soldAmount) * 100 : 0;
+  const delinquencyRate = Number(cashMetrics.delinquencyRate ?? ((paidAmount + overdueAmount) > 0 ? (overdueAmount / (paidAmount + overdueAmount)) * 100 : 0));
 
   if (!project) {
     return (
@@ -300,108 +388,41 @@ export default function ProjectPage() {
           <MetricTile label="Lotes vendidos" value={soldLots} icon={<FiPieChart />} tone="#6B7280" />
         </div>
 
-        <div className="grid grid-cols-1 gap-5 xl:col-span-3 xl:grid-cols-[minmax(0,1fr)_430px]">
+        <div className="grid grid-cols-1 gap-5 xl:col-span-3 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
           <div className="min-w-0 space-y-5">
-            <div className="card">
-              <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <h3 className="font-semibold">Lotes {blockFilter ? '(filtrado manzana)' : ''}</h3>
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    className="input !h-8 !w-48 text-sm"
-                    placeholder="Buscar lote (ej. A-02)..."
-                    value={search}
-                    onChange={(e) => { setSearch(e.target.value); setLotPage(0); }}
-                  />
-                  <select
-                    className="input !h-8 !w-auto text-sm"
-                    value={perPage}
-                    onChange={(e) => { setPerPage(Number(e.target.value)); setLotPage(0); }}
-                  >
-                    {[10, 20, 50].map((n) => <option key={n} value={n}>Mostrar {n}</option>)}
-                  </select>
-                </div>
+            {/* Cajones de indicadores del proyecto. */}
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+              <KpiTile label="Lotes del proyecto" value={String(totalLots)} helper="Unidades registradas" icon={<FiPieChart />} accent="#1259C4" />
+              <KpiTile label="Valor total" value={usdMoney(totalLotValue)} helper="Valor lista del inventario" icon={<FiDollarSign />} accent="#0F8B5F" />
+              <KpiTile label="Lotes vendidos" value={String(soldLotsCount)} helper="Unidades vendidas" icon={<FiTag />} accent="#111827" />
+              <KpiTile label="Venta lotes" value={usdMoney(soldAmount)} helper="Valor lista vendido" icon={<FiTrendingUp />} accent="#1259C4" />
+              <KpiTile label="Pago lotes" value={usdMoney(paidAmount)} helper="Cuotas cobradas" icon={<FiCreditCard />} accent="#0F8B5F" />
+              <KpiTile label="Pago pendiente" value={usdMoney(pendingAmount)} helper="Saldo por cobrar" icon={<FiAlertTriangle />} accent="#B45309" />
+              <KpiTile label="Morosidad" value={pct(delinquencyRate)} helper="Mora sobre pendientes" icon={<FiActivity />} accent="#E11D48" />
+              <KpiTile label="TIR" value={pct(tir)} helper="Utilidad sobre gastos" icon={<FiActivity />} accent="#7C3AED" />
+            </div>
+
+            {/* Estado de resultados del proyecto. */}
+            <div className="card overflow-hidden p-0">
+              <ChartHeader
+                title="Estado de resultados"
+                subtitle="Resumen economico del proyecto"
+                menuRows={[
+                  ['Ingresos', usdMoney(soldAmount)],
+                  ['Costo de ventas', usdMoney(costoVentas)],
+                  ['Gastos', usdMoney(gastosProyecto)],
+                  ['IGV', usdMoney(igv)],
+                  ['Utilidad neta', usdMoney(utilidadNeta)],
+                ]}
+              />
+              <div className="grid grid-cols-2 gap-3 p-4 lg:grid-cols-3">
+                <KpiTile label="Ingresos" value={usdMoney(soldAmount)} helper="Ventas del proyecto" icon={<FiDollarSign />} accent="#1259C4" />
+                <KpiTile label="Costo de ventas" value={usdMoney(costoVentas)} helper="Costo de lo vendido" icon={<FiArrowDownCircle />} accent="#6B7280" />
+                <KpiTile label="Gastos" value={usdMoney(gastosProyecto)} helper="Egresos registrados" icon={<FiArrowDownCircle />} accent="#E11D48" />
+                <KpiTile label="Utilidad antes de impuestos" value={usdMoney(utilidadAntes)} helper="Resultado operativo" icon={<FiTrendingUp />} accent="#1259C4" />
+                <KpiTile label="IGV" value={usdMoney(igv)} helper="18% sobre el margen" icon={<FiActivity />} accent="#B45309" />
+                <KpiTile label="Utilidad neta" value={usdMoney(utilidadNeta)} helper="Resultado despues de IGV" icon={<FiTrendingUp />} accent="#0F8B5F" />
               </div>
-
-              <table className="table-base" style={{ width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse' }}>
-                <colgroup>
-                  <col style={{ width: '22%' }} />
-                  <col style={{ width: '20%' }} />
-                  <col style={{ width: '28%' }} />
-                  <col style={{ width: '30%' }} />
-                </colgroup>
-                <thead>
-                  <tr>
-                    <th className="th-base" style={{ textAlign: 'left' }}>Codigo</th>
-                    <th className="th-base" style={{ textAlign: 'left' }}>Area</th>
-                    <th className="th-base" style={{ textAlign: 'left' }}>Precio</th>
-                    <th className="th-base" style={{ textAlign: 'left' }}>Estado</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {(() => {
-                    const query = search.trim().toLowerCase();
-                    const filtered = query ? visibleLots.filter((lot) => String(lot.code || '').toLowerCase().includes(query)) : visibleLots;
-                    const pages = Math.max(1, Math.ceil(filtered.length / perPage));
-                    const page = Math.min(lotPage, pages - 1);
-                    const frame = filtered.slice(page * perPage, page * perPage + perPage);
-                    const nav: ReactNode[] = [];
-                    const shownPages: number[] = [];
-
-                    for (let i = 1; i <= pages; i++) {
-                      if (i === 1 || i === pages || Math.abs(i - (page + 1)) <= 1) shownPages.push(i);
-                    }
-
-                    shownPages.forEach((n, index) => {
-                      if (index > 0 && n > shownPages[index - 1] + 1) {
-                        nav.push(<span key={`ell-${n}`} className="px-1 text-slate-400">...</span>);
-                      }
-                      nav.push(
-                        <button
-                          key={n}
-                          onClick={() => setLotPage(n - 1)}
-                          className={`${n === page + 1 ? 'btn-primary' : 'btn-neutral'} !h-7 !min-w-7 !px-2 text-xs`}
-                        >
-                          {n}
-                        </button>,
-                      );
-                    });
-
-                    return (
-                      <>
-                        {frame.map((lot) => (
-                          <tr key={lot.id} onClick={() => setSelectedLot(lot.id)} className="cursor-pointer hover:bg-slate-50">
-                            <td className="td-base font-medium" style={{ textAlign: 'left' }}>{lot.code}</td>
-                            <td className="td-base" style={{ textAlign: 'left' }}>{lot.areaM2} m2</td>
-                            <td className="td-base" style={{ textAlign: 'left' }}>{money(lot.price)}</td>
-                            <td className="td-base" style={{ textAlign: 'left' }}>
-                              <span className="badge" style={{ backgroundColor: LOT_STATUS_COLOR[lot.status] + '22', color: LOT_STATUS_COLOR[lot.status] }}>{LOT_STATUS_LABEL[lot.status]}</span>
-                            </td>
-                          </tr>
-                        ))}
-                        {filtered.length === 0 && (
-                          <tr><td colSpan={4} className="td-base text-center text-slate-400">Sin resultados para mostrar</td></tr>
-                        )}
-                        {filtered.length > 0 && (
-                          <tr>
-                            <td colSpan={4} className="td-base !p-0">
-                              <div className="mt-1 flex flex-col gap-2 border-t pt-2 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: '#EEF0F2' }}>
-                                <span className="text-xs text-slate-500">
-                                  Mostrando {page * perPage + 1}-{Math.min(filtered.length, (page + 1) * perPage)} de {filtered.length} lotes
-                                </span>
-                                <div className="flex items-center gap-1">
-                                  <button className="btn-neutral !h-7 !px-2 text-xs" disabled={page <= 0} onClick={() => setLotPage((v) => Math.max(0, v - 1))}>Anterior</button>
-                                  {nav}
-                                  <button className="btn-neutral !h-7 !px-2 text-xs" disabled={page >= pages - 1} onClick={() => setLotPage((v) => Math.min(pages - 1, v + 1))}>Siguiente</button>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </>
-                    );
-                  })()}
-                </tbody>
-              </table>
             </div>
           </div>
 

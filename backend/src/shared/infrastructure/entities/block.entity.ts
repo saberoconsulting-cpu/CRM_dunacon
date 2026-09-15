@@ -7,7 +7,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-@Entity('blocks')
+@Entity('streets')
 export class BlockEntity {
   @PrimaryGeneratedColumn()
   id: number;

@@ -116,11 +116,14 @@ export interface Block {
   address?: string;
 }
 
+export type Street = Block;
+
 export interface Lot {
   id: number;
   projectId: number;
   planId: number;
   blockId: number | null;
+  streetId?: number | null;
   code: string;
   points: Point[];
   areaM2: number;
@@ -137,6 +140,8 @@ export interface Lot {
   planVoucherUrl?: string | null;
   blockName?: string | null;
   blockAddress?: string | null;
+  streetName?: string | null;
+  streetAddress?: string | null;
 }
 
 export interface Sale {

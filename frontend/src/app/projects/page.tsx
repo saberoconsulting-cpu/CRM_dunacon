@@ -86,7 +86,7 @@ export default function ProjectsPage() {
 
   async function eliminarProyecto(id: number) {
     const proyecto = projects.find((p) => p.id === id);
-    if (!confirm(`¿Eliminar el proyecto "${proyecto?.name || 'Proyecto'}"?\nSe quitarán también planos, manzanas, lotes, ventas y pagos de ese proyecto. Esta acción no se puede deshacer.`)) return;
+    if (!confirm(`¿Eliminar el proyecto "${proyecto?.name || 'Proyecto'}"?\nSe quitarán también planos, calles, lotes, ventas y pagos de ese proyecto. Esta acción no se puede deshacer.`)) return;
     try {
       await api.post(`/projects/delete/${id}`);
       toast('Proyecto eliminado');
