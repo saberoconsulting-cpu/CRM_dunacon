@@ -18,6 +18,7 @@ export class Lotizacion1710000000007 implements MigrationInterface {
     if (!(await this.has(q, 'lots', 'type'))) await q.query(`ALTER TABLE "lots" ADD COLUMN "type" varchar(80)`);
     if (!(await this.has(q, 'lots', 'sale_price'))) await q.query(`ALTER TABLE "lots" ADD COLUMN "sale_price" numeric(14,2)`);
     if (!(await this.has(q, 'lots', 'final_price'))) await q.query(`ALTER TABLE "lots" ADD COLUMN "final_price" numeric(14,2)`);
+    if (!(await this.has(q, 'lots', 'plan_voucher_url'))) await q.query(`ALTER TABLE "lots" ADD COLUMN "plan_voucher_url" varchar(500)`);
   }
   async down(): Promise<void> {
     return;

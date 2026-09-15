@@ -13,12 +13,16 @@ const LOT_LABEL: Record<string, string> = {
   adelanto: 'Con adelanto',
   primera_cuota: 'Primera cuota',
   vendido: 'Vendido',
+  alquilado: 'Alquilado',
+  promocion: 'En Promoción',
+  segunda_etapa: '2da Etapa',
 };
 
 const PAGE_SIZE = 10;
 const MOVEMENTS_PREVIEW_SIZE = 8;
-const MOVEMENTS_HISTORY_SIZE = 5000;
+const MOVEMENTS_HISTORY_SIZE = 10;
 const MOVEMENTS_EXPORT_SIZE = 100000;
+const CHART_COLORS = [BRAND.blue, BRAND.blueDark, '#16A36A', '#F59E0B', '#E11D48', '#8064A2', '#0EA5E9', '#64748B'];
 
 function money(value: unknown): string {
   return formatMoney(Number(value || 0));
@@ -163,6 +167,21 @@ function SectionShell({ title, subtitle, children, className = '' }: { title: st
 }
 
 function CommercialSummary({ d }: { d: FormattedDashboard }) {
+  const income = Number(d.cards.income || 0);
+  const costOfSales = Number(d.cards.expense || 0);
+  const expenses = Number(d.cards.campaignSpend || 0);
+  const adjustedUtility = income - costOfSales - expenses;
+  const taxes = 0;
+  const netUtility = adjustedUtility - taxes;
+  const financialBoxes = [
+    { label: 'Ingresos US$', value: income, color: BRAND.blue },
+    { label: 'Costo de Ventas US$', value: costOfSales, color: '#E11D48' },
+    { label: 'Gastos US$', value: expenses, color: '#F59E0B' },
+    { label: 'Utilidad Adl', value: adjustedUtility, color: '#16A36A' },
+    { label: 'Impuestos (IR+IGV)', value: taxes, color: '#64748B' },
+    { label: 'Utilidad Neta US$', value: netUtility, color: BRAND.blueDark },
+    { label: 'Utilidad Ajustada', value: netUtility, color: '#8064A2' },
+  ];
   const secondary = [
     { label: 'Ventas del mes', value: d.cards.salesMonth, icon: <FiTag />, tone: BRAND.ink },
     { label: 'Lotes vendidos del periodo', value: d.lots.vendido || 0, icon: <FiLayers />, tone: BRAND.blue },
@@ -171,22 +190,19 @@ function CommercialSummary({ d }: { d: FormattedDashboard }) {
   ];
 
   return (
-    <section className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(320px,1fr)]">
+    <section className="grid gap-3 lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
       <div className="relative overflow-hidden border bg-white p-5" style={{ borderColor: BRAND.border, borderRadius: 6 }}>
         <div className="absolute left-0 top-0 h-full w-1.5" style={{ background: BRAND.blue }} />
         <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">Resumen comercial</p>
-        <div className="mt-5 grid gap-6 sm:grid-cols-2">
-          <div>
-            <p className="text-sm text-slate-500">Ingresos</p>
-            <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight" style={{ color: BRAND.ink }}>{money(d.cards.income)}</p>
-          </div>
-          <div>
-            <p className="text-sm text-slate-500">Utilidad</p>
-            <p className="mt-1 text-3xl font-semibold tabular-nums tracking-tight" style={{ color: BRAND.blueDark }}>{money(d.cards.profit)}</p>
-          </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          {financialBoxes.map((box) => (
+            <div key={box.label} className="border bg-white p-3" style={{ borderColor: BRAND.border, borderRadius: 6 }}>
+              <span className="block h-1 w-9" style={{ background: box.color }} />
+              <p className="mt-3 min-h-[2rem] text-[11px] font-semibold leading-4 text-slate-500">{box.label}</p>
+              <p className="mt-1 text-lg font-semibold tabular-nums tracking-tight" style={{ color: box.color }}>{money(box.value)}</p>
+            </div>
+          ))}
         </div>
-        <div className="mt-5 h-px" style={{ background: BRAND.border }} />
-        <p className="mt-3 text-xs leading-5 text-slate-500">Datos consolidados desde ventas, pagos, lotes y transacciones registradas.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -205,7 +221,37 @@ function CommercialSummary({ d }: { d: FormattedDashboard }) {
   );
 }
 
-function ProjectSales({ rows }: { rows: { name: string; value: number }[] }) {
+function MoneyBreakdown({ d }: { d: FormattedDashboard }) {
+  const rows = [
+    { label: 'Ingresos US$', value: Number(d.cards.income || 0), color: BRAND.blue },
+    { label: 'Costo de Ventas US$', value: Number(d.cards.expense || 0), color: '#E11D48' },
+    { label: 'Gastos US$', value: Number(d.cards.campaignSpend || 0), color: '#F59E0B' },
+    { label: 'Utilidad Neta US$', value: Number(d.cards.profit || 0), color: '#16A36A' },
+    { label: 'Impuestos (IR+IGV)', value: 0, color: '#64748B' },
+    { label: 'Utilidad Ajustada', value: Number(d.cards.profit || 0), color: BRAND.blueDark },
+  ];
+  const max = rows.reduce((largest, row) => Math.max(largest, Math.abs(row.value)), 1);
+
+  return (
+    <SectionShell title="Cajones financieros" subtitle="Resumen solicitado por el cliente" className="h-full">
+      <div className="space-y-2">
+        {rows.map((row) => (
+          <div key={row.label} className="rounded-md border bg-white px-3 py-2" style={{ borderColor: BRAND.border }}>
+            <div className="flex items-center justify-between gap-3 text-xs">
+              <span className="font-semibold text-slate-600">{row.label}</span>
+              <b className="tabular-nums" style={{ color: row.color }}>{money(row.value)}</b>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded-sm" style={{ background: BRAND.mutedLight }}>
+              <div className="h-full" style={{ width: `${proportion(Math.abs(row.value), max, row.value ? 7 : 0)}%`, background: row.color }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </SectionShell>
+  );
+}
+
+function ProjectSales({ rows }: { rows: { name: string; value: number; color?: string }[] }) {
   const ranked = [...rows].filter((row) => row.value > 0).sort((a, b) => b.value - a.value);
   const max = ranked[0]?.value || 0;
 
@@ -215,23 +261,24 @@ function ProjectSales({ rows }: { rows: { name: string; value: number }[] }) {
         <div className="space-y-3">
           {ranked.map((row, index) => {
             const width = proportion(row.value, max, 8);
+            const color = row.color || CHART_COLORS[index % CHART_COLORS.length];
             return (
               <article
                 key={`${row.name}-${index}`}
-                className="group relative overflow-hidden border p-3 transition-transform duration-200 hover:-translate-y-0.5"
+                className="group relative overflow-hidden border bg-white p-3 transition-transform duration-200 hover:-translate-y-0.5"
                 style={{ borderColor: BRAND.border, borderRadius: 4 }}
                 title={`${row.name}: ${money(row.value)}`}
               >
-                <div className="absolute inset-y-0 left-0 transition-all duration-300 group-hover:opacity-90" style={{ width: `${width}%`, background: BRAND.blue, opacity: 0.1 }} />
-                <div className="relative grid grid-cols-[2.5rem_minmax(0,1fr)] gap-3">
-                  <span className="text-xs font-semibold tabular-nums" style={{ color: BRAND.blue }}>{String(index + 1).padStart(2, '0')}</span>
+                <div className="absolute inset-y-0 left-0 transition-all duration-300 group-hover:opacity-90" style={{ width: `${width}%`, background: color, opacity: 0.08 }} />
+                <div className="relative grid grid-cols-[2.75rem_minmax(0,1fr)] gap-3">
+                  <span className="grid h-8 w-8 place-items-center rounded-sm text-xs font-semibold tabular-nums" style={{ color, background: `${color}14` }}>{String(index + 1).padStart(2, '0')}</span>
                   <div className="min-w-0">
                     <div className="flex items-start justify-between gap-2">
                       <p className="truncate text-sm font-semibold" style={{ color: BRAND.ink }}>{row.name}</p>
                       <p className="shrink-0 text-sm font-semibold tabular-nums" style={{ color: BRAND.ink }}>{money(row.value)}</p>
                     </div>
-                    <div className="mt-2 h-1.5 overflow-hidden" style={{ background: BRAND.mutedLight, borderRadius: 2 }}>
-                      <div className="h-full transition-all duration-300 group-hover:brightness-95" style={{ width: `${width}%`, background: BRAND.blue }} />
+                    <div className="mt-2 h-2.5 overflow-hidden" style={{ background: BRAND.mutedLight, borderRadius: 3 }}>
+                      <div className="h-full transition-all duration-300 group-hover:brightness-95" style={{ width: `${width}%`, background: color }} />
                     </div>
                   </div>
                 </div>
@@ -241,6 +288,136 @@ function ProjectSales({ rows }: { rows: { name: string; value: number }[] }) {
         </div>
       ) : (
         <p className="py-10 text-center text-sm text-slate-400">Aun no hay ventas registradas en ningun proyecto.</p>
+      )}
+    </SectionShell>
+  );
+}
+
+function ProjectBars({
+  title,
+  subtitle,
+  rows,
+  valueFormatter = money,
+  className = 'h-full',
+}: {
+  title: string;
+  subtitle: string;
+  rows: { name: string; value: number; color?: string }[];
+  valueFormatter?: (value: number) => string;
+  className?: string;
+}) {
+  const data = [...rows].sort((a, b) => b.value - a.value);
+  const max = data.reduce((largest, row) => Math.max(largest, row.value), 1);
+  const ticks = [max, max * 0.75, max * 0.5, max * 0.25, 0];
+
+  return (
+    <SectionShell title={title} subtitle={subtitle} className={className}>
+      {data.length ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-3">
+            <div className="relative h-40 text-right text-[10px] tabular-nums text-slate-500">
+              {ticks.map((tick, index) => (
+                <span key={index} className="absolute right-0 -translate-y-1/2" style={{ top: `${index * 25}%` }}>
+                  {Math.round(tick).toLocaleString('es-PE')}
+                </span>
+              ))}
+            </div>
+            <div className="relative h-40 border-l border-b pl-3" style={{ borderColor: BRAND.border }}>
+              <div className="absolute inset-0 left-3 grid grid-rows-4">
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <span key={index} className="border-t first:border-t-0" style={{ borderColor: BRAND.border }} />
+                ))}
+              </div>
+              <div className="relative flex h-full items-end gap-3 overflow-x-auto pb-0">
+                {data.map((row, index) => {
+                  const color = row.color || CHART_COLORS[index % CHART_COLORS.length];
+                  const height = proportion(row.value, max, row.value ? 5 : 0);
+                  return (
+                    <div key={row.name} className="flex h-full min-w-[3.6rem] flex-1 flex-col justify-end gap-2">
+                      <div className="flex h-full items-end">
+                        <div
+                          className="mx-auto w-full max-w-[3.2rem] transition-all duration-300 hover:brightness-95"
+                          style={{ height: `${height}%`, minHeight: row.value ? 10 : 0, background: color, borderRadius: '4px 4px 0 0' }}
+                          title={`${row.name}: ${valueFormatter(row.value)}`}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          <div className="flex min-h-[3.25rem] flex-wrap gap-x-4 gap-y-2 overflow-visible border-t pt-3" style={{ borderColor: BRAND.border }}>
+            {data.map((row, index) => {
+              const color = row.color || CHART_COLORS[index % CHART_COLORS.length];
+              return (
+                <div key={row.name} className="flex min-w-0 items-center gap-1.5 text-[11px]">
+                  <span className="h-2 w-2 shrink-0" style={{ background: color }} />
+                  <span className="max-w-[8rem] truncate text-slate-600">{row.name}</span>
+                  <b className="tabular-nums" style={{ color: BRAND.blueDark }}>{valueFormatter(row.value)}</b>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <p className="py-8 text-center text-sm text-slate-400">Sin datos por proyecto.</p>
+      )}
+    </SectionShell>
+  );
+}
+
+function PieSummary({
+  title,
+  subtitle,
+  rows,
+  valueFormatter = (value: number) => String(value),
+  className = 'h-full',
+}: {
+  title: string;
+  subtitle: string;
+  rows: { name: string; value: number; color?: string }[];
+  valueFormatter?: (value: number) => string;
+  className?: string;
+}) {
+  const data = rows.filter((row) => Number(row.value || 0) > 0).map((row, index) => ({ ...row, color: row.color || CHART_COLORS[index % CHART_COLORS.length] }));
+  const total = data.reduce((sum, row) => sum + row.value, 0);
+  const formattedTotal = valueFormatter(total);
+  const moneyMatch = formattedTotal.match(/^(S\/)\s*(.+)$/);
+
+  return (
+    <SectionShell title={title} subtitle={subtitle} className={className}>
+      {total ? (
+        <div className="grid gap-4 sm:grid-cols-[10rem_minmax(0,1fr)] sm:items-center">
+          <div className="mx-auto grid h-40 w-40 place-items-center" style={{ background: conicGradient(data, total), borderRadius: '50%' }}>
+            <div className="grid h-24 w-24 place-items-center bg-white" style={{ borderRadius: '50%' }}>
+              <div className="text-center">
+                {moneyMatch ? (
+                  <>
+                    <p className="text-base font-semibold leading-4" style={{ color: BRAND.ink }}>{moneyMatch[1]}</p>
+                    <p className="whitespace-nowrap text-[20px] font-semibold tabular-nums leading-6" style={{ color: BRAND.ink }}>{moneyMatch[2]}</p>
+                  </>
+                ) : (
+                  <p className="whitespace-nowrap text-[19px] font-semibold tabular-nums leading-6" style={{ color: BRAND.ink }}>{formattedTotal}</p>
+                )}
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">total</p>
+              </div>
+            </div>
+          </div>
+          <div className="min-w-0 space-y-2">
+            {data.map((row) => (
+              <div key={row.name} className="flex items-center justify-between gap-2 text-xs" title={`${row.name}: ${valueFormatter(row.value)}`}>
+                <span className="flex min-w-0 items-center gap-2">
+                  <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: row.color }} />
+                  <span className="truncate font-medium text-slate-600">{row.name}</span>
+                </span>
+                <b className="shrink-0 tabular-nums" style={{ color: BRAND.ink }}>{valueFormatter(row.value)}</b>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <p className="py-8 text-center text-sm text-slate-400">Sin datos por proyecto.</p>
       )}
     </SectionShell>
   );
@@ -730,13 +907,31 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
   if (!d) return <p className="text-slate-400">Sin datos</p>;
 
   const projectName = (id: number) => projects.find((project) => Number(project.id) === Number(id))?.name || `Proyecto ${id}`;
-  const salesByProject = (d.salesByProject || []).map((row) => ({ name: projectName(row.projectId), value: Number(row.amount || 0) }));
+  const projectBase = projects.length
+    ? projects.map((project, index) => ({ id: Number(project.id), name: project.name || `Proyecto ${project.id}`, color: CHART_COLORS[index % CHART_COLORS.length] }))
+    : Array.from(new Set([...(d.salesByProject || []).map((row) => Number(row.projectId)), ...(d.investmentsByProject || []).map((row) => Number(row.projectId))]))
+      .filter(Boolean)
+      .map((id, index) => ({ id, name: projectName(id), color: CHART_COLORS[index % CHART_COLORS.length] }));
+  const salesAmountByProject = new Map((d.salesByProject || []).map((row) => [Number(row.projectId), Number(row.amount || 0)]));
+  const investmentAmountByProject = new Map((d.investmentsByProject || []).map((row) => [Number(row.projectId), Number(row.amount || 0)]));
+  const salesByProject = projectBase.map((project) => ({ name: project.name, value: salesAmountByProject.get(project.id) || 0, color: project.color }));
+  const investmentByProject = projectBase.map((project) => ({ name: project.name, value: investmentAmountByProject.get(project.id) || 0, color: project.color }));
+  const availableLotsByProject = (d.availableLotsByProject || []).map((row, index) => ({
+    name: projectName(row.projectId),
+    value: Number(row.total || 0),
+    color: CHART_COLORS[index % CHART_COLORS.length],
+  }));
+  const paymentPie = (d.paymentsSummary || []).map((row, index) => ({
+    name: row.label,
+    value: Number(row.value || 0),
+    color: CHART_COLORS[index % CHART_COLORS.length],
+  }));
   const lotStatusData = Object.keys(LOT_LABEL).map((key) => ({
     key,
     label: LOT_LABEL[key],
     value: Number(d.lots[key] || 0),
     color: LOT_STATUS_COLOR[key as keyof typeof LOT_STATUS_COLOR],
-  }));
+  })).filter((item) => item.value > 0 || !['promocion', 'segunda_etapa'].includes(item.key));
 
   if (compact) {
     return <CommercialSummary d={d} />;
@@ -746,13 +941,31 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
     <div className="space-y-5">
       <CommercialSummary d={d} />
 
-      <div className="grid grid-cols-1 gap-5 lg:grid-cols-3">
-        <ProjectSales rows={salesByProject} />
-        <LotStatusDistribution data={lotStatusData} />
-        <LeadOrigins rows={d.leadsByChannel || []} />
-      </div>
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]">
+        <div className="grid gap-5">
+          <LotStatusDistribution data={lotStatusData} />
+          <ProjectSales rows={salesByProject} />
+        </div>
 
-      <AgentRanking rows={d.agentRanking || []} projects={projects} />
+        <aside className="grid max-h-none gap-5 overflow-y-visible pr-0 lg:max-h-[940px] lg:overflow-y-auto lg:pr-1">
+          <PieSummary
+            title="Lotes disponibles por proyectos"
+            subtitle="Grafico PIE"
+            rows={availableLotsByProject}
+            valueFormatter={(value) => `${value} lotes`}
+            className="min-h-[260px]"
+          />
+          <ProjectBars title="Inversiones por proyecto" subtitle="Grafico de barras" rows={investmentByProject} className="min-h-[320px]" />
+          <ProjectBars title="Ventas US$ por proyecto" subtitle="Grafico de barras" rows={salesByProject} className="min-h-[320px]" />
+          <PieSummary
+            title="Pago de lotes"
+            subtitle="Grafico PIE"
+            rows={paymentPie}
+            valueFormatter={money}
+            className="min-h-[260px]"
+          />
+        </aside>
+      </div>
 
       <MovementsCenter sales={d.recentSales || []} payments={d.recentPayments || []} projects={projects} projectName={projectName} />
     </div>

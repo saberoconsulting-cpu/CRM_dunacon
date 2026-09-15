@@ -162,6 +162,7 @@ export class PlanService {
         fromStatus: lot.status,
         toStatus: dto.status,
         userId: actorId,
+        createdAt: dto.statusDate ? new Date(dto.statusDate) : undefined,
       });
       lot.status = dto.status;
     }
@@ -169,6 +170,16 @@ export class PlanService {
     await this.audit(actorId, 'EDITAR_LOTE', 'lots', lotId);
     this.gateway.emitToAll('lot.updated', saved);
     return saved;
+  }
+
+  async uploadLotPlanVoucher(lotId: number, url: string, actorId: number) {
+    const lot = await this.lotRepo.findOne({ where: { id: lotId } });
+    if (!lot) throw new NotFoundException('Lote no encontrado');
+    lot.planVoucherUrl = url;
+    const saved = await this.lotRepo.save(lot);
+    await this.audit(actorId, 'SUBIR_PLANO_LOTE', 'lots', lotId);
+    this.gateway.emitToAll('lot.updated', saved);
+    return { ok: true, planVoucherUrl: url };
   }
 
   async changeStatus(lotId: number, toStatus: string, actorId: number, note?: string) {

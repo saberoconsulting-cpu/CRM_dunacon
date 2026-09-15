@@ -113,6 +113,18 @@ export class PlanController {
     return this.planService.updateLot(lotId, dto, actorId);
   }
 
+  @Post('lot/plan-voucher/:lotId')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  async uploadLotPlanVoucher(
+    @Param('lotId', ParseIntPipe) lotId: number,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser('id') actorId: number,
+  ) {
+    const up = await uploadToCloudinary(file.buffer, 'documents');
+    return this.planService.uploadLotPlanVoucher(lotId, up.secure_url, actorId);
+  }
+
   @Post('lot/status/:lotId')
   changeStatus(
     @Param('lotId', ParseIntPipe) lotId: number,

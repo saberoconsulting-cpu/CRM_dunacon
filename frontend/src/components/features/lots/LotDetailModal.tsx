@@ -24,6 +24,7 @@ const INK = '#0F172A';
 const MUTED = '#64748B';
 const BORDER = '#E2E8F0';
 const SOLD_GREEN = '#16A36A';
+const BLOCKED_ACTION_STATUSES = ['vendido', 'alquilado', 'reservado', 'adelanto', 'primera_cuota'];
 
 function formatArea(value: unknown) {
   const n = Number(value || 0);
@@ -33,6 +34,13 @@ function formatArea(value: unknown) {
 
 function formatMeters(value: number) {
   return value.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+function toDateInput(value?: string | Date | null) {
+  if (!value) return new Date().toISOString().slice(0, 10);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return date.toISOString().slice(0, 10);
 }
 
 function inferDimensions(lot: any) {
@@ -142,8 +150,8 @@ function RealLotPlan({ lot, block, plan }: {
   );
 }
 
-export default function LotDetailModal({ lotId, onClose, onChanged, compact = false }: {
-  lotId: number | null; onClose: () => void; onChanged?: () => void; compact?: boolean;
+export default function LotDetailModal({ lotId, onClose, onChanged, compact = false, initialFocus }: {
+  lotId: number | null; onClose: () => void; onChanged?: () => void; compact?: boolean; initialFocus?: 'plan' | 'edit';
 }) {
   const [lot, setLot] = useState<any>(null);
   const [block, setBlock] = useState<any>(null);
@@ -154,7 +162,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const [payType, setPayType] = useState('reserva');
   const [working, setWorking] = useState(false);
   const [fin, setFin] = useState<any>({ sale: null, installments: [] });
-  const [lotizacion, setLotizacion] = useState({ type: '', salePrice: 0, finalPrice: 0 });
+  const [lotizacion, setLotizacion] = useState({ type: '', salePrice: 0, finalPrice: 0, status: 'disponible', statusDate: '' });
   const [view, setView] = useState<'detalle' | 'vender'>('detalle');
   const canEdit = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
 
@@ -163,13 +171,28 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
     try {
       const d = await api.get<any>(`/lots/${lotId}`);
       setLot(d.lot); setBlock(d.block || null); setPlan(d.plan || null); setHistory(d.history || []); setPayments(d.payments || []);
-      setLotizacion({ type: d.lot?.type || '', salePrice: Number(d.lot?.salePrice || 0), finalPrice: Number(d.lot?.finalPrice || 0) });
+      const lastStatusDate = (d.history || [])[0]?.createdAt || d.lot?.updatedAt || new Date().toISOString();
+      setLotizacion({
+        type: d.lot?.type || '',
+        salePrice: Number(d.lot?.salePrice || 0),
+        finalPrice: Number(d.lot?.finalPrice || 0),
+        status: d.lot?.status || 'disponible',
+        statusDate: toDateInput(lastStatusDate),
+      });
       const fin = await api.get<any>(`/sales/by-lot/${lotId}`).catch(() => ({ sale: null, installments: [] }));
       setFin(fin);
     }
     catch (e:any){ toast(e.message,'err'); }
   }
   useEffect(() => { setLot(null); setBlock(null); setPlan(null); setHistory([]); setPayments([]); setFin({ sale: null, installments: [] } as any); setView('detalle'); if (lotId) load(); }, [lotId]);
+  useEffect(() => {
+    if (!lot || !initialFocus) return;
+    const timer = window.setTimeout(() => {
+      const id = initialFocus === 'plan' ? 'lot-plan-preview' : 'lot-edit-section';
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [lot, initialFocus]);
 
   async function saveLotizacion() {
     if (!lot) return;
@@ -179,6 +202,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
         type: lotizacion.type || undefined,
         salePrice: lotizacion.salePrice || undefined,
         finalPrice: lotizacion.finalPrice || undefined,
+        status: lotizacion.status,
+        statusDate: lotizacion.statusDate || undefined,
       });
       toast('Lotización actualizada'); await load(); onChanged?.();
     } catch (e: any) { toast(e.message, 'err'); } finally { setWorking(false); }
@@ -195,8 +220,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
 
   function cotizar() {
     if (!lot) return;
-    if (lot.status === 'vendido') {
-      toast('No se puede cotizar un lote vendido.', 'err');
+    if (BLOCKED_ACTION_STATUSES.includes(lot.status)) {
+      toast('No se puede cotizar un lote vendido, separado o no disponible.', 'err');
       return;
     }
     // El módulo "Cotizaciones Lotes" reemplaza a la vista simple vieja: abre el
@@ -206,19 +231,11 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
 
   function vender() {
     if (!lot) return;
-    if (lot.status === 'vendido') {
-      toast('No se puede vender un lote vendido.', 'err');
+    if (BLOCKED_ACTION_STATUSES.includes(lot.status)) {
+      toast('No se puede vender un lote vendido, separado o no disponible.', 'err');
       return;
     }
-    if (lot.status === 'reservado') {
-      toast('No se puede vender un lote reservado. Puedes cotizarlo.', 'err');
-      return;
-    }
-    if (lot.status === 'adelanto' || lot.status === 'primera_cuota') {
-      toast('Este lote ya tiene pagos registrados; no se puede vender nuevamente.', 'err');
-      return;
-    }
-    setView('vender');
+    window.location.href = `/projects/${lot.projectId}/sales?openSale=1&lotId=${lot.id}`;
   }
 
   function exportLotPdf() {
@@ -362,8 +379,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const lotType = lot.type || EMPTY;
   const statusLabel = LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status || EMPTY;
   const statusBadgeColor = lot.status === 'vendido' ? SOLD_GREEN : tableStatusColor;
-  const quoteBlocked = lot.status === 'vendido';
-  const sellBlocked = ['vendido', 'reservado', 'adelanto', 'primera_cuota'].includes(lot.status);
+  const quoteBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status);
+  const sellBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status);
   const detailCards = [
     { label: 'Num. de lote', value: lot.code || EMPTY },
     { label: 'Direccion', value: address },
@@ -462,10 +479,12 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                   </div>
 
                   {canEdit && !compact && (
-                    <div className="rounded-[16px] border bg-white p-4" style={{ borderColor: BORDER }}>
+                    <div id="lot-edit-section" className="rounded-[16px] border bg-white p-4" style={{ borderColor: BORDER }}>
                       <h4 className="mb-3 text-sm font-bold" style={{ color: INK }}>Editar Lotizacion</h4>
                       <div className="flex flex-wrap items-end gap-2">
                         <div className="min-w-32 flex-1"><Field label="Tipo"><input className="input" value={lotizacion.type} onChange={(e) => setLotizacion({ ...lotizacion, type: e.target.value })} placeholder="Ej: Esquina" /></Field></div>
+                        <div className="min-w-36 flex-1"><Field label="Estado"><select className="input" value={lotizacion.status} onChange={(e) => setLotizacion({ ...lotizacion, status: e.target.value })}>{Object.entries(LOT_STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field></div>
+                        <div className="min-w-36 flex-1"><Field label="Fecha de estado"><input type="date" className="input" value={lotizacion.statusDate} onChange={(e) => setLotizacion({ ...lotizacion, statusDate: e.target.value })} /></Field></div>
                         <div className="min-w-32 flex-1"><Field label="Precio venta (S/)"><input type="number" className="input" value={lotizacion.salePrice || ''} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: Number(e.target.value) })} /></Field></div>
                         <div className="min-w-32 flex-1"><Field label="Precio final (S/)"><input type="number" className="input" value={lotizacion.finalPrice || ''} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: Number(e.target.value) })} /></Field></div>
                         <button onClick={saveLotizacion} disabled={working} className="btn-secondary shrink-0">Guardar</button>

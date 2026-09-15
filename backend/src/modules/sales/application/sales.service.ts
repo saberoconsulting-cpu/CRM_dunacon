@@ -44,7 +44,7 @@ export class SalesService {
     const cuotaInicial = Math.max(0, Number(dto.cuotaInicial || 0));
     const commissionRate = dto.appliesCommission ? Math.max(0, Number(dto.commissionRate || 0)) : 0;
     const commissionAmount = commissionRate > 0 ? (salePrice * commissionRate) / 100 : 0;
-    const financingBase = dto.appliesCommission ? Math.max(0, salePrice - commissionAmount) : salePrice;
+    const financingBase = salePrice;
     const saldoFinanciar = Math.max(0, financingBase - cuotaInicial);
     const valorCuota = calcValorCuota(saldoFinanciar, totalCuotas, dto.interestType, dto.tea);
 
@@ -89,9 +89,9 @@ export class SalesService {
     const commission = commissionRate ? (dto.salePrice * commissionRate) / 100 : 0;
     const totalCuotas = dto.totalCuotas || 0;
     const cuotaInicial = Math.max(0, Number(dto.cuotaInicial || 0));
-    const saldoFinanciar = Math.max(0, (appliesAgency ? dto.salePrice - commission : dto.salePrice) - cuotaInicial);
+    const saldoFinanciar = Math.max(0, dto.salePrice - cuotaInicial);
     // En inmobiliaria la financiación arranca del neto (se descuenta la comisión del lote)
-    const financingBase = appliesAgency ? dto.salePrice - commission : dto.salePrice;
+    const financingBase = dto.salePrice;
     // Se calcula siempre en el servidor (nunca se confía en un valorCuota que mande el cliente).
     const valorCuota = calcValorCuota(saldoFinanciar, totalCuotas, dto.interestType, dto.tea);
 
@@ -266,6 +266,7 @@ export class SalesService {
       .addSelect('u.name AS "agentName"')
       .addSelect('c.full_name AS "clientName"')
       .addSelect('l.code AS "lotCode"')
+      .addSelect('l.area_m2 AS "lotAreaM2"')
       .addSelect('s.approval_status AS "approvalStatus"')
       .addSelect('s.plan_status AS "planStatus"')
       .addSelect('s.total_cuotas AS "totalCuotas"')
@@ -290,6 +291,7 @@ export class SalesService {
       valorCuota: Number(r.s_valor_cuota || 0),
       status: r.s_status, createdAt: r.s_created_at,
       agentName: r.agentName || null, lotCode: r.lotCode || null,
+      lotAreaM2: Number(r.lotAreaM2 || 0),
       approvalStatus: r.approvalStatus || 'pendiente',
       planStatus: r.planStatus || 'pendiente',
       totalCuotas: Number(r.totalCuotas || 0),
@@ -314,10 +316,10 @@ export class SalesService {
   }
 
   /** Separaciones pendientes de aprobación (Admin/Tesorería). */
-  async pendingApprovals() {
+  async pendingApprovals(projectId?: number) {
     // Reusa list() para traer lotCode/agentName/commission ya resueltos
     // (antes era un find() plano sin esos joins).
-    return this.list({ status: 'pendiente' });
+    return this.list({ status: 'pendiente', projectId });
   }
 
   /** Cronograma de una venta aprobada. */

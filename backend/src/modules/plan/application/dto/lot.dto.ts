@@ -30,6 +30,10 @@ export class CreateLotDto {
   status?: string;
 
   @IsOptional()
+  @IsString()
+  statusDate?: string;
+
+  @IsOptional()
   agentId?: number;
 
   @IsOptional()
@@ -67,6 +71,10 @@ export class UpdateLotDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsString()
+  statusDate?: string;
 
   @IsOptional()
   clientId?: number;

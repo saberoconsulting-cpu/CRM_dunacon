@@ -165,7 +165,7 @@ function buildQuoteHtml(data: any, schedule: ScheduleRow[], docType: 'cotizacion
           .eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
           h1{margin:0;font-size:24px;line-height:1.15;color:#111827} h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
           p{margin:4px 0 0;color:#6B7280;font-size:12px}
-          .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}
+          .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px;margin:14px 0 18px}
           .summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}
           .summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
           .summary strong{display:block;margin-top:4px;color:#111827;font-size:12px}
@@ -206,9 +206,10 @@ function buildQuoteHtml(data: any, schedule: ScheduleRow[], docType: 'cotizacion
         ${quote.paymentMethod === 'credito' ? `
           <h2>Financiamiento</h2>
           <div class="summary">
+            <div><span>Saldo a financiar</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
             <div><span>Interes</span><strong>${quote.interestType === 'tea' ? `TEA ${Number(quote.tea || 0)}%` : 'Sin intereses'}</strong></div>
-            <div><span>Valor cuota</span><strong>${escapeHtml(fmtUsd(Number(quote.valorCuotaUsd || 0)))}</strong></div>
             <div><span>Plazo</span><strong>${Number(quote.totalCuotas || 0)} meses</strong></div>
+            <div><span>Valor cuota con intereses</span><strong>${escapeHtml(fmtUsd(Number(quote.valorCuotaUsd || 0)))}</strong></div>
             <div><span>Tipo cambio</span><strong>S/ ${Number(quote.exchangeRate || 0).toFixed(4)}</strong></div>
           </div>
           ${isFinancing ? `<table><thead><tr><th>Mes</th><th>Fecha</th><th>Saldo inicial</th><th>Amort. capital</th><th>Amort. extra</th><th>Interes</th><th>Cuota</th><th>Saldo final</th></tr></thead><tbody>${scheduleRows || '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody></table>` : ''}

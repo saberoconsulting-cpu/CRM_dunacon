@@ -53,6 +53,7 @@ export class LotsService {
       .select([
         'l.id', 'l.projectId', 'l.planId', 'l.blockId', 'l.code',
         'l.areaM2', 'l.price', 'l.status', 'l.clientId', 'l.agentId',
+        'l.planVoucherUrl',
       ])
       // Postgres pliega a minúsculas cualquier alias sin comillas (AS agentName
       // vuelve "agentname"), por eso todos estos van entre comillas dobles.
@@ -94,6 +95,7 @@ export class LotsService {
       type: r.type || null,
       salePrice: r.salePrice != null ? Number(r.salePrice) : null,
       finalPrice: r.finalPrice != null ? Number(r.finalPrice) : null,
+      planVoucherUrl: r.l_plan_voucher_url || null,
       blockName: r.blockName || null,
       blockAddress: r.blockAddress || null,
     }));

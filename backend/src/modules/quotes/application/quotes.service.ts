@@ -56,20 +56,22 @@ export class QuotesService {
     return this.quoteRepo.save(quote);
   }
 
-  async list(filters: { projectId?: number; lotId?: number }) {
+  async list(filters: { projectId?: number; lotId?: number; status?: string }) {
     const qb = this.quoteRepo
       .createQueryBuilder('q')
       .leftJoinAndSelect(LotEntity, 'l', 'l.id = q.lot_id')
       .select([
         'q.id', 'q.projectId', 'q.lotId', 'q.clientName', 'q.clientEmail', 'q.clientPhone',
         'q.finalPriceUsd', 'q.cuotaInicialUsd', 'q.totalCuotas', 'q.paymentMethod',
-        'q.exchangeRate', 'q.createdAt',
+        'q.interestType', 'q.tea', 'q.valorCuotaUsd', 'q.exchangeRate', 'q.status', 'q.createdAt',
       ])
       // Postgres pliega a minúsculas cualquier alias sin comillas — mismo bug
       // ya corregido en lots/sales/payments.service.ts.
-      .addSelect('l.code AS "lotCode"');
+      .addSelect('l.code AS "lotCode"')
+      .addSelect('l.area_m2 AS "lotAreaM2"');
     if (filters.projectId) qb.andWhere('q.project_id = :projectId', { projectId: filters.projectId });
     if (filters.lotId) qb.andWhere('q.lot_id = :lotId', { lotId: filters.lotId });
+    if (filters.status) qb.andWhere('q.status = :status', { status: filters.status });
     qb.orderBy('q.created_at', 'DESC');
     const raw = await qb.getRawMany();
     return raw.map((r) => ({
@@ -77,9 +79,19 @@ export class QuotesService {
       clientName: r.q_client_name, clientEmail: r.q_client_email, clientPhone: r.q_client_phone,
       finalPriceUsd: Number(r.q_final_price_usd), cuotaInicialUsd: Number(r.q_cuota_inicial_usd),
       totalCuotas: Number(r.q_total_cuotas), paymentMethod: r.q_payment_method,
-      exchangeRate: Number(r.q_exchange_rate), createdAt: r.q_created_at,
+      interestType: r.q_interest_type || 'sin_intereses', tea: Number(r.q_tea || 0),
+      valorCuotaUsd: Number(r.q_valor_cuota_usd || 0),
+      exchangeRate: Number(r.q_exchange_rate), status: r.q_status || 'enviada', createdAt: r.q_created_at,
       lotCode: r.lotCode || null,
+      lotAreaM2: Number(r.lotAreaM2 || 0),
     }));
+  }
+
+  async updateStatus(id: number, status: 'enviada' | 'desestimada' | 'actualizada') {
+    const quote = await this.quoteRepo.findOne({ where: { id } });
+    if (!quote) throw new NotFoundException('CotizaciÃ³n no encontrada');
+    quote.status = status;
+    return this.quoteRepo.save(quote);
   }
 
   async getOne(id: number) {

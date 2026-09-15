@@ -53,6 +53,9 @@ import { ConstructionBudgetModule } from './modules/construction-budget/construc
       password: process.env.DB_PASSWORD || '',
       database: process.env.DB_NAME || 'crm_inmobiliario',
       ...(process.env.DB_SSL === 'true' ? { ssl: { rejectUnauthorized: false } } : {}),
+      extra: {
+        max: Number(process.env.DB_POOL_MAX || 5),
+      },
       entities: [
         UserEntity, ProjectEntity, PlanEntity, BlockEntity, LotEntity,
         UserProjectEntity, ClientEntity, ClientContactEntity, CampaignEntity,

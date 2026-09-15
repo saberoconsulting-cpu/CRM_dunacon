@@ -34,6 +34,9 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
   const dim = useRef({ w: SVG_W, h: SVG_H });
   const [blockPage, setBlockPage] = useState(0);
   const [lotPage, setLotPage] = useState(0);
+  const [lotSearch, setLotSearch] = useState('');
+  const [lotBlockFilter, setLotBlockFilter] = useState('');
+  const [lotTypeFilter, setLotTypeFilter] = useState('');
 
 
   const load = useCallback(async () => {
@@ -47,6 +50,7 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
     } catch (e: any) { toast(e.message, 'err'); }
   }, [projectId]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => { setLotPage(0); }, [lotSearch, lotBlockFilter, lotTypeFilter]);
 
   const toSvg = (e: any): Point => {
     const rect = svgRef.current!.getBoundingClientRect();
@@ -177,6 +181,30 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
     return inside;
   };
 
+  const blockForLot = (lot: Lot) => {
+    if (lot.blockId != null) return blocks.find((block) => Number(block.id) === Number(lot.blockId));
+    const codeGroup = String(lot.code || '').trim().split(/[-_\s.]/)[0].trim().toUpperCase();
+    if (codeGroup) {
+      const byName = blocks.find((block) => String(block.name || '').trim().toUpperCase() === codeGroup);
+      if (byName) return byName;
+    }
+    const cx = lot.points && lot.points.length ? lot.points.reduce((s, p) => s + p.x, 0) / lot.points.length : NaN;
+    const cy = lot.points && lot.points.length ? lot.points.reduce((s, p) => s + p.y, 0) / lot.points.length : NaN;
+    return Number.isFinite(cx) && Number.isFinite(cy)
+      ? blocks.find((block) => block.points.length > 2 && inBlk(block, { x: cx, y: cy }))
+      : undefined;
+  };
+
+  const lotTypes = Array.from(new Set(lots.map((lot: any) => String(lot.type || '').trim()).filter(Boolean))).sort();
+  const filteredLots = lots.filter((lot: any) => {
+    const query = lotSearch.trim().toLowerCase();
+    const block = blockForLot(lot);
+    const matchesSearch = !query || [lot.code, block?.address, lot.type].some((value) => String(value || '').toLowerCase().includes(query));
+    const matchesBlock = !lotBlockFilter || Number(block?.id) === Number(lotBlockFilter);
+    const matchesType = !lotTypeFilter || String(lot.type || '') === lotTypeFilter;
+    return matchesSearch && matchesBlock && matchesType;
+  });
+
   return (
     <div className="space-y-4">
       <div className="card">
@@ -265,10 +293,10 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
       </div>
 
       {/* Manzanas y lotes: debajo del plano, lado a lado */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="card min-w-0">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-5 md:items-stretch">
+        <div className="card flex min-h-[560px] min-w-0 flex-col md:col-span-2">
           <h4 className="font-semibold mb-2">Manzanas ({blocks.length})</h4>
-          <ul className="space-y-2 text-sm">
+          <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 text-sm">
             {(() => {
               const total = blocks.length;
               const pageMax = Math.max(0, Math.ceil(total / LIST_PAGE_SIZE) - 1);
@@ -291,7 +319,7 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
                       </span>
                     </span>
                   </button>
-                  <span className="flex flex-col sm:flex-row gap-1 shrink-0">
+                  <span className="flex flex-col gap-1 shrink-0 xl:flex-row">
                     <button className="btn-neutral !h-6 !px-2 text-xs" title="Cambiar letra/nombre" onClick={() => renameBlock(b)}>Nombrar</button>
                     <button className="btn-neutral !h-6 !px-2 text-xs" title="Duplicar manzana" onClick={() => dupBlock(b)}>Duplicar</button>
                     <button className="btn-danger !h-6 !px-2 text-xs" title="Eliminar manzana" onClick={() => delBlock(b)}>Eliminar</button>
@@ -321,29 +349,65 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
           )}
         </div>
 
-        <div className="card min-w-0">
-          <h4 className="font-semibold mb-2">Lotes ({lots.length})</h4>
-          <ul className="space-y-1 text-sm">
-            {(() => {
-              const PER = LIST_PAGE_SIZE;
-              const total = lots.length;
-              const pageMax = Math.max(0, Math.ceil(total / PER) - 1);
-              const page = Math.min(lotPage, pageMax);
-              const start = page * PER;
-              const slice = lots.slice(start, start + PER);
-              return slice.map((l) => (
-                <li key={l.id} className="flex items-center justify-between gap-3 rounded px-2 py-1.5 hover:bg-slate-50">
-                  <span className="flex min-w-0 flex-1 items-baseline justify-between gap-2 text-left">
-                    <span className="truncate font-semibold">{l.code}</span>
-                    <span className="shrink-0 text-xs" style={{ color: '#94a3b8' }}>{l.areaM2} m² · {formatMoney(l.price)}</span>
-                  </span>
-                  <button className="btn-danger !h-6 !px-2 text-xs shrink-0" onClick={() => delLot(l)}>Eliminar</button>
-                </li>
-              ));
-            })()}
-            {lots.length === 0 && <li className="text-xs" style={{ color: '#94a3b8' }}>Aún no hay lotes.</li>}
-          </ul>
-          {lots.length > LIST_PAGE_SIZE && (
+        <div className="card flex min-h-[560px] min-w-0 flex-col md:col-span-3">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <h4 className="font-semibold">Lotes ({filteredLots.length})</h4>
+            <div className="flex flex-wrap gap-2">
+              <input className="input !h-8 w-36 text-xs" value={lotSearch} onChange={(e) => setLotSearch(e.target.value)} placeholder="Código o dato" />
+              <select className="input !h-8 w-36 text-xs" value={lotBlockFilter} onChange={(e) => setLotBlockFilter(e.target.value)}>
+                <option value="">Manzana: todas</option>
+                {blocks.map((block) => <option key={block.id} value={block.id}>Manzana {block.name}</option>)}
+              </select>
+              <select className="input !h-8 w-32 text-xs" value={lotTypeFilter} onChange={(e) => setLotTypeFilter(e.target.value)}>
+                <option value="">Tipo: todos</option>
+                {lotTypes.map((type) => <option key={type} value={type}>{type}</option>)}
+              </select>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-auto rounded-lg border" style={{ borderColor: '#E5E7EB' }}>
+            <table className="min-w-[760px] w-full text-sm">
+              <thead className="sticky top-0 bg-white">
+                <tr>
+                  <th className="th-base">Nro. Lote</th>
+                  <th className="th-base">Dirección</th>
+                  <th className="th-base">Tipo</th>
+                  <th className="th-base">Dimensión</th>
+                  <th className="th-base" style={{ textAlign: 'right' }}>Precio US$/m2</th>
+                  <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta US$</th>
+                  <th className="th-base" style={{ textAlign: 'right' }}>Precio Final US$</th>
+                  <th className="th-base" style={{ textAlign: 'right' }}>Acción</th>
+                </tr>
+              </thead>
+              <tbody>
+                {(() => {
+                  const PER = LIST_PAGE_SIZE;
+                  const total = filteredLots.length;
+                  const pageMax = Math.max(0, Math.ceil(total / PER) - 1);
+                  const page = Math.min(lotPage, pageMax);
+                  const start = page * PER;
+                  const slice = filteredLots.slice(start, start + PER);
+                  return slice.map((l: any) => {
+                    const block = blockForLot(l);
+                    const pricePerM2 = Number(l.areaM2 || 0) > 0 ? Number(l.price || 0) / Number(l.areaM2 || 0) : 0;
+                    return (
+                      <tr key={l.id}>
+                        <td className="td-base font-semibold">{l.code}</td>
+                        <td className="td-base">{block?.address || l.blockAddress || '-'}</td>
+                        <td className="td-base">{l.type || '-'}</td>
+                        <td className="td-base">{Number(l.areaM2 || 0).toLocaleString('es-PE')} m²</td>
+                        <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{pricePerM2 ? formatMoney(pricePerM2) : '-'}</td>
+                        <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.salePrice ? formatMoney(l.salePrice) : l.price ? formatMoney(l.price) : '-'}</td>
+                        <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.finalPrice ? formatMoney(l.finalPrice) : '-'}</td>
+                        <td className="td-base" style={{ textAlign: 'right' }}><button className="btn-danger !h-7 !px-2 text-xs shrink-0" onClick={() => delLot(l)}>Eliminar</button></td>
+                      </tr>
+                    );
+                  });
+                })()}
+                {filteredLots.length === 0 && <tr><td className="td-base text-center text-slate-400" colSpan={8}>Aún no hay lotes con esos filtros.</td></tr>}
+              </tbody>
+            </table>
+          </div>
+          {filteredLots.length > LIST_PAGE_SIZE && (
             <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2" style={{ borderColor: '#EEF0F2' }}>
               <button
                 className="btn-neutral !h-7 !px-2 text-xs"
@@ -351,11 +415,11 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
                 onClick={() => setLotPage((v) => Math.max(0, v - 1))}
               >Anterior</button>
               <span className="text-xs" style={{ color: '#6B7280' }}>
-                Pagina {Math.min(lotPage, Math.floor((lots.length - 1) / LIST_PAGE_SIZE)) + 1} de {Math.max(1, Math.ceil(lots.length / LIST_PAGE_SIZE))}
+                Pagina {Math.min(lotPage, Math.floor((filteredLots.length - 1) / LIST_PAGE_SIZE)) + 1} de {Math.max(1, Math.ceil(filteredLots.length / LIST_PAGE_SIZE))}
               </span>
               <button
                 className="btn-neutral !h-7 !px-2 text-xs"
-                disabled={lotPage >= Math.max(0, Math.ceil(lots.length / LIST_PAGE_SIZE) - 1)}
+                disabled={lotPage >= Math.max(0, Math.ceil(filteredLots.length / LIST_PAGE_SIZE) - 1)}
                 onClick={() => setLotPage((v) => v + 1)}
               >Siguiente</button>
             </div>

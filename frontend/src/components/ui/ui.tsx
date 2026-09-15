@@ -21,7 +21,7 @@ export function StatusBadge({ status }: { status: string }) {
 export function LegendChips() {
   return (
     <div className="flex flex-wrap gap-3 text-xs">
-      {(['disponible', 'reservado', 'adelanto', 'primera_cuota', 'vendido'] as LotStatus[]).map((s) => (
+      {(['disponible', 'reservado', 'adelanto', 'primera_cuota', 'vendido', 'alquilado', 'promocion', 'segunda_etapa'] as LotStatus[]).map((s) => (
         <span key={s} className="inline-flex items-center gap-1.5">
           <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: LOT_STATUS_COLOR[s] }} />
           {LOT_STATUS_LABEL[s]}

@@ -80,6 +80,7 @@ export default function CotizacionDocPage() {
   const { quote, lot, block, project } = data;
   const rate = Number(quote.exchangeRate);
   const toPen = (usd: number) => usd * rate;
+  const saldoAFinanciar = Math.max(0, Number(quote.finalPriceUsd) - Number(quote.cuotaInicialUsd));
 
   const resumen: [string, number][] = [
     ['Precio del lote', Number(quote.lotPriceUsd)],
@@ -89,7 +90,7 @@ export default function CotizacionDocPage() {
   ];
   if (quote.paymentMethod === 'credito') {
     resumen.push(['Cuota inicial', -Number(quote.cuotaInicialUsd)]);
-    resumen.push(['Saldo a financiar', Number(quote.finalPriceUsd) - Number(quote.cuotaInicialUsd)]);
+    resumen.push(['Saldo a financiar', saldoAFinanciar]);
   }
 
   return (
@@ -144,10 +145,31 @@ export default function CotizacionDocPage() {
             <h3 className="font-semibold text-sm text-slate-700 mb-2">Forma de pago</h3>
             <p className="text-sm">{PAY_LABEL[quote.paymentMethod] || quote.paymentMethod}</p>
             {quote.paymentMethod === 'credito' && (
-              <p className="text-sm mt-1">
-                En {quote.totalCuotas} cuotas de {fmtUsd(quote.valorCuotaUsd)}
-                {quote.interestType === 'tea' ? ` — con TCEA = ${Number(quote.tea)}%` : ' — sin intereses'}
-              </p>
+              <div className="mt-3">
+                <h3 className="font-semibold text-sm text-slate-700 mb-2">Financiamiento</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                  <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                    <span className="block text-[10px] font-bold uppercase text-slate-500">Saldo a financiar</span>
+                    <b className="mt-1 block text-sm">{fmtUsd(saldoAFinanciar)}</b>
+                  </div>
+                  <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                    <span className="block text-[10px] font-bold uppercase text-slate-500">Interes</span>
+                    <b className="mt-1 block text-sm">{quote.interestType === 'tea' ? `TEA ${Number(quote.tea)}%` : 'Sin intereses'}</b>
+                  </div>
+                  <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                    <span className="block text-[10px] font-bold uppercase text-slate-500">Plazo</span>
+                    <b className="mt-1 block text-sm">{Number(quote.totalCuotas || 0)} meses</b>
+                  </div>
+                  <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                    <span className="block text-[10px] font-bold uppercase text-slate-500">Valor cuota con intereses</span>
+                    <b className="mt-1 block text-sm">{fmtUsd(Number(quote.valorCuotaUsd || 0))}</b>
+                  </div>
+                  <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                    <span className="block text-[10px] font-bold uppercase text-slate-500">Tipo cambio</span>
+                    <b className="mt-1 block text-sm">S/ {rate.toFixed(4)}</b>
+                  </div>
+                </div>
+              </div>
             )}
             <p className="text-xs text-slate-400 mt-1">Tipo de cambio referencial: S/ {rate.toFixed(4)} por US$ 1.00</p>
           </div>

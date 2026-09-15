@@ -57,6 +57,9 @@ export class LotEntity {
   @Column({ name: 'final_price', type: 'numeric', precision: 14, scale: 2, nullable: true })
   finalPrice?: string;
 
+  @Column({ name: 'plan_voucher_url', type: 'varchar', length: 500, nullable: true })
+  planVoucherUrl?: string | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

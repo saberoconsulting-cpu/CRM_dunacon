@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Toaster, toast, EmptyState } from '@/components/ui/ui';
-import { api } from '@/lib/api';
+import { api, uploadFile } from '@/lib/api';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import { Lot, formatMoney, LOT_STATUS_LABEL, LOT_STATUS_COLOR } from '@/lib/types';
 import { printHtml } from '@/lib/print';
@@ -13,10 +13,10 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
   const [search, setSearch] = useState('');
   const [proyectos, setProyectos] = useState<any[]>([]);
   const [project, setProject] = useState(lockedProjectId ? String(lockedProjectId) : '');
-  const [selected, setSelected] = useState<number | null>(null);
+  const [selected, setSelected] = useState<{ id: number; focus?: 'plan' | 'edit' } | null>(null);
   const [buscar, setBuscar] = useState('');
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const [limit, setLimit] = useState(15);
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
   const [viewMode, setViewMode] = useState<'general' | 'blocks'>('general');
 
@@ -27,7 +27,8 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
     if (statusFilter) q.set('status', statusFilter);
     if (search) q.set('search', search);
     if (project) q.set('projectId', project);
-    q.set('limit', '500');
+    q.set('page', String(page));
+    q.set('limit', String(limit));
     try {
       const d = await api.get<any>(`/lots?${q.toString()}`);
       const rows: Lot[] = Array.isArray(d) ? d : (d?.items || []);
@@ -41,6 +42,15 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
 
   const coll = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
   const sortedLots = lots.slice().sort((a, b) => coll.compare(a.code, b.code));
+  const countByStatus = (status: string) => lots.filter((lot) => lot.status === status).length;
+  const lotSummary = [
+    { label: 'Lotes Totales', value: lots.length },
+    { label: 'Lotes Vendidos', value: countByStatus('vendido') },
+    { label: 'Lotes Separados', value: countByStatus('reservado') + countByStatus('adelanto') + countByStatus('primera_cuota') },
+    { label: 'Lotes Disponibles', value: countByStatus('disponible') },
+    { label: 'Lotes Promoción', value: countByStatus('promocion') },
+    { label: 'Lotes 2da Etapa', value: countByStatus('segunda_etapa') },
+  ];
 
   function totals(items: Lot[]) {
     const totalArea = items.reduce((s, l) => s + Number(l.areaM2 || 0), 0);
@@ -185,6 +195,17 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
     `);
   }
 
+  async function uploadLotPlan(lot: Lot, file?: File) {
+    if (!file) return;
+    try {
+      await uploadFile(`/plan/lot/plan-voucher/${lot.id}`, file);
+      toast('Plano del lote actualizado');
+      await load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo subir el plano', 'err');
+    }
+  }
+
   function renderTable(items: Lot[], key: string, header?: { blockName: string; blockAddress: string | null }) {
     const t = totals(items);
     return (
@@ -206,7 +227,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
         )}
 
         <div className="overflow-x-auto">
-          <table className="table-base" style={{ width: '100%', minWidth: 1120, tableLayout: 'fixed' }}>
+          <table className="table-base" style={{ width: '100%', minWidth: 1260, tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: '100px' }} />
               <col style={{ width: '190px' }} />
@@ -217,23 +238,23 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
               <col style={{ width: '130px' }} />
               <col style={{ width: '120px' }} />
               <col style={{ width: '150px' }} />
-              <col style={{ width: '94px' }} />
+              <col style={{ width: '220px' }} />
             </colgroup>
             <thead><tr>
               <th className="th-base" style={{ textAlign: 'left' }}>Nro. Lote</th>
               <th className="th-base" style={{ textAlign: 'left' }}>Dirección</th>
               <th className="th-base" style={{ textAlign: 'left' }}>Tipo</th>
               <th className="th-base" style={{ textAlign: 'left' }}>Dimensión</th>
-              <th className="th-base" style={{ textAlign: 'right' }}>Precio</th>
-              <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta</th>
-              <th className="th-base" style={{ textAlign: 'right' }}>Precio Final</th>
+              <th className="th-base" style={{ textAlign: 'right' }}>Precio US$/m2</th>
+              <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta US$</th>
+              <th className="th-base" style={{ textAlign: 'right' }}>Precio Final US$</th>
               <th className="th-base" style={{ textAlign: 'center' }}>Estado</th>
               <th className="th-base" style={{ textAlign: 'left' }}>Cliente</th>
               <th className="th-base" style={{ textAlign: 'right' }}></th>
             </tr></thead>
             <tbody className="divide-y divide-slate-100">
               {items.map((l) => (
-                <tr key={l.id} onClick={() => setSelected(l.id)} className="cursor-pointer hover:bg-slate-50">
+                <tr key={l.id} onClick={() => setSelected({ id: l.id })} className="cursor-pointer hover:bg-slate-50">
                   <td className="td-base font-semibold" style={{ textAlign: 'left' }}>{l.code}</td>
                   <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.blockAddress || '—'}>{l.blockAddress || '—'}</td>
                   <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.type || '—'}>{l.type || '—'}</td>
@@ -246,7 +267,26 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                   </td>
                   <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.clientName || '—'}>{l.clientName || '—'}</td>
                   <td className="td-base" style={{ textAlign: 'right' }}>
-                    <button className="btn-secondary !h-8 !px-3 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected(l.id); }}>Ver ficha</button>
+                    <div className="flex justify-end gap-1">
+                      <button className="btn-secondary !h-8 !px-2 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id }); }}>Ver ficha</button>
+                      {l.planVoucherUrl && (
+                        <a className="btn-secondary !h-8 !px-2 text-xs whitespace-nowrap" href={l.planVoucherUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>Ver</a>
+                      )}
+                      <label className="btn-primary !h-8 !px-2 text-xs whitespace-nowrap cursor-pointer" onClick={(e) => e.stopPropagation()} title={l.planVoucherUrl ? 'Reemplazar plano/voucher' : 'Subir plano/voucher'}>
+                        Plano
+                        <input
+                          type="file"
+                          accept="image/*,.pdf"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            e.target.value = '';
+                            uploadLotPlan(l, file);
+                          }}
+                        />
+                      </label>
+                      <button className="btn-danger !h-8 !px-2 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id, focus: 'edit' }); }}>Editar</button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -271,7 +311,16 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
   return (
     <>
       <Toaster />
-      <LotDetailModal lotId={selected} onClose={() => setSelected(null)} onChanged={load} />
+      <LotDetailModal lotId={selected?.id || null} initialFocus={selected?.focus} onClose={() => setSelected(null)} onChanged={load} />
+
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-6">
+        {lotSummary.map((item) => (
+          <div key={item.label} className="card card-kpi">
+            <span className="text-xs font-semibold text-slate-600">{item.label}</span>
+            <div className="mt-1 text-2xl font-bold" style={{ color: item.label.includes('Promoción') ? '#F59E0B' : '#1259C4' }}>{item.value}</div>
+          </div>
+        ))}
+      </div>
 
       <div className="card mb-4 flex flex-wrap gap-3 items-end">
         <div className="flex-1 min-w-48"><label className="label">Buscar por código</label>
@@ -363,7 +412,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                     </tr></thead>
                     <tbody className="divide-y divide-slate-100">
                       {g.items.map((l) => (
-                        <tr key={l.id} onClick={() => setSelected(l.id)} className="cursor-pointer hover:bg-slate-50">
+                        <tr key={l.id} onClick={() => setSelected({ id: l.id })} className="cursor-pointer hover:bg-slate-50">
                           <td className="td-base font-semibold" style={{ textAlign: 'left' }}>{l.code}</td>
                           <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{g.blockAddress || '—'}</td>
                           <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{l.type || '—'}</td>
@@ -376,7 +425,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                           </td>
                           <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{l.clientName || '—'}</td>
                           <td className="td-base" style={{ textAlign: 'right' }}>
-                            <button className="btn-secondary !h-8 !px-3 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected(l.id); }}>Ver ficha</button>
+                            <button className="btn-secondary !h-8 !px-3 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id }); }}>Ver ficha</button>
                           </td>
                         </tr>
                       ))}
@@ -398,6 +447,24 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
             );
           });
         })()}
+      </div>
+
+      <div className="mt-4 flex flex-col gap-3 rounded-lg border bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: '#E5E7EB' }}>
+        <span className="text-xs text-slate-500">
+          {meta.total ? `Mostrando ${(page - 1) * limit + 1}-${Math.min(meta.total, (page - 1) * limit + lots.length)} de ${meta.total} lotes` : 'Sin lotes'}
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className="input !h-8 !w-auto text-xs"
+            value={limit}
+            onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }}
+          >
+            {[15, 30, 60, 90].map((n) => <option key={n} value={n}>Mostrar {n}</option>)}
+          </select>
+          <button className="btn-neutral !h-8 !px-3 text-xs" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Anterior</button>
+          <span className="px-2 text-xs font-semibold text-slate-600">Pagina {page} de {meta.totalPages}</span>
+          <button className="btn-neutral !h-8 !px-3 text-xs" disabled={page >= meta.totalPages} onClick={() => setPage((current) => Math.min(meta.totalPages, current + 1))}>Siguiente</button>
+        </div>
       </div>
     </>
   );
