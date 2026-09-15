@@ -19,6 +19,12 @@ export class QuotesController {
     return this.quotesService.list(query);
   }
 
+    @Get('summary')
+  summary(@Query() query: { projectId?: string | number }) {
+    const pid = query.projectId ? Number(query.projectId) : undefined;
+    return this.quotesService.summary(pid);
+  }
+
   @Get(':id')
   getOne(@Param('id', ParseIntPipe) id: number) {
     return this.quotesService.getOne(id);

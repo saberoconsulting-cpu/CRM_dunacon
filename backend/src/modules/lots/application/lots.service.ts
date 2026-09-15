@@ -100,6 +100,30 @@ export class LotsService {
     return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
   }
 
+  // Resumen de lotización por proyecto (para las tarjetas KPI de la vista).
+  // "Promoción" y "2da Etapa" quedan en 0 hasta que exista ese concepto en datos.
+  async stats(projectId?: number) {
+    const qb = this.lotRepo.createQueryBuilder('l');
+    if (projectId) qb.where('l.project_id = :projectId', { projectId });
+    const [row] = await qb
+      .select('COUNT(*)', 'total')
+      .addSelect(`COUNT(*) FILTER (WHERE l.status = 'vendido')`, 'vendidos')
+      .addSelect(`COUNT(*) FILTER (WHERE l.status = 'disponible')`, 'disponibles')
+      .addSelect(`COUNT(*) FILTER (WHERE l.selling_stage = 'separado')`, 'separados')
+      .addSelect('0', 'promocion')
+      .addSelect('0', 'segundaEtapa')
+      .getRawMany();
+    const r = row || {};
+    return {
+      total: Number(r.total || 0),
+      vendidos: Number(r.vendidos || 0),
+      separados: Number(r.separados || 0),
+      disponibles: Number(r.disponibles || 0),
+      promocion: Number(r.promocion || 0),
+      segundaEtapa: Number(r.segundaEtapa || 0),
+    };
+  }
+
   // Ficha completa del lote
   async getOne(id: number) {
     const lot = await this.lotRepo.findOne({ where: { id } });

@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import { Lot, formatMoney, LOT_STATUS_LABEL, LOT_STATUS_COLOR } from '@/lib/types';
 import { printHtml } from '@/lib/print';
-import { FiDownload, FiLayers } from 'react-icons/fi';
+import { FiDownload, FiLayers, FiCheckCircle, FiBookmark, FiTrendingUp, FiTag, FiFlag } from 'react-icons/fi';
 
 export default function LotsView({ lockedProjectId }: { lockedProjectId?: number }) {
   const [lots, setLots] = useState<Lot[]>([]);
@@ -18,7 +18,19 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
+  const [stats, setStats] = useState({ total: 0, vendidos: 0, separados: 0, disponibles: 0, promocion: 0, segundaEtapa: 0 });
   const [viewMode, setViewMode] = useState<'general' | 'blocks'>('general');
+
+  useEffect(() => {
+    const q = new URLSearchParams();
+    if (lockedProjectId || project) q.set('projectId', lockedProjectId ? String(lockedProjectId) : project);
+    api.get<any>(`/lots/stats?${q.toString()}`)
+      .then((d) => setStats({
+        total: Number(d?.total || 0), vendidos: Number(d?.vendidos || 0), separados: Number(d?.separados || 0),
+        disponibles: Number(d?.disponibles || 0), promocion: Number(d?.promocion || 0), segundaEtapa: Number(d?.segundaEtapa || 0),
+      }))
+      .catch(() => {});
+  }, [lockedProjectId, project, lots.length]);
 
   useEffect(() => { if (lockedProjectId) setProject(String(lockedProjectId)); }, [lockedProjectId]);
 
@@ -116,7 +128,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
           <thead>
             <tr>
               <th>Nro. Lote</th><th>Dirección</th><th>Tipo</th><th>Dimensión</th>
-              <th>Precio</th><th>Precio Venta</th><th>Precio Final</th><th>Estado</th><th>Cliente</th>
+              <th>Precio US$/m2</th><th>Precio Venta US$</th><th>Precio Final US$</th><th>Estado</th><th>Cliente</th>
             </tr>
           </thead>
           <tbody>${printRows(items)}${printTotalRow(items)}</tbody>
@@ -224,9 +236,9 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
               <th className="th-base" style={{ textAlign: 'left' }}>Dirección</th>
               <th className="th-base" style={{ textAlign: 'left' }}>Tipo</th>
               <th className="th-base" style={{ textAlign: 'left' }}>Dimensión</th>
-              <th className="th-base" style={{ textAlign: 'right' }}>Precio</th>
-              <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta</th>
-              <th className="th-base" style={{ textAlign: 'right' }}>Precio Final</th>
+              <th className="th-base" style={{ textAlign: 'right' }}>Precio US$/m2</th>
+              <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta US$</th>
+              <th className="th-base" style={{ textAlign: 'right' }}>Precio Final US$</th>
               <th className="th-base" style={{ textAlign: 'center' }}>Estado</th>
               <th className="th-base" style={{ textAlign: 'left' }}>Cliente</th>
               <th className="th-base" style={{ textAlign: 'right' }}></th>
@@ -272,6 +284,42 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
     <>
       <Toaster />
       <LotDetailModal lotId={selected} onClose={() => setSelected(null)} onChanged={load} />
+
+      {(() => {
+        const kpis: { label: string; value: number; color: string; ring: string; icon: React.ReactNode }[] = [
+          { label: 'Lotes Totales', value: stats.total, color: '#1259C4', ring: '#E7F0FE', icon: <FiLayers /> },
+          { label: 'Lotes Vendidos', value: stats.vendidos, color: '#B91C1C', ring: '#FEE2E2', icon: <FiCheckCircle /> },
+          { label: 'Lotes Separados', value: stats.separados, color: '#B45309', ring: '#FEF3C7', icon: <FiBookmark /> },
+          { label: 'Lotes Disponibles', value: stats.disponibles, color: '#047857', ring: '#D1FAE5', icon: <FiTrendingUp /> },
+          { label: 'Lotes Promoción', value: stats.promocion, color: '#7C3AED', ring: '#EDE9FE', icon: <FiTag /> },
+          { label: 'Lotes 2da Etapa', value: stats.segundaEtapa, color: '#0E7490', ring: '#CFFAFE', icon: <FiFlag /> },
+        ];
+        return (
+          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 mb-4">
+            {kpis.map((k) => (
+              <div
+                key={k.label}
+                className="card card-kpi relative overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg"
+                style={{ borderTop: `3px solid ${k.color}` }}
+              >
+                <div
+                  className="absolute -right-4 -top-4 w-16 h-16 rounded-full opacity-30"
+                  style={{ background: k.ring }}
+                />
+                <div className="flex items-center gap-2">
+                  <span className="grid h-7 w-7 place-items-center rounded-md" style={{ background: k.ring, color: k.color }}>
+                    {k.icon}
+                  </span>
+                  <span className="font-semibold text-[11px] uppercase tracking-wide" style={{ color: '#6B7280' }}>{k.label}</span>
+                </div>
+                <div className="mt-2 font-extrabold tabular-nums" style={{ fontSize: 30, color: k.color, lineHeight: 1 }}>
+                  {k.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        );
+      })()}
 
       <div className="card mb-4 flex flex-wrap gap-3 items-end">
         <div className="flex-1 min-w-48"><label className="label">Buscar por código</label>
@@ -354,9 +402,9 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                       <th className="th-base" style={{ textAlign: 'left' }}>Dirección</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Tipo</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Dimensión</th>
-                      <th className="th-base" style={{ textAlign: 'right' }}>Precio</th>
-                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta</th>
-                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Final</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio US$/m2</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta US$</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Final US$</th>
                       <th className="th-base" style={{ textAlign: 'center' }}>Estado</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Cliente</th>
                       <th className="th-base"></th>

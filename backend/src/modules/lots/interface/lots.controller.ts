@@ -37,6 +37,11 @@ export class LotsController {
     });
   }
 
+  @Get('stats')
+  stats(@Query('projectId') projectId?: string) {
+    return this.lotsService.stats(projectId ? Number(projectId) : undefined);
+  }
+
   @Get(':id')
   getOne(@Param('id', ParseIntPipe) id: number) {
     return this.lotsService.getOne(id);

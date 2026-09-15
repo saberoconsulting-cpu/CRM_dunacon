@@ -13,6 +13,7 @@ type Q = {
   id: number; projectId: number; lotId: number; lotCode?: string | null; clientName: string;
   finalPriceUsd: number; cuotaInicialUsd: number; totalCuotas: number;
   paymentMethod: string; exchangeRate: number; createdAt: string;
+  status: string; areaM2: number;
 };
 
 type ScheduleRow = {
@@ -227,26 +228,31 @@ function QuoteDocumentModal({ doc, onClose }: { doc: { id: number; type: 'cotiza
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (!doc) return;
     setData(null); setSchedule([]); setError('');
     Promise.all([
       api.get<any>(`/quotes/${doc.id}`),
       doc.type === 'financiamiento' ? api.get<ScheduleRow[]>(`/quotes/${doc.id}/schedule`) : Promise.resolve([]),
     ]).then(async ([quoteData, rows]) => {
-      const planData = quoteData?.quote?.projectId
-        ? await api.get<any>(`/plan/project/${quoteData.quote.projectId}`).catch(() => null)
-        : null;
-      setData({ ...quoteData, planData });
-      setSchedule(rows || []);
+      try {
+        const planData = quoteData?.quote?.projectId
+          ? await api.get<any>(`/plan/project/${quoteData.quote.projectId}`).catch(() => null)
+          : null;
+        setData({ ...quoteData, planData });
+        setSchedule(rows || []);
+      } catch (e: any) {
+        setError(e.message || 'Error al cargar los datos');
+      }
     }).catch((e: any) => setError(e.message || 'No se pudo cargar el documento'));
-  }, [doc.id, doc.type]);
+  }, [doc]);
 
   const html = data ? buildQuoteHtml(data, schedule, doc.type) : '';
 
   return (
-    <Modal open onClose={onClose} title={doc.type === 'financiamiento' ? 'Financiamiento' : 'Cotizacion'} width="max-w-5xl">
+    <Modal open={true} onClose={onClose} title={doc.type === 'financiamiento' ? 'Financiamiento' : 'Cotizacion'} width="max-w-5xl">
       <div className="space-y-3">
         <div className="flex justify-end">
-          <button className="btn-primary !h-8 text-xs" disabled={!data} onClick={() => printHtml(html)}>
+          <button className="btn-primary !h-8 text-xs" disabled={!data} onClick={() => html && printHtml(html)}>
             <FiDownload /> Descargar PDF
           </button>
         </div>
@@ -278,6 +284,10 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [stats, setStats] = useState<{
+    total: number; credito: number; contado: number;
+    montoTotal: number; cuotaInicialTotal: number; cuotaContadoTotal: number;
+  } | null>(null);
   const [fPayment, setFPayment] = useState('');
   const [sort, setSort] = useState('createdAt');
   const [order, setOrder] = useState<'ASC' | 'DESC'>('DESC');
@@ -320,6 +330,12 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   }, [lockedProjectId, debouncedSearch, fPayment, sort, order, page, limit]);
 
   useEffect(() => { load(); }, [load]);
+  // Cargar resumen de estadísticas (totales, monto, cuotas).
+  useEffect(() => {
+    api.get<any>('/quotes/summary' + (lockedProjectId ? `?projectId=${lockedProjectId}` : ''))
+      .then(setStats)
+      .catch(() => { });
+  }, [lockedProjectId, fPayment]);
   // Debounce de 400ms para no disparar un request por cada tecla.
   useEffect(() => {
     const t = setTimeout(() => { setDebouncedSearch(search.trim()); }, 400);
@@ -328,7 +344,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   // Reset a página 1 cuando cambia proyecto, búsqueda o filtros.
   useEffect(() => { setPage(1); }, [lockedProjectId, debouncedSearch, fPayment, sort, order]);
   useEffect(() => {
-    api.get<any[]>('/lots?limit=500').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
+    api.get<any[]>('/lots?limit=500').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => { });
   }, []);
   useEffect(() => {
     const pre = searchParams?.get('lotId');
@@ -398,6 +414,34 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     <>
       <Toaster />
       <div className="space-y-5">
+        {/* Panel de resumen de estadísticas - ARRIBA */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
+          <div className="min-w-0 min-h-[104px] rounded-xl border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
+            <p className="min-h-8 text-xs font-semibold uppercase tracking-wider text-slate-500">Nro. Cotizaciones</p>
+            <p className="mt-1 text-lg font-bold leading-tight break-all" style={{ color: '#0B2F6E' }}>{stats?.total ?? 0}</p>
+          </div>
+          <div className="min-w-0 min-h-[104px] rounded-xl border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
+            <p className="min-h-8 text-xs font-semibold uppercase tracking-wider text-slate-500">Cotizado Al Crédito</p>
+            <p className="mt-1 text-lg font-bold leading-tight break-all" style={{ color: '#1877F2' }}>{stats?.credito ?? 0}</p>
+          </div>
+          <div className="min-w-0 min-h-[104px] rounded-xl border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
+            <p className="min-h-8 text-xs font-semibold uppercase tracking-wider text-slate-500">Cotizado Al Contado</p>
+            <p className="mt-1 text-lg font-bold leading-tight break-all" style={{ color: '#16A36A' }}>{stats?.contado ?? 0}</p>
+          </div>
+          <div className="min-w-0 min-h-[104px] rounded-xl border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
+            <p className="min-h-8 text-xs font-semibold uppercase tracking-wider text-slate-500">Monto Cotizado US$</p>
+            <p className="mt-1 text-lg font-bold leading-tight break-all" style={{ color: '#0B2F6E' }}>US$ {(stats?.montoTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </div>
+          <div className="min-w-0 min-h-[104px] rounded-xl border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
+            <p className="min-h-8 text-xs font-semibold uppercase tracking-wider text-slate-500">Cuota Inicial US$</p>
+            <p className="mt-1 text-lg font-bold leading-tight break-all" style={{ color: '#1259C4' }}>US$ {(stats?.cuotaInicialTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </div>
+          <div className="min-w-0 min-h-[104px] rounded-xl border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
+            <p className="min-h-8 text-xs font-semibold uppercase tracking-wider text-slate-500">Cuota Contado US$</p>
+            <p className="mt-1 text-lg font-bold leading-tight break-all" style={{ color: '#0B2F6E' }}>US$ {(stats?.cuotaContadoTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+          </div>
+        </div>
+
         <div className="card">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -431,42 +475,54 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
         <div className="card p-0 overflow-hidden">
           <div className="overflow-auto">
             {loading ? <p className="p-4 text-slate-400">Cargando...</p>
-            : rows.length === 0 ? <EmptyState text="Aun no hay cotizaciones generadas." />
-            : (
-            <table className="table-base" style={{ width: '100%', minWidth: 760 }}>
-              <thead><tr>
-                <th className="th-base">Id</th><th className="th-base">Lote</th>
-                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('clientName')}>Cliente{sortArrow('clientName')}</th>
-                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('finalPriceUsd')}>Precio final{sortArrow('finalPriceUsd')}</th>
-                <th className="th-base">Cuota inicial</th>
-                <th className="th-base">Cuotas</th>
-                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')}>Fecha{sortArrow('createdAt')}</th>
-                <th className="th-base"></th>
-              </tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {rows.map((q) => (
-                  <tr key={q.id}>
-                    <td className="td-base text-slate-400">Q{q.id}</td>
-                    <td className="td-base font-medium">{q.lotCode || `Lote ${q.lotId}`}</td>
-                    <td className="td-base">{q.clientName}</td>
-                    <td className="td-base font-medium">{fmtUsd(q.finalPriceUsd)}</td>
-                    <td className="td-base">{q.paymentMethod === 'credito' ? fmtUsd(q.cuotaInicialUsd) : 'Contado'}</td>
-                    <td className="td-base">{q.totalCuotas || '-'}</td>
-                    <td className="td-base">{formatDate(q.createdAt)}</td>
-                    <td className="td-base whitespace-nowrap">
-                      <button className="btn-secondary !h-7 !px-2 text-xs mr-1" onClick={() => setDoc({ id: q.id, type: 'cotizacion' })}><FiEye /> Ver Cotizacion</button>
-                      {q.paymentMethod === 'credito' && (
-                        <button className="btn-secondary !h-7 !px-2 text-xs" onClick={() => setDoc({ id: q.id, type: 'financiamiento' })}><FiEye /> Ver Financiamiento</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            )}
+              : rows.length === 0 ? <EmptyState text="Aun no hay cotizaciones generadas." />
+                : (
+                  <table className="table-base" style={{ width: '100%', minWidth: 900 }}>
+                    <thead><tr>
+                      <th className="th-base">Id</th>
+                      <th className="th-base">Lote</th>
+                      <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('clientName')}>Cliente{sortArrow('clientName')}</th>
+                      <th className="th-base">Area M2</th>
+                      <th className="th-base">Estado</th>
+                      <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('finalPriceUsd')}>Precio Final{sortArrow('finalPriceUsd')}</th>
+                      <th className="th-base">Cuota Inicial</th>
+                      <th className="th-base">Cuotas</th>
+                      <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')}>Fecha{sortArrow('createdAt')}</th>
+                      <th className="th-base"></th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {rows.map((q) => (
+                        <tr key={q.id}>
+                          <td className="td-base text-slate-400">Q{q.id}</td>
+                          <td className="td-base font-medium">{q.lotCode || `Lote ${q.lotId}`}</td>
+                          <td className="td-base">{q.clientName}</td>
+                          <td className="td-base">{Number(q.areaM2 || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '-'}</td>
+                          <td className="td-base">
+                            <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                              q.status === 'enviada' ? 'bg-blue-100 text-[#1259C4]' :
+                              q.status === 'desestimada' ? 'bg-red-100 text-[#C41212]' :
+                              q.status === 'actualizada' ? 'bg-amber-100 text-[#92400E]' :
+                              'bg-slate-100 text-slate-500'
+                            }`}>
+                              {q.status === 'enviada' ? 'Enviada' : q.status === 'desestimada' ? 'Desestimada' : q.status === 'actualizada' ? 'Actualizada' : q.status}
+                            </span>
+                          </td>
+                          <td className="td-base font-medium">{fmtUsd(q.finalPriceUsd)}</td>
+                          <td className="td-base">{q.paymentMethod === 'credito' ? fmtUsd(q.cuotaInicialUsd) : 'Contado'}</td>
+                          <td className="td-base">{q.totalCuotas || '-'}</td>
+                          <td className="td-base">{formatDate(q.createdAt)}</td>
+                          <td className="td-base whitespace-nowrap">
+                            <button className="btn-secondary !h-7 !px-2 text-xs mr-1" onClick={() => setDoc({ id: q.id, type: 'cotizacion' })}><FiEye /> Ver Cotizacion</button>
+                            {q.paymentMethod === 'credito' && <button className="btn-secondary !h-7 !px-2 text-xs" onClick={() => setDoc({ id: q.id, type: 'financiamiento' })}><FiEye /> Ver Financiamiento</button>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
           </div>
           <div className="bg-white p-3 border-t" style={{ borderColor: '#F0F1F3' }}>
-            <PaginationBar label="Cotizaciones" page={page} totalPages={meta.totalPages} total={meta.total} limit={limit} setPage={setPage} setLimit={setLimit} />
+            <PaginationBar compact label="Cotizaciones" page={page} totalPages={meta.totalPages} total={meta.total} limit={limit} setPage={setPage} setLimit={setLimit} />
           </div>
         </div>
       </div>
