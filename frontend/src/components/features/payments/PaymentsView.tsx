@@ -24,6 +24,9 @@ type P = {
   dueDate?: string | null; paidAt?: string | null; status: string;
   lotCode?: string | null; clientName?: string | null; salePrice?: number | null;
   receivedByName?: string | null; paymentMethod?: string; reference?: string | null; voucherUrl?: string | null;
+  exchangeRate?: number | null; amountUsd?: number | null;
+  bankOperationNumber?: string | null; receiptNumber?: string | null; receiptValue?: number | null;
+  approvalDocumentUrl?: string | null; approvedByName?: string | null; approvedAt?: string | null;
 };
 const TYPE_LABEL: any = { reserva: 'Reserva', adelanto: 'Cuota inicial', primera_cuota: 'Cuota normal', cuota: 'Cuota' };
 const BADGE: any = { pagado: ['#EAF7EE', '#257849'], pendiente: ['#FFF6E4', '#B45309'], vencido: ['#E7F0FE', '#1259C4'] };
@@ -258,9 +261,16 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [reference, setReference] = useState('');
   const [voucher, setVoucher] = useState<File | null>(null);
   const [voucherUrl, setVoucherUrl] = useState('');
+  const [exchangeRate, setExchangeRate] = useState('');
+  const [amountUsd, setAmountUsd] = useState('');
   const [editingPayment, setEditingPayment] = useState<P | null>(null);
   const [editVoucher, setEditVoucher] = useState<File | null>(null);
   const [editVoucherUrl, setEditVoucherUrl] = useState('');
+  const [approvalBankOp, setApprovalBankOp] = useState('');
+  const [approvalReceiptNo, setApprovalReceiptNo] = useState('');
+  const [approvalReceiptValue, setApprovalReceiptValue] = useState('');
+  const [approvalDoc, setApprovalDoc] = useState<File | null>(null);
+  const [approvalDocUrl, setApprovalDocUrl] = useState('');
   const payCanMark = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
 
   useEffect(() => { if (lockedProjectId) setPayProjectId(lockedProjectId); }, [lockedProjectId]);
@@ -312,10 +322,10 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     if (!amount) return toast('Ingresa monto', 'err');
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
-      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined });
+      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined, exchangeRate: exchangeRate ? Number(exchangeRate) : undefined, amountUsd: amountUsd ? Number(amountUsd) : undefined });
       if (voucher) { await uploadFile(`/payments/voucher/${saved?.id}`, voucher); }
       toast(voucher ? 'Pago registrado con comprobante adjunto' : 'Pago registrado');
-      setOpen(false); setAmount(0); setDueDate(''); setNote(''); setLotId(0); setClientId(0); setPayMethod('yape'); setReference(''); setVoucher(null); setVoucherUrl('');
+      setOpen(false); setAmount(0); setDueDate(''); setNote(''); setLotId(0); setClientId(0); setPayMethod('yape'); setReference(''); setVoucher(null); setVoucherUrl(''); setExchangeRate(''); setAmountUsd('');
       load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -330,6 +340,11 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     setEditingPayment(payment);
     setEditVoucher(null);
     setEditVoucherUrl(payment.voucherUrl || '');
+    setApprovalBankOp(payment.bankOperationNumber || '');
+    setApprovalReceiptNo(payment.receiptNumber || '');
+    setApprovalReceiptValue(payment.receiptValue != null ? String(payment.receiptValue) : '');
+    setApprovalDoc(null);
+    setApprovalDocUrl(payment.approvalDocumentUrl || '');
   }
 
   function pickEditVoucher(f?: File) {
@@ -338,16 +353,30 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     if (window) { try { if (editVoucherUrl.startsWith('blob:')) URL.revokeObjectURL(editVoucherUrl); } catch {} setEditVoucherUrl(URL.createObjectURL(f)); }
   }
 
-  async function markPaymentPaid(payment?: P | null) {
-    const target = payment || editingPayment;
+  function pickApprovalDoc(f?: File) {
+    if (!f) { setApprovalDoc(null); setApprovalDocUrl(editingPayment?.approvalDocumentUrl || ''); return; }
+    setApprovalDoc(f);
+    if (window) { try { if (approvalDocUrl.startsWith('blob:')) URL.revokeObjectURL(approvalDocUrl); } catch {} setApprovalDocUrl(URL.createObjectURL(f)); }
+  }
+
+  async function approvePayment() {
+    const target = editingPayment;
     if (!target) return;
+    if (!approvalBankOp.trim() || !approvalReceiptNo.trim() || !approvalReceiptValue) {
+      return toast('Completa N° Op. Bco, N° Boleta y Valor Bol para aprobar el pago', 'err');
+    }
     try {
-      if (editVoucher && target.id === editingPayment?.id) await uploadFile(`/payments/voucher/${target.id}`, editVoucher);
-      await api.post(`/payments/mark-paid/${target.id}`);
-      toast('Pago marcado como pagado');
+      if (editVoucher) await uploadFile(`/payments/voucher/${target.id}`, editVoucher);
+      if (approvalDoc) await uploadFile(`/payments/approval-doc/${target.id}`, approvalDoc);
+      await api.post(`/payments/approve/${target.id}`, {
+        bankOperationNumber: approvalBankOp.trim(),
+        receiptNumber: approvalReceiptNo.trim(),
+        receiptValue: Number(approvalReceiptValue),
+      });
+      toast('Pago aprobado');
       setEditingPayment(null);
-      setEditVoucher(null);
-      setEditVoucherUrl('');
+      setEditVoucher(null); setEditVoucherUrl('');
+      setApprovalBankOp(''); setApprovalReceiptNo(''); setApprovalReceiptValue(''); setApprovalDoc(null); setApprovalDocUrl('');
       await load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -720,8 +749,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                     <td className="td-base">
                       {p.status === 'pendiente' ? (
                         <div className="flex flex-wrap gap-1.5">
-                          <button type="button" className="btn-secondary !h-7 !px-2 text-xs" onClick={() => openEditPayment(p)}>Editar</button>
-                          {p.voucherUrl && payCanMark && <button type="button" className="btn-primary !h-7 !px-2 text-xs" onClick={() => markPaymentPaid(p)}>Marcar pagado</button>}
+                          <button type="button" className="btn-secondary !h-7 !px-2 text-xs" onClick={() => openEditPayment(p)}>{payCanMark ? 'Aprobar / Editar' : 'Editar'}</button>
                         </div>
                       ) : <span className="text-xs text-slate-400">—</span>}
                     </td>
@@ -814,6 +842,10 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 </div>
               </Field>
               <div className="grid grid-cols-2 gap-3">
+                <Field label="TC (opcional)"><input type="number" step="0.0001" className="input" value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} placeholder="Ej: 3.75" /></Field>
+                <Field label="Monto US$ (opcional)"><input type="number" step="0.01" className="input" value={amountUsd} onChange={(e) => setAmountUsd(e.target.value)} /></Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <Field label="Monto (S/)"><input type="number" className="input" value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></Field>
                 <Field label="Vence (opcional)"><input type="date" className="input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
               </div>
@@ -862,10 +894,29 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
               {editVoucherUrl && <img src={editVoucherUrl} alt="Voucher" className="mt-3 h-32 w-32 rounded-lg border object-cover" />}
             </Field>
 
+            {payCanMark && (
+              <div className="mt-4 space-y-3 rounded-lg border p-3" style={{ borderColor: BORDER, background: '#FAFBFC' }}>
+                <p className="text-xs font-semibold" style={{ color: '#B45309' }}>Estos campos se llenan para aprobar el pago</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="N° Op. Bco"><input className="input" value={approvalBankOp} onChange={(e) => setApprovalBankOp(e.target.value)} /></Field>
+                  <Field label="N° Boleta"><input className="input" value={approvalReceiptNo} onChange={(e) => setApprovalReceiptNo(e.target.value)} /></Field>
+                </div>
+                <Field label="Valor Bol"><input type="number" step="0.01" className="input" value={approvalReceiptValue} onChange={(e) => setApprovalReceiptValue(e.target.value)} /></Field>
+                <Field label="Adj. doc (opcional)">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                      <FiUpload /> <input type="file" className="hidden" onChange={(e) => { pickApprovalDoc(e.target.files?.[0]); e.target.value = ''; }} /> Adjuntar documento
+                    </label>
+                    {approvalDocUrl && <a href={approvalDocUrl} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[#1877F2] hover:underline">Ver documento</a>}
+                  </div>
+                </Field>
+              </div>
+            )}
+
             <div className="flex flex-wrap justify-end gap-2 border-t pt-4" style={{ borderColor: BORDER }}>
               <button className="btn-neutral" onClick={() => setEditingPayment(null)}>Cancelar</button>
               <button className="btn-secondary" onClick={saveEditVoucher} disabled={!editVoucher}>Guardar voucher</button>
-              {payCanMark && <button className="btn-primary" onClick={() => markPaymentPaid()}>Marcar pagado</button>}
+              {payCanMark && <button className="btn-primary" onClick={approvePayment}>Aprobar Pago</button>}
             </div>
           </div>
         </div>

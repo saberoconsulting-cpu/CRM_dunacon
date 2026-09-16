@@ -1,6 +1,19 @@
 // modules/payments/application/dto/payment.dto.ts
 import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
+export class ApprovePaymentDto {
+  @IsString()
+  @IsNotEmpty()
+  bankOperationNumber!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  receiptNumber!: string;
+
+  @IsNumber()
+  receiptValue!: number;
+}
+
 export class CreatePaymentDto {
   @IsNumber()
   projectId!: number;
@@ -36,4 +49,13 @@ export class CreatePaymentDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  // Registro informativo en US$ (no reemplaza el monto en soles).
+  @IsOptional()
+  @IsNumber()
+  exchangeRate?: number;
+
+  @IsOptional()
+  @IsNumber()
+  amountUsd?: number;
 }

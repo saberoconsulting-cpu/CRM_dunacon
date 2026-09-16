@@ -11,7 +11,7 @@ import { UserEntity } from '../../../shared/infrastructure/entities/user.entity'
 import { SaleEntity } from '../../../shared/infrastructure/entities/sale.entity';
 import { SaleInstallmentEntity } from '../../../shared/infrastructure/entities/sale-installment.entity';
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
-import { CreatePaymentDto } from './dto/payment.dto';
+import { ApprovePaymentDto, CreatePaymentDto } from './dto/payment.dto';
 
 // Estado comercial al que conduce cada tipo de pago
 const TYPE_STATUS: Record<string, string> = {
@@ -67,6 +67,8 @@ export class PaymentsService {
         paidAt: dto.dueDate ? undefined : new Date(),
         note: dto.note,
         createdBy: actorId,
+        exchangeRate: dto.exchangeRate != null ? String(dto.exchangeRate) : null,
+        amountUsd: dto.amountUsd != null ? String(dto.amountUsd) : null,
       });
       // Si no hay fecha de vencimiento, se considera pago inmediato (pagado)
       if (!dto.dueDate) payment.status = 'pagado';
@@ -153,16 +155,20 @@ export class PaymentsService {
         .leftJoinAndSelect(LotEntity, 'l', 'l.id = p.lot_id')
         .leftJoinAndSelect(ClientEntity, 'c', 'c.id = p.client_id')
         .leftJoinAndSelect(UserEntity, 'u', 'u.id = p.created_by')
+        .leftJoinAndSelect(UserEntity, 'au', 'au.id = p.approved_by')
         .select([
           'p.id', 'p.projectId', 'p.lotId', 'p.clientId', 'p.agentId', 'p.type', 'p.amount',
           'p.dueDate', 'p.paymentMethod', 'p.reference', 'p.voucherUrl', 'p.paidAt', 'p.status', 'p.createdAt',
+          'p.exchangeRate', 'p.amountUsd', 'p.bankOperationNumber', 'p.receiptNumber', 'p.receiptValue',
+          'p.approvalDocumentUrl', 'p.approvedAt',
         ])
         // Postgres pliega a minúsculas cualquier alias sin comillas — mismo bug
         // ya corregido en lots.service.ts y sales.service.ts.
         .addSelect('l.code AS "lotCode"')
         .addSelect('COALESCE(l.sale_price, l.price) AS "salePrice"')
         .addSelect('c.full_name AS "clientName"')
-        .addSelect('u.name AS "receivedByName"'),
+        .addSelect('u.name AS "receivedByName"')
+        .addSelect('au.name AS "approvedByName"'),
     );
     qb.orderBy('p.created_at', 'DESC');
     const total = await qb.clone().getCount();
@@ -191,6 +197,14 @@ export class PaymentsService {
       salePrice: r.salePrice != null ? Number(r.salePrice) : null,
       clientName: r.clientName || null,
       receivedByName: r.receivedByName || null,
+      exchangeRate: r.p_exchange_rate != null ? Number(r.p_exchange_rate) : null,
+      amountUsd: r.p_amount_usd != null ? Number(r.p_amount_usd) : null,
+      bankOperationNumber: r.p_bank_operation_number || null,
+      receiptNumber: r.p_receipt_number || null,
+      receiptValue: r.p_receipt_value != null ? Number(r.p_receipt_value) : null,
+      approvalDocumentUrl: r.p_approval_document_url || null,
+      approvedAt: r.p_approved_at || null,
+      approvedByName: r.approvedByName || null,
     }));
 
     return {
@@ -211,11 +225,39 @@ export class PaymentsService {
     return saved;
   }
 
+  // Aprueba un pago pendiente: exige datos bancarios (operacion, boleta, valor)
+  // y marca el pago como pagado.
+  async approve(paymentId: number, dto: ApprovePaymentDto, actorId: number) {
+    const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
+    if (!payment) throw new BadRequestException('Pago no encontrado');
+    payment.status = 'pagado';
+    payment.paidAt = new Date();
+    payment.dueDate = null;
+    payment.bankOperationNumber = dto.bankOperationNumber;
+    payment.receiptNumber = dto.receiptNumber;
+    payment.receiptValue = String(dto.receiptValue);
+    payment.approvedBy = actorId;
+    payment.approvedAt = new Date();
+    const saved = await this.paymentRepo.save(payment);
+    this.gateway.emitToAll('payment.created', saved);
+    return saved;
+  }
+
   // Adjuntar/actualizar comprobante (voucher) mediante URL de subida previa
   async attachVoucher(paymentId: number, url: string) {
     const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
     if (!payment) return null;
     payment.voucherUrl = url;
+    const saved = await this.paymentRepo.save(payment);
+    this.gateway.emitToAll('payment.updated', saved);
+    return saved;
+  }
+
+  // Adjuntar el documento de aprobacion (Adj doc) mediante URL de subida previa
+  async attachApprovalDoc(paymentId: number, url: string) {
+    const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
+    if (!payment) return null;
+    payment.approvalDocumentUrl = url;
     const saved = await this.paymentRepo.save(payment);
     this.gateway.emitToAll('payment.updated', saved);
     return saved;

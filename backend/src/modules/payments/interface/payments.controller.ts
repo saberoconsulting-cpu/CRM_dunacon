@@ -10,7 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { PaymentsService } from '../application/payments.service';
-import { CreatePaymentDto } from '../application/dto/payment.dto';
+import { ApprovePaymentDto, CreatePaymentDto } from '../application/dto/payment.dto';
 import { UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -64,10 +64,22 @@ export class PaymentsController {
     return this.paymentsService.markPaid(id);
   }
 
+  @Post('approve/:id')
+  approve(@Param('id', ParseIntPipe) id: number, @Body() dto: ApprovePaymentDto, @CurrentUser('id') actorId: number) {
+    return this.paymentsService.approve(id, dto, actorId);
+  }
+
   @Post('voucher/:id')
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
   async attachVoucher(@Param('id', ParseIntPipe) id: number, @UploadedFile() file: Express.Multer.File) {
     const up = await uploadToCloudinary(file.buffer, 'uploads');
     return this.paymentsService.attachVoucher(id, up.secure_url);
+  }
+
+  @Post('approval-doc/:id')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  async attachApprovalDoc(@Param('id', ParseIntPipe) id: number, @UploadedFile() file: Express.Multer.File) {
+    const up = await uploadToCloudinary(file.buffer, 'uploads');
+    return this.paymentsService.attachApprovalDoc(id, up.secure_url);
   }
 }
