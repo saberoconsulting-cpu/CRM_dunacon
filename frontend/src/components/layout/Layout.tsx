@@ -259,6 +259,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
         <div className="shrink-0 border-b p-2" style={{ borderColor: BRAND.border }}>
           {showLabels ? (
             <div className="flex h-11 items-center gap-1.5">
+              <span className="w-8 shrink-0" aria-hidden="true" />
               <button
                 type="button"
                 onClick={() => navigate('/dashboard')}
