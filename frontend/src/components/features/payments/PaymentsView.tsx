@@ -7,8 +7,11 @@ import {
   AreaChart,
   Bar,
   CartesianGrid,
+  Cell,
   ComposedChart,
   Line,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -24,6 +27,9 @@ type P = {
   dueDate?: string | null; paidAt?: string | null; status: string;
   lotCode?: string | null; clientName?: string | null; salePrice?: number | null;
   receivedByName?: string | null; paymentMethod?: string; reference?: string | null; voucherUrl?: string | null;
+  exchangeRate?: number | null; amountUsd?: number | null;
+  bankOperationNumber?: string | null; receiptNumber?: string | null; receiptValue?: number | null;
+  approvalDocumentUrl?: string | null; approvedByName?: string | null; approvedAt?: string | null;
 };
 const TYPE_LABEL: any = { reserva: 'Reserva', adelanto: 'Cuota inicial', primera_cuota: 'Cuota normal', cuota: 'Cuota' };
 const BADGE: any = { pagado: ['#EAF7EE', '#257849'], pendiente: ['#FFF6E4', '#B45309'], vencido: ['#E7F0FE', '#1259C4'] };
@@ -41,6 +47,9 @@ const INK = '#0F172A';
 const GREEN = '#16A36A';
 const RED = '#DC2626';
 const AMBER = '#D97706';
+// Tipo de cambio referencial para mostrar "Ventas por mes/ano" en US$ (mismo
+// valor por defecto usado en Cotizaciones).
+const SALES_CHART_EXCHANGE_RATE = 3.75;
 
 function money(n: number) {
   return formatMoney(Number(n || 0));
@@ -237,6 +246,8 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [showOverdueAlert, setShowOverdueAlert] = useState(true);
   const [showMoreKpis, setShowMoreKpis] = useState(false);
   const [salesRange, setSalesRange] = useState<3 | 6>(6);
+  const [salesPeriod, setSalesPeriod] = useState<'month' | 'year'>('month');
+  const [salesCurrency, setSalesCurrency] = useState<'PEN' | 'USD'>('PEN');
   const [paySearch, setPaySearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -258,9 +269,16 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [reference, setReference] = useState('');
   const [voucher, setVoucher] = useState<File | null>(null);
   const [voucherUrl, setVoucherUrl] = useState('');
+  const [exchangeRate, setExchangeRate] = useState('');
+  const [amountUsd, setAmountUsd] = useState('');
   const [editingPayment, setEditingPayment] = useState<P | null>(null);
   const [editVoucher, setEditVoucher] = useState<File | null>(null);
   const [editVoucherUrl, setEditVoucherUrl] = useState('');
+  const [approvalBankOp, setApprovalBankOp] = useState('');
+  const [approvalReceiptNo, setApprovalReceiptNo] = useState('');
+  const [approvalReceiptValue, setApprovalReceiptValue] = useState('');
+  const [approvalDoc, setApprovalDoc] = useState<File | null>(null);
+  const [approvalDocUrl, setApprovalDocUrl] = useState('');
   const payCanMark = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
 
   useEffect(() => { if (lockedProjectId) setPayProjectId(lockedProjectId); }, [lockedProjectId]);
@@ -312,10 +330,10 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     if (!amount) return toast('Ingresa monto', 'err');
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
-      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined });
+      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined, exchangeRate: exchangeRate ? Number(exchangeRate) : undefined, amountUsd: amountUsd ? Number(amountUsd) : undefined });
       if (voucher) { await uploadFile(`/payments/voucher/${saved?.id}`, voucher); }
       toast(voucher ? 'Pago registrado con comprobante adjunto' : 'Pago registrado');
-      setOpen(false); setAmount(0); setDueDate(''); setNote(''); setLotId(0); setClientId(0); setPayMethod('yape'); setReference(''); setVoucher(null); setVoucherUrl('');
+      setOpen(false); setAmount(0); setDueDate(''); setNote(''); setLotId(0); setClientId(0); setPayMethod('yape'); setReference(''); setVoucher(null); setVoucherUrl(''); setExchangeRate(''); setAmountUsd('');
       load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -330,6 +348,11 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     setEditingPayment(payment);
     setEditVoucher(null);
     setEditVoucherUrl(payment.voucherUrl || '');
+    setApprovalBankOp(payment.bankOperationNumber || '');
+    setApprovalReceiptNo(payment.receiptNumber || '');
+    setApprovalReceiptValue(payment.receiptValue != null ? String(payment.receiptValue) : '');
+    setApprovalDoc(null);
+    setApprovalDocUrl(payment.approvalDocumentUrl || '');
   }
 
   function pickEditVoucher(f?: File) {
@@ -338,16 +361,30 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     if (window) { try { if (editVoucherUrl.startsWith('blob:')) URL.revokeObjectURL(editVoucherUrl); } catch {} setEditVoucherUrl(URL.createObjectURL(f)); }
   }
 
-  async function markPaymentPaid(payment?: P | null) {
-    const target = payment || editingPayment;
+  function pickApprovalDoc(f?: File) {
+    if (!f) { setApprovalDoc(null); setApprovalDocUrl(editingPayment?.approvalDocumentUrl || ''); return; }
+    setApprovalDoc(f);
+    if (window) { try { if (approvalDocUrl.startsWith('blob:')) URL.revokeObjectURL(approvalDocUrl); } catch {} setApprovalDocUrl(URL.createObjectURL(f)); }
+  }
+
+  async function approvePayment() {
+    const target = editingPayment;
     if (!target) return;
+    if (!approvalBankOp.trim() || !approvalReceiptNo.trim() || !approvalReceiptValue) {
+      return toast('Completa N° Op. Bco, N° Boleta y Valor Bol para aprobar el pago', 'err');
+    }
     try {
-      if (editVoucher && target.id === editingPayment?.id) await uploadFile(`/payments/voucher/${target.id}`, editVoucher);
-      await api.post(`/payments/mark-paid/${target.id}`);
-      toast('Pago marcado como pagado');
+      if (editVoucher) await uploadFile(`/payments/voucher/${target.id}`, editVoucher);
+      if (approvalDoc) await uploadFile(`/payments/approval-doc/${target.id}`, approvalDoc);
+      await api.post(`/payments/approve/${target.id}`, {
+        bankOperationNumber: approvalBankOp.trim(),
+        receiptNumber: approvalReceiptNo.trim(),
+        receiptValue: Number(approvalReceiptValue),
+      });
+      toast('Pago aprobado');
       setEditingPayment(null);
-      setEditVoucher(null);
-      setEditVoucherUrl('');
+      setEditVoucher(null); setEditVoucherUrl('');
+      setApprovalBankOp(''); setApprovalReceiptNo(''); setApprovalReceiptValue(''); setApprovalDoc(null); setApprovalDocUrl('');
       await load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -484,6 +521,13 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const totalOverdue = Number(metrics.overdueAmount ?? sumRows(overdueByMonth));
   const collectionRate = totalSalesApproved > 0 ? (totalCollected / totalSalesApproved) * 100 : 0;
   const delinquencyRate = Number(metrics.delinquencyRate ?? ((totalCollected + totalOverdue) > 0 ? (totalOverdue / (totalCollected + totalOverdue)) * 100 : 0));
+  const paymentBreakdown = [
+    { key: 'inicial', name: 'Pago de Inicial', value: Number(metrics.initialPaymentAmount || 0), color: BLUE },
+    { key: 'cuotas', name: 'Pago de Cuotas', value: Number(metrics.paidCuotasAmount || 0), color: GREEN },
+    { key: 'pendientes', name: 'Cuotas Pendientes', value: Number(metrics.pendingAmount || 0), color: AMBER },
+    { key: 'atraso', name: 'Cuotas en Atraso', value: Number(metrics.overdueAmount || 0), color: RED },
+  ].filter((row) => row.value > 0);
+  const totalPaymentBreakdown = paymentBreakdown.reduce((sum, row) => sum + row.value, 0);
   const lastSixMonths = byMonth.slice(-6);
   const lastSixSalesMonths = salesByMonth.slice(-6);
   const rangeMonths = (() => {
@@ -499,14 +543,25 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     month,
     monto: Number(salesByMonth.find((r) => r.month === month)?.monto || 0),
   }));
-  const salesTrends = (() => {
-    const nowKey = rangeMonths[rangeMonths.length - 1];
-    const prevKey = rangeMonths[rangeMonths.length - 2] || '';
-    const nowValue = Number(salesByMonth.find((r) => r.month === nowKey)?.monto || 0);
-    const prevValue = Number(salesByMonth.find((r) => r.month === prevKey)?.monto || 0);
-    const trend = prevValue > 0 ? ((nowValue - prevValue) / prevValue) * 100 : (nowValue > 0 ? 100 : 0);
-    return { nowKey, prevKey, nowValue, prevValue, trend };
+  const salesByYear = (() => {
+    const totals: Record<string, number> = {};
+    for (const row of salesByMonth) {
+      const year = String(row.month || '').slice(0, 4);
+      if (!year) continue;
+      totals[year] = (totals[year] || 0) + Number(row.monto || 0);
+    }
+    return Object.keys(totals).sort().map((year) => ({ label: year, monto: totals[year] }));
   })();
+  const salesChartRows = (
+    salesPeriod === 'year' ? salesByYear : salesRangeRows.map((r) => ({ label: r.month, monto: r.monto }))
+  ).map((r) => ({ label: r.label, monto: salesCurrency === 'USD' ? r.monto / SALES_CHART_EXCHANGE_RATE : r.monto }));
+  const salesChartTotal = salesChartRows.reduce((sum, r) => sum + r.monto, 0);
+  const salesChartLast = salesChartRows[salesChartRows.length - 1];
+  const salesChartPrev = salesChartRows[salesChartRows.length - 2];
+  const salesChartTrend = salesChartPrev && salesChartPrev.monto > 0
+    ? ((salesChartLast?.monto || 0) - salesChartPrev.monto) / salesChartPrev.monto * 100
+    : ((salesChartLast?.monto || 0) > 0 ? 100 : 0);
+  const formatSalesCurrency = salesCurrency === 'USD' ? usdMoney : money;
   const paymentVsDelinquency = mergeByMonth(lastSixMonths, overdueByMonth.slice(-6));
   const currentCollected = lastValue(byMonth);
   const previousCollected = previousValue(byMonth);
@@ -572,56 +627,126 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
           <div className="card overflow-hidden p-0">
             <ChartHeader
-              title="Ventas por mes (S/)"
-              subtitle={salesRange === 3 ? 'Ultimos 3 meses' : 'Ultimos 6 meses'}
+              title="Pago de lotes"
+              subtitle="Distribucion del cobro por tipo"
+              menuRows={paymentBreakdown.map((row) => [row.name, money(row.value)] as [string, string])}
+            />
+            {paymentBreakdown.length ? (
+              <div className="px-3 pt-4 sm:px-4 sm:pt-5">
+                <div className="mx-auto h-[220px] w-full max-w-[280px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={paymentBreakdown} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={2}>
+                        {paymentBreakdown.map((row) => <Cell key={row.key} fill={row.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(value: number) => money(Number(value || 0))} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex flex-col gap-1.5 pb-4">
+                  {paymentBreakdown.map((row) => (
+                    <div key={row.key} className="flex items-center justify-between gap-3 text-xs">
+                      <span className="inline-flex min-w-0 items-center gap-1.5 truncate" style={{ color: MUTED }}>
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: row.color }} /> {row.name}
+                      </span>
+                      <b className="shrink-0 tabular-nums" style={{ color: INK }}>
+                        {money(row.value)} · {totalPaymentBreakdown > 0 ? pct((row.value / totalPaymentBreakdown) * 100) : '0.0%'}
+                      </b>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : <EmptyChart text="Sin montos para distribuir todavia." />}
+          </div>
+
+          <div className="card overflow-hidden p-0 xl:col-span-2">
+            <ChartHeader
+              title={`Ventas por ${salesPeriod === 'year' ? 'ano' : 'mes'} (${salesCurrency === 'USD' ? 'US$' : 'S/'})`}
+              subtitle={salesPeriod === 'year' ? 'Historico por ano' : (salesRange === 3 ? 'Ultimos 3 meses' : 'Ultimos 6 meses')}
               menuRows={[
-                ['Mes actual', money(salesTrends.nowValue)],
-                ['Mes anterior', money(salesTrends.prevValue)],
-                ['Variacion', pct(salesTrends.trend)],
-                ['Total vendido', money(totalSalesApproved)],
+                [salesPeriod === 'year' ? 'Ano actual' : 'Mes actual', formatSalesCurrency(salesChartLast?.monto || 0)],
+                [salesPeriod === 'year' ? 'Ano anterior' : 'Mes anterior', formatSalesCurrency(salesChartPrev?.monto || 0)],
+                ['Variacion', pct(salesChartTrend)],
+                ['Total vendido', formatSalesCurrency(salesChartTotal)],
               ]}
               actions={
-                <div className="flex items-center gap-1">
-                  {([3, 6] as const).map((value) => {
-                    const active = salesRange === value;
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setSalesRange(value)}
-                        className="h-7 rounded-md border px-2.5 text-xs font-semibold transition-colors"
-                        style={{
-                          borderColor: active ? BLUE : BORDER,
-                          background: active ? BLUE : '#fff',
-                          color: active ? '#fff' : MUTED,
-                        }}
-                      >
-                        {value} meses
-                      </button>
-                    );
-                  })}
+                <div className="flex flex-wrap items-center gap-1">
+                  <div className="flex items-center gap-1">
+                    {([['PEN', 'S/'], ['USD', 'US$']] as const).map(([value, label]) => {
+                      const active = salesCurrency === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setSalesCurrency(value)}
+                          className="h-7 rounded-md border px-2.5 text-xs font-semibold transition-colors"
+                          style={{ borderColor: active ? BLUE : BORDER, background: active ? BLUE : '#fff', color: active ? '#fff' : MUTED }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {([['month', 'Mes'], ['year', 'Ano']] as const).map(([value, label]) => {
+                      const active = salesPeriod === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setSalesPeriod(value)}
+                          className="h-7 rounded-md border px-2.5 text-xs font-semibold transition-colors"
+                          style={{ borderColor: active ? BLUE : BORDER, background: active ? BLUE : '#fff', color: active ? '#fff' : MUTED }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {salesPeriod === 'month' && (
+                    <div className="flex items-center gap-1">
+                      {([3, 6] as const).map((value) => {
+                        const active = salesRange === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setSalesRange(value)}
+                            className="h-7 rounded-md border px-2.5 text-xs font-semibold transition-colors"
+                            style={{
+                              borderColor: active ? BLUE : BORDER,
+                              background: active ? BLUE : '#fff',
+                              color: active ? '#fff' : MUTED,
+                            }}
+                          >
+                            {value} meses
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               }
             />
-            {salesRangeRows.length ? (
+            {salesChartRows.length ? (
               <div className="mx-auto h-[260px] w-full max-w-[680px] px-3 pt-4 sm:h-[300px] sm:px-4 sm:pt-5">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={salesRangeRows.map((r) => ({ month: r.month, vendido: Number(r.monto || 0) }))} margin={{ left: 8, right: 20, top: 12, bottom: 16 }}>
+                  <AreaChart data={salesChartRows} margin={{ left: 8, right: 20, top: 12, bottom: 16 }}>
                     <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
-                    <YAxis tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
-                    <Tooltip content={<FinanceTooltip />} cursor={{ stroke: BLUE, strokeWidth: 1, strokeDasharray: '4 4' }} />
-                    <Area type="monotone" dataKey="vendido" name="Vendido" stroke={BLUE} strokeWidth={3} fill={BLUE} fillOpacity={0.08} activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} />
+                    <XAxis dataKey="label" tickFormatter={salesPeriod === 'year' ? (v: string) => v : monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={salesCurrency === 'USD' ? shortUsd : shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
+                    <Tooltip formatter={(value: number) => formatSalesCurrency(Number(value || 0))} labelFormatter={(label: string) => (salesPeriod === 'year' ? label : monthLabel(label))} cursor={{ stroke: BLUE, strokeWidth: 1, strokeDasharray: '4 4' }} />
+                    <Area type="monotone" dataKey="monto" name="Vendido" stroke={BLUE} strokeWidth={3} fill={BLUE} fillOpacity={0.08} activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
-            ) : <EmptyChart text="Sin ventas por mes para mostrar." />}
+            ) : <EmptyChart text="Sin ventas para mostrar." />}
           </div>
 
-          <div className="card overflow-hidden p-0">
+          <div className="card overflow-hidden p-0 xl:col-span-3">
             <ChartHeader
               title="Pagos vs Morosidad"
               subtitle="Ultimos 6 meses"
@@ -691,14 +816,14 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             : (
             <>
             <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
-            <table className="table-base" style={{ width: '100%', minWidth: 1280 }}>
+            <table className="table-base" style={{ width: '100%', minWidth: 1180 }}>
               <thead><tr>
                 <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
                 <th className="th-base">Precio venta</th><th className="th-base">Tipo de pago</th>
                 <th className="th-base">Medio de pago</th><th className="th-base">Referencia</th>
                 <th className="th-base">Voucher</th><th className="th-base">Monto registrado</th><th className="th-base">Monto pagado</th>
                 <th className="th-base">Estado</th><th className="th-base">Vence</th><th className="th-base">Pagado</th>
-                <th className="th-base">Recepciona pago</th><th className="th-base">Acción</th>
+                <th className="th-base">Recepciona pago</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredRows.map((p) => (
@@ -713,18 +838,17 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                     <td className="td-base">{p.voucherUrl ? <a href={p.voucherUrl} target="_blank" rel="noreferrer" className="text-[#1877F2] hover:underline">Ver voucher</a> : '—'}</td>
                     <td className="td-base font-medium">{formatMoney(p.amount)}</td>
                     <td className="td-base font-medium" style={{ color: p.status === 'pagado' ? GREEN : MUTED }}>{p.status === 'pagado' ? formatMoney(p.amount) : '—'}</td>
-                    <td className="td-base">{st(p)}</td>
+                    <td className="td-base">
+                      <div className="flex flex-col items-start gap-1">
+                        {st(p)}
+                        {p.status === 'pendiente' && (
+                          <button type="button" className="btn-secondary !h-6 !px-2 text-[11px] whitespace-nowrap" onClick={() => openEditPayment(p)}>{payCanMark ? 'Aprobar / Editar' : 'Editar'}</button>
+                        )}
+                      </div>
+                    </td>
                     <td className="td-base">{formatDate(p.dueDate)}</td>
                     <td className="td-base">{formatDate(p.paidAt)}</td>
                     <td className="td-base">{p.receivedByName || '—'}</td>
-                    <td className="td-base">
-                      {p.status === 'pendiente' ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          <button type="button" className="btn-secondary !h-7 !px-2 text-xs" onClick={() => openEditPayment(p)}>Editar</button>
-                          {p.voucherUrl && payCanMark && <button type="button" className="btn-primary !h-7 !px-2 text-xs" onClick={() => markPaymentPaid(p)}>Marcar pagado</button>}
-                        </div>
-                      ) : <span className="text-xs text-slate-400">—</span>}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -735,7 +859,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   <td className="td-base" colSpan={4}></td>
                   <td className="td-base font-bold text-white">{formatMoney(totalRegistrado)}</td>
                   <td className="td-base font-bold text-white">{formatMoney(totalPagado)}</td>
-                  <td className="td-base font-bold text-white" colSpan={5} style={{ background: '#16A34A' }}>% Pago: {pctPago.toFixed(1)}%</td>
+                  <td className="td-base font-bold text-white" colSpan={4} style={{ background: '#16A34A' }}>% Pago: {pctPago.toFixed(1)}%</td>
                 </tr>
               </tfoot>
             </table>
@@ -814,6 +938,10 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 </div>
               </Field>
               <div className="grid grid-cols-2 gap-3">
+                <Field label="TC (opcional)"><input type="number" step="0.0001" className="input" value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} placeholder="Ej: 3.75" /></Field>
+                <Field label="Monto US$ (opcional)"><input type="number" step="0.01" className="input" value={amountUsd} onChange={(e) => setAmountUsd(e.target.value)} /></Field>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
                 <Field label="Monto (S/)"><input type="number" className="input" value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></Field>
                 <Field label="Vence (opcional)"><input type="date" className="input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
               </div>
@@ -862,10 +990,29 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
               {editVoucherUrl && <img src={editVoucherUrl} alt="Voucher" className="mt-3 h-32 w-32 rounded-lg border object-cover" />}
             </Field>
 
+            {payCanMark && (
+              <div className="mt-4 space-y-3 rounded-lg border p-3" style={{ borderColor: BORDER, background: '#FAFBFC' }}>
+                <p className="text-xs font-semibold" style={{ color: '#B45309' }}>Estos campos se llenan para aprobar el pago</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="N° Op. Bco"><input className="input" value={approvalBankOp} onChange={(e) => setApprovalBankOp(e.target.value)} /></Field>
+                  <Field label="N° Boleta"><input className="input" value={approvalReceiptNo} onChange={(e) => setApprovalReceiptNo(e.target.value)} /></Field>
+                </div>
+                <Field label="Valor Bol"><input type="number" step="0.01" className="input" value={approvalReceiptValue} onChange={(e) => setApprovalReceiptValue(e.target.value)} /></Field>
+                <Field label="Adj. doc (opcional)">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                      <FiUpload /> <input type="file" className="hidden" onChange={(e) => { pickApprovalDoc(e.target.files?.[0]); e.target.value = ''; }} /> Adjuntar documento
+                    </label>
+                    {approvalDocUrl && <a href={approvalDocUrl} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[#1877F2] hover:underline">Ver documento</a>}
+                  </div>
+                </Field>
+              </div>
+            )}
+
             <div className="flex flex-wrap justify-end gap-2 border-t pt-4" style={{ borderColor: BORDER }}>
               <button className="btn-neutral" onClick={() => setEditingPayment(null)}>Cancelar</button>
               <button className="btn-secondary" onClick={saveEditVoucher} disabled={!editVoucher}>Guardar voucher</button>
-              {payCanMark && <button className="btn-primary" onClick={() => markPaymentPaid()}>Marcar pagado</button>}
+              {payCanMark && <button className="btn-primary" onClick={approvePayment}>Aprobar Pago</button>}
             </div>
           </div>
         </div>

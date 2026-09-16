@@ -2,11 +2,9 @@
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  FiArrowLeft,
   FiAward,
   FiBell,
   FiCheckCircle,
-  FiChevronDown,
   FiChevronLeft,
   FiChevronRight,
   FiCreditCard,
@@ -91,8 +89,6 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const [pendingApp, setPendingApp] = useState<{ count: number; rows: any[] }>({ count: 0, rows: [] });
   const [bellOpen, setBellOpen] = useState(false);
   const [activeProject, setActiveProject] = useState<{ id: number; name: string; logoImageUrl?: string | null } | null>(null);
-  const [projectOptions, setProjectOptions] = useState<{ id: number; name: string; logoImageUrl?: string | null }[]>([]);
-  const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [projectDocumentsOpen, setProjectDocumentsOpen] = useState(false);
   const [moduleAccess, setModuleAccess] = useState<Record<number, string[] | null>>({});
 
@@ -123,20 +119,6 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
     api.get<any>(`/projects/${activeProjectId}`)
       .then((project) => setActiveProject({ id: activeProjectId, name: project?.name || `Proyecto ${activeProjectId}`, logoImageUrl: project?.logoImageUrl || null }))
       .catch(() => setActiveProject({ id: activeProjectId, name: `Proyecto ${activeProjectId}` }));
-  }, [activeProjectId]);
-
-  useEffect(() => {
-    if (!activeProjectId) {
-      setProjectOptions([]);
-      return;
-    }
-
-    api.get<any[]>('/projects')
-      .then((data) => {
-        const rows = Array.isArray(data) ? data : ((data as any)?.items || []);
-        setProjectOptions(rows.map((project: any) => ({ id: Number(project.id), name: project.name || `Proyecto ${project.id}`, logoImageUrl: project.logoImageUrl || null })));
-      })
-      .catch(() => setProjectOptions([]));
   }, [activeProjectId]);
 
   useEffect(() => {
@@ -199,7 +181,6 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
     if (href.startsWith('#')) return;
     router.push(href);
     setDrawerOpen(false);
-    setProjectSwitcherOpen(false);
   }
 
   function logout() {
@@ -277,70 +258,26 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
       {isProjectContext ? (
         <div className="shrink-0 border-b p-2" style={{ borderColor: BRAND.border }}>
           {showLabels ? (
-            <div className="relative flex h-8 items-center gap-1.5">
+            <div className="flex h-11 items-center gap-1.5">
+              <span className="w-8 shrink-0" aria-hidden="true" />
               <button
                 type="button"
-                onClick={() => navigate('/projects')}
-                className="grid h-8 w-8 shrink-0 place-items-center rounded-md border bg-white text-[#374151] transition-colors hover:bg-[#F3F4F6]"
-                style={{ borderColor: BRAND.border }}
-                aria-label="Volver a proyectos"
-                title="Volver a proyectos"
+                onClick={() => navigate('/dashboard')}
+                className="flex h-11 min-w-0 flex-1 items-center justify-center rounded-md hover:bg-[#F3F4F6]"
+                title="Ir al inicio"
               >
-                <FiArrowLeft />
-              </button>
-              <button
-                type="button"
-                className="flex h-8 min-w-0 flex-1 items-center justify-center gap-2 rounded-md border bg-white px-2 text-sm font-semibold text-[#171717] transition-colors hover:bg-[#F3F4F6]"
-                style={{ borderColor: BRAND.border }}
-                onClick={() => setProjectSwitcherOpen((value) => !value)}
-                title={activeProject?.name || 'Cambiar proyecto'}
-              >
-                {activeProject?.logoImageUrl ? (
-                  <img src={activeProject.logoImageUrl} alt={activeProject.name} className="max-h-5 max-w-[8.5rem] object-contain" />
-                ) : (
-                  <span className="truncate">{activeProject?.name || 'Proyecto'}</span>
-                )}
-                <FiChevronDown className="shrink-0 text-[#6B7280]" style={{ fontSize: 14 }} />
+                <img src="/logo/dunacon.png" alt="Dunacon" className="h-11 w-auto object-contain mr-3" />
               </button>
               <button
                 type="button"
                 onClick={toggleCollapsed}
-                className="grid h-8 w-8 shrink-0 place-items-center rounded-md border bg-white text-[#374151] transition-colors hover:bg-[#F3F4F6] md:grid"
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-md border bg-white text-[#374151] transition-colors hover:bg-[#F3F4F6]"
                 style={{ borderColor: BRAND.border }}
                 aria-label="Contraer menu"
                 title="Contraer menu"
               >
                 <FiChevronLeft />
               </button>
-              {projectSwitcherOpen && (
-                <>
-                  <div className="fixed inset-0 z-40" onClick={() => setProjectSwitcherOpen(false)} />
-                  <div
-                    className="fixed top-2 z-50 max-h-[calc(100vh-1rem)] w-72 overflow-auto rounded-md border bg-white p-2 shadow-2xl"
-                    style={{ borderColor: BRAND.border, left: drawerOpen ? 'min(90vw, 320px)' : sidebarWidth + 8 }}
-                  >
-                    <p className="mb-2 px-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: BRAND.muted }}>Cambiar proyecto</p>
-                    {(projectOptions.length ? projectOptions : activeProject ? [activeProject] : []).map((project) => (
-                      <button
-                        key={project.id}
-                        type="button"
-                        onClick={() => navigate(`/projects/${project.id}`)}
-                        className={`flex h-10 w-full items-center gap-2 rounded-md px-2 text-left text-sm transition-colors ${Number(project.id) === Number(activeProjectId) ? 'bg-softblue font-semibold' : 'hover:bg-[#F3F4F6]'}`}
-                        style={{ color: BRAND.ink }}
-                      >
-                        {project.logoImageUrl ? (
-                          <img src={project.logoImageUrl} alt="" className="h-6 w-10 shrink-0 object-contain" />
-                        ) : (
-                          <span className="grid h-6 w-10 shrink-0 place-items-center rounded bg-softblue text-[10px] font-bold" style={{ color: BRAND.blue }}>
-                            {project.name.trim().charAt(0).toUpperCase() || 'P'}
-                          </span>
-                        )}
-                        <span className="min-w-0 flex-1 truncate">{project.name}</span>
-                      </button>
-                    ))}
-                  </div>
-                </>
-              )}
             </div>
           ) : (
             <button
@@ -355,8 +292,8 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           )}
         </div>
       ) : (
-        <div className={`flex h-14 shrink-0 items-center border-b ${showLabels ? 'px-5' : 'justify-center px-0'}`} style={{ borderColor: BRAND.border }}>
-          <img src="/logo/dunacon.png" alt="Dunacon" className={`${showLabels ? 'h-11 w-auto' : 'h-8 max-w-10 object-contain'}`} />
+        <div className="flex h-14 shrink-0 items-center justify-center border-b px-2" style={{ borderColor: BRAND.border }}>
+          <img src="/logo/dunacon.png" alt="Dunacon" className={`${showLabels ? 'h-11 w-auto mr-3' : 'h-8 max-w-10 object-contain'}`} />
         </div>
       )}
 
