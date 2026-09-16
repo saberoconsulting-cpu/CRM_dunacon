@@ -155,9 +155,12 @@ export class SalesService {
   }
 
   /** Aprueba la separación: activa plan, cronograma y pasa lote a vendido. */
-  async approve(id: number, actorId: number) {
+  async approve(id: number, actorId: number, projectId?: number) {
     const sale = await this.saleRepo.findOne({ where: { id } });
     if (!sale) throw new BadRequestException('Venta no encontrada');
+    if (projectId != null && Number(sale.projectId) !== Number(projectId)) {
+      throw new BadRequestException('Esta separacion pertenece a otro proyecto y no puede aprobarse desde aqui.');
+    }
     if (sale.approvalStatus === 'aprobada') return sale;
 
     let lot: LotEntity | null = null;
@@ -204,9 +207,12 @@ export class SalesService {
   }
 
   /** Rechaza la separación (libera el lote). */
-  async reject(id: number, actorId: number, note?: string) {
+  async reject(id: number, actorId: number, note?: string, projectId?: number) {
     const sale = await this.saleRepo.findOne({ where: { id } });
     if (!sale) throw new BadRequestException('Venta no encontrada');
+    if (projectId != null && Number(sale.projectId) !== Number(projectId)) {
+      throw new BadRequestException('Esta separacion pertenece a otro proyecto y no puede rechazarse desde aqui.');
+    }
 
     let lot: LotEntity | null = null;
     const kept = await this.dataSource.transaction(async (manager) => {

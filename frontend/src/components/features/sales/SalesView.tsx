@@ -65,6 +65,10 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [showCotizaciones, setShowCotizaciones] = useState(false);
   const [quotes, setQuotes] = useState<any[]>([]);
   const [selectedQuoteId, setSelectedQuoteId] = useState(0);
+  const [quoteSearch, setQuoteSearch] = useState('');
+  const [quoteFrom, setQuoteFrom] = useState('');
+  const [quoteTo, setQuoteTo] = useState('');
+  const [exchangeRate, setExchangeRate] = useState(3.75);
   const [projects, setProjects] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
@@ -107,8 +111,6 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [cuotaInicial, setCuotaInicial] = useState(0);
   const [interestType, setInterestType] = useState<'sin_intereses' | 'tea'>('sin_intereses');
   const [tea, setTea] = useState(0);
-  const [applyCommission, setApplyCommission] = useState(false);
-  const [commissionRate, setCommissionRate] = useState(0);
   const [saleDate, setSaleDate] = useState(todayInput());
   const [conditions, setConditions] = useState('');
   const [preview, setPreview] = useState<any>(null);
@@ -191,13 +193,22 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldOpenSale, queryLotId, lots, lockedProjectId]);
 
-  const availableQuotes = quotes.filter((q: any) => (
-    (!projectId || Number(q.projectId) === Number(projectId)) &&
-    (!lotId || Number(q.lotId) === Number(lotId))
-  ));
+  const availableQuotes = quotes.filter((q: any) => {
+    if (projectId && Number(q.projectId) !== Number(projectId)) return false;
+    if (quoteSearch.trim()) {
+      const term = quoteSearch.trim().toLowerCase();
+      const haystack = `${q.id} ${q.clientName || ''} ${q.lotCode || ''} ${q.clientEmail || ''} ${q.clientPhone || ''}`.toLowerCase();
+      if (!haystack.includes(term)) return false;
+    }
+    const created = q.createdAt ? String(q.createdAt).slice(0, 10) : '';
+    if (quoteFrom && (!created || created < quoteFrom)) return false;
+    if (quoteTo && (!created || created > quoteTo)) return false;
+    return true;
+  });
 
   const selectedLot = lots.find((l: any) => Number(l.id) === Number(lotId));
   const selectedQuote = quotes.find((q: any) => Number(q.id) === Number(selectedQuoteId));
+  const salePriceUsd = exchangeRate > 0 ? salePrice / exchangeRate : 0;
   const quoteProjectId = lockedProjectId || projectId || Number(selectedLot?.projectId || 0);
 
   // Al elegir un lote, autocompletar el precio con su "Precio Venta" de
@@ -219,22 +230,29 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   // Cotización real del módulo Cotizaciones Lotes: precarga el lote y el
   // precio (convertido a soles con el tipo de cambio de esa cotización).
   function selectQuote(q: any) {
-    const exchangeRate = Number(q.exchangeRate || 1);
+    const rate = Number(q.exchangeRate || 0) > 0 ? Number(q.exchangeRate) : 3.75;
     const isCredit = q.paymentMethod === 'credito';
+    setExchangeRate(rate);
     setSelectedQuoteId(Number(q.id));
     setProjectId(Number(q.projectId || lockedProjectId || projectId || 0));
     setLotId(Number(q.lotId));
-    setClientId(0);
     setClientName(q.clientName || '');
-    setSalePrice(Math.round(Number(q.finalPriceUsd || 0) * exchangeRate));
+    setSalePrice(Math.round(Number(q.finalPriceUsd || 0) * rate));
     setPaymentMethod(isCredit ? 'Al crédito' : 'Contado');
-    setCuotaInicial(isCredit ? Math.round(Number(q.cuotaInicialUsd || 0) * exchangeRate) : 0);
+    setCuotaInicial(isCredit ? Math.round(Number(q.cuotaInicialUsd || 0) * rate) : 0);
     setTotalCuotas(isCredit ? Number(q.totalCuotas || 0) : 0);
     setInterestType(q.interestType === 'tea' ? 'tea' : 'sin_intereses');
     setTea(q.interestType === 'tea' ? Number(q.tea || 0) : 0);
-    setSaleDate(todayInput());
+    setSaleDate(q.createdAt ? String(q.createdAt).slice(0, 10) : todayInput());
     setConditions((current) => current || `Cotizacion Q${q.id}`);
     setShowCotizaciones(false);
+    setPreview(null);
+    // El cliente de la cotizacion se reutiliza si ya existe en la cartera.
+    const match = clients.find((c: any) => {
+      const fullName = String(c.fullName || c.full_name || '').trim().toLowerCase();
+      return fullName && fullName === String(q.clientName || '').trim().toLowerCase();
+    });
+    setClientId(match ? Number(match.id) : 0);
     toast('Datos de la cotizacion cargados');
   }
 
@@ -274,13 +292,13 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const t = setTimeout(() => {
       api.post('/sales/preview', {
         projectId: projectId || 1, lotId: lotId || 1, agentId: agentId || 1,
-        salePrice, appliesCommission: applyCommission, commissionRate: commissionRate || undefined,
+        salePrice, appliesCommission: false,
         totalCuotas, cuotaInicial, interestType, tea: interestType === 'tea' ? tea : undefined,
         paymentMethod,
       }).then(setPreview).catch(() => setPreview(null));
     }, 300);
     return () => clearTimeout(t);
-  }, [open, salePrice, applyCommission, commissionRate, totalCuotas, cuotaInicial, interestType, tea, paymentMethod, projectId, lotId, agentId]);
+  }, [open, salePrice, totalCuotas, cuotaInicial, interestType, tea, paymentMethod, projectId, lotId, agentId]);
 
   async function registrar() {
     if (!selectedQuoteId) return toast('Selecciona una cotizacion antes de registrar la venta. Si no existe, genera una primero.', 'err');
@@ -300,24 +318,25 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         cuotaInicial: paymentMethod === 'Contado' ? undefined : (cuotaInicial || undefined),
         interestType: paymentMethod === 'Contado' ? undefined : interestType,
         tea: paymentMethod !== 'Contado' && interestType === 'tea' ? tea : undefined,
-        appliesCommission: applyCommission || undefined,
-        commissionRate: applyCommission && commissionRate ? Number(commissionRate) : undefined,
         saleDate: saleDate || undefined, conditions: conditions || undefined,
       });
       toast('Separación registrada. Queda pendiente de validación.');
       setOpen(false); setLotId(0); setSelectedQuoteId(0); setClientId(0); setClientName(''); setConditions(''); setSalePrice(0);
       setPaymentMethod('Contado'); setTotalCuotas(0); setCuotaInicial(0); setInterestType('sin_intereses'); setTea(0);
-      setApplyCommission(false); setCommissionRate(0); setSaleDate(todayInput()); setAgentId(0); setPreview(null);
+      setSaleDate(todayInput()); setAgentId(0); setPreview(null);
+      setQuoteSearch(''); setQuoteFrom(''); setQuoteTo(''); setShowCotizaciones(false);
       load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
 
   async function aprobar(s: any) {
-    try { await api.post(`/sales/approve/${s.id}`); toast('Separación aprobada. Lote vendido.'); load(); }
+    const suffix = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
+    try { await api.post(`/sales/approve/${s.id}${suffix}`); toast('Separación aprobada. Lote vendido.'); load(); }
     catch (e: any) { toast(e.message, 'err'); }
   }
   async function rechazar(s: any) {
-    try { await api.post(`/sales/reject/${s.id}`); toast('Separación rechazada. Lote liberado.'); load(); }
+    const suffix = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
+    try { await api.post(`/sales/reject/${s.id}${suffix}`); toast('Separación rechazada. Lote liberado.'); load(); }
     catch (e: any) { toast(e.message, 'err'); }
   }
 
@@ -508,41 +527,75 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
           <div className="relative bg-white rounded-2xl w-full max-w-2xl p-6 max-h-[92vh] overflow-y-auto">
-            <div className="flex flex-wrap items-center justify-between gap-2 mb-5">
+            <div className="mb-4">
               <h3 className="font-semibold" style={{ fontSize: 17 }}>Registrar venta</h3>
-              <button
-                className="rounded-lg px-3 text-xs font-semibold text-white"
-                style={{ height: 32, background: '#1877F2' }}
-                onClick={() => setShowCotizaciones((v) => !v)}
-              >
-                Selecciona Cotización
-              </button>
+              <p className="mt-0.5 text-xs text-slate-500">Filtra la cotizacion por cliente o fecha y asignala para autocompletar la ficha.</p>
             </div>
 
-            {showCotizaciones && (
-              <div className="rounded-xl border mb-4 overflow-hidden" style={{ borderColor: '#A9C9FB' }}>
-                <div className="px-3 py-2 text-xs font-semibold" style={{ background: '#E7F0FE', color: '#1259C4' }}>
-                  Cotizaciones generadas en este proyecto (módulo Cotizaciones Lotes)
-                </div>
-                <div className="max-h-52 overflow-y-auto divide-y" style={{ borderColor: '#F0F1F3' }}>
-                  {availableQuotes.map((q: any) => (
-                    <button key={q.id} className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-50 text-left"
-                      onClick={() => selectQuote(q)}>
-                      <span>
-                        <span className="font-semibold">Q{q.id}</span> · Lote {q.lotCode || q.lotId} · {q.clientName || 'Sin cliente'}
-                        <span className="block text-xs text-slate-500">
-                          {q.paymentMethod === 'credito' ? `Al crédito · ${Number(q.totalCuotas || 0)} cuotas` : 'Contado'}
-                        </span>
-                      </span>
-                      <b>{formatMoney(Math.round(Number(q.finalPriceUsd || 0) * Number(q.exchangeRate || 1)))}</b>
-                    </button>
-                  ))}
-                  {availableQuotes.length === 0 && (
-                    <p className="px-3 py-4 text-xs text-slate-400 text-center">Aún no hay cotizaciones para este proyecto o lote.</p>
-                  )}
-                </div>
+            <div className="rounded-xl border p-3 mb-4" style={{ borderColor: '#A9C9FB', background: '#F8FBFF' }}>
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+                <label className="block">
+                  <span className="label">Cliente o lote</span>
+                  <input
+                    className="input !h-9 text-sm"
+                    placeholder="Nombre, telefono o codigo"
+                    value={quoteSearch}
+                    onChange={(e) => { setQuoteSearch(e.target.value); setShowCotizaciones(true); }}
+                  />
+                </label>
+                <label className="block">
+                  <span className="label">Desde</span>
+                  <input type="date" className="input !h-9 text-sm" value={quoteFrom} onChange={(e) => setQuoteFrom(e.target.value)} />
+                </label>
+                <label className="block">
+                  <span className="label">Hasta</span>
+                  <input type="date" className="input !h-9 text-sm" value={quoteTo} onChange={(e) => setQuoteTo(e.target.value)} />
+                </label>
+                <button
+                  type="button"
+                  className="btn-primary h-9 whitespace-nowrap"
+                  onClick={() => setShowCotizaciones((v) => !v)}
+                >
+                  {showCotizaciones ? 'Ocultar lista' : 'Asignar cotizacion'}
+                </button>
               </div>
-            )}
+
+              <div className="mt-2 flex items-center justify-between gap-2 text-xs text-slate-500">
+                <span>{availableQuotes.length} cotizacion{availableQuotes.length === 1 ? '' : 'es'} disponible{availableQuotes.length === 1 ? '' : 's'}</span>
+                {(quoteSearch || quoteFrom || quoteTo) && (
+                  <button type="button" className="font-semibold" style={{ color: '#1259C4' }} onClick={() => { setQuoteSearch(''); setQuoteFrom(''); setQuoteTo(''); }}>
+                    Limpiar filtros
+                  </button>
+                )}
+              </div>
+
+              {showCotizaciones && (
+                <div className="mt-2 rounded-lg border bg-white overflow-hidden" style={{ borderColor: '#D6E4FB' }}>
+                  <div className="flex items-center justify-between gap-2 border-b px-3 py-2" style={{ borderColor: '#F0F1F3' }}>
+                    <span className="text-xs font-semibold" style={{ color: '#1259C4' }}>Elige una cotizacion</span>
+                    <button type="button" className="text-xs text-slate-400 hover:text-slate-600" onClick={() => setShowCotizaciones(false)}>Cerrar</button>
+                  </div>
+                  <div className="max-h-56 overflow-y-auto divide-y" style={{ borderColor: '#F0F1F3' }}>
+                    {availableQuotes.map((q: any) => (
+                      <button key={q.id} className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-50 text-left"
+                        onClick={() => selectQuote(q)}>
+                        <span>
+                          <span className="font-semibold">Q{q.id}</span> · Lote {q.lotCode || q.lotId} · {q.clientName || 'Sin cliente'}
+                          <span className="block text-xs text-slate-500">
+                            {q.paymentMethod === 'credito' ? `Al crédito · ${Number(q.totalCuotas || 0)} cuotas` : 'Contado'}
+                            {q.createdAt ? ` · ${new Date(q.createdAt).toLocaleDateString('es-PE')}` : ''}
+                          </span>
+                        </span>
+                        <b>{formatMoney(Math.round(Number(q.finalPriceUsd || 0) * Number(q.exchangeRate || 1)))}</b>
+                      </button>
+                    ))}
+                    {availableQuotes.length === 0 && (
+                      <p className="px-3 py-4 text-xs text-slate-400 text-center">No hay cotizaciones que coincidan con el filtro.</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div className="rounded-lg border p-3 mb-4 text-sm" style={{ borderColor: selectedQuote ? '#BBF7D0' : '#BFDBFE', background: selectedQuote ? '#F0FDF4' : '#EFF6FF' }}>
               {selectedQuote ? (
@@ -626,47 +679,37 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
 
             {/* Monto y fecha */}
             <div className="border-t mt-4 pt-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <Field label="Precio de venta (S/)*"><input type="number" className="input" value={salePrice} onChange={(e) => setSalePrice(Number(e.target.value))} /></Field>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <Field label="Precio de venta (S/)*">
+                  <input
+                    type="number"
+                    className="input"
+                    value={salePrice || ''}
+                    onChange={(e) => setSalePrice(Number(e.target.value))}
+                  />
+                </Field>
+                <Field label="Precio de venta (US$)">
+                  <input
+                    type="number"
+                    className="input"
+                    value={salePriceUsd || ''}
+                    onChange={(e) => setSalePrice(Math.round(Number(e.target.value || 0) * exchangeRate))}
+                  />
+                </Field>
+                <Field label="Tipo de cambio (S/ por US$)">
+                  <input
+                    type="number"
+                    step="0.0001"
+                    className="input"
+                    value={exchangeRate || ''}
+                    onChange={(e) => setExchangeRate(Number(e.target.value))}
+                  />
+                </Field>
                 <Field label="Fecha"><input type="date" className="input" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></Field>
               </div>
-            </div>
-
-            {/* Comisión opcional (la tasa la define el admin en el agente, no se fuerza) */}
-            <div className="rounded-xl bg-canvas p-4 mt-3">
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <input type="checkbox" className="mt-1" checked={applyCommission} onChange={(e) => setApplyCommission(e.target.checked)} />
-                <span className="text-sm">
-                  <span className="font-semibold block">Agente inmobiliario</span>
-                  <span className="text-xs text-slate-500">Calcula la comisión de esta venta sin descontarla del financiamiento.</span>
-                </span>
-              </label>
-              {applyCommission && (
-                <div className="mt-3 rounded-lg bg-white/70 border p-3" style={{ borderColor: '#EDEEF0' }}>
-                  {(() => {
-                    const ag = agents.find((a: any) => Number(a.id) === Number(agentId));
-                    const adminRate = Number(ag?.commissionRate || 0);
-                    return (
-                      <div className="space-y-3">
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                          <span className="text-slate-600">Comisión según administrador:</span>
-                          <span className="font-semibold">{adminRate > 0 ? `${adminRate}%` : 'sin configurar'}</span>
-                        </div>
-                        <div>
-                          <label className="label">Comisión para esta venta (%) — déjala vacía para usar la del admin</label>
-                          <input className="input" type="number" min={0} max={100} step={0.1} placeholder="0" value={commissionRate || ''} onChange={(e) => setCommissionRate(Number(e.target.value))} />
-                        </div>
-                        {preview && (
-                          <div className="flex flex-wrap items-center justify-between gap-2 text-sm border-t pt-3" style={{ borderColor: '#EEF0F2' }}>
-                            <span className="text-slate-600">Comisión:</span>
-                            <b>{formatMoney(preview.commissionAmount)}</b>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              )}
+              <p className="mt-1 text-xs text-slate-500">
+                Ambos precios se calculan con el tipo de cambio: {formatMoney(salePrice)} = US$ {salePriceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </p>
             </div>
 
             {/* Forma de pago */}

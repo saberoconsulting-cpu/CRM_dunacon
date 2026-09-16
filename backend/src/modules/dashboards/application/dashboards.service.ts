@@ -347,4 +347,134 @@ export class DashboardsService {
       agentRanking: this.mapAgentRanking(agentRanking),
     };
   }
+
+  async projectKpis(projectId: number) {
+    const [
+      totalLots,
+      soldLotsRow,
+      inventoryRow,
+      soldRow,
+      incomeRow,
+      expenseRow,
+      collectedRow,
+      initialRow,
+      receivableRow,
+      overdueRow,
+      expenseByClass,
+    ] = await Promise.all([
+      this.lotRepo.count({ where: { projectId } }),
+      this.lotRepo.createQueryBuilder('l')
+        .where('l.project_id = :projectId AND l.status = :status', { projectId, status: 'vendido' })
+        .select('COUNT(*)', 'total').getRawOne(),
+      this.lotRepo.createQueryBuilder('l').where('l.project_id = :projectId', { projectId })
+        .select('COALESCE(SUM(COALESCE(l.sale_price, l.price)),0)', 'total').getRawOne(),
+      this.lotRepo.createQueryBuilder('l')
+        .where('l.project_id = :projectId AND l.status = :status', { projectId, status: 'vendido' })
+        .select('COALESCE(SUM(COALESCE(l.sale_price, l.price)),0)', 'total').getRawOne(),
+      this.txnRepo.createQueryBuilder('t')
+        .where("t.project_id = :projectId AND t.type = 'ingreso'", { projectId })
+        .select('COALESCE(SUM(t.amount),0)', 'total').getRawOne(),
+      this.txnRepo.createQueryBuilder('t')
+        .where("t.project_id = :projectId AND t.type = 'egreso'", { projectId })
+        .select('COALESCE(SUM(t.amount),0)', 'total').getRawOne(),
+      this.paymentRepo.createQueryBuilder('p')
+        .where("p.project_id = :projectId AND p.status = 'pagado' AND p.type IN ('cuota','adelanto','primera_cuota')", { projectId })
+        .select('COALESCE(SUM(p.amount),0)', 'total').getRawOne(),
+      this.paymentRepo.createQueryBuilder('p')
+        .where("p.project_id = :projectId AND p.status = 'pagado' AND p.type IN ('adelanto','primera_cuota')", { projectId })
+        .select('COALESCE(SUM(p.amount),0)', 'total').getRawOne(),
+      this.saleRepo.createQueryBuilder('s')
+        .innerJoin('sale_installments', 'i', 'i.sale_id = s.id')
+        .where("s.project_id = :projectId AND s.approval_status IN ('pendiente','aprobada') AND i.status = 'pendiente'", { projectId })
+        .select('COALESCE(SUM(i.amount),0)', 'total').getRawOne(),
+      this.saleRepo.createQueryBuilder('s')
+        .innerJoin('sale_installments', 'i', 'i.sale_id = s.id')
+        .where("s.project_id = :projectId AND s.approval_status IN ('pendiente','aprobada') AND i.status = 'pendiente' AND i.due_date < CURRENT_DATE", { projectId })
+        .select('COALESCE(SUM(i.amount),0)', 'total').getRawOne(),
+      this.expenseRepo.createQueryBuilder('e')
+        .where('e.project_id = :projectId', { projectId })
+        .select('e.expense_class', 'cls')
+        .addSelect('COALESCE(SUM(e.amount),0)', 'total')
+        .groupBy('e.expense_class')
+        .getRawMany(),
+    ]);
+
+    const cls: Record<string, number> = {
+      inversion: 0,
+      financiamiento: 0,
+      compra_terreno: 0,
+      operacion: 0,
+      costo_indirecto: 0,
+      ventas_admin: 0,
+      impuestos: 0,
+    };
+    for (const row of expenseByClass) cls[row.cls || 'operacion'] = Number(row.total || 0);
+
+    const lotCount = Number(totalLots || 0);
+    const soldLotsCount = Number(soldLotsRow?.total || 0);
+    const inventoryValue = Number(inventoryRow?.total || 0);
+    const soldListValue = Number(soldRow?.total || 0);
+    const income = Number(incomeRow?.total || 0);
+    const expense = Number(expenseRow?.total || 0);
+    const collectedAmount = Number(collectedRow?.total || 0);
+    const initialPaymentAmount = Number(initialRow?.total || 0);
+    const pendingAmount = Number(receivableRow?.total || 0);
+    const overdueAmount = Number(overdueRow?.total || 0);
+    const delinquencyRate = pendingAmount > 0 ? (overdueAmount / pendingAmount) * 100 : 0;
+
+    // Estado de resultados con la misma logica del modulo de finanzas.
+    const landCost = cls.compra_terreno;
+    const directCost = cls.inversion;
+    const indirectCost = cls.costo_indirecto;
+    const costOfSales = landCost + directCost + indirectCost;
+    const salesAdminCost = cls.ventas_admin + cls.operacion;
+    const financeCost = cls.financiamiento;
+    const registeredTax = cls.impuestos;
+    const grossProfit = income - costOfSales;
+    const operatingProfit = grossProfit - salesAdminCost;
+    const profitBeforeTax = operatingProfit - financeCost;
+    const incomeTax = Math.max(0, profitBeforeTax * 0.295);
+    const netProfit = profitBeforeTax - Math.max(registeredTax, incomeTax);
+    const unrealizedRevenue = Math.max(0, soldListValue - income);
+    const marginOnSales = soldListValue > 0 ? (netProfit / soldListValue) * 100 : 0;
+    const collectionRate = soldListValue > 0 ? (collectedAmount / soldListValue) * 100 : 0;
+
+    return {
+      cards: {
+        totalLots: lotCount,
+        soldLotsCount,
+        inventoryValue,
+        soldListValue,
+        income,
+        expense,
+        collectedAmount,
+        initialPaymentAmount,
+        pendingAmount,
+        overdueAmount,
+      },
+      statement: {
+        revenue: income,
+        unrealizedRevenue,
+        landCost,
+        directCost,
+        indirectCost,
+        costOfSales,
+        grossProfit,
+        salesAdminCost,
+        operatingProfit,
+        financeCost,
+        registeredTax,
+        profitBeforeTax,
+        incomeTax,
+        netProfit,
+        marginOnSales,
+      },
+      cash: {
+        pendingAmount,
+        overdueAmount,
+        delinquencyRate,
+        collectionRate,
+      },
+    };
+  }
 }

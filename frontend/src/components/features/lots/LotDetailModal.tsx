@@ -206,7 +206,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const [payType, setPayType] = useState('reserva');
   const [working, setWorking] = useState(false);
   const [fin, setFin] = useState<any>({ sale: null, installments: [] });
-  const [lotizacion, setLotizacion] = useState({ type: '', salePrice: 0, finalPrice: 0, status: 'disponible', statusDate: '' });
+  const [lotizacion, setLotizacion] = useState({ salePrice: 0, finalPrice: 0, status: 'disponible', statusDate: '' });
   const [view, setView] = useState<'detalle' | 'vender'>('detalle');
   const canEdit = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
 
@@ -217,7 +217,6 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
       setLot(d.lot); setBlock(d.street || d.block || null); setPlan(d.plan || null); setHistory(d.history || []); setPayments(d.payments || []);
       const lastStatusDate = (d.history || [])[0]?.createdAt || d.lot?.updatedAt || new Date().toISOString();
       setLotizacion({
-        type: d.lot?.type || '',
         salePrice: Number(d.lot?.salePrice || 0),
         finalPrice: Number(d.lot?.finalPrice || 0),
         status: d.lot?.status || 'disponible',
@@ -243,7 +242,6 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
     setWorking(true);
     try {
       await api.post(`/plan/lot/update/${lot.id}`, {
-        type: lotizacion.type || undefined,
         salePrice: lotizacion.salePrice || undefined,
         finalPrice: lotizacion.finalPrice || undefined,
         status: lotizacion.status,
@@ -447,7 +445,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   return (
     <div className="fixed inset-0 z-50">
       <div className="absolute inset-0 bg-slate-950/50" onClick={onClose} />
-      <section className={`absolute left-1/2 top-1/2 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] ${compact ? 'max-w-6xl' : 'max-w-7xl'} -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-md bg-white shadow-[0_24px_70px_rgba(15,23,42,0.28)]`}>
+      <section className={`absolute left-1/2 top-1/2 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] ${compact ? 'max-w-5xl' : 'max-w-6xl'} -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-md bg-white shadow-[0_24px_70px_rgba(15,23,42,0.28)]`}>
         {view === 'detalle' && (
           <>
             <header className="border-b bg-white px-5 py-4 sm:px-6" style={{ borderColor: BORDER }}>
@@ -529,7 +527,6 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                     <div id="lot-edit-section" className="rounded-[16px] border bg-white p-4" style={{ borderColor: BORDER }}>
                       <h4 className="mb-3 text-sm font-bold" style={{ color: INK }}>Editar Lotizacion</h4>
                       <div className="flex flex-wrap items-end gap-2">
-                        <div className="min-w-32 flex-1"><Field label="Tipo"><input className="input" value={lotizacion.type} onChange={(e) => setLotizacion({ ...lotizacion, type: e.target.value })} placeholder="Ej: Esquina" /></Field></div>
                         <div className="min-w-36 flex-1"><Field label="Estado"><select className="input" value={lotizacion.status} onChange={(e) => setLotizacion({ ...lotizacion, status: e.target.value })}>{Object.entries(LOT_STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field></div>
                         <div className="min-w-36 flex-1"><Field label="Fecha de estado"><input type="date" className="input" value={lotizacion.statusDate} onChange={(e) => setLotizacion({ ...lotizacion, statusDate: e.target.value })} /></Field></div>
                         <div className="min-w-32 flex-1"><Field label="Precio venta (S/)"><input type="number" className="input" value={lotizacion.salePrice || ''} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: Number(e.target.value) })} /></Field></div>

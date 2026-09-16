@@ -50,6 +50,15 @@ export class QuoteEntity {
   @Column({ name: 'total_cuotas', type: 'int', default: 0 })
   totalCuotas: number;
 
+  @Column({ name: 'grace_months', type: 'int', default: 0 })
+  graceMonths: number;
+
+  @Column({ name: 'initial_payment_mode', length: 20, default: 'contado' })
+  initialPaymentMode: string;
+
+  @Column({ name: 'initial_parts', type: 'int', default: 1 })
+  initialParts: number;
+
   @Column({ name: 'interest_type', length: 20, default: 'sin_intereses' })
   interestType: string;
 

@@ -7,9 +7,12 @@ import { Lot, formatMoney, LOT_STATUS_LABEL, LOT_STATUS_COLOR } from '@/lib/type
 import { printHtml } from '@/lib/print';
 import { FiDownload, FiLayers, FiCheckCircle, FiBookmark, FiTrendingUp, FiTag, FiFlag } from 'react-icons/fi';
 
+const PAGE_SIZE = 15;
+const PAGE_SIZE_OPTIONS = [15, 30, 50, 100] as const;
+
 export default function LotsView({ lockedProjectId }: { lockedProjectId?: number }) {
-  const PAGE_SIZE = 15;
   const [lots, setLots] = useState<Lot[]>([]);
+  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
   const [statusFilter, setStatusFilter] = useState('');
   const [search, setSearch] = useState('');
   const [proyectos, setProyectos] = useState<any[]>([]);
@@ -40,17 +43,21 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
     if (search) q.set('search', search);
     if (project) q.set('projectId', project);
     q.set('page', String(page));
-    q.set('limit', String(PAGE_SIZE));
+    q.set('limit', String(pageSize));
     try {
       const d = await api.get<any>(`/lots?${q.toString()}`);
       const rows: Lot[] = Array.isArray(d) ? d : (d?.items || []);
+      const total = Array.isArray(d) ? rows.length : Number(d?.total ?? rows.length);
       setLots(rows);
-      setMeta({ total: Number(d?.total ?? rows.length), totalPages: Number(d?.totalPages ?? Math.max(1, Math.ceil((d?.total ?? rows.length) / PAGE_SIZE))) });
+      setMeta({
+        total,
+        totalPages: Array.isArray(d) ? 1 : Number(d?.totalPages ?? Math.max(1, Math.ceil(total / pageSize))),
+      });
     } catch (e: any) { toast(e.message, 'err'); }
   }
-  useEffect(() => { load(); }, [statusFilter, search, project, page]);
+  useEffect(() => { load(); }, [statusFilter, search, project, page, pageSize]);
   useEffect(() => { api.get<any>('/projects').then((d) => setProyectos(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {}); }, []);
-  useEffect(() => { setPage(1); }, [statusFilter, search, project]);
+  useEffect(() => { setPage(1); }, [statusFilter, search, project, pageSize]);
 
   const coll = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
   const sortedLots = lots.slice().sort((a, b) => coll.compare(a.code, b.code));
@@ -476,9 +483,23 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
 
       <div className="mt-4 flex flex-col gap-3 rounded-lg border bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: '#E5E7EB' }}>
         <span className="text-xs text-slate-500">
-          {meta.total ? `Mostrando ${(page - 1) * PAGE_SIZE + 1}-${Math.min(meta.total, (page - 1) * PAGE_SIZE + lots.length)} de ${meta.total} lotes` : 'Sin lotes'}
+          {meta.total
+            ? `Mostrando ${(page - 1) * pageSize + 1}-${Math.min(meta.total, (page - 1) * pageSize + lots.length)} de ${meta.total} lotes`
+            : 'Sin lotes'}
         </span>
         <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-xs text-slate-500">
+            Por pagina
+            <select
+              className="input-base !h-8 !w-20 !px-2 text-xs"
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+            >
+              {PAGE_SIZE_OPTIONS.map((size) => (
+                <option key={size} value={size}>{size}</option>
+              ))}
+            </select>
+          </label>
           <button className="btn-neutral !h-8 !px-3 text-xs" disabled={page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Anterior</button>
           <span className="px-2 text-xs font-semibold text-slate-600">Pagina {page} de {meta.totalPages}</span>
           <button className="btn-neutral !h-8 !px-3 text-xs" disabled={page >= meta.totalPages} onClick={() => setPage((current) => Math.min(meta.totalPages, current + 1))}>Siguiente</button>

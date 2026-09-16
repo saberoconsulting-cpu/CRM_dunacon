@@ -46,8 +46,12 @@ export class SalesController {
 
   @Post('approve/:id')
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
-  approve(@Param('id', ParseIntPipe) id: number, @CurrentUser('id') actorId: number) {
-    return this.salesService.approve(id, actorId);
+  approve(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser('id') actorId: number,
+    @Query('projectId') projectId?: string,
+  ) {
+    return this.salesService.approve(id, actorId, projectId ? Number(projectId) : undefined);
   }
 
   @Post('reject/:id')
@@ -56,8 +60,9 @@ export class SalesController {
     @Param('id', ParseIntPipe) id: number,
     @Body('note') note: string | undefined,
     @CurrentUser('id') actorId: number,
+    @Query('projectId') projectId?: string,
   ) {
-    return this.salesService.reject(id, actorId, note);
+    return this.salesService.reject(id, actorId, note, projectId ? Number(projectId) : undefined);
   }
 
   @Post('preview')

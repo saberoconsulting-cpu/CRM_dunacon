@@ -1,5 +1,5 @@
 // modules/quotes/application/dto/quote.dto.ts
-import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Matches } from 'class-validator';
 
 export class CreateQuoteDto {
   @IsNumber()
@@ -12,13 +12,14 @@ export class CreateQuoteDto {
   @IsNotEmpty()
   clientName!: string;
 
-  @IsOptional()
   @IsString()
-  clientEmail?: string;
+  @IsNotEmpty()
+  @Matches(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, { message: 'El correo del cliente no es valido' })
+  clientEmail!: string;
 
-  @IsOptional()
   @IsString()
-  clientPhone?: string;
+  @Matches(/^\d{9}$/, { message: 'El telefono del cliente debe tener exactamente 9 digitos' })
+  clientPhone!: string;
 
   @IsNumber()
   pricePerM2Usd!: number;
@@ -47,6 +48,19 @@ export class CreateQuoteDto {
   totalCuotas?: number;
 
   @IsOptional()
+  @IsNumber()
+  graceMonths?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['contado', 'partes'])
+  initialPaymentMode?: 'contado' | 'partes';
+
+  @IsOptional()
+  @IsNumber()
+  initialParts?: number;
+
+  @IsOptional()
   @IsString()
   interestType?: 'sin_intereses' | 'tea';
 
@@ -71,4 +85,39 @@ export class UpdateQuoteStatusDto {
   @IsString()
   @IsIn(['enviada', 'desestimada', 'actualizada'])
   status!: 'enviada' | 'desestimada' | 'actualizada';
+}
+
+export class RecalculateQuoteDto {
+  @IsOptional()
+  @IsNumber()
+  exchangeRate?: number;
+
+  @IsOptional()
+  @IsNumber()
+  cuotaInicialUsd?: number;
+
+  @IsOptional()
+  @IsNumber()
+  totalCuotas?: number;
+
+  @IsOptional()
+  @IsNumber()
+  graceMonths?: number;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['contado', 'partes'])
+  initialPaymentMode?: 'contado' | 'partes';
+
+  @IsOptional()
+  @IsNumber()
+  initialParts?: number;
+
+  @IsOptional()
+  @IsString()
+  interestType?: 'sin_intereses' | 'tea';
+
+  @IsOptional()
+  @IsNumber()
+  tea?: number;
 }

@@ -17,7 +17,7 @@ import {
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { formatMoney, formatDate } from '@/lib/types';
 import { printHtml } from '@/lib/print';
-import { FiActivity, FiAlertTriangle, FiCamera, FiCreditCard, FiDollarSign, FiMoreVertical, FiTrendingUp, FiUpload, FiX } from 'react-icons/fi';
+import { FiActivity, FiAlertTriangle, FiCamera, FiChevronDown, FiCreditCard, FiDollarSign, FiMoreVertical, FiTrendingUp, FiUpload, FiX } from 'react-icons/fi';
 
 type P = {
   id: number; projectId: number; lotId: number; type: string; amount: string;
@@ -232,6 +232,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [pdfMonth, setPdfMonth] = useState(currentMonthValue);
   const [overdue, setOverdue] = useState<P[]>([]);
   const [showOverdueAlert, setShowOverdueAlert] = useState(true);
+  const [showMoreKpis, setShowMoreKpis] = useState(false);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
@@ -506,22 +507,40 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             </button>
           </div>
         )}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
-          <KpiTile label="Cuotas Pendientes" value={String(metrics.pendingCuotas || 0)} helper={money(metrics.pendingAmount || 0)} icon={<FiCreditCard />} accent={BLUE} />
-          <KpiTile label="Cuotas Pendientes US$" value={money(metrics.pendingAmount || 0)} helper="Saldo pendiente" icon={<FiDollarSign />} accent={BLUE} />
-          <KpiTile label="Pagos en Mora" value={String(metrics.overduePayments || 0)} helper={money(metrics.overdueAmount || 0)} icon={<FiAlertTriangle />} accent={RED} />
-          <KpiTile label="Pago en mora US$" value={money(metrics.overdueAmount || 0)} helper="Cuotas vencidas" icon={<FiAlertTriangle />} accent={RED} />
-          <KpiTile label="Morosidad %" value={pct(delinquencyRate)} helper="Mora sobre pendientes" icon={<FiActivity />} accent={AMBER} />
-          <KpiTile label="Pagos por vencer" value={String(metrics.upcomingPayments || 0)} helper="Max 30 dias" icon={<FiCreditCard />} accent={BLUE_DARK} />
-          <KpiTile label="Pago por vencer US$" value={money(metrics.upcomingAmount || 0)} helper="Max 30 dias" icon={<FiDollarSign />} accent={BLUE_DARK} />
-          <KpiTile label="Total venta (lotes)" value={String(metrics.totalSaleLots || 0)} helper={money(metrics.totalSaleAmount || 0)} icon={<FiTrendingUp />} accent={BLUE} />
-          <KpiTile label="Total Venta" value={money(metrics.totalSaleAmount || 0)} helper="Ventas y separaciones" icon={<FiDollarSign />} accent={BLUE} />
-          <KpiTile label="Pago Inicial US$" value={money(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} />
-          <KpiTile label="Financiamiento D." value={money(metrics.financingAmount || 0)} helper="Monto financiado" icon={<FiTrendingUp />} accent={BLUE_DARK} />
-          <KpiTile label="Cuotas Financiam." value={String(metrics.financedCuotas || 0)} helper="Cronograma generado" icon={<FiCreditCard />} accent={BLUE} />
-          <KpiTile label="Pago de Cuotas" value={String(metrics.paidCuotas || 0)} helper={money(metrics.paidCuotasAmount || 0)} icon={<FiCreditCard />} accent={GREEN} />
-          <KpiTile label="Pago de Cuotas US$" value={money(metrics.paidCuotasAmount || 0)} helper="Cuotas pagadas" icon={<FiDollarSign />} accent={GREEN} />
+        <div className="relative">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
+            <KpiTile label="Cuotas Pendientes" value={String(metrics.pendingCuotas || 0)} helper={money(metrics.pendingAmount || 0)} icon={<FiCreditCard />} accent={BLUE} />
+            <KpiTile label="Cuotas Pendientes US$" value={money(metrics.pendingAmount || 0)} helper="Saldo pendiente" icon={<FiDollarSign />} accent={BLUE} />
+            <KpiTile label="Pagos en Mora" value={String(metrics.overduePayments || 0)} helper={money(metrics.overdueAmount || 0)} icon={<FiAlertTriangle />} accent={RED} />
+            <KpiTile label="Pago en mora US$" value={money(metrics.overdueAmount || 0)} helper="Cuotas vencidas" icon={<FiAlertTriangle />} accent={RED} />
+            <KpiTile label="Morosidad %" value={pct(delinquencyRate)} helper="Mora sobre pendientes" icon={<FiActivity />} accent={AMBER} />
+            <KpiTile label="Pagos por vencer" value={String(metrics.upcomingPayments || 0)} helper="Max 30 dias" icon={<FiCreditCard />} accent={BLUE_DARK} />
+            <KpiTile label="Pago por vencer US$" value={money(metrics.upcomingAmount || 0)} helper="Max 30 dias" icon={<FiDollarSign />} accent={BLUE_DARK} />
+          </div>
+
+          <button
+            type="button"
+            className="absolute -right-1 top-1/2 hidden h-6 w-6 -translate-y-1/2 place-items-center rounded-full border bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 lg:grid"
+            style={{ borderColor: BORDER }}
+            onClick={() => setShowMoreKpis((v) => !v)}
+            aria-label={showMoreKpis ? 'Ocultar indicadores' : 'Ver mas indicadores'}
+            title={showMoreKpis ? 'Ocultar indicadores' : 'Ver mas indicadores'}
+          >
+            <FiChevronDown style={{ transform: showMoreKpis ? 'rotate(180deg)' : 'none', transition: 'transform .2s ease' }} />
+          </button>
         </div>
+
+        {showMoreKpis && (
+          <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-7">
+            <KpiTile label="Total venta (lotes)" value={String(metrics.totalSaleLots || 0)} helper={money(metrics.totalSaleAmount || 0)} icon={<FiTrendingUp />} accent={BLUE} />
+            <KpiTile label="Total Venta" value={money(metrics.totalSaleAmount || 0)} helper="Ventas y separaciones" icon={<FiDollarSign />} accent={BLUE} />
+            <KpiTile label="Pago Inicial US$" value={money(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} />
+            <KpiTile label="Financiamiento D." value={money(metrics.financingAmount || 0)} helper="Monto financiado" icon={<FiTrendingUp />} accent={BLUE_DARK} />
+            <KpiTile label="Cuotas Financiam." value={String(metrics.financedCuotas || 0)} helper="Cronograma generado" icon={<FiCreditCard />} accent={BLUE} />
+            <KpiTile label="Pago de Cuotas" value={String(metrics.paidCuotas || 0)} helper={money(metrics.paidCuotasAmount || 0)} icon={<FiCreditCard />} accent={GREEN} />
+            <KpiTile label="Pago de Cuotas US$" value={money(metrics.paidCuotasAmount || 0)} helper="Cuotas pagadas" icon={<FiDollarSign />} accent={GREEN} />
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
           <div className="card overflow-hidden p-0">

@@ -2,27 +2,17 @@
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  PieChart,
-  Pie,
-  Cell,
-  Legend,
-} from 'recharts';
-import { FiArrowDownCircle, FiCamera, FiDollarSign, FiPieChart, FiTag, FiTrendingUp, FiUsers, FiActivity, FiCreditCard, FiMoreVertical, FiAlertTriangle } from 'react-icons/fi';
+import { FiCamera, FiUsers, FiTag, FiDollarSign, FiArrowDownCircle, FiTrendingUp, FiPieChart } from 'react-icons/fi';
 import { IoLocationSharp } from 'react-icons/io5';
 import Layout from '@/components/layout/Layout';
 import { Toaster, toast } from '@/components/ui/ui';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
+import ProjectReports from '@/components/features/projects/ProjectReports';
 import { api, getToken, uploadFile } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
-import { Lot, formatMoney, LOT_STATUS_COLOR, LOT_STATUS_LABEL, BRAND } from '@/lib/types';
+import { Lot, formatMoney, LOT_STATUS_COLOR, LOT_STATUS_LABEL } from '@/lib/types';
+
+type AgentRanking = { agentId?: number | null; agentName: string; salesCount: number; salesAmount: number; commission: number };
 
 const LOT_STATUSES = ['disponible', 'reservado', 'adelanto', 'primera_cuota', 'vendido'] as const;
 const LEAD_CHANNEL_LABEL: Record<string, string> = {
@@ -42,17 +32,8 @@ const LEAD_CHANNEL_COLOR: Record<string, string> = {
   Otro: '#9AA1AB',
 };
 
-type ChartDatum = { name: string; value: number };
-type AgentRanking = { agentId?: number | null; agentName: string; salesCount: number; salesAmount: number; commission: number };
-
 function usdMoney(value: unknown): string {
   return `US$ ${Number(value || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-}
-
-function pct(value: unknown): string {
-  const n = Number(value || 0);
-  if (!Number.isFinite(n)) return '0.0%';
-  return `${n.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 
 function asNumber(value: unknown): number {
@@ -83,107 +64,6 @@ function MetricTile({ label, value, icon, tone = '#1877F2' }: { label: string; v
   );
 }
 
-function ReportCard({ title, subtitle, children }: { title: string; subtitle?: string; children: ReactNode }) {
-  return (
-    <section className="w-[calc(100vw-56px)] min-w-[300px] snap-start rounded-lg border bg-white p-4 sm:w-[390px] sm:min-w-[390px] xl:w-full xl:min-w-0" style={{ borderColor: '#E5E7EB', boxShadow: '0 10px 24px rgba(15,23,42,.06)' }}>
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold uppercase" style={{ color: '#111827' }}>{title}</h3>
-          {subtitle && <p className="mt-0.5 text-[11px]" style={{ color: '#6B7280' }}>{subtitle}</p>}
-        </div>
-        <span className="mt-1 h-1.5 w-1.5 rounded-full bg-[#1877F2]" />
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function EmptyReport({ text }: { text: string }) {
-  return <div className="grid h-[230px] place-items-center text-center text-sm text-slate-400">{text}</div>;
-}
-
-// Menu de opciones de una tarjeta de grafica (mismo patron del dashboard).
-function ChartMenu({ rows }: { rows: Array<[string, string]> }) {
-  return (
-    <details className="relative">
-      <summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md border bg-white text-slate-500 hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }}>
-        <FiMoreVertical />
-      </summary>
-      <div className="absolute right-0 top-9 z-20 w-56 rounded-md border bg-white p-2 shadow-xl" style={{ borderColor: '#E5E7EB' }}>
-        {rows.map(([label, value]) => (
-          <div key={label} className="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-xs">
-            <span style={{ color: '#6B7280' }}>{label}</span>
-            <b className="tabular-nums" style={{ color: '#111827' }}>{value}</b>
-          </div>
-        ))}
-      </div>
-    </details>
-  );
-}
-
-// Cabecera de una tarjeta de grafica, igual a la del dashboard principal.
-function ChartHeader({ title, subtitle, menuRows }: { title: string; subtitle: string; menuRows: Array<[string, string]> }) {
-  return (
-    <div className="flex items-start justify-between gap-3 border-b px-4 py-3" style={{ borderColor: '#E5E7EB' }}>
-      <div className="min-w-0">
-        <h3 className="truncate text-sm font-semibold" style={{ color: '#111827' }}>{title}</h3>
-        <p className="mt-0.5 text-xs" style={{ color: '#6B7280' }}>{subtitle}</p>
-      </div>
-      <ChartMenu rows={menuRows} />
-    </div>
-  );
-}
-
-// Cajon pequeno de indicador (mismo patron del dashboard).
-function KpiTile({ label, value, helper, icon, accent }: { label: string; value: string; helper: string; icon: ReactNode; accent: string }) {
-  return (
-    <div className="rounded-md border bg-white px-4 py-3 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
-      <div className="flex items-center justify-between gap-3">
-        <p className="min-w-0 truncate text-[11px] font-semibold uppercase" style={{ color: '#6B7280' }}>{label}</p>
-        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md" style={{ background: `${accent}12`, color: accent }}>{icon}</span>
-      </div>
-      <p className="mt-2 truncate text-xl font-bold tabular-nums" style={{ color: '#111827' }}>{value}</p>
-      <p className="mt-0.5 truncate text-[11px]" style={{ color: '#6B7280' }}>{helper}</p>
-    </div>
-  );
-}
-
-function DonutReport({ data, colorMap }: { data: ChartDatum[]; colorMap: (name: string) => string }) {
-  const visible = data.filter((item) => item.value > 0);
-  if (!visible.length) return <EmptyReport text="Sin datos para graficar." />;
-
-  return (
-    <ResponsiveContainer width="100%" height={230}>
-      <PieChart>
-        <Pie data={visible} dataKey="value" nameKey="name" innerRadius={56} outerRadius={84} paddingAngle={2}>
-          {visible.map((item) => <Cell key={item.name} fill={colorMap(item.name)} />)}
-        </Pie>
-        <Tooltip formatter={(value: unknown) => asNumber(value).toLocaleString('es-PE')} />
-        <Legend iconType="square" wrapperStyle={{ fontSize: 11 }} />
-      </PieChart>
-    </ResponsiveContainer>
-  );
-}
-
-function BarReport({ data, colorMap, valuePrefix = '' }: { data: ChartDatum[]; colorMap: (name: string) => string; valuePrefix?: string }) {
-  const visible = data.filter((item) => item.value > 0);
-  if (!visible.length) return <EmptyReport text="Sin datos para graficar." />;
-
-  return (
-    <ResponsiveContainer width="100%" height={230}>
-      <BarChart data={visible} layout="vertical" margin={{ left: 8, right: 28, top: 8, bottom: 4 }}>
-        <CartesianGrid stroke="#EEF0F2" horizontal={false} />
-        <XAxis type="number" fontSize={10} tickLine={false} axisLine={{ stroke: '#E5E7EB' }} />
-        <YAxis type="category" dataKey="name" width={92} fontSize={11} tickLine={false} axisLine={false} />
-        <Tooltip formatter={(value: unknown) => `${valuePrefix}${asNumber(value).toLocaleString('es-PE')}`} />
-        <Bar dataKey="value" radius={[0, 5, 5, 0]}>
-          {visible.map((item) => <Cell key={item.name} fill={colorMap(item.name)} />)}
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
-  );
-}
-
 export default function ProjectPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -191,6 +71,7 @@ export default function ProjectPage() {
   const [project, setProject] = useState<any>(null);
   const [lots, setLots] = useState<Lot[]>([]);
   const [stats, setStats] = useState<any>(null);
+  const [kpis, setKpis] = useState<any>(null);
   const [selectedLot, setSelectedLot] = useState<number | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const [agentPage, setAgentPage] = useState(0);
@@ -264,13 +145,18 @@ export default function ProjectPage() {
 
   useEffect(() => {
     if (!projectId) return;
+    api.get<any>(`/dashboards/project/${projectId}/kpis`).then(setKpis).catch(() => {});
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!projectId) return;
     api.get<any>(`/dashboards/project/${projectId}`).then(setStats).catch(() => {});
     api.get<any[]>(`/clients/metrics/channels?projectId=${projectId}`).then((data) => setLeadsByChannel(data || [])).catch(() => {});
     api.get<any>(`/payments/caja?projectId=${projectId}`).then(setCash).catch(() => {});
   }, [projectId]);
 
   const countByStatus = (status: Lot['status']) => lots.filter((lot) => lot.status === status).length;
-  const amountByStatus = (status: Lot['status']) => sumBy(lots.filter((lot) => lot.status === status), (lot) => lot.price);
+  const amountByStatus = (status: Lot['status']) => lots.filter((lot) => lot.status === status).reduce((sum, lot) => sum + asNumber(lot.price), 0);
   const lotCountData = LOT_STATUSES.map((status) => ({ name: LOT_STATUS_LABEL[status], value: countByStatus(status) }));
   const lotAmountData = LOT_STATUSES.map((status) => ({ name: LOT_STATUS_LABEL[status], value: amountByStatus(status) }));
   const lotColorByLabel = (label: string) => {
@@ -290,17 +176,6 @@ export default function ProjectPage() {
   const inventoryValue = stats?.cards?.inventoryValue != null ? asNumber(stats.cards.inventoryValue) : sumBy(lots, (lot) => lot.finalPrice ?? lot.salePrice ?? lot.price);
   const soldListValue = stats?.cards?.soldListValue != null ? asNumber(stats.cards.soldListValue) : sumBy(lots.filter((lot) => lot.status === 'vendido'), (lot) => lot.finalPrice ?? lot.salePrice ?? lot.price);
   const agentRanking = (stats?.agentRanking || []) as AgentRanking[];
-  const agentPageSize = 10;
-  const agentPages = Math.max(1, Math.ceil(agentRanking.length / agentPageSize));
-  const safeAgentPage = Math.min(agentPage, agentPages - 1);
-  const agentFrame = agentRanking.slice(safeAgentPage * agentPageSize, safeAgentPage * agentPageSize + agentPageSize);
-  const financialRows = [
-    ['Ingresos registrados', money(income)],
-    ['Egresos registrados', money(expense)],
-    ['Utilidad registrada', money(profit)],
-    ['Valor lista del inventario', money(inventoryValue)],
-    ['Valor lista vendido', money(soldListValue)],
-  ];
 
   // --- Series para las 4 graficas del proyecto (columna 60%) ---
   const collectedByMonth = (cash?.byMonth || []) as { month: string; monto: number }[];
@@ -388,120 +263,34 @@ export default function ProjectPage() {
           <MetricTile label="Lotes vendidos" value={soldLots} icon={<FiPieChart />} tone="#6B7280" />
         </div>
 
-        <div className="grid grid-cols-1 gap-5 xl:col-span-3 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-          <div className="min-w-0 space-y-5">
-            {/* Cajones de indicadores del proyecto. */}
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-              <KpiTile label="Lotes del proyecto" value={String(totalLots)} helper="Unidades registradas" icon={<FiPieChart />} accent="#1259C4" />
-              <KpiTile label="Valor total" value={usdMoney(totalLotValue)} helper="Valor lista del inventario" icon={<FiDollarSign />} accent="#0F8B5F" />
-              <KpiTile label="Lotes vendidos" value={String(soldLotsCount)} helper="Unidades vendidas" icon={<FiTag />} accent="#111827" />
-              <KpiTile label="Venta lotes" value={usdMoney(soldAmount)} helper="Valor lista vendido" icon={<FiTrendingUp />} accent="#1259C4" />
-              <KpiTile label="Pago lotes" value={usdMoney(paidAmount)} helper="Cuotas cobradas" icon={<FiCreditCard />} accent="#0F8B5F" />
-              <KpiTile label="Pago pendiente" value={usdMoney(pendingAmount)} helper="Saldo por cobrar" icon={<FiAlertTriangle />} accent="#B45309" />
-              <KpiTile label="Morosidad" value={pct(delinquencyRate)} helper="Mora sobre pendientes" icon={<FiActivity />} accent="#E11D48" />
-              <KpiTile label="TIR" value={pct(tir)} helper="Utilidad sobre gastos" icon={<FiActivity />} accent="#7C3AED" />
-            </div>
-
-            {/* Estado de resultados del proyecto. */}
-            <div className="card overflow-hidden p-0">
-              <ChartHeader
-                title="Estado de resultados"
-                subtitle="Resumen economico del proyecto"
-                menuRows={[
-                  ['Ingresos', usdMoney(soldAmount)],
-                  ['Costo de ventas', usdMoney(costoVentas)],
-                  ['Gastos', usdMoney(gastosProyecto)],
-                  ['IGV', usdMoney(igv)],
-                  ['Utilidad neta', usdMoney(utilidadNeta)],
-                ]}
-              />
-              <div className="grid grid-cols-2 gap-3 p-4 lg:grid-cols-3">
-                <KpiTile label="Ingresos" value={usdMoney(soldAmount)} helper="Ventas del proyecto" icon={<FiDollarSign />} accent="#1259C4" />
-                <KpiTile label="Costo de ventas" value={usdMoney(costoVentas)} helper="Costo de lo vendido" icon={<FiArrowDownCircle />} accent="#6B7280" />
-                <KpiTile label="Gastos" value={usdMoney(gastosProyecto)} helper="Egresos registrados" icon={<FiArrowDownCircle />} accent="#E11D48" />
-                <KpiTile label="Utilidad antes de impuestos" value={usdMoney(utilidadAntes)} helper="Resultado operativo" icon={<FiTrendingUp />} accent="#1259C4" />
-                <KpiTile label="IGV" value={usdMoney(igv)} helper="18% sobre el margen" icon={<FiActivity />} accent="#B45309" />
-                <KpiTile label="Utilidad neta" value={usdMoney(utilidadNeta)} helper="Resultado despues de IGV" icon={<FiTrendingUp />} accent="#0F8B5F" />
-              </div>
-            </div>
-          </div>
-
-          <aside className="min-w-0 rounded-lg border bg-[#F8FAFC] p-3 xl:sticky xl:top-4 xl:h-[calc(100vh-120px)]" style={{ borderColor: '#E5E7EB' }}>
-            <div className="mb-3 flex items-center justify-between gap-3 px-1">
-              <div>
-                <p className="text-sm font-semibold" style={{ color: '#111827' }}>Reportes del proyecto</p>
-                <p className="text-[11px]" style={{ color: '#6B7280' }}>Desliza a la derecha para revisar cada vista</p>
-              </div>
-              <span className="rounded-full border bg-white px-2 py-1 text-[11px] font-semibold text-slate-500">Data real</span>
-            </div>
-
-            <div className="flex snap-x gap-3 overflow-x-auto pb-2 xl:h-[calc(100%-48px)] xl:flex-col xl:snap-y xl:overflow-y-auto xl:overflow-x-hidden">
-              <ReportCard title="Lotes por estado" subtitle="Conteo real de unidades">
-                <DonutReport data={lotCountData} colorMap={lotColorByLabel} />
-              </ReportCard>
-
-              <ReportCard title="Valor por estado" subtitle="Suma real del precio lista">
-                <BarReport data={lotAmountData} colorMap={lotColorByLabel} valuePrefix="S/ " />
-              </ReportCard>
-
-              {totalLeads > 0 && (
-                <ReportCard title="Origen de leads" subtitle="Clientes/leads asociados al proyecto">
-                  <DonutReport data={leadsChartData} colorMap={(name) => LEAD_CHANNEL_COLOR[name] || '#9AA1AB'} />
-                </ReportCard>
-              )}
-
-              <ReportCard title="Resumen financiero" subtitle="Solo datos de este proyecto">
-                <div className="space-y-2">
-                  {financialRows.map(([label, value]) => (
-                    <div key={label} className="flex items-center justify-between gap-4 rounded-md border bg-white px-3 py-2" style={{ borderColor: '#E5E7EB' }}>
-                      <span className="min-w-0 text-xs font-semibold leading-4" style={{ color: '#111827' }}>{label}</span>
-                      <span className="shrink-0 text-right text-sm font-bold tabular-nums" style={{ color: '#1259C4' }}>{value}</span>
-                    </div>
-                  ))}
-                </div>
-              </ReportCard>
-
-              <ReportCard title="Ranking de agentes" subtitle="Ventas registradas en este proyecto">
-                <div className="overflow-hidden rounded-md border bg-white" style={{ borderColor: '#E5E7EB' }}>
-                  <table className="w-full table-fixed">
-                    <thead>
-                      <tr>
-                        <th className="th-base !w-10">#</th>
-                        <th className="th-base">Agente</th>
-                        <th className="th-base !w-16 text-right">Ventas</th>
-                        <th className="th-base !w-24 text-right">Monto</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {agentFrame.map((agent, index) => (
-                        <tr key={`${agent.agentId || 'none'}-${index}`} className="border-t" style={{ borderColor: '#EEF0F2' }}>
-                          <td className="td-base">{safeAgentPage * agentPageSize + index + 1}</td>
-                          <td className="td-base truncate font-medium">{agent.agentName || 'Sin agente'}</td>
-                          <td className="td-base text-right tabular-nums">{agent.salesCount}</td>
-                          <td className="td-base text-right text-xs font-semibold tabular-nums">{money(agent.salesAmount)}</td>
-                        </tr>
-                      ))}
-                      {agentRanking.length === 0 && (
-                        <tr><td className="td-base text-center text-slate-400" colSpan={4}>Sin ventas registradas.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
-                  {agentRanking.length > agentPageSize && (
-                    <div className="flex items-center justify-between gap-2 border-t px-3 py-2" style={{ borderColor: '#EEF0F2' }}>
-                      <span className="text-xs text-slate-500">
-                        Mostrando {safeAgentPage * agentPageSize + 1}-{Math.min(agentRanking.length, (safeAgentPage + 1) * agentPageSize)} de {agentRanking.length}
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <button className="btn-neutral !h-7 !px-2 text-xs" disabled={safeAgentPage <= 0} onClick={() => setAgentPage((v) => Math.max(0, v - 1))}>Anterior</button>
-                        <span className="px-2 text-xs font-semibold text-slate-500">{safeAgentPage + 1}/{agentPages}</span>
-                        <button className="btn-neutral !h-7 !px-2 text-xs" disabled={safeAgentPage >= agentPages - 1} onClick={() => setAgentPage((v) => Math.min(agentPages - 1, v + 1))}>Siguiente</button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </ReportCard>
-            </div>
-          </aside>
+        <div className="min-w-0 xl:col-span-3">
+          {/* Reportes del proyecto */}
+          <ProjectReports
+            data={{
+              paidAmount,
+              soldAmount,
+              overdueAmount,
+              delinquencyRate,
+              collectedByMonth,
+              salesByMonth,
+              overdueByMonth,
+              totalLots,
+              inventoryValue,
+              soldLotsCount,
+              pendingAmount,
+              costOfSales: costoVentas,
+              expenses: gastosProyecto,
+              tax: igv,
+              netProfit: utilidadNeta,
+              lotCountData,
+              lotAmountData,
+              lotColorByLabel,
+              leadsChartData,
+              leadColorByLabel: (name: string) => LEAD_CHANNEL_COLOR[name] || '#9AA1AB',
+              totalLeads,
+              kpis,
+            }}
+          />
         </div>
       </div>
     </Layout>

@@ -146,9 +146,10 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
     async function refreshApprovals() {
       if (!canManage) return;
       try {
-        const data: any = await api.get<any>('/sales/pending');
+        const query = activeProjectId ? `?projectId=${activeProjectId}` : '';
+        const data: any = await api.get<any>(`/sales/pending${query}`);
         const rows: any[] = Array.isArray(data) ? data : (data?.items || []);
-        const pending = rows.filter((row) => (row.approvalStatus || row.status || 'pendiente') === 'pendiente');
+        const pending = rows.filter((row: any) => (row.approvalStatus || row.status || 'pendiente') === 'pendiente');
         setPendingApp({ count: pending.length, rows: pending });
       } catch {}
     }
@@ -162,7 +163,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
     const listener = () => { refreshApprovals(); setBellOpen(false); };
     events.forEach((event) => socket.on(event as any, listener as any));
     return () => { events.forEach((event) => socket.off(event as any, listener as any)); };
-  }, [user]);
+  }, [user, activeProjectId]);
 
   useEffect(() => {
     if (!user) return;

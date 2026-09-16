@@ -28,6 +28,11 @@ export class DashboardsController {
     return this.dashboardsService.project(projectId);
   }
 
+  @Get('project/:projectId/kpis')
+  projectKpis(@Param('projectId', ParseIntPipe) projectId: number) {
+    return this.dashboardsService.projectKpis(projectId);
+  }
+
   @Get('movements')
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
   movements(

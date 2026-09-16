@@ -7,7 +7,6 @@ import { Toaster } from '@/components/ui/ui';
 import PlanEditor from '@/components/features/plan/PlanEditor';
 import InteractivePlan from '@/components/features/plan/InteractivePlan';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
-import ProjectReports from '@/components/features/projects/ProjectReports';
 import { api, getSessionUser } from '@/lib/api';
 import { Block, Lot, formatMoney } from '@/lib/types';
 
@@ -21,8 +20,6 @@ export default function PlanEditorPage() {
   const [lots, setLots] = useState<Lot[]>([]);
   const [selectedLot, setSelectedLot] = useState<number | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<number | null>(null);
-  const [cash, setCash] = useState<any>({ byMonth: [], salesByMonth: [], overdueByMonth: [], metrics: {} });
-  const [stats, setStats] = useState<any>(null);
 
   useEffect(() => {
     const u = getSessionUser();
@@ -43,17 +40,10 @@ export default function PlanEditorPage() {
   useEffect(() => {
     if (!id) return;
     loadPlan();
-    api.get<any>(`/dashboards/project/${id}`).then(setStats).catch(() => {});
-    api.get<any>(`/payments/caja?projectId=${id}`).then(setCash).catch(() => {});
   }, [id]);
 
   const totalArea = lots.reduce((sum, lot) => sum + Number(lot.areaM2 || 0), 0);
   const totalValue = lots.reduce((sum, lot) => sum + Number(lot.salePrice ?? lot.price ?? 0), 0);
-  const cashMetrics = cash?.metrics || {};
-  const paidAmount = Number(cashMetrics.paidCuotasAmount || 0);
-  const soldAmount = Number(stats?.cards?.soldListValue ?? totalValue);
-  const overdueAmount = Number(cashMetrics.overdueAmount || 0);
-  const delinquencyRate = Number(cashMetrics.delinquencyRate || 0);
 
   const summary: { value: number; label: string; icon: React.ReactNode; tone: string }[] = [
     { value: streets.length, label: 'Calles', icon: <FiMap />, tone: '#1259C4' },
@@ -142,18 +132,6 @@ export default function PlanEditorPage() {
                 </div>
               </div>
 
-              {/* Graficas del proyecto */}
-              <ProjectReports
-                data={{
-                  paidAmount,
-                  soldAmount,
-                  overdueAmount,
-                  delinquencyRate,
-                  collectedByMonth: cash?.byMonth || [],
-                  salesByMonth: cash?.salesByMonth || [],
-                  overdueByMonth: cash?.overdueByMonth || [],
-                }}
-              />
             </div>
           </aside>
         </div>

@@ -63,16 +63,36 @@ export default function CotizacionDocPage() {
   const { quoteId } = useParams<{ id: string; quoteId: string }>();
   const [data, setData] = useState<any>(null);
   const [planData, setPlanData] = useState<any>(null);
+  const [scheduleData, setScheduleData] = useState<any>(null);
   const [error, setError] = useState('');
+  const [rateInput, setRateInput] = useState('');
+  const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    api.get<any>(`/quotes/${quoteId}`)
-      .then((d) => {
-        setData(d);
-        api.get<any>(`/plan/project/${d.quote.projectId}`).then(setPlanData).catch(() => {});
-      })
-      .catch((e: any) => setError(e.message || 'No se pudo cargar la cotización'));
-  }, [quoteId]);
+  async function load() {
+    try {
+      const d = await api.get<any>(`/quotes/${quoteId}`);
+      setData(d);
+      setRateInput(String(d.quote.exchangeRate || ''));
+      api.get<any>(`/plan/project/${d.quote.projectId}`).then(setPlanData).catch(() => {});
+      api.get<any>(`/quotes/${quoteId}/schedule`).then(setScheduleData).catch(() => {});
+    } catch (e: any) {
+      setError(e.message || 'No se pudo cargar la cotización');
+    }
+  }
+
+  async function updateRate() {
+    const value = Number(rateInput);
+    if (!value || value <= 0) return;
+    setSaving(true);
+    try {
+      await api.patch(`/quotes/${quoteId}/recalculate`, { exchangeRate: value });
+      await load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  useEffect(() => { load(); }, [quoteId]);
 
   if (error) return <div className="p-10 text-center text-slate-400">{error}</div>;
   if (!data) return <div className="p-10 text-center text-slate-400">Cargando…</div>;
@@ -81,6 +101,9 @@ export default function CotizacionDocPage() {
   const rate = Number(quote.exchangeRate);
   const toPen = (usd: number) => usd * rate;
   const saldoAFinanciar = Math.max(0, Number(quote.finalPriceUsd) - Number(quote.cuotaInicialUsd));
+  const grace = scheduleData || {};
+  const initialPlan = grace.initialPlan;
+
 
   const resumen: [string, number][] = [
     ['Precio del lote', Number(quote.lotPriceUsd)],
@@ -172,6 +195,68 @@ export default function CotizacionDocPage() {
               </div>
             )}
             <p className="text-xs text-slate-400 mt-1">Tipo de cambio referencial: S/ {rate.toFixed(4)} por US$ 1.00</p>
+
+          <div className="px-6 pb-6">
+            <h3 className="font-semibold text-sm text-slate-700 mb-2">Actualizar tipo de cambio</h3>
+            <div className="flex flex-wrap items-end gap-2">
+              <label className="text-xs text-slate-500">
+                S/ por US$
+                <input
+                  type="number"
+                  step="0.01"
+                  className="input mt-1 !w-32"
+                  value={rateInput}
+                  onChange={(e) => setRateInput(e.target.value)}
+                />
+              </label>
+              <button type="button" className="btn-primary !h-9 text-xs" disabled={saving} onClick={updateRate}>
+                {saving ? 'Actualizando…' : 'Actualizar y recalcular'}
+              </button>
+            </div>
+          </div>
+
+          {quote.paymentMethod === 'credito' && grace.graceMonths > 0 && (
+            <div className="px-6 pb-6">
+              <h3 className="font-semibold text-sm text-slate-700 mb-2">Periodo sin intereses</h3>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                  <span className="block text-[10px] font-bold uppercase text-slate-500">Meses sin interes</span>
+                  <b className="mt-1 block text-sm">{grace.graceMonths}</b>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                  <span className="block text-[10px] font-bold uppercase text-slate-500">Cuota en gracia</span>
+                  <b className="mt-1 block text-sm">{fmtUsd(grace.graceCuota || 0)}</b>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                  <span className="block text-[10px] font-bold uppercase text-slate-500">Meses con interes</span>
+                  <b className="mt-1 block text-sm">{grace.interestMonths}</b>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                  <span className="block text-[10px] font-bold uppercase text-slate-500">Cuota con interes</span>
+                  <b className="mt-1 block text-sm">{fmtUsd(grace.interestCuota || 0)}</b>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                  <span className="block text-[10px] font-bold uppercase text-slate-500">Saldo al fin de gracia</span>
+                  <b className="mt-1 block text-sm">{fmtUsd(grace.saldoAlFinGracia || 0)}</b>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                  <span className="block text-[10px] font-bold uppercase text-slate-500">Total intereses</span>
+                  <b className="mt-1 block text-sm">{fmtUsd(grace.totalInteres || 0)}</b>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="px-6 pb-6">
+            <h3 className="font-semibold text-sm text-slate-700 mb-2">Cuota inicial (sin intereses)</h3>
+            <p className="text-sm">
+              Monto: <b>{fmtUsd(Number(quote.cuotaInicialUsd || 0))}</b>
+              {initialPlan && initialPlan.modo === 'partes'
+                ? ` — se paga en ${initialPlan.partes} partes de ${fmtUsd(initialPlan.montoPorParte)}.`
+                : ' — pago unico de contado.'}
+            </p>
+          </div>
+
           </div>
 
           <QuotePlanPreview planData={planData} quote={quote} lot={lot} />
