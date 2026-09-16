@@ -292,7 +292,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           )}
         </div>
       ) : (
-        <div className={`flex h-14 shrink-0 items-center border-b ${showLabels ? 'px-5' : 'justify-center px-0'}`} style={{ borderColor: BRAND.border }}>
+        <div className="flex h-14 shrink-0 items-center justify-center border-b px-2" style={{ borderColor: BRAND.border }}>
           <img src="/logo/dunacon.png" alt="Dunacon" className={`${showLabels ? 'h-11 w-auto' : 'h-8 max-w-10 object-contain'}`} />
         </div>
       )}
