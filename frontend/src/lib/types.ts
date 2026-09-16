@@ -8,7 +8,10 @@ export type LotStatus =
   | 'reservado'
   | 'adelanto'
   | 'primera_cuota'
-  | 'vendido';
+  | 'vendido'
+  | 'alquilado'
+  | 'promocion'
+  | 'segunda_etapa';
 
 // Color por estado de lote — paleta para plano, tabla y leyenda
 export const LOT_STATUS_COLOR: Record<LotStatus, string> = {
@@ -17,6 +20,9 @@ export const LOT_STATUS_COLOR: Record<LotStatus, string> = {
   adelanto: '#4B83C4', // Azul sobrio
   primera_cuota: '#8064A2', // Violeta sobrio
   vendido: '#DC2626', // Rojo comercial para distinguir vendidos en el plano
+  alquilado: '#16A36A',
+  promocion: '#F59E0B',
+  segunda_etapa: '#0EA5E9',
 };
 
 // Identidad de marca (usada en planos/gráficos)
@@ -37,6 +43,9 @@ export const LOT_STATUS_LABEL: Record<LotStatus, string> = {
   adelanto: 'Con adelanto',
   primera_cuota: 'Primera cuota',
   vendido: 'Vendido',
+  alquilado: 'Alquilado',
+  promocion: 'En Promoción',
+  segunda_etapa: '2da Etapa',
 };
 
 export interface User {
@@ -107,11 +116,14 @@ export interface Block {
   address?: string;
 }
 
+export type Street = Block;
+
 export interface Lot {
   id: number;
   projectId: number;
   planId: number;
   blockId: number | null;
+  streetId?: number | null;
   code: string;
   points: Point[];
   areaM2: number;
@@ -125,8 +137,11 @@ export interface Lot {
   type?: string | null;
   salePrice?: number | null;
   finalPrice?: number | null;
+  planVoucherUrl?: string | null;
   blockName?: string | null;
   blockAddress?: string | null;
+  streetName?: string | null;
+  streetAddress?: string | null;
 }
 
 export interface Sale {

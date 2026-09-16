@@ -62,6 +62,17 @@ function shortMoney(n: number) {
   return `S/ ${value.toLocaleString('es-PE', { maximumFractionDigits: 0 })}`;
 }
 
+function shortUsd(n: number) {
+  const value = Number(n || 0);
+  if (Math.abs(value) >= 1000000) return `US$ ${(value / 1000000).toLocaleString('es-PE', { maximumFractionDigits: 1 })}M`;
+  if (Math.abs(value) >= 1000) return `US$ ${(value / 1000).toLocaleString('es-PE', { maximumFractionDigits: 0 })}k`;
+  return `US$ ${value.toLocaleString('es-PE', { maximumFractionDigits: 0 })}`;
+}
+
+function usdMoney(n: number) {
+  return `US$ ${Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
 function pct(n: number) {
   if (!Number.isFinite(n)) return '0.0%';
   return `${n.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
@@ -118,22 +129,12 @@ function FinanceTooltip({ active, payload, label }: any) {
   );
 }
 
-function TrendBadge({ value, label = 'vs mes ant.' }: { value: number; label?: string }) {
-  const color = value >= 0 ? GREEN : RED;
-  return (
-    <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ background: `${color}14`, color }}>
-      {value >= 0 ? '+' : ''}{pct(value)} {label}
-    </span>
-  );
-}
-
-function KpiTile({ label, value, helper, icon, accent, trend }: {
+function KpiTile({ label, value, helper, icon, accent }: {
   label: string;
   value: string;
   helper: string;
   icon: JSX.Element;
   accent: string;
-  trend?: number;
 }) {
   return (
     <div className="rounded-md border bg-white px-4 py-3 shadow-sm" style={{ borderColor: BORDER }}>
@@ -251,6 +252,9 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [reference, setReference] = useState('');
   const [voucher, setVoucher] = useState<File | null>(null);
   const [voucherUrl, setVoucherUrl] = useState('');
+  const [editingPayment, setEditingPayment] = useState<P | null>(null);
+  const [editVoucher, setEditVoucher] = useState<File | null>(null);
+  const [editVoucherUrl, setEditVoucherUrl] = useState('');
   const payCanMark = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
 
   useEffect(() => { if (lockedProjectId) setPayProjectId(lockedProjectId); }, [lockedProjectId]);
@@ -315,6 +319,45 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     if (!f) { setVoucher(null); setVoucherUrl(''); return; }
     setVoucher(f);
     if (window) { try { if (voucherUrl.startsWith('blob:')) URL.revokeObjectURL(voucherUrl); } catch {} setVoucherUrl(URL.createObjectURL(f)); }
+  }
+
+  function openEditPayment(payment: P) {
+    setEditingPayment(payment);
+    setEditVoucher(null);
+    setEditVoucherUrl(payment.voucherUrl || '');
+  }
+
+  function pickEditVoucher(f?: File) {
+    if (!f) { setEditVoucher(null); setEditVoucherUrl(editingPayment?.voucherUrl || ''); return; }
+    setEditVoucher(f);
+    if (window) { try { if (editVoucherUrl.startsWith('blob:')) URL.revokeObjectURL(editVoucherUrl); } catch {} setEditVoucherUrl(URL.createObjectURL(f)); }
+  }
+
+  async function markPaymentPaid(payment?: P | null) {
+    const target = payment || editingPayment;
+    if (!target) return;
+    try {
+      if (editVoucher && target.id === editingPayment?.id) await uploadFile(`/payments/voucher/${target.id}`, editVoucher);
+      await api.post(`/payments/mark-paid/${target.id}`);
+      toast('Pago marcado como pagado');
+      setEditingPayment(null);
+      setEditVoucher(null);
+      setEditVoucherUrl('');
+      await load();
+    } catch (e: any) { toast(e.message, 'err'); }
+  }
+
+  async function saveEditVoucher() {
+    if (!editingPayment) return;
+    if (!editVoucher) return toast('Adjunta un voucher para guardar', 'err');
+    try {
+      await uploadFile(`/payments/voucher/${editingPayment.id}`, editVoucher);
+      toast('Voucher adjuntado');
+      setEditingPayment(null);
+      setEditVoucher(null);
+      setEditVoucherUrl('');
+      await load();
+    } catch (e: any) { toast(e.message, 'err'); }
   }
 
   async function exportMonthPdf() {
@@ -411,6 +454,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const st = (p: P) => { const bg = BADGE[p.status] || ['#eaedf1', '#6b7280']; return <span className="badge" style={{ background: bg[0], color: bg[1] }}>{p.status}</span>; };
 
   const totalPagado = rows.filter((p) => p.status === 'pagado').reduce((s, p) => s + Number(p.amount || 0), 0);
+  const totalRegistrado = rows.reduce((s, p) => s + Number(p.amount || 0), 0);
   const totalPrecioVenta = rows.reduce((s, p) => s + Number(p.salePrice || 0), 0);
   const pctPago = totalPrecioVenta > 0 ? (totalPagado / totalPrecioVenta) * 100 : 0;
   const pendingPct = meta.total > 0 ? (meta.pendingCount / meta.total) * 100 : 0;
@@ -418,12 +462,21 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const salesByMonth = (cash?.salesByMonth || []) as { month: string; monto: number }[];
   const overdueByMonth = (cash?.overdueByMonth || []) as { month: string; monto: number }[];
   const methods = (cash?.methods || []) as { method: string; total: number; monto: number }[];
-  const financialTimeline = mergeFinancialMonths(byMonth, overdueByMonth, salesByMonth);
-  const totalCollected = sumRows(methods);
-  const totalSalesApproved = sumRows(salesByMonth);
-  const totalOverdue = sumRows(overdueByMonth);
+  const metrics = cash?.metrics || {};
+  const totalCollected = Number(metrics.paidCuotasAmount ?? sumRows(methods));
+  const totalSalesApproved = Number(metrics.totalSaleAmount ?? sumRows(salesByMonth));
+  const totalOverdue = Number(metrics.overdueAmount ?? sumRows(overdueByMonth));
   const collectionRate = totalSalesApproved > 0 ? (totalCollected / totalSalesApproved) * 100 : 0;
-  const delinquencyRate = (totalCollected + totalOverdue) > 0 ? (totalOverdue / (totalCollected + totalOverdue)) * 100 : 0;
+  const delinquencyRate = Number(metrics.delinquencyRate ?? ((totalCollected + totalOverdue) > 0 ? (totalOverdue / (totalCollected + totalOverdue)) * 100 : 0));
+  const lastSixMonths = byMonth.slice(-6);
+  const lastSixSalesMonths = salesByMonth.slice(-6);
+  const salesByYear = Object.values(salesByMonth.reduce((acc: Record<string, { year: string; vendido: number }>, row) => {
+    const year = String(row.month || '').slice(0, 4) || 'Sin fecha';
+    acc[year] = acc[year] || { year, vendido: 0 };
+    acc[year].vendido += Number(row.monto || 0);
+    return acc;
+  }, {}));
+  const paymentVsDelinquency = mergeByMonth(lastSixMonths, overdueByMonth.slice(-6));
   const currentCollected = lastValue(byMonth);
   const previousCollected = previousValue(byMonth);
   const collectedTrend = variation(currentCollected, previousCollected);
@@ -433,18 +486,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const currentOverdue = lastValue(overdueByMonth);
   const previousOverdue = previousValue(overdueByMonth);
   const overdueTrend = variation(currentOverdue, previousOverdue);
-  const currentCollectionRate = currentSales > 0 ? (currentCollected / currentSales) * 100 : 0;
-  const previousCollectionRate = previousSales > 0 ? (previousCollected / previousSales) * 100 : 0;
   const currentDelinquencyRate = currentCollected + currentOverdue > 0 ? (currentOverdue / (currentCollected + currentOverdue)) * 100 : 0;
-  const previousDelinquencyRate = previousCollected + previousOverdue > 0 ? (previousOverdue / (previousCollected + previousOverdue)) * 100 : 0;
-  const rateTrend = currentCollectionRate - previousCollectionRate;
-  const delinquencyTrend = currentDelinquencyRate - previousDelinquencyRate;
-  const methodBars = methods.map((m) => ({
-    name: METHOD_LABEL[m.method] || m.method || 'Otro',
-    value: Number(m.monto || 0),
-    count: Number(m.total || 0),
-    method: m.method || 'otro',
-  }));
 
   return (
     <>
@@ -464,163 +506,107 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             </button>
           </div>
         )}
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <KpiTile label="Caja cobrada" value={money(totalCollected)} helper="Pagos confirmados en caja" icon={<FiDollarSign />} accent={GREEN} trend={collectedTrend} />
-          <KpiTile label="Ventas aprobadas" value={money(totalSalesApproved)} helper={`${meta.distinctLots} lotes con movimiento`} icon={<FiTrendingUp />} accent={BLUE} trend={salesTrend} />
-          <KpiTile label="Mora vencida" value={money(totalOverdue)} helper={`${overdue.length} cuotas vencidas detectadas`} icon={<FiAlertTriangle />} accent={RED} trend={overdueTrend} />
-          <KpiTile label="Tasa de cobro" value={pct(collectionRate)} helper={`${pct(delinquencyRate)} de mora sobre cartera`} icon={<FiActivity />} accent={BLUE_DARK} trend={rateTrend} />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
+          <KpiTile label="Cuotas Pendientes" value={String(metrics.pendingCuotas || 0)} helper={money(metrics.pendingAmount || 0)} icon={<FiCreditCard />} accent={BLUE} />
+          <KpiTile label="Cuotas Pendientes US$" value={money(metrics.pendingAmount || 0)} helper="Saldo pendiente" icon={<FiDollarSign />} accent={BLUE} />
+          <KpiTile label="Pagos en Mora" value={String(metrics.overduePayments || 0)} helper={money(metrics.overdueAmount || 0)} icon={<FiAlertTriangle />} accent={RED} />
+          <KpiTile label="Pago en mora US$" value={money(metrics.overdueAmount || 0)} helper="Cuotas vencidas" icon={<FiAlertTriangle />} accent={RED} />
+          <KpiTile label="Morosidad %" value={pct(delinquencyRate)} helper="Mora sobre pendientes" icon={<FiActivity />} accent={AMBER} />
+          <KpiTile label="Pagos por vencer" value={String(metrics.upcomingPayments || 0)} helper="Max 30 dias" icon={<FiCreditCard />} accent={BLUE_DARK} />
+          <KpiTile label="Pago por vencer US$" value={money(metrics.upcomingAmount || 0)} helper="Max 30 dias" icon={<FiDollarSign />} accent={BLUE_DARK} />
+          <KpiTile label="Total venta (lotes)" value={String(metrics.totalSaleLots || 0)} helper={money(metrics.totalSaleAmount || 0)} icon={<FiTrendingUp />} accent={BLUE} />
+          <KpiTile label="Total Venta" value={money(metrics.totalSaleAmount || 0)} helper="Ventas y separaciones" icon={<FiDollarSign />} accent={BLUE} />
+          <KpiTile label="Pago Inicial US$" value={money(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} />
+          <KpiTile label="Financiamiento D." value={money(metrics.financingAmount || 0)} helper="Monto financiado" icon={<FiTrendingUp />} accent={BLUE_DARK} />
+          <KpiTile label="Cuotas Financiam." value={String(metrics.financedCuotas || 0)} helper="Cronograma generado" icon={<FiCreditCard />} accent={BLUE} />
+          <KpiTile label="Pago de Cuotas" value={String(metrics.paidCuotas || 0)} helper={money(metrics.paidCuotasAmount || 0)} icon={<FiCreditCard />} accent={GREEN} />
+          <KpiTile label="Pago de Cuotas US$" value={money(metrics.paidCuotasAmount || 0)} helper="Cuotas pagadas" icon={<FiDollarSign />} accent={GREEN} />
         </div>
 
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
           <div className="card overflow-hidden p-0">
             <ChartHeader
-              title="Flujo de caja cobrado"
-              subtitle="Pagos confirmados por mes."
+              title="Ventas por mes (S/)"
+              subtitle="Ultimos 6 meses"
               menuRows={[
-                ['Mes actual', money(currentCollected)],
-                ['Mes anterior', money(previousCollected)],
-                ['Variacion', pct(collectedTrend)],
-                ['Total cobrado', money(totalCollected)],
+                ['Mes actual', money(currentSales)],
+                ['Mes anterior', money(previousSales)],
+                ['Variacion', pct(salesTrend)],
+                ['Total vendido', money(totalSalesApproved)],
               ]}
             />
-            {byMonth.length ? (
-              <>
-                <div className="grid grid-cols-3 gap-2 border-b px-4 py-3" style={{ borderColor: BORDER }}>
-                  <MiniMetric label="Mes actual" value={money(currentCollected)} color={GREEN} />
-                  <MiniMetric label="Mes anterior" value={money(previousCollected)} />
-                  <MiniMetric label="Variacion" value={pct(collectedTrend)} color={collectedTrend >= 0 ? GREEN : RED} />
-                </div>
-                <div className="h-[420px] px-4 pt-5">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={byMonth.map((r) => ({ month: r.month, cobrado: Number(r.monto || 0) }))} margin={{ left: 8, right: 20, top: 12, bottom: 16 }}>
-                      <defs>
-                        <linearGradient id="cashMainGradient" x1="0" x2="0" y1="0" y2="1">
-                          <stop offset="0%" stopColor={BLUE} stopOpacity={0.22} />
-                          <stop offset="100%" stopColor={BLUE} stopOpacity={0.02} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
-                      <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
-                      <YAxis tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
-                      <Tooltip content={<FinanceTooltip />} cursor={{ stroke: BLUE, strokeWidth: 1, strokeDasharray: '4 4' }} />
-                      <Area type="monotone" dataKey="cobrado" name="Caja cobrada" stroke={BLUE} strokeWidth={3} fill="url(#cashMainGradient)" activeDot={{ r: 6, stroke: '#fff', strokeWidth: 2 }} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              </>
-            ) : <EmptyChart text="Sin pagos confirmados todavia." />}
+            {lastSixSalesMonths.length ? (
+              <div className="h-[300px] px-4 pt-5">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={lastSixSalesMonths.map((r) => ({ month: r.month, vendido: Number(r.monto || 0) }))} margin={{ left: 8, right: 20, top: 12, bottom: 16 }}>
+                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
+                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
+                    <Tooltip content={<FinanceTooltip />} cursor={{ stroke: BLUE, strokeWidth: 1, strokeDasharray: '4 4' }} />
+                    <Area type="monotone" dataKey="vendido" name="Vendido" stroke={BLUE} strokeWidth={3} fill={BLUE} fillOpacity={0.08} activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : <EmptyChart text="Sin ventas por mes para mostrar." />}
           </div>
 
-          <aside className="min-h-0 xl:max-h-[560px] xl:overflow-y-auto xl:pr-1">
+          <div className="card overflow-hidden p-0">
+            <ChartHeader
+              title="Pagos vs Morosidad"
+              subtitle="Ultimos 6 meses"
+              menuRows={[
+                ['Pagado actual', money(currentCollected)],
+                ['Moroso actual', money(currentOverdue)],
+                ['Mora mes anterior', money(previousOverdue)],
+                ['Morosidad', pct(currentDelinquencyRate || delinquencyRate)],
+              ]}
+            />
+            {paymentVsDelinquency.length ? (
+              <div className="h-[330px] px-4 pt-5">
+                <ResponsiveContainer width="100%" height="100%">
+                  <ComposedChart data={paymentVsDelinquency} margin={{ left: 8, right: 24, top: 12, bottom: 16 }}>
+                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
+                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <YAxis yAxisId="left" tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
+                    <YAxis yAxisId="right" orientation="right" tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
+                    <Tooltip content={<FinanceTooltip />} />
+                    <Bar yAxisId="left" dataKey="pagado" name="Pagado" stackId="cash" fill={BLUE} radius={[4, 4, 0, 0]} />
+                    <Bar yAxisId="left" dataKey="moroso" name="Moroso" stackId="cash" fill={RED} radius={[4, 4, 0, 0]} />
+                    <Line yAxisId="right" type="monotone" dataKey="moroso" name="Moroso" stroke={RED} strokeWidth={2} dot={{ r: 3, fill: '#fff', stroke: RED, strokeWidth: 2 }} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+                <div className="flex justify-center gap-4 pb-3 text-xs">
+                  <span className="inline-flex items-center gap-1.5" style={{ color: BLUE }}><span className="h-2.5 w-2.5 rounded-sm" style={{ background: BLUE }} /> Pagado</span>
+                  <span className="inline-flex items-center gap-1.5" style={{ color: RED }}><span className="h-2.5 w-2.5 rounded-full" style={{ background: RED }} /> Moroso</span>
+                </div>
+              </div>
+            ) : <EmptyChart text="Sin pagos o morosidad para comparar." />}
+          </div>
+
+          <aside className="min-h-0 xl:col-span-2">
             <div className="space-y-4">
               <div className="card overflow-hidden p-0">
                 <ChartHeader
-                  title="Canales de cobro"
-                  subtitle="Medios de pago confirmados."
+                  title="Ventas por año (US$)"
+                  subtitle="Resumen anual de ventas."
                   menuRows={[
-                    ['Total cobrado', money(totalCollected)],
-                    ['Canales activos', String(methodBars.length)],
-                    ['Pagos', String(methods.reduce((sum, item) => sum + Number(item.total || 0), 0))],
+                    ['Total anual', usdMoney(salesByYear.reduce((sum, row) => sum + Number(row.vendido || 0), 0))],
+                    ['Años con datos', String(salesByYear.length)],
                   ]}
                 />
-                {methodBars.length ? (
-                  <PaymentMethodRanking items={methodBars} />
-                ) : <EmptyChart text="Aun no hay pagos pagados para mostrar canales." />}
-              </div>
-
-              <div className="card overflow-hidden p-0">
-                <ChartHeader
-                  title="Ventas vs caja"
-                  subtitle="Vendido aprobado frente a cobrado."
-                  menuRows={[
-                    ['Vendido actual', money(currentSales)],
-                    ['Caja actual', money(currentCollected)],
-                    ['Ratio actual', pct(currentCollectionRate)],
-                    ['Mes anterior', pct(previousCollectionRate)],
-                    ['Variacion ratio', pct(rateTrend)],
-                  ]}
-                />
-                {financialTimeline.length ? (
-                  <div className="px-4 py-4">
-                    <div className="flex items-end justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-medium" style={{ color: MUTED }}>Caja cobrada</p>
-                        <p className="mt-1 text-2xl font-bold tabular-nums" style={{ color: GREEN }}>{money(currentCollected)}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs font-medium" style={{ color: MUTED }}>Vendido aprobado</p>
-                        <p className="mt-1 text-lg font-semibold tabular-nums" style={{ color: INK }}>{money(currentSales)}</p>
-                      </div>
-                    </div>
-                    <div className="mt-4">
-                      <div className="mb-2 flex items-center justify-between text-xs">
-                        <span style={{ color: MUTED }}>Avance de cobranza</span>
-                        <b style={{ color: BLUE }}>{pct(currentCollectionRate)}</b>
-                      </div>
-                      <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-                        <div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, currentCollectionRate))}%`, background: GREEN }} />
-                      </div>
-                    </div>
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <div className="rounded-md bg-slate-50 px-3 py-2">
-                        <p className="text-[11px]" style={{ color: MUTED }}>Pendiente por cobrar</p>
-                        <p className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: INK }}>{money(Math.max(0, currentSales - currentCollected))}</p>
-                      </div>
-                      <div className="rounded-md bg-slate-50 px-3 py-2">
-                        <p className="text-[11px]" style={{ color: MUTED }}>Mes anterior</p>
-                        <p className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: BLUE_DARK }}>{pct(previousCollectionRate)}</p>
-                      </div>
-                    </div>
+                {salesByYear.length ? (
+                  <div className="h-[260px] px-4 py-4">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={salesByYear} margin={{ left: 8, right: 16, top: 10, bottom: 8 }}>
+                        <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
+                        <XAxis dataKey="year" tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                        <YAxis tickFormatter={shortUsd} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={72} />
+                        <Tooltip formatter={(value: any) => usdMoney(Number(value || 0))} />
+                        <Bar dataKey="vendido" name="Ventas" fill={BLUE} radius={[4, 4, 0, 0]} />
+                      </ComposedChart>
+                    </ResponsiveContainer>
                   </div>
-                ) : <EmptyChart text="Aun no hay ventas o pagos para comparar." />}
-              </div>
-
-              <div className="card overflow-hidden p-0">
-                <ChartHeader
-                  title="Riesgo de morosidad"
-                  subtitle="Cobrado frente a cuotas vencidas."
-                  menuRows={[
-                    ['Cobrado actual', money(currentCollected)],
-                    ['Mora actual', money(currentOverdue)],
-                    ['Mora mes anterior', money(previousOverdue)],
-                    ['Tasa actual', pct(currentDelinquencyRate || delinquencyRate)],
-                    ['Variacion', pct(delinquencyTrend)],
-                  ]}
-                />
-                {financialTimeline.length ? (
-                  <div className="px-4 py-4">
-                    <div className="flex items-center gap-4">
-                      <div
-                        className="grid h-28 w-28 shrink-0 place-items-center rounded-full"
-                        style={{ background: `conic-gradient(${RED} 0 ${Math.min(100, Math.max(0, currentDelinquencyRate || delinquencyRate))}%, #EAF7EE 0 100%)` }}
-                      >
-                        <div className="grid h-20 w-20 place-items-center rounded-full bg-white text-center">
-                          <span className="text-lg font-bold tabular-nums" style={{ color: RED }}>{pct(currentDelinquencyRate || delinquencyRate)}</span>
-                        </div>
-                      </div>
-                      <div className="min-w-0 flex-1 space-y-3">
-                        <div>
-                          <p className="text-xs font-medium" style={{ color: MUTED }}>Mora actual</p>
-                          <p className="text-xl font-bold tabular-nums" style={{ color: RED }}>{money(currentOverdue)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs font-medium" style={{ color: MUTED }}>Cobrado actual</p>
-                          <p className="text-base font-bold tabular-nums" style={{ color: GREEN }}>{money(currentCollected)}</p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-4 grid grid-cols-2 gap-2">
-                      <div className="rounded-md bg-red-50 px-3 py-2">
-                        <p className="text-[11px]" style={{ color: MUTED }}>Mes anterior</p>
-                        <p className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: RED }}>{money(previousOverdue)}</p>
-                      </div>
-                      <div className="rounded-md bg-slate-50 px-3 py-2">
-                        <p className="text-[11px]" style={{ color: MUTED }}>Variacion</p>
-                        <p className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: delinquencyTrend > 0 ? RED : GREEN }}>{pct(delinquencyTrend)}</p>
-                      </div>
-                    </div>
-                  </div>
-                ) : <EmptyChart text="Sin datos suficientes todavia." />}
+                ) : <EmptyChart text="Sin ventas anuales para mostrar." />}
               </div>
             </div>
           </aside>
@@ -651,14 +637,14 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
           {loading ? <p className="p-4 text-slate-400">Cargando…</p>
             : rows.length === 0 ? <EmptyState text="No hay pagos con esos filtros." />
             : (
-            <table className="table-base" style={{ width: '100%', minWidth: 1180 }}>
+            <table className="table-base" style={{ width: '100%', minWidth: 1280 }}>
               <thead><tr>
                 <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
                 <th className="th-base">Precio venta</th><th className="th-base">Tipo de pago</th>
                 <th className="th-base">Medio de pago</th><th className="th-base">Referencia</th>
-                <th className="th-base">Voucher</th><th className="th-base">Monto</th>
+                <th className="th-base">Voucher</th><th className="th-base">Monto registrado</th><th className="th-base">Monto pagado</th>
                 <th className="th-base">Estado</th><th className="th-base">Vence</th><th className="th-base">Pagado</th>
-                <th className="th-base">Recepciona pago</th>
+                <th className="th-base">Recepciona pago</th><th className="th-base">Acción</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map((p) => (
@@ -672,10 +658,19 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                     <td className="td-base">{p.reference || '—'}</td>
                     <td className="td-base">{p.voucherUrl ? <a href={p.voucherUrl} target="_blank" rel="noreferrer" className="text-[#1877F2] hover:underline">Ver voucher</a> : '—'}</td>
                     <td className="td-base font-medium">{formatMoney(p.amount)}</td>
-                    <td className="td-base">{st(p)}{p.status === 'pendiente' && p.voucherUrl && payCanMark && <button className="btn-primary !h-6 !px-2 text-xs ml-2 align-middle" onClick={(e) => { e.stopPropagation(); if (!confirm(`¿Confirmar como pagado el voucher del lote ${p.lotCode || p.lotId}?`)) return; api.post(`/payments/mark-paid/${p.id}`).then(() => { toast('Pago marcado como pagado'); load(); }).catch((err: any) => toast(err.message, 'err')); }}>Marcar pagado</button>}</td>
+                    <td className="td-base font-medium" style={{ color: p.status === 'pagado' ? GREEN : MUTED }}>{p.status === 'pagado' ? formatMoney(p.amount) : '—'}</td>
+                    <td className="td-base">{st(p)}</td>
                     <td className="td-base">{formatDate(p.dueDate)}</td>
                     <td className="td-base">{formatDate(p.paidAt)}</td>
                     <td className="td-base">{p.receivedByName || '—'}</td>
+                    <td className="td-base">
+                      {p.status === 'pendiente' ? (
+                        <div className="flex flex-wrap gap-1.5">
+                          <button type="button" className="btn-secondary !h-7 !px-2 text-xs" onClick={() => openEditPayment(p)}>Editar</button>
+                          {p.voucherUrl && payCanMark && <button type="button" className="btn-primary !h-7 !px-2 text-xs" onClick={() => markPaymentPaid(p)}>Marcar pagado</button>}
+                        </div>
+                      ) : <span className="text-xs text-slate-400">—</span>}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -684,8 +679,9 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   <td className="td-base font-bold text-white" colSpan={3}>Totales ({rows.length})</td>
                   <td className="td-base font-bold text-white">{formatMoney(totalPrecioVenta)}</td>
                   <td className="td-base" colSpan={4}></td>
+                  <td className="td-base font-bold text-white">{formatMoney(totalRegistrado)}</td>
                   <td className="td-base font-bold text-white">{formatMoney(totalPagado)}</td>
-                  <td className="td-base font-bold text-white" colSpan={4} style={{ background: '#16A34A' }}>% Pago: {pctPago.toFixed(1)}%</td>
+                  <td className="td-base font-bold text-white" colSpan={5} style={{ background: '#16A34A' }}>% Pago: {pctPago.toFixed(1)}%</td>
                 </tr>
               </tfoot>
             </table>
@@ -697,62 +693,124 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
       </div>
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-md p-6">
-            <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Registrar pago</h3>
-            {!lockedProjectId && (
-              <Field label="Proyecto">
-                <select className="input" value={payProjectId} onChange={(e) => { setPayProjectId(Number(e.target.value)); setLotId(0); setClientId(0); }}>
-                  <option value={0}>Selecciona el proyecto…</option>
-                  {payProjects.map((pr: any) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
-                </select>
-              </Field>
-            )}
-            <Field label="Lote">
-              <select className="input" value={lotId} onChange={(e) => selectLot(Number(e.target.value))}>
-                <option value={0}>{payProjectId ? 'Selecciona el lote…' : 'Primero elige un proyecto'}</option>
-                {availableLots.map((l: any) => <option key={l.id} value={l.id}>Lote {l.code} — {formatMoney(l.price)}</option>)}
-              </select>
-            </Field>
-            <Field label="Cliente">
-              <select className="input" value={clientId} onChange={(e) => setClientId(Number(e.target.value))}>
-                <option value={0}>— Sin asignar —</option>
-                {clients.map((c: any) => <option key={c.id} value={c.id}>{c.fullName || c.full_name || '— Sin nombre —'}</option>)}
-              </select>
-            </Field>
-            <Field label="Tipo">
-              <select className="input" value={payType} onChange={(e) => setPayType(e.target.value)}>
-                <option value="reserva">Reserva</option><option value="adelanto">Cuota inicial</option>
-                <option value="primera_cuota">Cuota normal</option><option value="cuota">Cuota</option>
-              </select>
-            </Field>
-            <Field label="Medio de pago">
-              <select className="input" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
-                {METHODS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-              </select>
-            </Field>
-            <Field label="Referencia (n.º operación Yape/banco)">
-              <input className="input" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Ej: YAP-48592910 / 0293-4521-1000" />
-            </Field>
-            <Field label="Comprobante (baucher o captura)">
-              <div className="flex flex-wrap gap-2">
-                <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
-                  <FiUpload /> <input type="file" accept="image/*" className="hidden" onChange={(e) => { pickVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Subir imagen
-                </label>
-                <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
-                  <FiCamera /> <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pickVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Tomar foto
-                </label>
-                {voucherUrl && <img src={voucherUrl} alt="Voucher" className="w-24 h-24 rounded-lg object-cover border" />}
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={() => setOpen(false)} />
+          <div className="relative bg-white rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden">
+            {/* Cabecera */}
+            <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: '#EEF0F2', background: 'linear-gradient(135deg, #F8FAFF 0%, #FFFFFF 100%)' }}>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#1877F2' }}>Pagos de lotes</p>
+                <h3 className="font-semibold" style={{ fontSize: 17 }}>Registrar pago</h3>
               </div>
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Monto (S/)"><input type="number" className="input" value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></Field>
-              <Field label="Vence (opc.)"><input type="date" className="input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
+              <button type="button" className="grid h-8 w-8 place-items-center rounded-lg border bg-white text-slate-400 hover:text-slate-600 hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => setOpen(false)} aria-label="Cerrar">✕</button>
             </div>
-            <Field label="Nota (opcional)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
-            <div className="flex justify-end gap-2 pt-2">
+
+            {/* Cuerpo */}
+            <div className="px-6 py-5 max-h-[65vh] overflow-y-auto space-y-4">
+              {!lockedProjectId && (
+                <Field label="Proyecto">
+                  <select className="input" value={payProjectId} onChange={(e) => { setPayProjectId(Number(e.target.value)); setLotId(0); setClientId(0); }}>
+                    <option value={0}>Selecciona el proyecto…</option>
+                    {payProjects.map((pr: any) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
+                  </select>
+                </Field>
+              )}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <Field label="Lote">
+                  <select className="input" value={lotId} onChange={(e) => selectLot(Number(e.target.value))}>
+                    <option value={0}>{payProjectId ? 'Selecciona el lote…' : 'Primero elige un proyecto'}</option>
+                    {availableLots.map((l: any) => <option key={l.id} value={l.id}>Lote {l.code} — {formatMoney(l.price)}</option>)}
+                  </select>
+                </Field>
+                <Field label="Cliente">
+                  <select className="input" value={clientId} onChange={(e) => setClientId(Number(e.target.value))}>
+                    <option value={0}>— Sin asignar —</option>
+                    {clients.map((c: any) => <option key={c.id} value={c.id}>{c.fullName || c.full_name || '— Sin nombre —'}</option>)}
+                  </select>
+                </Field>
+                <Field label="Tipo de pago">
+                  <select className="input" value={payType} onChange={(e) => setPayType(e.target.value)}>
+                    <option value="reserva">Reserva</option><option value="adelanto">Cuota inicial</option>
+                    <option value="primera_cuota">Cuota normal</option><option value="cuota">Cuota</option>
+                  </select>
+                </Field>
+                <Field label="Medio de pago">
+                  <select className="input" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
+                    {METHODS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
+                  </select>
+                </Field>
+              </div>
+              <Field label="Referencia (n.º operación Yape/banco)">
+                <input className="input" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Ej: YAP-48592910 / 0293-4521-1000" />
+              </Field>
+              <Field label="Comprobante (baucher o captura)">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                    <FiUpload /> <input type="file" accept="image/*" className="hidden" onChange={(e) => { pickVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Subir imagen
+                  </label>
+                  <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                    <FiCamera /> <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pickVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Tomar foto
+                  </label>
+                  {voucherUrl && (
+                    <div className="flex items-center gap-2">
+                      <img src={voucherUrl} alt="Voucher" className="w-20 h-20 rounded-lg object-cover border shadow-sm" />
+                      <button type="button" className="text-xs text-red-500 hover:underline" onClick={() => setVoucherUrl('')}>Quitar</button>
+                    </div>
+                  )}
+                </div>
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Monto (S/)"><input type="number" className="input" value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></Field>
+                <Field label="Vence (opcional)"><input type="date" className="input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
+              </div>
+              <Field label="Nota (opcional)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+            </div>
+
+            {/* Pie */}
+            <div className="flex justify-end gap-2 px-6 py-4 border-t bg-canvas" style={{ borderColor: '#EEF0F2' }}>
               <button className="btn-neutral" onClick={() => setOpen(false)}>Cancelar</button>
               <button className="btn-primary" onClick={registrar}>Registrar pago</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {editingPayment && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setEditingPayment(null)} />
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold" style={{ fontSize: 17 }}>Editar pago pendiente</h3>
+                <p className="mt-1 text-sm text-slate-500">Lote {editingPayment.lotCode || editingPayment.lotId} - {formatMoney(editingPayment.amount)}</p>
+              </div>
+              <button type="button" className="grid h-9 w-9 place-items-center rounded-md border text-slate-500" style={{ borderColor: BORDER }} onClick={() => setEditingPayment(null)} aria-label="Cerrar">
+                <FiX />
+              </button>
+            </div>
+
+            <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
+              <MiniMetric label="Monto registrado" value={formatMoney(editingPayment.amount)} />
+              <MiniMetric label="Monto pagado" value={editingPayment.status === 'pagado' ? formatMoney(editingPayment.amount) : 'S/ 0'} color={GREEN} />
+              <MiniMetric label="Estado" value={editingPayment.status} color={editingPayment.status === 'pagado' ? GREEN : AMBER} />
+              <MiniMetric label="Vence" value={formatDate(editingPayment.dueDate)} />
+            </div>
+
+            <Field label="Voucher">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                  <FiUpload /> <input type="file" accept="image/*" className="hidden" onChange={(e) => { pickEditVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Subir voucher
+                </label>
+                <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                  <FiCamera /> <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pickEditVoucher(e.target.files?.[0]); e.target.value = ''; }} /> Tomar foto
+                </label>
+                {editVoucherUrl && <a href={editVoucherUrl} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[#1877F2] hover:underline">Ver voucher</a>}
+              </div>
+              {editVoucherUrl && <img src={editVoucherUrl} alt="Voucher" className="mt-3 h-32 w-32 rounded-lg border object-cover" />}
+            </Field>
+
+            <div className="flex flex-wrap justify-end gap-2 border-t pt-4" style={{ borderColor: BORDER }}>
+              <button className="btn-neutral" onClick={() => setEditingPayment(null)}>Cancelar</button>
+              <button className="btn-secondary" onClick={saveEditVoucher} disabled={!editVoucher}>Guardar voucher</button>
+              {payCanMark && <button className="btn-primary" onClick={() => markPaymentPaid()}>Marcar pagado</button>}
             </div>
           </div>
         </div>

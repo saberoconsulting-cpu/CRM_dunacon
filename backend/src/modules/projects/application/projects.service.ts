@@ -220,8 +220,9 @@ export class ProjectsService {
   async dashboard(id: number) {
     const project = await this.getOne(id);
     const plan = await this.planRepo.findOne({ where: { projectId: id } });
-    const blocks = await this.blockRepo.find({ where: { projectId: id } });
+    const streets = await this.blockRepo.find({ where: { projectId: id } });
     const lots = await this.lotRepo.find({ where: { projectId: id } });
-    return { project, plan, blocks, lots };
+    const lotsWithCompat = lots.map((lot) => ({ ...lot, blockId: lot.streetId }));
+    return { project, plan, streets, blocks: streets, lots: lotsWithCompat };
   }
 }

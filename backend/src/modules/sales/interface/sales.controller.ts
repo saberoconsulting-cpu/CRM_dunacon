@@ -11,6 +11,7 @@ import {
 } from '@nestjs/common';
 import { SalesService } from '../application/sales.service';
 import { CreateSaleDto } from '../application/dto/sale.dto';
+import { ListSalesDto } from '../application/dto/list-sales.dto';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/application/guards/roles.guard';
 import { Roles } from '../../../shared/application/decorators/roles.decorator';
@@ -23,22 +24,8 @@ export class SalesController {
   constructor(private readonly salesService: SalesService) {}
 
   @Get()
-  list(
-    @Query('projectId') projectId?: string,
-    @Query('agentId') agentId?: string,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-    @Query('status') status?: string,
-    @Query('search') search?: string,
-  ) {
-    return this.salesService.list({
-      projectId: projectId ? Number(projectId) : undefined,
-      agentId: agentId ? Number(agentId) : undefined,
-      from,
-      to,
-      status,
-      search,
-    });
+  list(@Query() query: ListSalesDto) {
+    return this.salesService.list(query);
   }
 
   @Get('by-lot/:lotId')
@@ -48,8 +35,8 @@ export class SalesController {
 
   @Get('pending')
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
-  pending() {
-    return this.salesService.pendingApprovals();
+  pending(@Query('projectId') projectId?: string) {
+    return this.salesService.pendingApprovals(projectId ? Number(projectId) : undefined);
   }
 
   @Get(':id/schedule')

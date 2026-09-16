@@ -54,6 +54,21 @@ export class CreateQuoteDto {
   @IsNumber()
   tea?: number;
 
+  @IsOptional()
+  @IsString()
+  @IsIn(['enviada', 'desestimada', 'actualizada'])
+  status?: 'enviada' | 'desestimada' | 'actualizada';
+
+  @IsOptional()
+  @IsNumber()
+  areaM2?: number;
+
   @IsNumber()
   exchangeRate!: number;
+}
+
+export class UpdateQuoteStatusDto {
+  @IsString()
+  @IsIn(['enviada', 'desestimada', 'actualizada'])
+  status!: 'enviada' | 'desestimada' | 'actualizada';
 }

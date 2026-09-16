@@ -1,0 +1,405 @@
+'use client';
+// Graficas de reportes del proyecto (reutilizables): se muestran en el panel
+// derecho de la seccion Plano y tambien pueden usarse en el dashboard.
+import type { ReactNode } from 'react';
+import { useState } from 'react';
+import { BRAND } from '@/lib/types';
+
+// --- Formato ---
+function usdMoney(value: unknown): string {
+  return `US$ ${Number(value || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
+// Etiqueta corta para meses "YYYY-MM" -> "ene 25"
+export function monthLabel(month: unknown): string {
+  const [year, rawMonth] = String(month || '').split('-');
+  const date = new Date(Number(year), Number(rawMonth || 1) - 1, 1);
+  if (Number.isNaN(date.getTime())) return String(month || '-');
+  return date.toLocaleDateString('es-PE', { month: 'short', year: '2-digit' }).replace('.', '');
+}
+
+// Secuencia completa de los ultimos N meses (incluye meses sin datos en 0),
+// para que las graficas de tendencia siempre muestren el eje temporal completo.
+export function monthSequence(count: number): string[] {
+  const now = new Date();
+  const months: string[] = [];
+  for (let offset = count - 1; offset >= 0; offset--) {
+    const date = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+    months.push(`${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return months;
+}
+
+const CHART_COLORS = [BRAND.blue, BRAND.blueDark, '#16A36A', '#F59E0B', '#E11D48', '#8064A2', '#0EA5E9', '#64748B'];
+
+function proportion(value: number, base: number, minimum = 0) {
+  if (!base || value <= 0) return 0;
+  return Math.max(minimum, (value / base) * 100);
+}
+
+function conicGradient(data: { value: number; color: string }[], total: number) {
+  if (!total) return BRAND.mutedLight;
+  let cursor = 0;
+  const stops = data
+    .filter((item) => item.value > 0)
+    .map((item) => {
+      const start = cursor;
+      cursor += (item.value / total) * 100;
+      return `${item.color} ${start}% ${cursor}%`;
+    });
+  return `conic-gradient(${stops.join(', ')})`;
+}
+
+function EmptyChart({ text }: { text: string }) {
+  return <p className="py-10 text-center text-sm text-slate-400">{text}</p>;
+}
+
+// Envoltorio de grafica con el estilo del dashboard (borde + sombra suave).
+export function ChartShell({ title, subtitle, children, className = '' }: { title: string; subtitle: string; children: ReactNode; className?: string }) {
+  return (
+    <section className={`border bg-white p-4 ${className}`} style={{ borderColor: BRAND.border, borderRadius: 6, boxShadow: '0 1px 2px rgba(16,24,40,.035)' }}>
+      <div className="mb-4">
+        <h3 className="text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: BRAND.ink }}>{title}</h3>
+        <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+// Donut con conic-gradient, total al centro y leyenda lateral.
+function DonutChart({ data, formatter = usdMoney }: { data: { name: string; value: number; color: string }[]; formatter?: (value: number) => string }) {
+  const total = data.reduce((sum, item) => sum + item.value, 0);
+  if (!total) return <EmptyChart text="Sin datos para graficar." />;
+
+  return (
+    <div className="grid items-center gap-4">
+      <div className="group mx-auto grid h-40 w-40 place-items-center transition-transform duration-200 hover:scale-[1.02]">
+        <div className="grid h-full w-full place-items-center" style={{ background: conicGradient(data, total), borderRadius: '50%' }}>
+          <div className="grid h-24 w-24 place-items-center bg-white transition-transform duration-200 group-hover:scale-95" style={{ borderRadius: '50%' }}>
+            <div className="px-2 text-center">
+              <p className="text-sm font-semibold tabular-nums" style={{ color: BRAND.ink }}>{formatter(total)}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">total</p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div className="min-w-0 space-y-2">
+        {data.filter((item) => item.value > 0).map((item) => (
+          <div key={item.name} className="flex items-center justify-between gap-2 text-xs">
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: item.color }} />
+              <span className="truncate font-medium text-slate-600">{item.name}</span>
+            </span>
+            <b className="shrink-0 tabular-nums" style={{ color: BRAND.ink }}>{formatter(item.value)}</b>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Grafico de LINEAS CON PUNTOS: una linea continua por serie, con un punto
+// marcado sobre cada mes. Eje X = meses, Eje Y = montos con rejilla de fondo.
+function LineSeriesChart({
+  rows,
+  series,
+  formatter = usdMoney,
+}: {
+  rows: { label: string; values: number[] }[];
+  series: { name: string; color: string }[];
+  formatter?: (value: number) => string;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+
+  if (!rows.length) return <EmptyChart text="Sin datos por mes." />;
+
+  const flat = rows.flatMap((row) => row.values);
+  const max = Math.max(...flat, 1);
+  const ticks = [max, max * 0.75, max * 0.5, max * 0.25, 0];
+
+  // Coordenadas en escala 0-100 para dibujar con un viewBox normalizado.
+  const count = rows.length;
+  const step = count > 1 ? 100 / (count - 1) : 100;
+  const seriesPoints = series.map((_item, seriesIndex) =>
+    rows.map((row, rowIndex) => {
+      const value = Number(row.values[seriesIndex] || 0);
+      return { x: count > 1 ? rowIndex * step : 50, y: proportion(value, max) };
+    }),
+  );
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-2">
+        <div className="relative h-44 text-right text-[10px] tabular-nums text-slate-500">
+          {ticks.map((tick, index) => (
+            <span key={index} className="absolute right-0 -translate-y-1/2" style={{ top: `${index * 25}%` }}>
+              {formatter(Math.round(tick)).replace('US$ ', '')}
+            </span>
+          ))}
+        </div>
+
+        <div className="relative h-44">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <span key={index} className="absolute inset-x-0 border-t" style={{ top: `${index * 25}%`, borderColor: BRAND.border }} />
+          ))}
+
+          <svg viewBox="-2 -6 104 112" preserveAspectRatio="none" className="absolute inset-0 h-full w-full overflow-visible">
+            <defs>
+              {series.map((item, seriesIndex) => (
+                <linearGradient key={item.name} id={`projLineFill${seriesIndex}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={item.color} stopOpacity="0.14" />
+                  <stop offset="100%" stopColor={item.color} stopOpacity="0" />
+                </linearGradient>
+              ))}
+            </defs>
+
+            {seriesPoints.map((points, seriesIndex) => {
+              const line = points.map((point) => `${point.x},${100 - point.y}`).join(' ');
+              const area = `${points[0]?.x ?? 0},100 ${line} ${points[points.length - 1]?.x ?? 100},100`;
+              return (
+                <g key={series[seriesIndex].name}>
+                  <polygon points={area} fill={`url(#projLineFill${seriesIndex})`} />
+                  <polyline
+                    points={line}
+                    fill="none"
+                    stroke={series[seriesIndex].color}
+                    strokeWidth="2.25"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    vectorEffect="non-scaling-stroke"
+                  />
+                </g>
+              );
+            })}
+
+            {seriesPoints.map((points, seriesIndex) =>
+              points.map((point, rowIndex) => (
+                <circle
+                  key={`${seriesIndex}-${rowIndex}`}
+                  cx={point.x}
+                  cy={100 - point.y}
+                  r={hover === rowIndex ? 3.4 : 2.4}
+                  fill="#fff"
+                  stroke={series[seriesIndex].color}
+                  strokeWidth="2"
+                  vectorEffect="non-scaling-stroke"
+                  className="transition-all duration-200"
+                />
+              )),
+            )}
+          </svg>
+
+          <div className="absolute inset-0 flex">
+            {rows.map((row, index) => (
+              <div
+                key={row.label}
+                className="relative h-full flex-1"
+                onMouseEnter={() => setHover(index)}
+                onMouseLeave={() => setHover(null)}
+              >
+                {hover === index && (
+                  <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 w-max -translate-x-1/2 rounded-md border bg-white px-2.5 py-1.5 shadow-xl" style={{ borderColor: BRAND.border }}>
+                    <p className="mb-1 text-center text-[10px] font-semibold uppercase text-slate-500">{row.label}</p>
+                    {series.map((item, i) => (
+                      <div key={item.name} className="flex items-center justify-between gap-4 text-[11px]">
+                        <span className="inline-flex items-center gap-1.5 text-slate-500">
+                          <span className="h-2 w-2 rounded-full" style={{ background: item.color }} />
+                          {item.name}
+                        </span>
+                        <b className="tabular-nums" style={{ color: BRAND.ink }}>{formatter(row.values[i] || 0)}</b>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-2">
+        <span />
+        <div className="flex">
+          {rows.map((row, index) => (
+            <span
+              key={row.label}
+              className="min-w-0 flex-1 truncate text-center text-[10px] font-semibold uppercase transition-colors"
+              style={{ color: hover === index ? BRAND.blueDark : '#94A3B8' }}
+            >
+              {row.label}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t pt-3" style={{ borderColor: BRAND.border }}>
+        {series.map((item) => (
+          <span key={item.name} className="flex items-center gap-2 text-[11px] font-medium">
+            <span className="h-2.5 w-2.5 rounded-full" style={{ background: item.color }} />
+            <span style={{ color: BRAND.ink }}>{item.name}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Barras verticales AGRUPADAS por mes: cada serie es una barra paralela.
+function GroupedColumns({
+  rows,
+  series,
+  formatter = usdMoney,
+}: {
+  rows: { label: string; values: number[] }[];
+  series: { name: string; color: string }[];
+  formatter?: (value: number) => string;
+}) {
+  if (!rows.length) return <EmptyChart text="Sin datos por mes." />;
+
+  const flat = rows.flatMap((row) => row.values);
+  const max = Math.max(...flat, 1);
+  const ticks = [max, max * 0.75, max * 0.5, max * 0.25, 0];
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-2">
+        <div className="relative h-44 text-right text-[10px] tabular-nums text-slate-500">
+          {ticks.map((tick, index) => (
+            <span key={index} className="absolute right-0 -translate-y-1/2" style={{ top: `${index * 25}%` }}>
+              {formatter(Math.round(tick)).replace('US$ ', '')}
+            </span>
+          ))}
+        </div>
+        <div className="relative h-44">
+          {Array.from({ length: 5 }).map((_, index) => (
+            <span key={index} className="absolute inset-x-0 border-t" style={{ top: `${index * 25}%`, borderColor: BRAND.border }} />
+          ))}
+          <div className="relative flex h-full items-end gap-2">
+            {rows.map((row) => (
+              <div key={row.label} className="flex h-full min-w-0 flex-1 items-end justify-center gap-1">
+                {row.values.map((value, i) => (
+                  <div
+                    key={series[i]?.name || i}
+                    className="w-full max-w-[1.2rem] transition-all duration-300"
+                    style={{
+                      height: `${proportion(value, max, value ? 3 : 0)}%`,
+                      minHeight: value ? 4 : 2,
+                      background: value ? (series[i]?.color || CHART_COLORS[i % CHART_COLORS.length]) : BRAND.mutedLight,
+                      borderRadius: '3px 3px 0 0',
+                    }}
+                    title={`${row.label} - ${series[i]?.name || ''}: ${formatter(value)}`}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t pt-3" style={{ borderColor: BRAND.border }}>
+        {series.map((item) => (
+          <span key={item.name} className="flex items-center gap-2 text-[11px] font-medium">
+            <span className="h-2.5 w-2.5 rounded-sm" style={{ background: item.color }} />
+            <span style={{ color: BRAND.ink }}>{item.name}</span>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export interface ProjectReportsData {
+  paidAmount: number;
+  soldAmount: number;
+  overdueAmount: number;
+  delinquencyRate: number;
+  collectedByMonth: { month: string; monto: number }[];
+  salesByMonth: { month: string; monto: number }[];
+  overdueByMonth: { month: string; monto: number }[];
+}
+
+// Panel de las 4 graficas de reportes del proyecto, con filtro de periodo.
+export default function ProjectReports({ data }: { data: ProjectReportsData }) {
+  const [rangeMonths, setRangeMonths] = useState<1 | 6 | 12>(6);
+
+  const range = rangeMonths;
+  const timeline = monthSequence(range);
+  const find = (rows: { month: string; monto: number }[], month: string) =>
+    Number(rows.find((row) => row.month === month)?.monto || 0);
+
+  const investmentData = timeline.map((month) => ({
+    label: monthLabel(month),
+    values: [find(data.salesByMonth, month), find(data.overdueByMonth, month)],
+  }));
+  const collectionData = timeline.map((month) => ({ label: monthLabel(month), values: [find(data.collectedByMonth, month)] }));
+  const paymentVsDelinquency = timeline.map((month) => ({
+    label: monthLabel(month),
+    values: [find(data.collectedByMonth, month), find(data.overdueByMonth, month)],
+  }));
+
+  const rangeLabel = range === 1 ? 'Ultimo mes' : range === 6 ? 'Ultimos 6 meses' : 'Ultimos 12 meses';
+
+  return (
+    <div className="space-y-4">
+      {/* Filtro de periodo */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        {([
+          { value: 1 as const, label: 'Ultimo mes' },
+          { value: 6 as const, label: '6 meses' },
+          { value: 12 as const, label: 'Ultimo anio' },
+        ]).map((option) => {
+          const active = rangeMonths === option.value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setRangeMonths(option.value)}
+              className="h-8 rounded-md border px-3 text-xs font-semibold transition-colors"
+              style={{
+                borderColor: active ? BRAND.blue : BRAND.border,
+                background: active ? BRAND.blue : '#fff',
+                color: active ? '#fff' : '#6B7280',
+              }}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+
+      <ChartShell title="Ejecucion de la Obra" subtitle="Cobrado frente al saldo por cobrar">
+        <DonutChart
+          data={[
+            { name: 'Cobrado', value: data.paidAmount, color: BRAND.blue },
+            { name: 'Por cobrar', value: Math.max(0, data.soldAmount - data.paidAmount), color: '#E5E7EB' },
+          ]}
+        />
+      </ChartShell>
+
+      <ChartShell title="Recaudacion por mes" subtitle={rangeLabel}>
+        <LineSeriesChart rows={collectionData} series={[{ name: 'Recaudado', color: BRAND.blue }]} />
+      </ChartShell>
+
+      <ChartShell title="Pagos vs Morosidad" subtitle={rangeLabel}>
+        <LineSeriesChart
+          rows={paymentVsDelinquency}
+          series={[
+            { name: 'Pagado', color: BRAND.blue },
+            { name: 'Moroso', color: '#E11D48' },
+          ]}
+        />
+      </ChartShell>
+
+      <ChartShell title="Inversiones y Gastos" subtitle={rangeLabel}>
+        <GroupedColumns
+          rows={investmentData}
+          series={[
+            { name: 'Vendido', color: BRAND.blue },
+            { name: 'Moroso', color: '#E11D48' },
+          ]}
+        />
+      </ChartShell>
+    </div>
+  );
+}

@@ -203,7 +203,7 @@ export default function InteractivePlan({
             const currentStatus = visualStatus(lot);
             const color = statusColor(currentStatus);
             const sel = selectedLotId === lot.id;
-            const dim = highlightBlockId != null && lot.blockId !== highlightBlockId;
+            const dim = highlightBlockId != null && (lot.streetId ?? lot.blockId) !== highlightBlockId;
             return (
               <g key={`l-${lot.id}`} opacity={dim ? 0.15 : 1}>
                 <polygon
@@ -246,7 +246,7 @@ export default function InteractivePlan({
             <g pointerEvents="none">
               <rect x={tooltip.lot.points[0].x} y={tooltip.lot.points[0].y - 94} width={190} height={92} rx={8} fill="#0f172a" fillOpacity={0.96} />
               <text x={tooltip.lot.points[0].x + 10} y={tooltip.lot.points[0].y - 74} fontSize="13" fontWeight="700" fill="#fff">{tooltip.lot.code}</text>
-              <text x={tooltip.lot.points[0].x + 10} y={tooltip.lot.points[0].y - 56} fontSize="11" fill="#cbd5e1">Área: {tooltip.lot.areaM2} m² · Manz {tooltip.lot.blockId ?? '-'}</text>
+              <text x={tooltip.lot.points[0].x + 10} y={tooltip.lot.points[0].y - 56} fontSize="11" fill="#cbd5e1">Area: {tooltip.lot.areaM2} m2 - Calle {tooltip.lot.streetId ?? tooltip.lot.blockId ?? '-'}</text>
               <text x={tooltip.lot.points[0].x + 10} y={tooltip.lot.points[0].y - 40} fontSize="11" fill="#cbd5e1">{formatMoney(tooltip.lot.price)}</text>
               <text x={tooltip.lot.points[0].x + 10} y={tooltip.lot.points[0].y - 24} fontSize="11" fontWeight="700" fill={statusColor(visualStatus(tooltip.lot))}>{statusLabel(visualStatus(tooltip.lot))}</text>
             </g>

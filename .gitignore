@@ -2,12 +2,17 @@
 node_modules/
 *.log
 npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
 
 # Builds
 backend/dist/
 backend/*.tsbuildinfo
 frontend/.next/
 frontend/out/
+frontend/*.tsbuildinfo
+frontend/next-env.d.ts
+.next/cache/
 
 # Entornos y secretos
 .env
@@ -30,3 +35,9 @@ letsencrypt/
 
 # Varios
 uploads/
+coverage/
+.eslintcache
+.vercel
+*.local
+tmp/
+*.tmp

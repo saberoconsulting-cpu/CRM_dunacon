@@ -1,16 +1,19 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { FiDownload, FiEye } from 'react-icons/fi';
+import { FiDownload, FiEye, FiFileText, FiCreditCard, FiDollarSign, FiTrendingUp, FiCheckCircle } from 'react-icons/fi';
 import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
+import { PaginationBar } from '@/components/ui/PaginationBar';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/types';
+import { buildQuery, normalizePaginated } from '@/lib/pagination';
 import { printHtml } from '@/lib/print';
 
 type Q = {
   id: number; projectId: number; lotId: number; lotCode?: string | null; clientName: string;
   finalPriceUsd: number; cuotaInicialUsd: number; totalCuotas: number;
   paymentMethod: string; exchangeRate: number; createdAt: string;
+  status: string; areaM2: number;
 };
 
 type ScheduleRow = {
@@ -165,7 +168,7 @@ function buildQuoteHtml(data: any, schedule: ScheduleRow[], docType: 'cotizacion
           .eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
           h1{margin:0;font-size:24px;line-height:1.15;color:#111827} h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
           p{margin:4px 0 0;color:#6B7280;font-size:12px}
-          .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}
+          .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px;margin:14px 0 18px}
           .summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}
           .summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
           .summary strong{display:block;margin-top:4px;color:#111827;font-size:12px}
@@ -206,9 +209,10 @@ function buildQuoteHtml(data: any, schedule: ScheduleRow[], docType: 'cotizacion
         ${quote.paymentMethod === 'credito' ? `
           <h2>Financiamiento</h2>
           <div class="summary">
+            <div><span>Saldo a financiar</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
             <div><span>Interes</span><strong>${quote.interestType === 'tea' ? `TEA ${Number(quote.tea || 0)}%` : 'Sin intereses'}</strong></div>
-            <div><span>Valor cuota</span><strong>${escapeHtml(fmtUsd(Number(quote.valorCuotaUsd || 0)))}</strong></div>
             <div><span>Plazo</span><strong>${Number(quote.totalCuotas || 0)} meses</strong></div>
+            <div><span>Valor cuota con intereses</span><strong>${escapeHtml(fmtUsd(Number(quote.valorCuotaUsd || 0)))}</strong></div>
             <div><span>Tipo cambio</span><strong>S/ ${Number(quote.exchangeRate || 0).toFixed(4)}</strong></div>
           </div>
           ${isFinancing ? `<table><thead><tr><th>Mes</th><th>Fecha</th><th>Saldo inicial</th><th>Amort. capital</th><th>Amort. extra</th><th>Interes</th><th>Cuota</th><th>Saldo final</th></tr></thead><tbody>${scheduleRows || '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody></table>` : ''}
@@ -225,26 +229,31 @@ function QuoteDocumentModal({ doc, onClose }: { doc: { id: number; type: 'cotiza
   const [error, setError] = useState('');
 
   useEffect(() => {
+    if (!doc) return;
     setData(null); setSchedule([]); setError('');
     Promise.all([
       api.get<any>(`/quotes/${doc.id}`),
       doc.type === 'financiamiento' ? api.get<ScheduleRow[]>(`/quotes/${doc.id}/schedule`) : Promise.resolve([]),
     ]).then(async ([quoteData, rows]) => {
-      const planData = quoteData?.quote?.projectId
-        ? await api.get<any>(`/plan/project/${quoteData.quote.projectId}`).catch(() => null)
-        : null;
-      setData({ ...quoteData, planData });
-      setSchedule(rows || []);
+      try {
+        const planData = quoteData?.quote?.projectId
+          ? await api.get<any>(`/plan/project/${quoteData.quote.projectId}`).catch(() => null)
+          : null;
+        setData({ ...quoteData, planData });
+        setSchedule(rows || []);
+      } catch (e: any) {
+        setError(e.message || 'Error al cargar los datos');
+      }
     }).catch((e: any) => setError(e.message || 'No se pudo cargar el documento'));
-  }, [doc.id, doc.type]);
+  }, [doc]);
 
   const html = data ? buildQuoteHtml(data, schedule, doc.type) : '';
 
   return (
-    <Modal open onClose={onClose} title={doc.type === 'financiamiento' ? 'Financiamiento' : 'Cotizacion'} width="max-w-5xl">
+    <Modal open={true} onClose={onClose} title={doc.type === 'financiamiento' ? 'Financiamiento' : 'Cotizacion'} width="max-w-5xl">
       <div className="space-y-3">
         <div className="flex justify-end">
-          <button className="btn-primary !h-8 text-xs" disabled={!data} onClick={() => printHtml(html)}>
+          <button className="btn-primary !h-8 text-xs" disabled={!data} onClick={() => html && printHtml(html)}>
             <FiDownload /> Descargar PDF
           </button>
         </div>
@@ -262,6 +271,21 @@ function QuoteDocumentModal({ doc, onClose }: { doc: { id: number; type: 'cotiza
   );
 }
 
+// Tarjeta KPI compacta, con el mismo lenguaje visual del proyecto
+// (etiqueta pequena + icono de acento + valor + helper).
+function QuoteKpi({ label, value, helper, icon, accent }: { label: string; value: string; helper: string; icon: React.ReactNode; accent: string }) {
+  return (
+    <div className="rounded-md border bg-white px-3 py-2.5 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="min-w-0 truncate text-[11px] font-semibold uppercase" style={{ color: '#6B7280' }}>{label}</p>
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-xs" style={{ background: `${accent}12`, color: accent }}>{icon}</span>
+      </div>
+      <p className="mt-1.5 truncate text-base font-bold tabular-nums leading-tight" style={{ color: '#111827' }}>{value}</p>
+      <p className="mt-0.5 truncate text-[11px]" style={{ color: '#6B7280' }}>{helper}</p>
+    </div>
+  );
+}
+
 export default function QuotesView({ lockedProjectId }: { lockedProjectId?: number }) {
   const searchParams = useSearchParams();
   const [rows, setRows] = useState<Q[]>([]);
@@ -269,6 +293,20 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [lots, setLots] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [doc, setDoc] = useState<{ id: number; type: 'cotizacion' | 'financiamiento' } | null>(null);
+  // Paginación server-side + filtros (buenas prácticas: page/limit en URL del API,
+  // reset a página 1 cuando cambia un filtro, debounce en búsqueda).
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [stats, setStats] = useState<{
+    total: number; credito: number; contado: number;
+    montoTotal: number; cuotaInicialTotal: number; cuotaContadoTotal: number;
+  } | null>(null);
+  const [fPayment, setFPayment] = useState('');
+  const [sort, setSort] = useState('createdAt');
+  const [order, setOrder] = useState<'ASC' | 'DESC'>('DESC');
 
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
@@ -285,14 +323,44 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [interestType, setInterestType] = useState<'sin_intereses' | 'tea'>('sin_intereses');
   const [tea, setTea] = useState(10);
 
-  function load() {
-    const q = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
-    api.get<Q[]>(`/quotes${q}`).then((d) => setRows(d || [])).catch((e: any) => toast(e.message, 'err')).finally(() => setLoading(false));
-  }
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qs = buildQuery({
+        projectId: lockedProjectId,
+        search: debouncedSearch || undefined,
+        paymentMethod: fPayment || undefined,
+        sort, order, page, limit,
+      });
+      const data = await api.get<unknown>(`/quotes${qs ? `?${qs}` : ''}`);
+      const norm = normalizePaginated<Q>(data, page, limit);
+      setRows(norm.items);
+      setMeta({ total: norm.total, totalPages: norm.totalPages });
+      // Si la página actual quedó fuera de rango (ej. se eliminaron registros), volver a la última válida.
+      if (page > norm.totalPages && norm.totalPages >= 1) setPage(norm.totalPages);
+    } catch (e: any) {
+      toast(e.message, 'err');
+    } finally {
+      setLoading(false);
+    }
+  }, [lockedProjectId, debouncedSearch, fPayment, sort, order, page, limit]);
 
-  useEffect(() => { load(); }, [lockedProjectId]);
+  useEffect(() => { load(); }, [load]);
+  // Cargar resumen de estadísticas (totales, monto, cuotas).
   useEffect(() => {
-    api.get<any[]>('/lots?limit=500').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
+    api.get<any>('/quotes/summary' + (lockedProjectId ? `?projectId=${lockedProjectId}` : ''))
+      .then(setStats)
+      .catch(() => { });
+  }, [lockedProjectId, fPayment]);
+  // Debounce de 400ms para no disparar un request por cada tecla.
+  useEffect(() => {
+    const t = setTimeout(() => { setDebouncedSearch(search.trim()); }, 400);
+    return () => clearTimeout(t);
+  }, [search]);
+  // Reset a página 1 cuando cambia proyecto, búsqueda o filtros.
+  useEffect(() => { setPage(1); }, [lockedProjectId, debouncedSearch, fPayment, sort, order]);
+  useEffect(() => {
+    api.get<any[]>('/lots?limit=500').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => { });
   }, []);
   useEffect(() => {
     const pre = searchParams?.get('lotId');
@@ -343,14 +411,71 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
         tea: paymentMethod === 'credito' && interestType === 'tea' ? tea : undefined,
         exchangeRate,
       });
-      toast('Cotizacion generada'); setOpen(false); resetForm(); load();
+      toast('Cotizacion generada'); setOpen(false); resetForm(); setPage(1); load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
+
+  function toggleSort(field: string) {
+    if (sort === field) {
+      setOrder((o) => (o === 'ASC' ? 'DESC' : 'ASC'));
+    } else {
+      setSort(field);
+      setOrder(field === 'clientName' ? 'ASC' : 'DESC');
+    }
+  }
+
+  const sortArrow = (field: string) => (sort === field ? (order === 'ASC' ? ' ▲' : ' ▼') : '');
 
   return (
     <>
       <Toaster />
       <div className="space-y-5">
+        {/* Panel de resumen de estadisticas (tarjetas compactas) */}
+        <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+          <QuoteKpi
+            label="Nro. Cotizaciones"
+            value={String(stats?.total ?? 0)}
+            helper="Total registradas"
+            icon={<FiFileText />}
+            accent="#0B2F6E"
+          />
+          <QuoteKpi
+            label="Cotizado al Crédito"
+            value={String(stats?.credito ?? 0)}
+            helper="Financiamiento"
+            icon={<FiCreditCard />}
+            accent="#1877F2"
+          />
+          <QuoteKpi
+            label="Cotizado al Contado"
+            value={String(stats?.contado ?? 0)}
+            helper="Pago directo"
+            icon={<FiCheckCircle />}
+            accent="#16A36A"
+          />
+          <QuoteKpi
+            label="Monto Cotizado US$"
+            value={`US$ ${(stats?.montoTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            helper="Suma de cotizaciones"
+            icon={<FiDollarSign />}
+            accent="#0B2F6E"
+          />
+          <QuoteKpi
+            label="Cuota Inicial US$"
+            value={`US$ ${(stats?.cuotaInicialTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            helper="Iniciales cotizadas"
+            icon={<FiTrendingUp />}
+            accent="#1259C4"
+          />
+          <QuoteKpi
+            label="Cuota Contado US$"
+            value={`US$ ${(stats?.cuotaContadoTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            helper="Cuotas al contado"
+            icon={<FiDollarSign />}
+            accent="#0B2F6E"
+          />
+        </div>
+
         <div className="card">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -359,38 +484,80 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             </div>
             <button className="btn-primary" onClick={() => setOpen(true)}>Nueva cotizacion</button>
           </div>
-        </div>
-        <div className="card p-0 overflow-auto">
-          {loading ? <p className="p-4 text-slate-400">Cargando...</p>
-            : rows.length === 0 ? <EmptyState text="Aun no hay cotizaciones generadas." />
-            : (
-            <table className="table-base" style={{ width: '100%', minWidth: 760 }}>
-              <thead><tr>
-                <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
-                <th className="th-base">Precio final</th><th className="th-base">Cuota inicial</th>
-                <th className="th-base">Cuotas</th><th className="th-base">Fecha</th><th className="th-base"></th>
-              </tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {rows.map((q) => (
-                  <tr key={q.id}>
-                    <td className="td-base text-slate-400">Q{q.id}</td>
-                    <td className="td-base font-medium">{q.lotCode || `Lote ${q.lotId}`}</td>
-                    <td className="td-base">{q.clientName}</td>
-                    <td className="td-base font-medium">{fmtUsd(q.finalPriceUsd)}</td>
-                    <td className="td-base">{q.paymentMethod === 'credito' ? fmtUsd(q.cuotaInicialUsd) : 'Contado'}</td>
-                    <td className="td-base">{q.totalCuotas || '-'}</td>
-                    <td className="td-base">{formatDate(q.createdAt)}</td>
-                    <td className="td-base whitespace-nowrap">
-                      <button className="btn-secondary !h-7 !px-2 text-xs mr-1" onClick={() => setDoc({ id: q.id, type: 'cotizacion' })}><FiEye /> Ver Cotizacion</button>
-                      {q.paymentMethod === 'credito' && (
-                        <button className="btn-secondary !h-7 !px-2 text-xs" onClick={() => setDoc({ id: q.id, type: 'financiamiento' })}><FiEye /> Ver Financiamiento</button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="flex flex-wrap items-center gap-2 mt-4">
+            <input
+              className="input !w-64"
+              placeholder="Buscar cliente o lote..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <select className="input !w-auto" value={fPayment} onChange={(e) => setFPayment(e.target.value)}>
+              <option value="">Todos</option>
+              <option value="contado">Contado</option>
+              <option value="credito">Crédito</option>
+            </select>
+            {(search || fPayment) && (
+              <button
+                className="btn-neutral !h-9 text-xs"
+                onClick={() => { setSearch(''); setDebouncedSearch(''); setFPayment(''); }}
+              >
+                Limpiar
+              </button>
             )}
+          </div>
+        </div>
+        <div className="card p-0 overflow-hidden">
+          <div className="overflow-auto">
+            {loading ? <p className="p-4 text-slate-400">Cargando...</p>
+              : rows.length === 0 ? <EmptyState text="Aun no hay cotizaciones generadas." />
+                : (
+                  <table className="table-base" style={{ width: '100%', minWidth: 900 }}>
+                    <thead><tr>
+                      <th className="th-base">Id</th>
+                      <th className="th-base">Lote</th>
+                      <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('clientName')}>Cliente{sortArrow('clientName')}</th>
+                      <th className="th-base">Area M2</th>
+                      <th className="th-base">Estado</th>
+                      <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('finalPriceUsd')}>Precio Final{sortArrow('finalPriceUsd')}</th>
+                      <th className="th-base">Cuota Inicial</th>
+                      <th className="th-base">Cuotas</th>
+                      <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')}>Fecha{sortArrow('createdAt')}</th>
+                      <th className="th-base"></th>
+                    </tr></thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {rows.map((q) => (
+                        <tr key={q.id}>
+                          <td className="td-base text-slate-400">Q{q.id}</td>
+                          <td className="td-base font-medium">{q.lotCode || `Lote ${q.lotId}`}</td>
+                          <td className="td-base">{q.clientName}</td>
+                          <td className="td-base">{Number(q.areaM2 || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '-'}</td>
+                          <td className="td-base">
+                            <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                              q.status === 'enviada' ? 'bg-blue-100 text-[#1259C4]' :
+                              q.status === 'desestimada' ? 'bg-red-100 text-[#C41212]' :
+                              q.status === 'actualizada' ? 'bg-amber-100 text-[#92400E]' :
+                              'bg-slate-100 text-slate-500'
+                            }`}>
+                              {q.status === 'enviada' ? 'Enviada' : q.status === 'desestimada' ? 'Desestimada' : q.status === 'actualizada' ? 'Actualizada' : q.status}
+                            </span>
+                          </td>
+                          <td className="td-base font-medium">{fmtUsd(q.finalPriceUsd)}</td>
+                          <td className="td-base">{q.paymentMethod === 'credito' ? fmtUsd(q.cuotaInicialUsd) : 'Contado'}</td>
+                          <td className="td-base">{q.totalCuotas || '-'}</td>
+                          <td className="td-base">{formatDate(q.createdAt)}</td>
+                          <td className="td-base whitespace-nowrap">
+                            <button className="btn-secondary !h-7 !px-2 text-xs mr-1" onClick={() => setDoc({ id: q.id, type: 'cotizacion' })}><FiEye /> Ver Cotizacion</button>
+                            {q.paymentMethod === 'credito' && <button className="btn-secondary !h-7 !px-2 text-xs" onClick={() => setDoc({ id: q.id, type: 'financiamiento' })}><FiEye /> Ver Financiamiento</button>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+          </div>
+          <div className="bg-white p-3 border-t" style={{ borderColor: '#F0F1F3' }}>
+            <PaginationBar compact label="Cotizaciones" page={page} totalPages={meta.totalPages} total={meta.total} limit={limit} setPage={setPage} setLimit={setLimit} />
+          </div>
         </div>
       </div>
 

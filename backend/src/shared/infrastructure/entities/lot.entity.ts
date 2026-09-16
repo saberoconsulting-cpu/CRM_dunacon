@@ -18,8 +18,8 @@ export class LotEntity {
   @Column({ name: 'plan_id' })
   planId: number;
 
-  @Column({ name: 'block_id', type: 'bigint', nullable: true })
-  blockId: number | null;
+  @Column({ name: 'street_id', type: 'bigint', nullable: true })
+  streetId: number | null;
 
   @Column({ length: 50 })
   code: string;
@@ -56,6 +56,9 @@ export class LotEntity {
 
   @Column({ name: 'final_price', type: 'numeric', precision: 14, scale: 2, nullable: true })
   finalPrice?: string;
+
+  @Column({ name: 'plan_voucher_url', type: 'varchar', length: 500, nullable: true })
+  planVoucherUrl?: string | null;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;

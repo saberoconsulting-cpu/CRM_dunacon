@@ -8,6 +8,7 @@ import { FinancialTransactionEntity } from '../../shared/infrastructure/entities
 import { ClientEntity } from '../../shared/infrastructure/entities/client.entity';
 import { UserEntity } from '../../shared/infrastructure/entities/user.entity';
 import { SaleEntity } from '../../shared/infrastructure/entities/sale.entity';
+import { SaleInstallmentEntity } from '../../shared/infrastructure/entities/sale-installment.entity';
 import { WebsocketModule } from '../../shared/infrastructure/websocket/websocket.module';
 import { PaymentsController } from './interface/payments.controller';
 import { PaymentsService } from './application/payments.service';
@@ -22,6 +23,7 @@ import { PaymentsService } from './application/payments.service';
       ClientEntity,
       UserEntity,
       SaleEntity,
+      SaleInstallmentEntity,
     ]),
     WebsocketModule,
   ],

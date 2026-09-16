@@ -62,9 +62,13 @@ export class QuoteEntity {
   @Column({ name: 'exchange_rate', type: 'numeric', precision: 8, scale: 4, default: 3.75 })
   exchangeRate: string;
 
+  @Column({ length: 20, default: 'enviada' })
+  status: string;
+
   @Column({ name: 'created_by', nullable: true })
   createdBy: number;
 
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
+
 }

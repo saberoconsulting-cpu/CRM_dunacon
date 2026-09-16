@@ -7,7 +7,13 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-@Entity('blocks')
+// NOTA IMPORTANTE (esquema real vs. este repo):
+// La base de datos compartida (Supabase) fue migrada por la migración
+// "RenameBlocksToStreets1710000000020", que renombró la tabla "blocks" -> "streets"
+// y la columna "lots.block_id" -> "lots.street_id". Esa migración NO existe en este
+// repositorio, por lo que el mapeo se hace aquí vía @Entity('streets') para no tocar
+// el esquema (ni la BD compartida) ni el contrato de la API (que sigue usando "block").
+@Entity('streets')
 export class BlockEntity {
   @PrimaryGeneratedColumn()
   id: number;
