@@ -720,14 +720,14 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             : (
             <>
             <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
-            <table className="table-base" style={{ width: '100%', minWidth: 1280 }}>
+            <table className="table-base" style={{ width: '100%', minWidth: 1180 }}>
               <thead><tr>
                 <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
                 <th className="th-base">Precio venta</th><th className="th-base">Tipo de pago</th>
                 <th className="th-base">Medio de pago</th><th className="th-base">Referencia</th>
                 <th className="th-base">Voucher</th><th className="th-base">Monto registrado</th><th className="th-base">Monto pagado</th>
                 <th className="th-base">Estado</th><th className="th-base">Vence</th><th className="th-base">Pagado</th>
-                <th className="th-base">Recepciona pago</th><th className="th-base">Acción</th>
+                <th className="th-base">Recepciona pago</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredRows.map((p) => (
@@ -742,17 +742,17 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                     <td className="td-base">{p.voucherUrl ? <a href={p.voucherUrl} target="_blank" rel="noreferrer" className="text-[#1877F2] hover:underline">Ver voucher</a> : '—'}</td>
                     <td className="td-base font-medium">{formatMoney(p.amount)}</td>
                     <td className="td-base font-medium" style={{ color: p.status === 'pagado' ? GREEN : MUTED }}>{p.status === 'pagado' ? formatMoney(p.amount) : '—'}</td>
-                    <td className="td-base">{st(p)}</td>
+                    <td className="td-base">
+                      <div className="flex flex-col items-start gap-1">
+                        {st(p)}
+                        {p.status === 'pendiente' && (
+                          <button type="button" className="btn-secondary !h-6 !px-2 text-[11px] whitespace-nowrap" onClick={() => openEditPayment(p)}>{payCanMark ? 'Aprobar / Editar' : 'Editar'}</button>
+                        )}
+                      </div>
+                    </td>
                     <td className="td-base">{formatDate(p.dueDate)}</td>
                     <td className="td-base">{formatDate(p.paidAt)}</td>
                     <td className="td-base">{p.receivedByName || '—'}</td>
-                    <td className="td-base">
-                      {p.status === 'pendiente' ? (
-                        <div className="flex flex-wrap gap-1.5">
-                          <button type="button" className="btn-secondary !h-7 !px-2 text-xs" onClick={() => openEditPayment(p)}>{payCanMark ? 'Aprobar / Editar' : 'Editar'}</button>
-                        </div>
-                      ) : <span className="text-xs text-slate-400">—</span>}
-                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -763,7 +763,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   <td className="td-base" colSpan={4}></td>
                   <td className="td-base font-bold text-white">{formatMoney(totalRegistrado)}</td>
                   <td className="td-base font-bold text-white">{formatMoney(totalPagado)}</td>
-                  <td className="td-base font-bold text-white" colSpan={5} style={{ background: '#16A34A' }}>% Pago: {pctPago.toFixed(1)}%</td>
+                  <td className="td-base font-bold text-white" colSpan={4} style={{ background: '#16A34A' }}>% Pago: {pctPago.toFixed(1)}%</td>
                 </tr>
               </tfoot>
             </table>
