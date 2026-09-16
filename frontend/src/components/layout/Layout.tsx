@@ -266,7 +266,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
                 className="flex h-11 min-w-0 flex-1 items-center justify-center rounded-md hover:bg-[#F3F4F6]"
                 title="Ir al inicio"
               >
-                <img src="/logo/dunacon.png" alt="Dunacon" className="h-11 w-auto object-contain" />
+                <img src="/logo/dunacon.png" alt="Dunacon" className="h-11 w-auto object-contain ml-3" />
               </button>
               <button
                 type="button"
@@ -293,7 +293,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
         </div>
       ) : (
         <div className="flex h-14 shrink-0 items-center justify-center border-b px-2" style={{ borderColor: BRAND.border }}>
-          <img src="/logo/dunacon.png" alt="Dunacon" className={`${showLabels ? 'h-11 w-auto' : 'h-8 max-w-10 object-contain'}`} />
+          <img src="/logo/dunacon.png" alt="Dunacon" className={`${showLabels ? 'h-11 w-auto ml-3' : 'h-8 max-w-10 object-contain'}`} />
         </div>
       )}
 
