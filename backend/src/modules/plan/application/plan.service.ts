@@ -45,9 +45,10 @@ export class PlanService {
   async getByProject(projectId: number) {
     const plan = await this.planRepo.findOne({ where: { projectId } });
     if (!plan) throw new NotFoundException('El proyecto aún no tiene plano');
-    const blocks = await this.blockRepo.find({ where: { projectId } });
+    const streets = await this.blockRepo.find({ where: { projectId } });
     const lots = await this.lotRepo.find({ where: { projectId } });
-    return { plan, blocks, lots };
+    const lotsWithCompat = lots.map((lot) => ({ ...lot, blockId: lot.streetId }));
+    return { plan, streets, blocks: streets, lots: lotsWithCompat };
   }
 
   async update(projectId: number, dto: UpdatePlanDto, actorId: number) {
@@ -72,51 +73,52 @@ export class PlanService {
     return saved;
   }
 
-  // ---------- BLOQUES / MANZANAS ----------
+  // ---------- CALLES ----------
   async createBlock(projectId: number, dto: CreateBlockDto, actorId: number) {
     const plan = await this.getOrCreatePlan(projectId);
-    const block = this.blockRepo.create({
+    const street = this.blockRepo.create({
       projectId,
       planId: plan.id,
       name: dto.name,
       points: dto.points,
       address: dto.address,
     });
-    const saved = await this.blockRepo.save(block);
-    await this.audit(actorId, 'CREAR_MANZANA', 'blocks', saved.id);
+    const saved = await this.blockRepo.save(street);
+    await this.audit(actorId, 'CREAR_CALLE', 'streets', saved.id);
     return saved;
   }
 
   async updateBlock(blockId: number, dto: UpdateBlockDto, actorId: number) {
-    const block = await this.blockRepo.findOne({ where: { id: blockId } });
-    if (!block) throw new NotFoundException('Manzana no encontrada');
-    if (dto.name !== undefined) block.name = dto.name;
-    if (dto.points !== undefined) block.points = dto.points;
-    if (dto.address !== undefined) block.address = dto.address;
-    const saved = await this.blockRepo.save(block);
-    await this.audit(actorId, 'EDITAR_MANZANA', 'blocks', blockId);
+    const street = await this.blockRepo.findOne({ where: { id: blockId } });
+    if (!street) throw new NotFoundException('Calle no encontrada');
+    if (dto.name !== undefined) street.name = dto.name;
+    if (dto.points !== undefined) street.points = dto.points;
+    if (dto.address !== undefined) street.address = dto.address;
+    const saved = await this.blockRepo.save(street);
+    await this.audit(actorId, 'EDITAR_CALLE', 'streets', blockId);
     return saved;
   }
 
   async deleteBlock(blockId: number, actorId: number) {
     await this.blockRepo.delete({ id: blockId });
-    await this.lotRepo.update({ blockId }, { blockId: null });
-    await this.audit(actorId, 'ELIMINAR_MANZANA', 'blocks', blockId);
+    await this.lotRepo.update({ streetId: blockId }, { streetId: null });
+    await this.audit(actorId, 'ELIMINAR_CALLE', 'streets', blockId);
     return { ok: true };
   }
 
   async duplicateBlock(blockId: number, actorId: number) {
-    const block = await this.blockRepo.findOne({ where: { id: blockId } });
-    if (!block) throw new NotFoundException('Manzana no encontrada');
-    const nextName = String.fromCharCode(block.name.charCodeAt(0) + 1) || 'Z';
+    const street = await this.blockRepo.findOne({ where: { id: blockId } });
+    if (!street) throw new NotFoundException('Calle no encontrada');
+    const nextName = `${street.name} copia`;
     const copy = this.blockRepo.create({
-      projectId: block.projectId,
-      planId: block.planId,
+      projectId: street.projectId,
+      planId: street.planId,
       name: nextName,
-      points: block.points,
+      points: street.points,
+      address: street.address,
     });
     const saved = await this.blockRepo.save(copy);
-    await this.audit(actorId, 'DUPLICAR_MANZANA', 'blocks', saved.id);
+    await this.audit(actorId, 'DUPLICAR_CALLE', 'streets', saved.id);
     return saved;
   }
 
@@ -126,7 +128,7 @@ export class PlanService {
     const lot = this.lotRepo.create({
       projectId,
       planId: plan.id,
-      blockId: dto.blockId,
+      streetId: dto.streetId ?? dto.blockId,
       code: dto.code,
       points: dto.points,
       areaM2: String(dto.areaM2 ?? 0),
@@ -147,7 +149,7 @@ export class PlanService {
     const lot = await this.lotRepo.findOne({ where: { id: lotId } });
     if (!lot) throw new NotFoundException('Lote no encontrado');
     if (dto.code !== undefined) lot.code = dto.code;
-    if (dto.blockId !== undefined) lot.blockId = dto.blockId;
+    if (dto.streetId !== undefined || dto.blockId !== undefined) lot.streetId = dto.streetId ?? dto.blockId ?? null;
     if (dto.points !== undefined) lot.points = dto.points;
     if (dto.areaM2 !== undefined) lot.areaM2 = String(dto.areaM2);
     if (dto.price !== undefined) lot.price = String(dto.price);
@@ -162,6 +164,7 @@ export class PlanService {
         fromStatus: lot.status,
         toStatus: dto.status,
         userId: actorId,
+        createdAt: dto.statusDate ? new Date(dto.statusDate) : undefined,
       });
       lot.status = dto.status;
     }
@@ -169,6 +172,16 @@ export class PlanService {
     await this.audit(actorId, 'EDITAR_LOTE', 'lots', lotId);
     this.gateway.emitToAll('lot.updated', saved);
     return saved;
+  }
+
+  async uploadLotPlanVoucher(lotId: number, url: string, actorId: number) {
+    const lot = await this.lotRepo.findOne({ where: { id: lotId } });
+    if (!lot) throw new NotFoundException('Lote no encontrado');
+    lot.planVoucherUrl = url;
+    const saved = await this.lotRepo.save(lot);
+    await this.audit(actorId, 'SUBIR_PLANO_LOTE', 'lots', lotId);
+    this.gateway.emitToAll('lot.updated', saved);
+    return { ok: true, planVoucherUrl: url };
   }
 
   async changeStatus(lotId: number, toStatus: string, actorId: number, note?: string) {

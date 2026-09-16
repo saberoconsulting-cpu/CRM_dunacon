@@ -31,6 +31,10 @@ export class ListQuotesDto extends PaginationQueryDto {
   paymentMethod?: 'contado' | 'credito';
 
   @IsOptional()
+  @IsIn(['enviada', 'desestimada', 'actualizada'])
+  status?: 'enviada' | 'desestimada' | 'actualizada';
+
+  @IsOptional()
   @IsIn([...QUOTE_SORT_FIELDS])
   sort?: QuoteSortField = 'createdAt';
 

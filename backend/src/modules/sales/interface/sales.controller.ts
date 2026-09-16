@@ -35,8 +35,8 @@ export class SalesController {
 
   @Get('pending')
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
-  pending() {
-    return this.salesService.pendingApprovals();
+  pending(@Query('projectId') projectId?: string) {
+    return this.salesService.pendingApprovals(projectId ? Number(projectId) : undefined);
   }
 
   @Get(':id/schedule')

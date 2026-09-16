@@ -66,3 +66,9 @@ export class CreateQuoteDto {
   @IsNumber()
   exchangeRate!: number;
 }
+
+export class UpdateQuoteStatusDto {
+  @IsString()
+  @IsIn(['enviada', 'desestimada', 'actualizada'])
+  status!: 'enviada' | 'desestimada' | 'actualizada';
+}

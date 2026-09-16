@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { FiDownload, FiEye } from 'react-icons/fi';
+import { FiDownload, FiEye, FiFileText, FiCreditCard, FiDollarSign, FiTrendingUp, FiCheckCircle } from 'react-icons/fi';
 import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { api } from '@/lib/api';
@@ -168,7 +168,7 @@ function buildQuoteHtml(data: any, schedule: ScheduleRow[], docType: 'cotizacion
           .eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
           h1{margin:0;font-size:24px;line-height:1.15;color:#111827} h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
           p{margin:4px 0 0;color:#6B7280;font-size:12px}
-          .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}
+          .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px;margin:14px 0 18px}
           .summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}
           .summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
           .summary strong{display:block;margin-top:4px;color:#111827;font-size:12px}
@@ -209,9 +209,10 @@ function buildQuoteHtml(data: any, schedule: ScheduleRow[], docType: 'cotizacion
         ${quote.paymentMethod === 'credito' ? `
           <h2>Financiamiento</h2>
           <div class="summary">
+            <div><span>Saldo a financiar</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
             <div><span>Interes</span><strong>${quote.interestType === 'tea' ? `TEA ${Number(quote.tea || 0)}%` : 'Sin intereses'}</strong></div>
-            <div><span>Valor cuota</span><strong>${escapeHtml(fmtUsd(Number(quote.valorCuotaUsd || 0)))}</strong></div>
             <div><span>Plazo</span><strong>${Number(quote.totalCuotas || 0)} meses</strong></div>
+            <div><span>Valor cuota con intereses</span><strong>${escapeHtml(fmtUsd(Number(quote.valorCuotaUsd || 0)))}</strong></div>
             <div><span>Tipo cambio</span><strong>S/ ${Number(quote.exchangeRate || 0).toFixed(4)}</strong></div>
           </div>
           ${isFinancing ? `<table><thead><tr><th>Mes</th><th>Fecha</th><th>Saldo inicial</th><th>Amort. capital</th><th>Amort. extra</th><th>Interes</th><th>Cuota</th><th>Saldo final</th></tr></thead><tbody>${scheduleRows || '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody></table>` : ''}
@@ -267,6 +268,21 @@ function QuoteDocumentModal({ doc, onClose }: { doc: { id: number; type: 'cotiza
         )}
       </div>
     </Modal>
+  );
+}
+
+// Tarjeta KPI compacta, con el mismo lenguaje visual del proyecto
+// (etiqueta pequena + icono de acento + valor + helper).
+function QuoteKpi({ label, value, helper, icon, accent }: { label: string; value: string; helper: string; icon: React.ReactNode; accent: string }) {
+  return (
+    <div className="rounded-md border bg-white px-3 py-2.5 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="min-w-0 truncate text-[11px] font-semibold uppercase" style={{ color: '#6B7280' }}>{label}</p>
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-xs" style={{ background: `${accent}12`, color: accent }}>{icon}</span>
+      </div>
+      <p className="mt-1.5 truncate text-base font-bold tabular-nums leading-tight" style={{ color: '#111827' }}>{value}</p>
+      <p className="mt-0.5 truncate text-[11px]" style={{ color: '#6B7280' }}>{helper}</p>
+    </div>
   );
 }
 
@@ -414,32 +430,50 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     <>
       <Toaster />
       <div className="space-y-5">
-        {/* Panel de resumen de estadísticas - ARRIBA */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
-          <div className="min-w-0 min-h-[104px] rounded-xl border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
-            <p className="min-h-8 text-xs font-semibold uppercase tracking-wider text-slate-500">Nro. Cotizaciones</p>
-            <p className="mt-1 text-lg font-bold leading-tight break-all" style={{ color: '#0B2F6E' }}>{stats?.total ?? 0}</p>
-          </div>
-          <div className="min-w-0 min-h-[104px] rounded-xl border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
-            <p className="min-h-8 text-xs font-semibold uppercase tracking-wider text-slate-500">Cotizado Al Crédito</p>
-            <p className="mt-1 text-lg font-bold leading-tight break-all" style={{ color: '#1877F2' }}>{stats?.credito ?? 0}</p>
-          </div>
-          <div className="min-w-0 min-h-[104px] rounded-xl border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
-            <p className="min-h-8 text-xs font-semibold uppercase tracking-wider text-slate-500">Cotizado Al Contado</p>
-            <p className="mt-1 text-lg font-bold leading-tight break-all" style={{ color: '#16A36A' }}>{stats?.contado ?? 0}</p>
-          </div>
-          <div className="min-w-0 min-h-[104px] rounded-xl border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
-            <p className="min-h-8 text-xs font-semibold uppercase tracking-wider text-slate-500">Monto Cotizado US$</p>
-            <p className="mt-1 text-lg font-bold leading-tight break-all" style={{ color: '#0B2F6E' }}>US$ {(stats?.montoTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-          </div>
-          <div className="min-w-0 min-h-[104px] rounded-xl border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
-            <p className="min-h-8 text-xs font-semibold uppercase tracking-wider text-slate-500">Cuota Inicial US$</p>
-            <p className="mt-1 text-lg font-bold leading-tight break-all" style={{ color: '#1259C4' }}>US$ {(stats?.cuotaInicialTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-          </div>
-          <div className="min-w-0 min-h-[104px] rounded-xl border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
-            <p className="min-h-8 text-xs font-semibold uppercase tracking-wider text-slate-500">Cuota Contado US$</p>
-            <p className="mt-1 text-lg font-bold leading-tight break-all" style={{ color: '#0B2F6E' }}>US$ {(stats?.cuotaContadoTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-          </div>
+        {/* Panel de resumen de estadisticas (tarjetas compactas) */}
+        <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+          <QuoteKpi
+            label="Nro. Cotizaciones"
+            value={String(stats?.total ?? 0)}
+            helper="Total registradas"
+            icon={<FiFileText />}
+            accent="#0B2F6E"
+          />
+          <QuoteKpi
+            label="Cotizado al Crédito"
+            value={String(stats?.credito ?? 0)}
+            helper="Financiamiento"
+            icon={<FiCreditCard />}
+            accent="#1877F2"
+          />
+          <QuoteKpi
+            label="Cotizado al Contado"
+            value={String(stats?.contado ?? 0)}
+            helper="Pago directo"
+            icon={<FiCheckCircle />}
+            accent="#16A36A"
+          />
+          <QuoteKpi
+            label="Monto Cotizado US$"
+            value={`US$ ${(stats?.montoTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            helper="Suma de cotizaciones"
+            icon={<FiDollarSign />}
+            accent="#0B2F6E"
+          />
+          <QuoteKpi
+            label="Cuota Inicial US$"
+            value={`US$ ${(stats?.cuotaInicialTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            helper="Iniciales cotizadas"
+            icon={<FiTrendingUp />}
+            accent="#1259C4"
+          />
+          <QuoteKpi
+            label="Cuota Contado US$"
+            value={`US$ ${(stats?.cuotaContadoTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            helper="Cuotas al contado"
+            icon={<FiDollarSign />}
+            accent="#0B2F6E"
+          />
         </div>
 
         <div className="card">

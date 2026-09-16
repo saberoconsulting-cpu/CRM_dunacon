@@ -1,22 +1,50 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Toaster, toast, Field, EmptyState, StatCard } from '@/components/ui/ui';
+import { Toaster, toast, Field, EmptyState } from '@/components/ui/ui';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { api } from '@/lib/api';
 import { normalizePaginated, buildQuery } from '@/lib/pagination';
 import { formatMoney, formatDate } from '@/lib/types';
 import { printHtml } from '@/lib/print';
-import { FiDownload } from 'react-icons/fi';
+import { FiDownload, FiHome, FiCheckCircle, FiDollarSign, FiTrendingUp, FiPercent, FiBookmark, FiArrowDownCircle } from 'react-icons/fi';
+
+// Tarjeta de estadística al estilo del dashboard (MetricTile): icono, acento
+// superior de color y tipografía compacta del proyecto.
+function SalesMetric({ label, value, icon, tone = '#1877F2' }: { label: string; value: ReactNode; icon: ReactNode; tone?: string }) {
+  return (
+    <div className="relative overflow-hidden rounded-lg border bg-white px-4 py-3" style={{ borderColor: '#E5E7EB', boxShadow: '0 1px 2px rgba(16,24,40,.04)' }}>
+      <div className="absolute inset-x-0 top-0 h-0.5" style={{ background: tone }} />
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-[11px] font-medium" style={{ color: '#6B7280' }}>{label}</p>
+          <p className="mt-1 truncate text-xl font-semibold tabular-nums" style={{ color: '#111827' }}>{value}</p>
+        </div>
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md" style={{ background: `${tone}12`, color: tone }}>{icon}</span>
+      </div>
+    </div>
+  );
+}
 
 type S = {
   id: number; projectId: number; lotId: number; clientId?: number | null; agentId?: number | null;
   salePrice: string; saleDate: string; commission: string; agentName?: string | null; clientName?: string | null;
   lotCode?: string | null; conditions?: string | null; approvalStatus?: string; totalCuotas?: number;
-  interestType?: string; tea?: number; financingBase?: number; valorCuota?: number; planStatus?: string;
+  interestType?: string; tea?: number; financingBase?: number; valorCuota?: number; planStatus?: string; lotAreaM2?: number;
 };
 
 const PAYMENT_METHODS = ['Contado', 'Al crédito'];
+
+function todayInput() {
+  const date = new Date();
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 10);
+}
+
+function initialPaymentOf(sale: S) {
+  const match = String(sale.conditions || '').match(/Cuota inicial:\s*([0-9]+(?:\.[0-9]+)?)/i);
+  return match ? Number(match[1] || 0) : 0;
+}
 
 function escapeHtml(value: unknown) {
   return String(value ?? '')
@@ -36,6 +64,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [open, setOpen] = useState(false);
   const [showCotizaciones, setShowCotizaciones] = useState(false);
   const [quotes, setQuotes] = useState<any[]>([]);
+  const [selectedQuoteId, setSelectedQuoteId] = useState(0);
   const [projects, setProjects] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
@@ -80,9 +109,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [tea, setTea] = useState(0);
   const [applyCommission, setApplyCommission] = useState(false);
   const [commissionRate, setCommissionRate] = useState(0);
-  const [saleDate, setSaleDate] = useState('');
+  const [saleDate, setSaleDate] = useState(todayInput());
   const [conditions, setConditions] = useState('');
   const [preview, setPreview] = useState<any>(null);
+  const queryLotId = Number(searchParams?.get('lotId') || 0);
+  const shouldOpenSale = searchParams?.get('openSale') === '1';
 
   useEffect(() => { if (lockedProjectId) setProjectId(lockedProjectId); }, [lockedProjectId]);
 
@@ -113,7 +144,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       // Si la página quedó fuera de rango, volver a la última válida.
       if (page > norm.totalPages && norm.totalPages >= 1) setPage(norm.totalPages);
       if (role === 'admin' || role === 'superadmin') {
-        try { setPending((await api.get<S[]>('/sales/pending')) || []); } catch { setPending([]); }
+        const pendingQuery = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
+        try { setPending((await api.get<S[]>(`/sales/pending${pendingQuery}`)) || []); } catch { setPending([]); }
       }
     } catch (e: any) { toast(e.message, 'err'); } finally { setLoading(false); }
   }, [role, lockedProjectId, debouncedSearch, statusFilter, agentFilter, fromDate, toDate, sort, order, page, limit]);
@@ -140,29 +172,39 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     api.get<any[]>(`/quotes${q}`).then((d) => setQuotes(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
   }, [load, role, lockedProjectId]);
 
-  // Llegada desde "Ver ficha → Vender": /sales?lotId=123 precarga el lote
-  // y abre el modal "Registrar venta" (solo redirección, sin lógica vieja).
   useEffect(() => {
-    const pre = Number(searchParams?.get('lotId') || 0);
-    if (!pre || lots.length === 0) return;
-    const lot = lots.find((l: any) => Number(l.id) === pre);
-    if (!lot) return;
-    if (lockedProjectId && Number(lot.projectId) !== Number(lockedProjectId)) return;
-    selectLot(pre);
+    if (!shouldOpenSale && !queryLotId) return;
+    if (queryLotId > 0) {
+      if (lots.length === 0) return;
+      const lot = lots.find((l: any) => Number(l.id) === queryLotId);
+      if (!lot) return;
+      if (lockedProjectId && Number(lot.projectId) !== Number(lockedProjectId)) return;
+      selectLot(queryLotId);
+    }
     setOpen(true);
-    // Limpiar el query para que recargar no reabra el modal.
     try {
       const url = new URL(window.location.href);
       url.searchParams.delete('lotId');
+      url.searchParams.delete('openSale');
       window.history.replaceState(null, '', url.pathname + (url.search ? `?${url.searchParams}` : ''));
     } catch { /* noop */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, lots]);
+  }, [shouldOpenSale, queryLotId, lots, lockedProjectId]);
+
+  const availableQuotes = quotes.filter((q: any) => (
+    (!projectId || Number(q.projectId) === Number(projectId)) &&
+    (!lotId || Number(q.lotId) === Number(lotId))
+  ));
+
+  const selectedLot = lots.find((l: any) => Number(l.id) === Number(lotId));
+  const selectedQuote = quotes.find((q: any) => Number(q.id) === Number(selectedQuoteId));
+  const quoteProjectId = lockedProjectId || projectId || Number(selectedLot?.projectId || 0);
 
   // Al elegir un lote, autocompletar el precio con su "Precio Venta" de
   // Lotización (si no viene de una cotización real seleccionada abajo).
   function selectLot(id: number) {
     setLotId(id);
+    setSelectedQuoteId(0);
     const lot = lots.find((l: any) => l.id === id);
     if (lot) {
       setSalePrice(Number(lot.salePrice || lot.price || 0));
@@ -177,10 +219,23 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   // Cotización real del módulo Cotizaciones Lotes: precarga el lote y el
   // precio (convertido a soles con el tipo de cambio de esa cotización).
   function selectQuote(q: any) {
-    setLotId(q.lotId);
-    setSalePrice(Math.round(Number(q.finalPriceUsd) * Number(q.exchangeRate)));
+    const exchangeRate = Number(q.exchangeRate || 1);
+    const isCredit = q.paymentMethod === 'credito';
+    setSelectedQuoteId(Number(q.id));
+    setProjectId(Number(q.projectId || lockedProjectId || projectId || 0));
+    setLotId(Number(q.lotId));
+    setClientId(0);
     setClientName(q.clientName || '');
+    setSalePrice(Math.round(Number(q.finalPriceUsd || 0) * exchangeRate));
+    setPaymentMethod(isCredit ? 'Al crédito' : 'Contado');
+    setCuotaInicial(isCredit ? Math.round(Number(q.cuotaInicialUsd || 0) * exchangeRate) : 0);
+    setTotalCuotas(isCredit ? Number(q.totalCuotas || 0) : 0);
+    setInterestType(q.interestType === 'tea' ? 'tea' : 'sin_intereses');
+    setTea(q.interestType === 'tea' ? Number(q.tea || 0) : 0);
+    setSaleDate(todayInput());
+    setConditions((current) => current || `Cotizacion Q${q.id}`);
     setShowCotizaciones(false);
+    toast('Datos de la cotizacion cargados');
   }
 
   async function assignClientByName(showToast = true) {
@@ -228,6 +283,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   }, [open, salePrice, applyCommission, commissionRate, totalCuotas, cuotaInicial, interestType, tea, paymentMethod, projectId, lotId, agentId]);
 
   async function registrar() {
+    if (!selectedQuoteId) return toast('Selecciona una cotizacion antes de registrar la venta. Si no existe, genera una primero.', 'err');
     if (!lotId) return toast('Selecciona un lote', 'err');
     if (!clientName.trim() && !clientId) return toast('Ingresa el nombre del cliente real.', 'err');
     if (!agentId) return toast('Selecciona el agente', 'err');
@@ -249,9 +305,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         saleDate: saleDate || undefined, conditions: conditions || undefined,
       });
       toast('Separación registrada. Queda pendiente de validación.');
-      setOpen(false); setLotId(0); setClientId(0); setClientName(''); setConditions(''); setSalePrice(0);
+      setOpen(false); setLotId(0); setSelectedQuoteId(0); setClientId(0); setClientName(''); setConditions(''); setSalePrice(0);
       setPaymentMethod('Contado'); setTotalCuotas(0); setCuotaInicial(0); setInterestType('sin_intereses'); setTea(0);
-      setApplyCommission(false); setCommissionRate(0); setSaleDate(''); setAgentId(0); setPreview(null);
+      setApplyCommission(false); setCommissionRate(0); setSaleDate(todayInput()); setAgentId(0); setPreview(null);
       load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -307,20 +363,25 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     `);
   }
 
-  // Resumenes globales (backend, mismos filtros).
-  const total = summary.totalAmount;
-  const comm = summary.totalCommission;
-  const totalSales = summary.totalSales;
+  const total = summary.totalAmount || rows.reduce((s, r) => s + Number(r.salePrice || 0), 0);
+  const comm = summary.totalCommission || rows.reduce((s, r) => s + Number(r.commission || 0), 0);
+  const totalSales = summary.totalSales || rows.length;
+  const soldArea = rows.reduce((sum, row) => sum + Number(row.lotAreaM2 || 0), 0);
+  const financingTotal = [...rows, ...pending].reduce((sum, row) => sum + Number(row.financingBase || 0), 0);
+  const initialPaymentTotal = [...rows, ...pending].reduce((sum, row) => sum + initialPaymentOf(row), 0);
 
   return (
     <>
       <Toaster />
       <div className="space-y-5">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Ventas cerradas" value={String(totalSales)} />
-          <StatCard label="Monto total vendido" value={formatMoney(total)} color="#171717" />
-          <StatCard label="Comisiones devengadas" value={formatMoney(comm)} color="#1259C4" />
-          <StatCard label="Lotes vendidos" value={String(totalSales)} />
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-7">
+          <SalesMetric label="Area Vendida m2" value={soldArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} icon={<FiHome />} tone="#1259C4" />
+          <SalesMetric label="Lotes vendidos" value={String(totalSales)} icon={<FiCheckCircle />} tone="#0F8B5F" />
+          <SalesMetric label="Monto total vendido" value={formatMoney(total)} icon={<FiDollarSign />} tone="#171717" />
+          <SalesMetric label="Financiamiento D." value={formatMoney(financingTotal)} icon={<FiTrendingUp />} tone="#1259C4" />
+          <SalesMetric label="Comisiones devengadas" value={formatMoney(comm)} icon={<FiPercent />} tone="#B45309" />
+          <SalesMetric label="Separaciones" value={pending.length} icon={<FiBookmark />} tone="#0E7490" />
+          <SalesMetric label="Pago Inicial" value={formatMoney(initialPaymentTotal)} icon={<FiArrowDownCircle />} tone="#1259C4" />
         </div>
         <div className="card">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -464,25 +525,48 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   Cotizaciones generadas en este proyecto (módulo Cotizaciones Lotes)
                 </div>
                 <div className="max-h-52 overflow-y-auto divide-y" style={{ borderColor: '#F0F1F3' }}>
-                  {quotes.map((q: any) => (
+                  {availableQuotes.map((q: any) => (
                     <button key={q.id} className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-50 text-left"
                       onClick={() => selectQuote(q)}>
-                      <span>Lote {q.lotCode || q.lotId} — {q.clientName}</span>
-                      <b>{formatMoney(Math.round(Number(q.finalPriceUsd) * Number(q.exchangeRate)))}</b>
+                      <span>
+                        <span className="font-semibold">Q{q.id}</span> · Lote {q.lotCode || q.lotId} · {q.clientName || 'Sin cliente'}
+                        <span className="block text-xs text-slate-500">
+                          {q.paymentMethod === 'credito' ? `Al crédito · ${Number(q.totalCuotas || 0)} cuotas` : 'Contado'}
+                        </span>
+                      </span>
+                      <b>{formatMoney(Math.round(Number(q.finalPriceUsd || 0) * Number(q.exchangeRate || 1)))}</b>
                     </button>
                   ))}
-                  {quotes.length === 0 && (
-                    <p className="px-3 py-4 text-xs text-slate-400 text-center">Aún no hay cotizaciones generadas para este proyecto.</p>
+                  {availableQuotes.length === 0 && (
+                    <p className="px-3 py-4 text-xs text-slate-400 text-center">Aún no hay cotizaciones para este proyecto o lote.</p>
                   )}
                 </div>
               </div>
             )}
 
+            <div className="rounded-lg border p-3 mb-4 text-sm" style={{ borderColor: selectedQuote ? '#BBF7D0' : '#BFDBFE', background: selectedQuote ? '#F0FDF4' : '#EFF6FF' }}>
+              {selectedQuote ? (
+                <p className="font-semibold" style={{ color: '#166534' }}>
+                  Cotización Q{selectedQuote.id} cargada: precio final, cliente y forma de pago vienen de la cotización.
+                </p>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <p style={{ color: '#1259C4' }}>Para registrar una venta primero selecciona una cotización. Si no existe, genera una y vuelve a cargarla aquí.</p>
+                  <a
+                    className="btn-primary"
+                    href={quoteProjectId ? `/projects/${quoteProjectId}/quotes${lotId ? `?lotId=${lotId}` : ''}` : '/projects'}
+                  >
+                    Generar cotización
+                  </a>
+                </div>
+              )}
+            </div>
+
             {/* Lote y responsable */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {!lockedProjectId && (
                 <Field label="Proyecto">
-                  <select className="input" value={projectId} onChange={(e) => { setProjectId(Number(e.target.value)); setLotId(0); setSalePrice(0); }}>
+                  <select className="input" value={projectId} onChange={(e) => { setProjectId(Number(e.target.value)); setLotId(0); setSelectedQuoteId(0); setSalePrice(0); }}>
                     <option value={0}>Auto / Todos</option>
                     {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
@@ -498,7 +582,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               </Field>
             </div>
             {lotId > 0 && salePrice > 0 && (
-              <p className="text-xs mt-1" style={{ color: '#1259C4' }}>Precio autocompletado desde el Precio Venta de Lotización de este lote.</p>
+              <p className="text-xs mt-1" style={{ color: '#1259C4' }}>
+                {selectedQuote ? 'Precio final cargado desde la cotizacion seleccionada.' : 'Precio referencial autocompletado desde el Precio Venta de Lotizacion de este lote.'}
+              </p>
             )}
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
@@ -552,7 +638,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <input type="checkbox" className="mt-1" checked={applyCommission} onChange={(e) => setApplyCommission(e.target.checked)} />
                 <span className="text-sm">
                   <span className="font-semibold block">Agente inmobiliario</span>
-                  <span className="text-xs text-slate-500">Descuenta la comisión del precio para calcular las cuotas.</span>
+                  <span className="text-xs text-slate-500">Calcula la comisión de esta venta sin descontarla del financiamiento.</span>
                 </span>
               </label>
               {applyCommission && (

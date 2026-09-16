@@ -131,7 +131,20 @@ export class DashboardsService {
   async general() {
     const monthKey = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
 
-    const [leadsMonth, salesMonth, txnSummary, lotStats, salesByProject, agentRanking, recentSales, recentPayments, leadsByChannel] =
+    const [
+      leadsMonth,
+      salesMonth,
+      txnSummary,
+      lotStats,
+      salesByProject,
+      investmentsByProject,
+      availableLotsByProject,
+      paymentsSummary,
+      agentRanking,
+      recentSales,
+      recentPayments,
+      leadsByChannel,
+    ] =
       await Promise.all([
         this.clientRepo.createQueryBuilder('c').where('c.created_at >= :monthKey', { monthKey }).getCount(),
         this.saleRepo.createQueryBuilder('s').where('s.created_at >= :monthKey', { monthKey }).getCount(),
@@ -153,6 +166,28 @@ export class DashboardsService {
           .addSelect('COALESCE(SUM(s.sale_price),0)', 'amount')
           .groupBy('s.project_id')
           .getRawMany(),
+        this.expenseRepo
+          .createQueryBuilder('e')
+          .select('e.project_id', 'projectId')
+          .addSelect('COALESCE(SUM(e.amount),0)', 'amount')
+          .where('e.project_id IS NOT NULL')
+          .andWhere("e.expense_class IN ('inversion','compra_terreno','financiamiento')")
+          .groupBy('e.project_id')
+          .getRawMany(),
+        this.lotRepo
+          .createQueryBuilder('l')
+          .select('l.project_id', 'projectId')
+          .addSelect('COUNT(*)', 'total')
+          .where("l.status = 'disponible'")
+          .groupBy('l.project_id')
+          .getRawMany(),
+        this.paymentRepo
+          .createQueryBuilder('p')
+          .select("COALESCE(SUM(CASE WHEN p.type IN ('reserva','adelanto','primera_cuota') AND p.status = 'pagado' THEN p.amount ELSE 0 END),0)", 'initialPaid')
+          .addSelect("COALESCE(SUM(CASE WHEN p.type = 'cuota' AND p.status = 'pagado' THEN p.amount ELSE 0 END),0)", 'installmentsPaid')
+          .addSelect("COALESCE(SUM(CASE WHEN p.status = 'pendiente' AND (p.due_date IS NULL OR p.due_date >= CURRENT_DATE) THEN p.amount ELSE 0 END),0)", 'pending')
+          .addSelect("COALESCE(SUM(CASE WHEN p.status = 'vencido' OR (p.status = 'pendiente' AND p.due_date < CURRENT_DATE) THEN p.amount ELSE 0 END),0)", 'overdue')
+          .getRawOne(),
         this.agentRankingQuery(),
         this.saleRepo.find({ order: { createdAt: 'DESC' }, take: 10 }),
         this.paymentRepo.find({ order: { createdAt: 'DESC' }, take: 10 }),
@@ -219,6 +254,14 @@ export class DashboardsService {
       },
       lots: lotMap,
       salesByProject: salesByProject.map((r) => ({ projectId: r.projectId, total: Number(r.total), amount: Number(r.amount) })),
+      investmentsByProject: investmentsByProject.map((r) => ({ projectId: r.projectId, amount: Number(r.amount) })),
+      availableLotsByProject: availableLotsByProject.map((r) => ({ projectId: r.projectId, total: Number(r.total) })),
+      paymentsSummary: [
+        { key: 'initialPaid', label: 'Pago inicial', value: Number(paymentsSummary?.initialPaid || 0) },
+        { key: 'installmentsPaid', label: 'Pago de cuotas', value: Number(paymentsSummary?.installmentsPaid || 0) },
+        { key: 'pending', label: 'Cuotas pendientes', value: Number(paymentsSummary?.pending || 0) },
+        { key: 'overdue', label: 'Cuotas en atraso', value: Number(paymentsSummary?.overdue || 0) },
+      ],
       agentRanking: this.mapAgentRanking(rankings),
       recentSales: latestSales,
       recentPayments,

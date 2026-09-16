@@ -59,7 +59,40 @@ export class PlanController {
   }
 
 
-  // ---- manzanas ----
+  // ---- calles ----
+  @Post('street/:projectId')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  createStreet(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Body() dto: CreateBlockDto,
+    @CurrentUser('id') actorId: number,
+  ) {
+    return this.planService.createBlock(projectId, dto, actorId);
+  }
+
+  @Post('street/update/:streetId')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  updateStreet(
+    @Param('streetId', ParseIntPipe) streetId: number,
+    @Body() dto: UpdateBlockDto,
+    @CurrentUser('id') actorId: number,
+  ) {
+    return this.planService.updateBlock(streetId, dto, actorId);
+  }
+
+  @Post('street/delete/:streetId')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  deleteStreet(@Param('streetId', ParseIntPipe) streetId: number, @CurrentUser('id') actorId: number) {
+    return this.planService.deleteBlock(streetId, actorId);
+  }
+
+  @Post('street/duplicate/:streetId')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  duplicateStreet(@Param('streetId', ParseIntPipe) streetId: number, @CurrentUser('id') actorId: number) {
+    return this.planService.duplicateBlock(streetId, actorId);
+  }
+
+  // ---- compatibilidad: rutas antiguas de manzanas ----
   @Post('block/:projectId')
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
   createBlock(
@@ -111,6 +144,18 @@ export class PlanController {
     @CurrentUser('id') actorId: number,
   ) {
     return this.planService.updateLot(lotId, dto, actorId);
+  }
+
+  @Post('lot/plan-voucher/:lotId')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  async uploadLotPlanVoucher(
+    @Param('lotId', ParseIntPipe) lotId: number,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser('id') actorId: number,
+  ) {
+    const up = await uploadToCloudinary(file.buffer, 'documents');
+    return this.planService.uploadLotPlanVoucher(lotId, up.secure_url, actorId);
   }
 
   @Post('lot/status/:lotId')

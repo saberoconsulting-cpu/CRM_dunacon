@@ -24,6 +24,7 @@ const INK = '#0F172A';
 const MUTED = '#64748B';
 const BORDER = '#E2E8F0';
 const SOLD_GREEN = '#16A36A';
+const BLOCKED_ACTION_STATUSES = ['vendido', 'alquilado', 'reservado', 'adelanto', 'primera_cuota'];
 
 function formatArea(value: unknown) {
   const n = Number(value || 0);
@@ -33,6 +34,13 @@ function formatArea(value: unknown) {
 
 function formatMeters(value: number) {
   return value.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+function toDateInput(value?: string | Date | null) {
+  if (!value) return new Date().toISOString().slice(0, 10);
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value).slice(0, 10);
+  return date.toISOString().slice(0, 10);
 }
 
 function inferDimensions(lot: any) {
@@ -108,6 +116,44 @@ function RealLotPlan({ lot, block, plan }: {
   const lotPath = lotPoints.map((point: any) => `${Number(point.x) || 0},${Number(point.y) || 0}`).join(' ');
   const blockPath = blockPoints.map((point: any) => `${Number(point.x) || 0},${Number(point.y) || 0}`).join(' ');
 
+  // Zoom automatico al lote: se calcula un viewBox ajustado a su poligono (con
+  // margen) para que el lote se vea grande y centrado, sin perder el contexto.
+  const zoom = (() => {
+    const xs = lotPoints.map((p: any) => Number(p.x) || 0);
+    const ys = lotPoints.map((p: any) => Number(p.y) || 0);
+    if (!xs.length) return { x: 0, y: 0, w: imageW, h: imageH };
+
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const w = Math.max(maxX - minX, 1);
+    const h = Math.max(maxY - minY, 1);
+
+    // Margen del 55% alrededor del lote para dar contexto de calles vecinas.
+    const pad = Math.max(w, h) * 0.55;
+    let vw = w + pad * 2;
+    let vh = h + pad * 2;
+
+    // Mantener la proporcion del contenedor (4:3) para que no se deforme.
+    const target = 4 / 3;
+    if (vw / vh > target) vh = vw / target;
+    else vw = vh * target;
+
+    // No alejarse mas alla del plano completo.
+    vw = Math.min(vw, imageW);
+    vh = Math.min(vh, imageH);
+
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    return {
+      x: Math.max(0, Math.min(cx - vw / 2, imageW - vw)),
+      y: Math.max(0, Math.min(cy - vh / 2, imageH - vh)),
+      w: vw,
+      h: vh,
+    };
+  })();
+
   return (
     <aside id="lot-plan-preview" className="rounded-md border bg-white p-3" style={{ borderColor: BORDER }}>
       <div className="mb-2 flex items-center justify-between gap-3">
@@ -121,20 +167,26 @@ function RealLotPlan({ lot, block, plan }: {
       </div>
 
       <div className="relative overflow-hidden rounded-md border bg-[#F8FAFC]" style={{ borderColor: BORDER }}>
-        <svg viewBox={`0 0 ${imageW} ${imageH}`} className="h-[260px] w-full" role="img" aria-label={`Plano real del lote ${lot.code}`}>
+        <svg viewBox={`${zoom.x} ${zoom.y} ${zoom.w} ${zoom.h}`} className="h-[340px] w-full sm:h-[420px]" role="img" aria-label={`Plano real del lote ${lot.code}`}>
           {plan?.imageUrl ? (
             <image href={plan.imageUrl} x="0" y="0" width={imageW} height={imageH} preserveAspectRatio="xMidYMid meet" />
           ) : (
             <rect width={imageW} height={imageH} fill="#F8FAFC" />
           )}
-          {blockPath && <polygon points={blockPath} fill="rgba(18,89,196,0.08)" stroke="rgba(18,89,196,0.45)" strokeWidth="3" />}
-          {lotPath && <polygon points={lotPath} fill="rgba(220,38,38,0.28)" stroke="#DC2626" strokeWidth="5" />}
-          {lotPoints[0] && (
-            <g>
-              <rect x={(Number(lotPoints[0].x) || 0) + 8} y={(Number(lotPoints[0].y) || 0) - 34} width="92" height="26" rx="4" fill="#FFFFFF" stroke="#DC2626" strokeWidth="2" />
-              <text x={(Number(lotPoints[0].x) || 0) + 54} y={(Number(lotPoints[0].y) || 0) - 16} textAnchor="middle" fontSize="13" fontWeight="700" fill="#991B1B">{lot.code || EMPTY}</text>
-            </g>
-          )}
+          {blockPath && <polygon points={blockPath} fill="rgba(18,89,196,0.08)" stroke="rgba(18,89,196,0.45)" strokeWidth={zoom.w * 0.003} />}
+          {lotPath && <polygon points={lotPath} fill="rgba(220,38,38,0.28)" stroke="#DC2626" strokeWidth={zoom.w * 0.005} />}
+          {lotPoints[0] && (() => {
+            const labelW = zoom.w * 0.11;
+            const labelH = zoom.w * 0.031;
+            const labelX = (Number(lotPoints[0].x) || 0) + zoom.w * 0.012;
+            const labelY = (Number(lotPoints[0].y) || 0) - labelH - zoom.w * 0.012;
+            return (
+              <g>
+                <rect x={labelX} y={labelY} width={labelW} height={labelH} rx={labelH * 0.18} fill="#FFFFFF" stroke="#DC2626" strokeWidth={zoom.w * 0.0025} />
+                <text x={labelX + labelW / 2} y={labelY + labelH * 0.68} textAnchor="middle" fontSize={zoom.w * 0.021} fontWeight="700" fill="#991B1B">{lot.code || EMPTY}</text>
+              </g>
+            );
+          })()}
         </svg>
         {!plan?.imageUrl && <div className="absolute inset-0 grid place-items-center text-sm text-slate-400">Sin imagen de plano cargada</div>}
       </div>
@@ -142,8 +194,8 @@ function RealLotPlan({ lot, block, plan }: {
   );
 }
 
-export default function LotDetailModal({ lotId, onClose, onChanged, compact = false }: {
-  lotId: number | null; onClose: () => void; onChanged?: () => void; compact?: boolean;
+export default function LotDetailModal({ lotId, onClose, onChanged, compact = false, initialFocus }: {
+  lotId: number | null; onClose: () => void; onChanged?: () => void; compact?: boolean; initialFocus?: 'plan' | 'edit';
 }) {
   const [lot, setLot] = useState<any>(null);
   const [block, setBlock] = useState<any>(null);
@@ -154,7 +206,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const [payType, setPayType] = useState('reserva');
   const [working, setWorking] = useState(false);
   const [fin, setFin] = useState<any>({ sale: null, installments: [] });
-  const [lotizacion, setLotizacion] = useState({ type: '', salePrice: 0, finalPrice: 0 });
+  const [lotizacion, setLotizacion] = useState({ type: '', salePrice: 0, finalPrice: 0, status: 'disponible', statusDate: '' });
   const [view, setView] = useState<'detalle' | 'vender'>('detalle');
   const canEdit = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
 
@@ -162,14 +214,29 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
     if (!lotId) return;
     try {
       const d = await api.get<any>(`/lots/${lotId}`);
-      setLot(d.lot); setBlock(d.block || null); setPlan(d.plan || null); setHistory(d.history || []); setPayments(d.payments || []);
-      setLotizacion({ type: d.lot?.type || '', salePrice: Number(d.lot?.salePrice || 0), finalPrice: Number(d.lot?.finalPrice || 0) });
+      setLot(d.lot); setBlock(d.street || d.block || null); setPlan(d.plan || null); setHistory(d.history || []); setPayments(d.payments || []);
+      const lastStatusDate = (d.history || [])[0]?.createdAt || d.lot?.updatedAt || new Date().toISOString();
+      setLotizacion({
+        type: d.lot?.type || '',
+        salePrice: Number(d.lot?.salePrice || 0),
+        finalPrice: Number(d.lot?.finalPrice || 0),
+        status: d.lot?.status || 'disponible',
+        statusDate: toDateInput(lastStatusDate),
+      });
       const fin = await api.get<any>(`/sales/by-lot/${lotId}`).catch(() => ({ sale: null, installments: [] }));
       setFin(fin);
     }
     catch (e:any){ toast(e.message,'err'); }
   }
   useEffect(() => { setLot(null); setBlock(null); setPlan(null); setHistory([]); setPayments([]); setFin({ sale: null, installments: [] } as any); setView('detalle'); if (lotId) load(); }, [lotId]);
+  useEffect(() => {
+    if (!lot || !initialFocus) return;
+    const timer = window.setTimeout(() => {
+      const id = initialFocus === 'plan' ? 'lot-plan-preview' : 'lot-edit-section';
+      document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [lot, initialFocus]);
 
   async function saveLotizacion() {
     if (!lot) return;
@@ -179,6 +246,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
         type: lotizacion.type || undefined,
         salePrice: lotizacion.salePrice || undefined,
         finalPrice: lotizacion.finalPrice || undefined,
+        status: lotizacion.status,
+        statusDate: lotizacion.statusDate || undefined,
       });
       toast('Lotización actualizada'); await load(); onChanged?.();
     } catch (e: any) { toast(e.message, 'err'); } finally { setWorking(false); }
@@ -195,8 +264,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
 
   function cotizar() {
     if (!lot) return;
-    if (lot.status === 'vendido') {
-      toast('No se puede cotizar un lote vendido.', 'err');
+    if (BLOCKED_ACTION_STATUSES.includes(lot.status)) {
+      toast('No se puede cotizar un lote vendido, separado o no disponible.', 'err');
       return;
     }
     // El módulo "Cotizaciones Lotes" reemplaza a la vista simple vieja: abre el
@@ -206,16 +275,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
 
   function vender() {
     if (!lot) return;
-    if (lot.status === 'vendido') {
-      toast('No se puede vender un lote vendido.', 'err');
-      return;
-    }
-    if (lot.status === 'reservado') {
-      toast('No se puede vender un lote reservado. Puedes cotizarlo.', 'err');
-      return;
-    }
-    if (lot.status === 'adelanto' || lot.status === 'primera_cuota') {
-      toast('Este lote ya tiene pagos registrados; no se puede vender nuevamente.', 'err');
+    if (BLOCKED_ACTION_STATUSES.includes(lot.status)) {
+      toast('No se puede vender un lote vendido, separado o no disponible.', 'err');
       return;
     }
     // Solo redirigir al apartado de Ventas con el lote precargado.
@@ -228,7 +289,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
     const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
     const rows = [
       ['Num. Lote', lot.code || '—'],
-      ['Direccion', block?.address || lot.blockAddress || (block?.name ? `Manzana ${block.name}` : '—')],
+      ['Calle', block?.name || lot.streetName || lot.blockName || '—'],
+      ['Referencia', block?.address || lot.streetAddress || lot.blockAddress || '—'],
       ['Tipo', lot.type || '—'],
       ['Estado', LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status],
       ['Area', formatArea(lot.areaM2)],
@@ -360,12 +422,12 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   if (!lotId) return null;
   if (!lot) return null;
 
-  const address = block?.address || lot.blockAddress || (block?.name ? `Manzana ${block.name}` : EMPTY);
+  const address = block?.address || lot.streetAddress || lot.blockAddress || (block?.name ? `Calle ${block.name}` : EMPTY);
   const lotType = lot.type || EMPTY;
   const statusLabel = LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status || EMPTY;
   const statusBadgeColor = lot.status === 'vendido' ? SOLD_GREEN : tableStatusColor;
-  const quoteBlocked = lot.status === 'vendido';
-  const sellBlocked = ['vendido', 'reservado', 'adelanto', 'primera_cuota'].includes(lot.status);
+  const quoteBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status);
+  const sellBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status);
   const detailCards = [
     { label: 'Num. de lote', value: lot.code || EMPTY },
     { label: 'Direccion', value: address },
@@ -385,7 +447,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   return (
     <div className="fixed inset-0 z-50">
       <div className="absolute inset-0 bg-slate-950/50" onClick={onClose} />
-      <section className={`absolute left-1/2 top-1/2 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] ${compact ? 'max-w-3xl' : 'max-w-4xl'} -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-md bg-white shadow-[0_24px_70px_rgba(15,23,42,0.28)]`}>
+      <section className={`absolute left-1/2 top-1/2 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] ${compact ? 'max-w-6xl' : 'max-w-7xl'} -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-md bg-white shadow-[0_24px_70px_rgba(15,23,42,0.28)]`}>
         {view === 'detalle' && (
           <>
             <header className="border-b bg-white px-5 py-4 sm:px-6" style={{ borderColor: BORDER }}>
@@ -425,7 +487,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                 </div>
               </div>
 
-              <div className="grid gap-4 bg-[#F8FAFC] p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_330px]">
+              <div className="grid gap-4 bg-[#F8FAFC] p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,440px)] xl:grid-cols-[minmax(0,1fr)_minmax(0,520px)]">
                 <main className="min-w-0 space-y-4">
                   <div className="overflow-hidden rounded-md border bg-white" style={{ borderColor: BORDER }}>
                     {detailCards.map((card) => <DetailCard key={card.label} {...card} />)}
@@ -464,10 +526,12 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                   </div>
 
                   {canEdit && !compact && (
-                    <div className="rounded-[16px] border bg-white p-4" style={{ borderColor: BORDER }}>
+                    <div id="lot-edit-section" className="rounded-[16px] border bg-white p-4" style={{ borderColor: BORDER }}>
                       <h4 className="mb-3 text-sm font-bold" style={{ color: INK }}>Editar Lotizacion</h4>
                       <div className="flex flex-wrap items-end gap-2">
                         <div className="min-w-32 flex-1"><Field label="Tipo"><input className="input" value={lotizacion.type} onChange={(e) => setLotizacion({ ...lotizacion, type: e.target.value })} placeholder="Ej: Esquina" /></Field></div>
+                        <div className="min-w-36 flex-1"><Field label="Estado"><select className="input" value={lotizacion.status} onChange={(e) => setLotizacion({ ...lotizacion, status: e.target.value })}>{Object.entries(LOT_STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field></div>
+                        <div className="min-w-36 flex-1"><Field label="Fecha de estado"><input type="date" className="input" value={lotizacion.statusDate} onChange={(e) => setLotizacion({ ...lotizacion, statusDate: e.target.value })} /></Field></div>
                         <div className="min-w-32 flex-1"><Field label="Precio venta (S/)"><input type="number" className="input" value={lotizacion.salePrice || ''} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: Number(e.target.value) })} /></Field></div>
                         <div className="min-w-32 flex-1"><Field label="Precio final (S/)"><input type="number" className="input" value={lotizacion.finalPrice || ''} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: Number(e.target.value) })} /></Field></div>
                         <button onClick={saveLotizacion} disabled={working} className="btn-secondary shrink-0">Guardar</button>

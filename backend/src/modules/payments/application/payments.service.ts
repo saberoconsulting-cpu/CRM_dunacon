@@ -9,6 +9,7 @@ import { FinancialTransactionEntity } from '../../../shared/infrastructure/entit
 import { ClientEntity } from '../../../shared/infrastructure/entities/client.entity';
 import { UserEntity } from '../../../shared/infrastructure/entities/user.entity';
 import { SaleEntity } from '../../../shared/infrastructure/entities/sale.entity';
+import { SaleInstallmentEntity } from '../../../shared/infrastructure/entities/sale-installment.entity';
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
 import { CreatePaymentDto } from './dto/payment.dto';
 
@@ -32,6 +33,8 @@ export class PaymentsService {
     private readonly txnRepo: Repository<FinancialTransactionEntity>,
     @InjectRepository(SaleEntity)
     private readonly saleRepo: Repository<SaleEntity>,
+    @InjectRepository(SaleInstallmentEntity)
+    private readonly installmentRepo: Repository<SaleInstallmentEntity>,
     private readonly gateway: NotificationsGateway,
     @InjectDataSource()
     private readonly dataSource: DataSource,
@@ -221,6 +224,9 @@ export class PaymentsService {
   // Métricas de caja: por medio de pago, por mes (pagado), ventas por mes y
   // morosidad por mes (para el gráfico de doble eje "Pagos vs Morosidad").
   async summary(projectId?: number) {
+    const today = new Date().toISOString().slice(0, 10);
+    const plus30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+
     const methods: any = await this.paymentRepo
       .createQueryBuilder('p')
       .select('COALESCE(p.payment_method, \'otro\')', 'method')
@@ -264,11 +270,90 @@ export class PaymentsService {
       .orderBy('1', 'ASC')
       .getRawMany();
 
+    const [
+      pendingCuotas,
+      overdueCuotas,
+      upcomingCuotas,
+      totalSale,
+      financing,
+      financedCuotas,
+      paidCuotas,
+      initialPaid,
+    ] = await Promise.all([
+      this.paymentRepo.createQueryBuilder('p')
+        .where("p.status IN ('pendiente','vencido')")
+        .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
+        .select('COUNT(*)', 'count')
+        .addSelect('COALESCE(SUM(p.amount),0)', 'amount')
+        .getRawOne(),
+      this.paymentRepo.createQueryBuilder('p')
+        .where("p.status IN ('pendiente','vencido') AND p.due_date < :today", { today })
+        .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
+        .select('COUNT(*)', 'count')
+        .addSelect('COALESCE(SUM(p.amount),0)', 'amount')
+        .getRawOne(),
+      this.paymentRepo.createQueryBuilder('p')
+        .where("p.status = 'pendiente' AND p.due_date >= :today AND p.due_date <= :plus30", { today, plus30 })
+        .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
+        .select('COUNT(*)', 'count')
+        .addSelect('COALESCE(SUM(p.amount),0)', 'amount')
+        .getRawOne(),
+      this.saleRepo.createQueryBuilder('s')
+        .where("s.approval_status IN ('pendiente','aprobada')")
+        .andWhere(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
+        .select('COUNT(*)', 'count')
+        .addSelect('COALESCE(SUM(s.sale_price),0)', 'amount')
+        .getRawOne(),
+      this.saleRepo.createQueryBuilder('s')
+        .where("s.approval_status IN ('pendiente','aprobada')")
+        .andWhere(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
+        .select('COALESCE(SUM(s.financing_base),0)', 'amount')
+        .getRawOne(),
+      this.installmentRepo
+        .createQueryBuilder('i')
+        .innerJoin(SaleEntity, 's', 's.id = i.sale_id')
+        .where("s.approval_status IN ('pendiente','aprobada')")
+        .andWhere(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
+        .select('COUNT(*)', 'count')
+        .getRawOne(),
+      this.paymentRepo.createQueryBuilder('p')
+        .where("p.type = 'cuota' AND p.status = 'pagado'")
+        .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
+        .select('COUNT(*)', 'count')
+        .addSelect('COALESCE(SUM(p.amount),0)', 'amount')
+        .getRawOne(),
+      this.paymentRepo.createQueryBuilder('p')
+        .where("p.type IN ('adelanto','primera_cuota') AND p.status = 'pagado'")
+        .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
+        .select('COALESCE(SUM(p.amount),0)', 'amount')
+        .getRawOne(),
+    ]);
+
+    const pendingAmount = Number(pendingCuotas?.amount || 0);
+    const overdueAmount = Number(overdueCuotas?.amount || 0);
+    const metrics = {
+      pendingCuotas: Number(pendingCuotas?.count || 0),
+      pendingAmount,
+      overduePayments: Number(overdueCuotas?.count || 0),
+      overdueAmount,
+      delinquencyRate: pendingAmount > 0 ? (overdueAmount / pendingAmount) * 100 : 0,
+      upcomingPayments: Number(upcomingCuotas?.count || 0),
+      upcomingAmount: Number(upcomingCuotas?.amount || 0),
+      totalSaleLots: Number(totalSale?.count || 0),
+      totalSaleAmount: Number(totalSale?.amount || 0),
+      initialPaymentAmount: Number(initialPaid?.amount || 0),
+      financingAmount: Number(financing?.amount || 0),
+      financedCuotas: Number(financedCuotas?.count || 0),
+      paidCuotas: Number(paidCuotas?.count || 0),
+      paidCuotasAmount: Number(paidCuotas?.amount || 0),
+    };
+
     return {
       methods: (methods || []).map((r: any) => ({ method: r.method, total: Number(r.total || 0), monto: Number(r.monto || 0) })),
       byMonth: (byMonth || []).map((r: any) => ({ month: r.month, monto: Number(r.monto || 0) })),
       overdueByMonth: (overdueByMonth || []).map((r: any) => ({ month: r.month, monto: Number(r.monto || 0) })),
       salesByMonth: (salesByMonth || []).map((r: any) => ({ month: r.month, monto: Number(r.monto || 0) })),
+      metrics,
     };
   }
 

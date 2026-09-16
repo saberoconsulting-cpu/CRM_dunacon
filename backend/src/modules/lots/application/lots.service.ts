@@ -33,6 +33,7 @@ export class LotsService {
   async list(filters: {
     projectId?: number;
     blockId?: number;
+    streetId?: number;
     status?: string;
     agentId?: number;
     search?: string;
@@ -43,6 +44,7 @@ export class LotsService {
     page?: number;
     limit?: number;
   }) {
+    const paged = filters.page != null || filters.limit != null;
     const page = Math.max(1, filters.page ?? 1);
     const limit = Math.min(200, Math.max(1, filters.limit ?? 20));
     const qb = this.lotRepo
@@ -51,19 +53,21 @@ export class LotsService {
       .leftJoinAndSelect(ClientEntity, 'c', 'c.id = l.client_id')
       .leftJoinAndSelect(BlockEntity, 'b', 'b.id = l.street_id')
       .select([
-        'l.id', 'l.projectId', 'l.planId', 'l.blockId', 'l.code',
+        'l.id', 'l.projectId', 'l.planId', 'l.streetId', 'l.code',
         'l.areaM2', 'l.price', 'l.status', 'l.clientId', 'l.agentId',
+        'l.planVoucherUrl',
       ])
       // Postgres pliega a minúsculas cualquier alias sin comillas (AS agentName
       // vuelve "agentname"), por eso todos estos van entre comillas dobles.
       .addSelect([
         'u.name AS "agentName"', 'c.full_name AS "clientName"', 'l.selling_stage AS "sellingStage"',
         'l.type AS "type"', 'l.sale_price AS "salePrice"', 'l.final_price AS "finalPrice"',
-        'b.name AS "blockName"', 'b.address AS "blockAddress"',
+        'b.name AS "streetName"', 'b.address AS "streetAddress"',
       ]);
 
     if (filters.projectId) qb.andWhere('l.project_id = :projectId', { projectId: filters.projectId });
-    if (filters.blockId) qb.andWhere('l.street_id = :blockId', { blockId: filters.blockId });
+    const streetId = filters.streetId ?? filters.blockId;
+    if (streetId) qb.andWhere('l.street_id = :streetId', { streetId });
     if (filters.status) qb.andWhere('l.status = :status', { status: filters.status });
     if (filters.agentId) qb.andWhere('l.agent_id = :agentId', { agentId: filters.agentId });
     if (filters.search) qb.andWhere('l.code ILIKE :search', { search: `%${filters.search}%` });
@@ -74,13 +78,14 @@ export class LotsService {
 
     qb.orderBy('l.code', 'ASC');
     const total = await qb.clone().getCount();
-    qb.skip((page - 1) * limit).take(limit);
+    if (paged) qb.skip((page - 1) * limit).take(limit);
     // Mapear a objetos planos (evita el doble mapeo de TypeORM)
     const raw = await qb.getRawMany();
     const items = raw.map((r) => ({
       id: Number(r.l_id),
       projectId: Number(r.l_project_id),
       planId: Number(r.l_plan_id),
+      streetId: r.l_street_id ? Number(r.l_street_id) : null,
       blockId: r.l_street_id ? Number(r.l_street_id) : null,
       code: r.l_code,
       areaM2: Number(r.l_area_m2),
@@ -94,8 +99,11 @@ export class LotsService {
       type: r.type || null,
       salePrice: r.salePrice != null ? Number(r.salePrice) : null,
       finalPrice: r.finalPrice != null ? Number(r.finalPrice) : null,
-      blockName: r.blockName || null,
-      blockAddress: r.blockAddress || null,
+      planVoucherUrl: r.l_plan_voucher_url || null,
+      streetName: r.streetName || null,
+      streetAddress: r.streetAddress || null,
+      blockName: r.streetName || null,
+      blockAddress: r.streetAddress || null,
     }));
     return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
   }
@@ -134,20 +142,20 @@ export class LotsService {
     ]);
     let client: ClientEntity | null = null;
     let agent: { id: number; name: string; email: string; phone: string | null } | null = null;
-    let block: BlockEntity | null = null;
+    let street: BlockEntity | null = null;
     let plan: PlanEntity | null = null;
     if (lot.clientId) client = await this.clientRepo.findOne({ where: { id: lot.clientId } });
     if (lot.agentId) {
       const a = await this.userRepo.findOne({ where: { id: lot.agentId } });
       if (a) agent = { id: a.id, name: a.name, email: a.email, phone: a.phone };
     }
-    if (lot.blockId) block = await this.blockRepo.findOne({ where: { id: lot.blockId } });
+    if (lot.streetId) street = await this.blockRepo.findOne({ where: { id: lot.streetId } });
     if (lot.planId) plan = await this.planRepo.findOne({ where: { id: lot.planId } });
     if (!plan && lot.projectId) plan = await this.planRepo.findOne({ where: { projectId: lot.projectId } });
     const totalPaid = payments
       .filter((p) => p.status === 'pagado')
       .reduce((s, p) => s + Number(p.amount), 0);
     const balance = Number(lot.price) - totalPaid;
-    return { lot, history, payments, client, agent, block, plan, totalPaid, balance };
+    return { lot: { ...lot, blockId: lot.streetId }, history, payments, client, agent, street, block: street, plan, totalPaid, balance };
   }
 }

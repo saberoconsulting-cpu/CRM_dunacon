@@ -11,6 +11,7 @@ export class LotsController {
   @Get()
   list(
     @Query('projectId') projectId?: string,
+    @Query('streetId') streetId?: string,
     @Query('blockId') blockId?: string,
     @Query('status') status?: string,
     @Query('agentId') agentId?: string,
@@ -24,6 +25,7 @@ export class LotsController {
   ) {
     return this.lotsService.list({
       projectId: projectId ? Number(projectId) : undefined,
+      streetId: streetId ? Number(streetId) : undefined,
       blockId: blockId ? Number(blockId) : undefined,
       status,
       agentId: agentId ? Number(agentId) : undefined,
