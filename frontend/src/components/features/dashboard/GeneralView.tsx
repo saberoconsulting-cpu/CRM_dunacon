@@ -205,7 +205,7 @@ function CommercialSummary({ d }: { d: FormattedDashboard }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {secondary.map((item) => (
           <div key={item.label} className="border bg-white p-4" style={{ borderColor: BRAND.border, borderRadius: 6 }}>
             <div className="flex items-start justify-between gap-3">
@@ -444,7 +444,7 @@ function LotStatusDistribution({ data }: { data: { key: string; label: string; v
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {data.map((item) => (
               <div key={item.key} className="group border p-2 transition-colors hover:bg-slate-50" style={{ borderColor: BRAND.border, borderRadius: 4 }} title={`${item.label}: ${item.value}`}>
                 <span className="block h-1 w-8 transition-all group-hover:w-12" style={{ background: item.color }} />
@@ -496,7 +496,7 @@ function LeadOrigins({ rows }: { rows: { channel: string; total: number }[] }) {
               Total {total}
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             {data.map((item) => {
               const value = Number(item.total || 0);
               return (

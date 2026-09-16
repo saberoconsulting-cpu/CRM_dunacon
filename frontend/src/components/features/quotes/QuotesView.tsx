@@ -219,6 +219,8 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
   return `
     <html>
       <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>${escapeHtml(title)} Q${quote.id}</title>
         <style>
           body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white}
@@ -252,16 +254,35 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           .plan-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid #E5E7EB;background:white}
           .plan-head strong{display:block;font-size:12px;color:#111827}.plan-head span{display:block;margin-top:2px;font-size:10px;color:#6B7280}.plan-head b{border-radius:999px;background:#EAF3FF;color:#1259C4;padding:5px 10px;font-size:11px}
           .plan-svg{display:block;width:100%;height:auto;background:#EEF2F7;border-radius:10px}
-          .plan-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;padding:12px}
+          .plan-split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:12px}
           .plan-full,.plan-zoom{min-width:0;display:flex;flex-direction:column;gap:6px}
           .plan-full .plan-svg,.plan-zoom svg{height:230px;border-radius:10px;overflow:hidden;background:#EEF2F7}
           .plan-zoom svg{display:block;width:100%}
           .plan-note{margin:0;font-size:9px;font-weight:700;text-align:center;text-transform:uppercase;letter-spacing:.06em;color:#6B7280}
+          @media (max-width:640px){.plan-split{grid-template-columns:minmax(0,1fr)}.plan-full .plan-svg,.plan-zoom svg{height:190px}}
           .lot-muted{fill:rgba(148,163,184,.20);stroke:#94A3B8;stroke-width:1.2}
           .lot-selected{fill:rgba(24,119,242,.74);stroke:#063B87;stroke-width:4}
           .lot-pulse{fill:rgba(255,255,255,.92);stroke:#1877F2;stroke-width:3}
           .lot-code{font-size:18px;font-weight:800;text-anchor:middle;fill:#063B87}
           .lot-area{font-size:12px;font-weight:700;text-anchor:middle;fill:#1259C4}
+          @media (max-width:640px){
+            body{margin:12px}
+            .brand{flex-direction:column;align-items:flex-start;gap:10px}
+            .logos img{height:32px;max-width:120px}
+            h1{font-size:17px}
+            h2{font-size:11px;margin:14px 0 6px}
+            p{font-size:11px}
+            .summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+            .summary-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+            .section-head{flex-direction:column;align-items:flex-start;gap:6px}
+            .summary-aside{width:100%}
+            .summary-aside div{flex:1;text-align:left}
+            table{table-layout:auto}
+            th,td{padding:5px 4px;font-size:9px}
+            .plan-split{grid-template-columns:minmax(0,1fr)}
+            .plan-full .plan-svg,.plan-zoom svg{height:170px}
+            .watermark img{width:300px}
+          }
           @media print{body{margin:18px}.brand,.summary,.summary-row,.summary-aside,.plan-card{break-inside:avoid}thead{display:table-header-group}.watermark{position:fixed}
             .plan-split{display:grid !important;grid-template-columns:minmax(0,1fr) minmax(0,1fr) !important;gap:12px !important}
             .plan-full .plan-svg,.plan-zoom svg{height:200px !important}
@@ -365,8 +386,8 @@ function QuoteDocumentModal({ doc, onClose }: { doc: { id: number; type: 'cotiza
         ) : !data ? (
           <div className="rounded-lg border p-6 text-center text-sm text-slate-400" style={{ borderColor: '#E5E7EB' }}>Cargando documento...</div>
         ) : (
-          <div className="max-h-[70vh] overflow-auto rounded-lg border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
-            <iframe title="Vista previa del documento" srcDoc={html} className="h-[70vh] w-full rounded-md bg-white" />
+          <div className="overflow-auto rounded-lg border bg-white p-2 sm:p-3" style={{ borderColor: '#E5E7EB', maxHeight: '70vh' }}>
+            <iframe title="Vista previa del documento" srcDoc={html} className="h-[70vh] min-h-[420px] w-full min-w-[320px] rounded-md bg-white" />
           </div>
         )}
       </div>
@@ -616,14 +637,14 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             </div>
             <button className="btn-primary" onClick={() => setOpen(true)}>Nueva cotizacion</button>
           </div>
-          <div className="flex flex-wrap items-center gap-2 mt-4">
+          <div className="flex flex-col gap-2 mt-4 sm:flex-row sm:flex-wrap sm:items-center">
             <input
-              className="input !w-64"
+              className="input w-full sm:!w-64"
               placeholder="Buscar cliente o lote..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <select className="input !w-auto" value={fPayment} onChange={(e) => setFPayment(e.target.value)}>
+            <select className="input w-full sm:!w-auto" value={fPayment} onChange={(e) => setFPayment(e.target.value)}>
               <option value="">Todos</option>
               <option value="contado">Contado</option>
               <option value="credito">Crédito</option>

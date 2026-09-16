@@ -1,9 +1,16 @@
 // Metadata no necesaria (dashboard). Layout global raíz.
 import './globals.css';
+import type { Viewport } from 'next';
 
 export const metadata = {
   title: 'CRM Inmobiliario',
   description: 'Gestión de lotes, planos, clientes y ventas inmobiliarias',
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 5,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

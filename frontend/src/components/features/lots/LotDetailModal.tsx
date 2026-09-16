@@ -325,6 +325,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
     const html = `
       <html>
         <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1" />
           <title>Ficha lote ${escapeHtml(lot.code)}</title>
           <style>
             body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white}
@@ -348,6 +350,18 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
             .watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.06;z-index:-1}
             .watermark img{width:560px;max-width:72vw}
             .footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:10px;text-align:right}
+            @media (max-width:640px){
+              body{margin:12px}
+              .brand{flex-direction:column;gap:10px}
+              .brand img{height:32px;max-width:130px}
+              h1{font-size:17px}
+              h2{font-size:11px;margin:14px 0 6px}
+              p{font-size:11px}
+              .summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+              table{table-layout:auto}
+              th,td{padding:5px 4px;font-size:9px}
+              .watermark img{width:300px}
+            }
             @media print{body{margin:18px}thead{display:table-header-group}.brand,.summary{break-inside:avoid}.watermark{position:fixed}}
           </style>
         </head>

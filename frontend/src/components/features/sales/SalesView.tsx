@@ -65,6 +65,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [showCotizaciones, setShowCotizaciones] = useState(false);
   const [quotes, setQuotes] = useState<any[]>([]);
   const [selectedQuoteId, setSelectedQuoteId] = useState(0);
+  const [selectedQuoteSnapshot, setSelectedQuoteSnapshot] = useState<any>(null);
   const [quoteSearch, setQuoteSearch] = useState('');
   const [quoteFrom, setQuoteFrom] = useState('');
   const [quoteTo, setQuoteTo] = useState('');
@@ -207,7 +208,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   });
 
   const selectedLot = lots.find((l: any) => Number(l.id) === Number(lotId));
-  const selectedQuote = quotes.find((q: any) => Number(q.id) === Number(selectedQuoteId));
+  const selectedQuote = selectedQuoteId
+    ? (quotes.find((q: any) => Number(q.id) === Number(selectedQuoteId)) || selectedQuoteSnapshot)
+    : null;
   const salePriceUsd = exchangeRate > 0 ? salePrice / exchangeRate : 0;
   const quoteProjectId = lockedProjectId || projectId || Number(selectedLot?.projectId || 0);
 
@@ -216,6 +219,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   function selectLot(id: number) {
     setLotId(id);
     setSelectedQuoteId(0);
+    setSelectedQuoteSnapshot(null);
     const lot = lots.find((l: any) => l.id === id);
     if (lot) {
       setSalePrice(Number(lot.salePrice || lot.price || 0));
@@ -234,6 +238,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const isCredit = q.paymentMethod === 'credito';
     setExchangeRate(rate);
     setSelectedQuoteId(Number(q.id));
+    setSelectedQuoteSnapshot(q);
     setProjectId(Number(q.projectId || lockedProjectId || projectId || 0));
     setLotId(Number(q.lotId));
     setClientName(q.clientName || '');
@@ -321,7 +326,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         saleDate: saleDate || undefined, conditions: conditions || undefined,
       });
       toast('Separación registrada. Queda pendiente de validación.');
-      setOpen(false); setLotId(0); setSelectedQuoteId(0); setClientId(0); setClientName(''); setConditions(''); setSalePrice(0);
+      setOpen(false); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setClientId(0); setClientName(''); setConditions(''); setSalePrice(0);
       setPaymentMethod('Contado'); setTotalCuotas(0); setCuotaInicial(0); setInterestType('sin_intereses'); setTea(0);
       setSaleDate(todayInput()); setAgentId(0); setPreview(null);
       setQuoteSearch(''); setQuoteFrom(''); setQuoteTo(''); setShowCotizaciones(false);
@@ -369,8 +374,10 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       <tr><td>Cuota ${escapeHtml(row.installmentNo || '-')}</td><td>${escapeHtml(formatDate(row.dueDate))}</td><td class="num">${escapeHtml(formatMoney(row.amount))}</td><td>${escapeHtml(row.status || '-')}</td></tr>
     `).join('');
     printHtml(`
-      <html><head><title>Ficha de venta V${s.id}</title><style>
-        body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white}.brand{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}.logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}.eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}h1{margin:0;font-size:24px;line-height:1.15;color:#111827}h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}p{margin:4px 0 0;color:#6B7280;font-size:12px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}.summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}.summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.summary strong{display:block;margin-top:4px;color:#111827;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:10px;text-align:left;text-transform:uppercase}td{border:1px solid #E5E7EB;padding:8px 7px;font-size:11px;vertical-align:top}tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}.num{text-align:right;white-space:nowrap;font-weight:700;color:#1259C4}.watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.06;z-index:-1}.watermark img{width:560px;max-width:72vw}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:10px;text-align:right}@media print{body{margin:18px}thead{display:table-header-group}.brand,.summary{break-inside:avoid}.watermark{position:fixed}}
+      <html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Ficha de venta V${s.id}</title><style>
+        body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white}.brand{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}.logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}.eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}h1{margin:0;font-size:24px;line-height:1.15;color:#111827}h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}p{margin:4px 0 0;color:#6B7280;font-size:12px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}.summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}.summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.summary strong{display:block;margin-top:4px;color:#111827;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:10px;text-align:left;text-transform:uppercase}td{border:1px solid #E5E7EB;padding:8px 7px;font-size:11px;vertical-align:top}tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}.num{text-align:right;white-space:nowrap;font-weight:700;color:#1259C4}.watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.06;z-index:-1}.watermark img{width:560px;max-width:72vw}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:10px;text-align:right}
+        @media (max-width:640px){body{margin:12px}.brand{flex-direction:column;gap:10px}.logos img{height:32px;max-width:120px}h1{font-size:17px}h2{font-size:11px;margin:14px 0 6px}p{font-size:11px}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}table{table-layout:auto}th,td{padding:5px 4px;font-size:9px}.watermark img{width:300px}}
+        @media print{body{margin:18px}thead{display:table-header-group}.brand,.summary{break-inside:avoid}.watermark{position:fixed}}
       </style></head><body>
         <div class="watermark"><img src="${escapeHtml(adminLogoUrl)}" alt="" /></div>
         <div class="brand"><div><p class="eyebrow">Ficha de venta</p><h1>Venta V${s.id} - ${escapeHtml(s.lotCode || `Lote ${s.lotId}`)}</h1><p>${escapeHtml(project?.name || `Proyecto ${s.projectId}`)} - generado ${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div></div>
@@ -619,7 +626,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {!lockedProjectId && (
                 <Field label="Proyecto">
-                  <select className="input" value={projectId} onChange={(e) => { setProjectId(Number(e.target.value)); setLotId(0); setSelectedQuoteId(0); setSalePrice(0); }}>
+                  <select className="input" value={projectId} onChange={(e) => { setProjectId(Number(e.target.value)); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setSalePrice(0); }}>
                     <option value={0}>Auto / Todos</option>
                     {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>

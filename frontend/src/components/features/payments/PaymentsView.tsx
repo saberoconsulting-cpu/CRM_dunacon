@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { Toaster, toast, Field, EmptyState } from '@/components/ui/ui';
 import { api, uploadFile } from '@/lib/api';
 import {
@@ -214,14 +214,17 @@ function ChartMenu({ rows }: { rows: Array<[string, string]> }) {
   );
 }
 
-function ChartHeader({ title, subtitle, menuRows }: { title: string; subtitle: string; menuRows: Array<[string, string]> }) {
+function ChartHeader({ title, subtitle, menuRows, actions }: { title: string; subtitle: string; menuRows: Array<[string, string]>; actions?: ReactNode }) {
   return (
-    <div className="flex items-start justify-between gap-3 border-b px-4 py-3" style={{ borderColor: BORDER }}>
+    <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-start sm:justify-between" style={{ borderColor: BORDER }}>
       <div className="min-w-0">
         <h3 className="truncate text-sm font-semibold" style={{ color: INK }}>{title}</h3>
         <p className="mt-0.5 text-xs" style={{ color: MUTED }}>{subtitle}</p>
       </div>
-      <ChartMenu rows={menuRows} />
+      <div className="flex shrink-0 items-center gap-2">
+        {actions}
+        <ChartMenu rows={menuRows} />
+      </div>
     </div>
   );
 }
@@ -233,6 +236,8 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [overdue, setOverdue] = useState<P[]>([]);
   const [showOverdueAlert, setShowOverdueAlert] = useState(true);
   const [showMoreKpis, setShowMoreKpis] = useState(false);
+  const [salesRange, setSalesRange] = useState<3 | 6>(6);
+  const [paySearch, setPaySearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
@@ -294,7 +299,6 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   }, [lockedProjectId]);
 
   const availableLots = payProjectId ? lots.filter((l: any) => Number(l.projectId) === Number(payProjectId)) : lots;
-
   // Al elegir el lote, precargar su cliente asignado (si tiene) — igual se
   // puede cambiar a mano con el selector de Cliente.
   function selectLot(id: number) {
@@ -454,9 +458,20 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
   const st = (p: P) => { const bg = BADGE[p.status] || ['#eaedf1', '#6b7280']; return <span className="badge" style={{ background: bg[0], color: bg[1] }}>{p.status}</span>; };
 
-  const totalPagado = rows.filter((p) => p.status === 'pagado').reduce((s, p) => s + Number(p.amount || 0), 0);
-  const totalRegistrado = rows.reduce((s, p) => s + Number(p.amount || 0), 0);
-  const totalPrecioVenta = rows.reduce((s, p) => s + Number(p.salePrice || 0), 0);
+  const filteredRows = (() => {
+    const term = paySearch.trim().toLowerCase();
+    if (!term) return rows;
+    return rows.filter((p) => {
+      const code = String(p.lotCode || `lote ${p.lotId ?? ''}`).toLowerCase();
+      const name = String(p.clientName || '').toLowerCase();
+      const ref = String(p.reference || '').toLowerCase();
+      return code.includes(term) || name.includes(term) || ref.includes(term);
+    });
+  })();
+
+  const totalPagado = filteredRows.filter((p) => p.status === 'pagado').reduce((s, p) => s + Number(p.amount || 0), 0);
+  const totalRegistrado = filteredRows.reduce((s, p) => s + Number(p.amount || 0), 0);
+  const totalPrecioVenta = filteredRows.reduce((s, p) => s + Number(p.salePrice || 0), 0);
   const pctPago = totalPrecioVenta > 0 ? (totalPagado / totalPrecioVenta) * 100 : 0;
   const pendingPct = meta.total > 0 ? (meta.pendingCount / meta.total) * 100 : 0;
   const byMonth = (cash?.byMonth || []) as { month: string; monto: number }[];
@@ -471,12 +486,27 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const delinquencyRate = Number(metrics.delinquencyRate ?? ((totalCollected + totalOverdue) > 0 ? (totalOverdue / (totalCollected + totalOverdue)) * 100 : 0));
   const lastSixMonths = byMonth.slice(-6);
   const lastSixSalesMonths = salesByMonth.slice(-6);
-  const salesByYear = Object.values(salesByMonth.reduce((acc: Record<string, { year: string; vendido: number }>, row) => {
-    const year = String(row.month || '').slice(0, 4) || 'Sin fecha';
-    acc[year] = acc[year] || { year, vendido: 0 };
-    acc[year].vendido += Number(row.monto || 0);
-    return acc;
-  }, {}));
+  const rangeMonths = (() => {
+    const now = new Date();
+    const months: string[] = [];
+    for (let offset = salesRange - 1; offset >= 0; offset--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+      months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    return months;
+  })();
+  const salesRangeRows = rangeMonths.map((month) => ({
+    month,
+    monto: Number(salesByMonth.find((r) => r.month === month)?.monto || 0),
+  }));
+  const salesTrends = (() => {
+    const nowKey = rangeMonths[rangeMonths.length - 1];
+    const prevKey = rangeMonths[rangeMonths.length - 2] || '';
+    const nowValue = Number(salesByMonth.find((r) => r.month === nowKey)?.monto || 0);
+    const prevValue = Number(salesByMonth.find((r) => r.month === prevKey)?.monto || 0);
+    const trend = prevValue > 0 ? ((nowValue - prevValue) / prevValue) * 100 : (nowValue > 0 ? 100 : 0);
+    return { nowKey, prevKey, nowValue, prevValue, trend };
+  })();
   const paymentVsDelinquency = mergeByMonth(lastSixMonths, overdueByMonth.slice(-6));
   const currentCollected = lastValue(byMonth);
   const previousCollected = previousValue(byMonth);
@@ -508,7 +538,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
         )}
         <div className="relative">
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-7">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-7">
             <KpiTile label="Cuotas Pendientes" value={String(metrics.pendingCuotas || 0)} helper={money(metrics.pendingAmount || 0)} icon={<FiCreditCard />} accent={BLUE} />
             <KpiTile label="Cuotas Pendientes US$" value={money(metrics.pendingAmount || 0)} helper="Saldo pendiente" icon={<FiDollarSign />} accent={BLUE} />
             <KpiTile label="Pagos en Mora" value={String(metrics.overduePayments || 0)} helper={money(metrics.overdueAmount || 0)} icon={<FiAlertTriangle />} accent={RED} />
@@ -520,7 +550,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
           <button
             type="button"
-            className="absolute -right-1 top-1/2 hidden h-6 w-6 -translate-y-1/2 place-items-center rounded-full border bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 lg:grid"
+            className="mx-auto mt-3 grid h-7 w-7 place-items-center rounded-full border bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 lg:absolute lg:-right-1 lg:top-1/2 lg:mt-0 lg:-translate-y-1/2"
             style={{ borderColor: BORDER }}
             onClick={() => setShowMoreKpis((v) => !v)}
             aria-label={showMoreKpis ? 'Ocultar indicadores' : 'Ver mas indicadores'}
@@ -531,7 +561,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
         </div>
 
         {showMoreKpis && (
-          <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-7">
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-7">
             <KpiTile label="Total venta (lotes)" value={String(metrics.totalSaleLots || 0)} helper={money(metrics.totalSaleAmount || 0)} icon={<FiTrendingUp />} accent={BLUE} />
             <KpiTile label="Total Venta" value={money(metrics.totalSaleAmount || 0)} helper="Ventas y separaciones" icon={<FiDollarSign />} accent={BLUE} />
             <KpiTile label="Pago Inicial US$" value={money(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} />
@@ -546,18 +576,40 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
           <div className="card overflow-hidden p-0">
             <ChartHeader
               title="Ventas por mes (S/)"
-              subtitle="Ultimos 6 meses"
+              subtitle={salesRange === 3 ? 'Ultimos 3 meses' : 'Ultimos 6 meses'}
               menuRows={[
-                ['Mes actual', money(currentSales)],
-                ['Mes anterior', money(previousSales)],
-                ['Variacion', pct(salesTrend)],
+                ['Mes actual', money(salesTrends.nowValue)],
+                ['Mes anterior', money(salesTrends.prevValue)],
+                ['Variacion', pct(salesTrends.trend)],
                 ['Total vendido', money(totalSalesApproved)],
               ]}
+              actions={
+                <div className="flex items-center gap-1">
+                  {([3, 6] as const).map((value) => {
+                    const active = salesRange === value;
+                    return (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setSalesRange(value)}
+                        className="h-7 rounded-md border px-2.5 text-xs font-semibold transition-colors"
+                        style={{
+                          borderColor: active ? BLUE : BORDER,
+                          background: active ? BLUE : '#fff',
+                          color: active ? '#fff' : MUTED,
+                        }}
+                      >
+                        {value} meses
+                      </button>
+                    );
+                  })}
+                </div>
+              }
             />
-            {lastSixSalesMonths.length ? (
-              <div className="h-[300px] px-4 pt-5">
+            {salesRangeRows.length ? (
+              <div className="mx-auto h-[260px] w-full max-w-[680px] px-3 pt-4 sm:h-[300px] sm:px-4 sm:pt-5">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={lastSixSalesMonths.map((r) => ({ month: r.month, vendido: Number(r.monto || 0) }))} margin={{ left: 8, right: 20, top: 12, bottom: 16 }}>
+                  <AreaChart data={salesRangeRows.map((r) => ({ month: r.month, vendido: Number(r.monto || 0) }))} margin={{ left: 8, right: 20, top: 12, bottom: 16 }}>
                     <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
                     <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
                     <YAxis tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
@@ -581,7 +633,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
               ]}
             />
             {paymentVsDelinquency.length ? (
-              <div className="h-[330px] px-4 pt-5">
+              <div className="mx-auto h-[290px] w-full max-w-[680px] px-3 pt-4 sm:h-[330px] sm:px-4 sm:pt-5">
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={paymentVsDelinquency} margin={{ left: 8, right: 24, top: 12, bottom: 16 }}>
                     <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
@@ -589,8 +641,8 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                     <YAxis yAxisId="left" tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
                     <YAxis yAxisId="right" orientation="right" tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
                     <Tooltip content={<FinanceTooltip />} />
-                    <Bar yAxisId="left" dataKey="pagado" name="Pagado" stackId="cash" fill={BLUE} radius={[4, 4, 0, 0]} />
-                    <Bar yAxisId="left" dataKey="moroso" name="Moroso" stackId="cash" fill={RED} radius={[4, 4, 0, 0]} />
+                    <Bar yAxisId="left" dataKey="pagado" name="Pagado" stackId="cash" fill={BLUE} radius={[4, 4, 0, 0]} maxBarSize={46} />
+                    <Bar yAxisId="left" dataKey="moroso" name="Moroso" stackId="cash" fill={RED} radius={[4, 4, 0, 0]} maxBarSize={46} />
                     <Line yAxisId="right" type="monotone" dataKey="moroso" name="Moroso" stroke={RED} strokeWidth={2} dot={{ r: 3, fill: '#fff', stroke: RED, strokeWidth: 2 }} />
                   </ComposedChart>
                 </ResponsiveContainer>
@@ -601,61 +653,44 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
               </div>
             ) : <EmptyChart text="Sin pagos o morosidad para comparar." />}
           </div>
-
-          <aside className="min-h-0 xl:col-span-2">
-            <div className="space-y-4">
-              <div className="card overflow-hidden p-0">
-                <ChartHeader
-                  title="Ventas por año (US$)"
-                  subtitle="Resumen anual de ventas."
-                  menuRows={[
-                    ['Total anual', usdMoney(salesByYear.reduce((sum, row) => sum + Number(row.vendido || 0), 0))],
-                    ['Años con datos', String(salesByYear.length)],
-                  ]}
-                />
-                {salesByYear.length ? (
-                  <div className="h-[260px] px-4 py-4">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <ComposedChart data={salesByYear} margin={{ left: 8, right: 16, top: 10, bottom: 8 }}>
-                        <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
-                        <XAxis dataKey="year" tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
-                        <YAxis tickFormatter={shortUsd} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={72} />
-                        <Tooltip formatter={(value: any) => usdMoney(Number(value || 0))} />
-                        <Bar dataKey="vendido" name="Ventas" fill={BLUE} radius={[4, 4, 0, 0]} />
-                      </ComposedChart>
-                    </ResponsiveContainer>
-                  </div>
-                ) : <EmptyChart text="Sin ventas anuales para mostrar." />}
-              </div>
-            </div>
-          </aside>
         </div>
         <div className="card">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <h3 className="font-semibold">Historial de pagos</h3>
-            <div className="flex flex-wrap gap-2">
-              <select className="input !w-auto" value={status} onChange={(e) => setStatus(e.target.value)}>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+              <select className="input w-full sm:!w-auto" value={status} onChange={(e) => setStatus(e.target.value)}>
                 <option value="">Estado: todos</option>
                 <option value="pagado">Pagado</option>
                 <option value="pendiente">Pendiente</option>
                 <option value="vencido">Vencido</option>
               </select>
               <input
-                className="input !w-auto"
-                type="month"
-                value={pdfMonth}
-                onChange={(e) => setPdfMonth(e.target.value)}
-                aria-label="Mes para descargar PDF"
+                className="input w-full sm:!w-56"
+                placeholder="Buscar por lote, cliente o referencia"
+                value={paySearch}
+                onChange={(e) => setPaySearch(e.target.value)}
+                aria-label="Buscar por codigo de lote o nombre de cliente"
               />
-              <button className="btn-ghost" type="button" onClick={exportMonthPdf}>Descargar PDF</button>
-              <button className="btn-primary" onClick={() => setOpen(true)}>Registrar pago</button>
+              <div className="flex gap-2">
+                <input
+                  className="input flex-1 sm:!w-auto"
+                  type="month"
+                  value={pdfMonth}
+                  onChange={(e) => setPdfMonth(e.target.value)}
+                  aria-label="Mes para descargar PDF"
+                />
+                <button className="btn-ghost whitespace-nowrap" type="button" onClick={exportMonthPdf}>Descargar PDF</button>
+                <button className="btn-primary whitespace-nowrap" onClick={() => setOpen(true)}>Registrar pago</button>
+              </div>
             </div>
           </div>
         </div>
         <div className="card p-0 overflow-auto">
           {loading ? <p className="p-4 text-slate-400">Cargando…</p>
-            : rows.length === 0 ? <EmptyState text="No hay pagos con esos filtros." />
+            : filteredRows.length === 0 ? <EmptyState text={paySearch ? 'No hay pagos que coincidan con la busqueda.' : 'No hay pagos con esos filtros.'} />
             : (
+            <>
+            <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
             <table className="table-base" style={{ width: '100%', minWidth: 1280 }}>
               <thead><tr>
                 <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
@@ -666,7 +701,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 <th className="th-base">Recepciona pago</th><th className="th-base">Acción</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.map((p) => (
+                {filteredRows.map((p) => (
                   <tr key={p.id}>
                     <td className="td-base text-slate-400">P{p.id}</td>
                     <td className="td-base font-medium">{p.lotCode || `Lote ${p.lotId}`}</td>
@@ -695,7 +730,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
               </tbody>
               <tfoot>
                 <tr style={{ background: '#0B2F6E' }}>
-                  <td className="td-base font-bold text-white" colSpan={3}>Totales ({rows.length})</td>
+                  <td className="td-base font-bold text-white" colSpan={3}>Totales ({filteredRows.length})</td>
                   <td className="td-base font-bold text-white">{formatMoney(totalPrecioVenta)}</td>
                   <td className="td-base" colSpan={4}></td>
                   <td className="td-base font-bold text-white">{formatMoney(totalRegistrado)}</td>
@@ -704,6 +739,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 </tr>
               </tfoot>
             </table>
+            </>
             )}
             <div className="bg-white p-3 border-t" style={{ borderColor: '#F0F1F3' }}>
               <PaginationBar label="Pagos" page={page} totalPages={meta.totalPages} total={meta.total} limit={limit} setPage={setPage} setLimit={setLimit} />
@@ -795,7 +831,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
       {editingPayment && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setEditingPayment(null)} />
-          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+          <div className="relative max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
             <div className="mb-5 flex items-start justify-between gap-3">
               <div>
                 <h3 className="font-semibold" style={{ fontSize: 17 }}>Editar pago pendiente</h3>

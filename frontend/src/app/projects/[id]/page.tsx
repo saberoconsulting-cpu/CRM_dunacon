@@ -238,7 +238,7 @@ export default function ProjectPage() {
             </span>
           </div>
           {canEdit && (
-            <div className="flex w-48 flex-col gap-2">
+            <div className="flex w-full flex-col gap-2 sm:w-48">
               <label className="btn-neutral !h-8 cursor-pointer justify-center text-xs">
                 <FiCamera />
                 <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; reemplazarLogo(file); }} />

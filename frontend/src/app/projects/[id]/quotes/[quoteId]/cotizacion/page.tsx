@@ -117,19 +117,19 @@ export default function CotizacionDocPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white flex flex-col items-center py-10 px-4 print:py-0">
+    <div className="min-h-screen bg-white flex flex-col items-center py-6 px-3 print:py-0 sm:py-10 sm:px-4">
       <style>{`@media print { .no-print { display: none !important; } body { background: #fff; } }`}</style>
       <div className="w-full max-w-2xl">
         <div className="no-print flex justify-end mb-4">
           <button onClick={() => window.print()} className="btn-primary">Imprimir / Guardar PDF</button>
         </div>
         <div className="border rounded-2xl overflow-hidden" style={{ borderColor: '#E5E7EB' }}>
-          <div className="px-6 py-5 text-white" style={{ background: 'linear-gradient(135deg,#1877F2 0%,#166FE0 100%)' }}>
+          <div className="px-4 py-4 text-white sm:px-6 sm:py-5" style={{ background: 'linear-gradient(135deg,#1877F2 0%,#166FE0 100%)' }}>
             <p className="text-xs uppercase tracking-wider opacity-80">Cotización de lote</p>
-            <h1 className="text-2xl font-bold mt-1">{project?.name} — Lote {lot?.code}</h1>
+            <h1 className="text-xl font-bold mt-1 sm:text-2xl">{project?.name} — Lote {lot?.code}</h1>
           </div>
 
-          <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div className="p-4 grid grid-cols-1 gap-5 sm:p-6 sm:grid-cols-2 sm:gap-6">
             <div>
               <h3 className="font-semibold text-sm text-slate-700 mb-2">Cliente</h3>
               <p className="text-sm"><b>Nombres:</b> {quote.clientName}</p>
@@ -146,31 +146,33 @@ export default function CotizacionDocPage() {
             </div>
           </div>
 
-          <div className="px-6 pb-2">
+          <div className="px-4 pb-2 sm:px-6">
             <h3 className="font-semibold text-sm text-slate-700 mb-2">Resumen</h3>
-            <table className="w-full text-sm">
-              <thead><tr className="text-left text-slate-500">
-                <th className="py-1">Concepto</th><th className="py-1 text-right">US$</th><th className="py-1 text-right">S/</th>
-              </tr></thead>
-              <tbody>
-                {resumen.map(([label, usd]) => (
-                  <tr key={label} className="border-t" style={{ borderColor: '#F0F1F3' }}>
-                    <td className="py-1.5">{label}</td>
-                    <td className="py-1.5 text-right tabular-nums">{fmtUsd(usd)}</td>
-                    <td className="py-1.5 text-right tabular-nums">{fmtPen(toPen(usd))}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[340px] text-sm">
+                <thead><tr className="text-left text-slate-500">
+                  <th className="py-1">Concepto</th><th className="py-1 text-right">US$</th><th className="py-1 text-right">S/</th>
+                </tr></thead>
+                <tbody>
+                  {resumen.map(([label, usd]) => (
+                    <tr key={label} className="border-t" style={{ borderColor: '#F0F1F3' }}>
+                      <td className="py-1.5">{label}</td>
+                      <td className="py-1.5 text-right tabular-nums">{fmtUsd(usd)}</td>
+                      <td className="py-1.5 text-right tabular-nums">{fmtPen(toPen(usd))}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          <div className="px-6 pb-6">
+          <div className="px-4 pb-6 sm:px-6">
             <h3 className="font-semibold text-sm text-slate-700 mb-2">Forma de pago</h3>
             <p className="text-sm">{PAY_LABEL[quote.paymentMethod] || quote.paymentMethod}</p>
             {quote.paymentMethod === 'credito' && (
               <div className="mt-3">
                 <h3 className="font-semibold text-sm text-slate-700 mb-2">Financiamiento</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-5 gap-2">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
                   <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
                     <span className="block text-[10px] font-bold uppercase text-slate-500">Saldo a financiar</span>
                     <b className="mt-1 block text-sm">{fmtUsd(saldoAFinanciar)}</b>
@@ -196,7 +198,7 @@ export default function CotizacionDocPage() {
             )}
             <p className="text-xs text-slate-400 mt-1">Tipo de cambio referencial: S/ {rate.toFixed(4)} por US$ 1.00</p>
 
-          <div className="px-6 pb-6">
+          <div className="px-0 pb-6 sm:px-0">
             <h3 className="font-semibold text-sm text-slate-700 mb-2">Actualizar tipo de cambio</h3>
             <div className="flex flex-wrap items-end gap-2">
               <label className="text-xs text-slate-500">
@@ -216,7 +218,7 @@ export default function CotizacionDocPage() {
           </div>
 
           {quote.paymentMethod === 'credito' && grace.graceMonths > 0 && (
-            <div className="px-6 pb-6">
+            <div className="px-4 pb-6 sm:px-6">
               <h3 className="font-semibold text-sm text-slate-700 mb-2">Periodo sin intereses</h3>
               <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
                 <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
@@ -247,7 +249,7 @@ export default function CotizacionDocPage() {
             </div>
           )}
 
-          <div className="px-6 pb-6">
+          <div className="px-4 pb-6 sm:px-6">
             <h3 className="font-semibold text-sm text-slate-700 mb-2">Cuota inicial (sin intereses)</h3>
             <p className="text-sm">
               Monto: <b>{fmtUsd(Number(quote.cuotaInicialUsd || 0))}</b>
