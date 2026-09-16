@@ -7,8 +7,11 @@ import {
   AreaChart,
   Bar,
   CartesianGrid,
+  Cell,
   ComposedChart,
   Line,
+  Pie,
+  PieChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -513,6 +516,13 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const totalOverdue = Number(metrics.overdueAmount ?? sumRows(overdueByMonth));
   const collectionRate = totalSalesApproved > 0 ? (totalCollected / totalSalesApproved) * 100 : 0;
   const delinquencyRate = Number(metrics.delinquencyRate ?? ((totalCollected + totalOverdue) > 0 ? (totalOverdue / (totalCollected + totalOverdue)) * 100 : 0));
+  const paymentBreakdown = [
+    { key: 'inicial', name: 'Pago de Inicial', value: Number(metrics.initialPaymentAmount || 0), color: BLUE },
+    { key: 'cuotas', name: 'Pago de Cuotas', value: Number(metrics.paidCuotasAmount || 0), color: GREEN },
+    { key: 'pendientes', name: 'Cuotas Pendientes', value: Number(metrics.pendingAmount || 0), color: AMBER },
+    { key: 'atraso', name: 'Cuotas en Atraso', value: Number(metrics.overdueAmount || 0), color: RED },
+  ].filter((row) => row.value > 0);
+  const totalPaymentBreakdown = paymentBreakdown.reduce((sum, row) => sum + row.value, 0);
   const lastSixMonths = byMonth.slice(-6);
   const lastSixSalesMonths = salesByMonth.slice(-6);
   const rangeMonths = (() => {
@@ -601,8 +611,42 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
           <div className="card overflow-hidden p-0">
+            <ChartHeader
+              title="Pago de lotes"
+              subtitle="Distribucion del cobro por tipo"
+              menuRows={paymentBreakdown.map((row) => [row.name, money(row.value)] as [string, string])}
+            />
+            {paymentBreakdown.length ? (
+              <div className="px-3 pt-4 sm:px-4 sm:pt-5">
+                <div className="mx-auto h-[220px] w-full max-w-[280px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={paymentBreakdown} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={2}>
+                        {paymentBreakdown.map((row) => <Cell key={row.key} fill={row.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(value: number) => money(Number(value || 0))} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="flex flex-col gap-1.5 pb-4">
+                  {paymentBreakdown.map((row) => (
+                    <div key={row.key} className="flex items-center justify-between gap-3 text-xs">
+                      <span className="inline-flex min-w-0 items-center gap-1.5 truncate" style={{ color: MUTED }}>
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: row.color }} /> {row.name}
+                      </span>
+                      <b className="shrink-0 tabular-nums" style={{ color: INK }}>
+                        {money(row.value)} · {totalPaymentBreakdown > 0 ? pct((row.value / totalPaymentBreakdown) * 100) : '0.0%'}
+                      </b>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : <EmptyChart text="Sin montos para distribuir todavia." />}
+          </div>
+
+          <div className="card overflow-hidden p-0 xl:col-span-2">
             <ChartHeader
               title="Ventas por mes (S/)"
               subtitle={salesRange === 3 ? 'Ultimos 3 meses' : 'Ultimos 6 meses'}
@@ -650,7 +694,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             ) : <EmptyChart text="Sin ventas por mes para mostrar." />}
           </div>
 
-          <div className="card overflow-hidden p-0">
+          <div className="card overflow-hidden p-0 xl:col-span-3">
             <ChartHeader
               title="Pagos vs Morosidad"
               subtitle="Ultimos 6 meses"
