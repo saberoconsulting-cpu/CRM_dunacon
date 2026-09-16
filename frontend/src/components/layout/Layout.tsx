@@ -265,7 +265,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
                 className="flex h-11 min-w-0 flex-1 items-center justify-center rounded-md hover:bg-[#F3F4F6]"
                 title="Ir al inicio"
               >
-                <img src="/logo/dunacon.png" alt="Dunacon" className="h-9 w-auto object-contain" />
+                <img src="/logo/dunacon.png" alt="Dunacon" className="h-11 w-auto object-contain" />
               </button>
               <button
                 type="button"
