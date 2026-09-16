@@ -30,5 +30,7 @@ RUN mkdir -p /app/uploads/plans /app/uploads/covers
 
 EXPOSE 3001
 
+CMD ["node", "dist/main"]
+
 # Se monta volumen para persistir archivos subidos
 VOLUME ["/app/uploads"]
