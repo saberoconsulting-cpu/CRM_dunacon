@@ -47,6 +47,9 @@ const INK = '#0F172A';
 const GREEN = '#16A36A';
 const RED = '#DC2626';
 const AMBER = '#D97706';
+// Tipo de cambio referencial para mostrar "Ventas por mes/ano" en US$ (mismo
+// valor por defecto usado en Cotizaciones).
+const SALES_CHART_EXCHANGE_RATE = 3.75;
 
 function money(n: number) {
   return formatMoney(Number(n || 0));
@@ -243,6 +246,8 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [showOverdueAlert, setShowOverdueAlert] = useState(true);
   const [showMoreKpis, setShowMoreKpis] = useState(false);
   const [salesRange, setSalesRange] = useState<3 | 6>(6);
+  const [salesPeriod, setSalesPeriod] = useState<'month' | 'year'>('month');
+  const [salesCurrency, setSalesCurrency] = useState<'PEN' | 'USD'>('PEN');
   const [paySearch, setPaySearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -538,14 +543,25 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     month,
     monto: Number(salesByMonth.find((r) => r.month === month)?.monto || 0),
   }));
-  const salesTrends = (() => {
-    const nowKey = rangeMonths[rangeMonths.length - 1];
-    const prevKey = rangeMonths[rangeMonths.length - 2] || '';
-    const nowValue = Number(salesByMonth.find((r) => r.month === nowKey)?.monto || 0);
-    const prevValue = Number(salesByMonth.find((r) => r.month === prevKey)?.monto || 0);
-    const trend = prevValue > 0 ? ((nowValue - prevValue) / prevValue) * 100 : (nowValue > 0 ? 100 : 0);
-    return { nowKey, prevKey, nowValue, prevValue, trend };
+  const salesByYear = (() => {
+    const totals: Record<string, number> = {};
+    for (const row of salesByMonth) {
+      const year = String(row.month || '').slice(0, 4);
+      if (!year) continue;
+      totals[year] = (totals[year] || 0) + Number(row.monto || 0);
+    }
+    return Object.keys(totals).sort().map((year) => ({ label: year, monto: totals[year] }));
   })();
+  const salesChartRows = (
+    salesPeriod === 'year' ? salesByYear : salesRangeRows.map((r) => ({ label: r.month, monto: r.monto }))
+  ).map((r) => ({ label: r.label, monto: salesCurrency === 'USD' ? r.monto / SALES_CHART_EXCHANGE_RATE : r.monto }));
+  const salesChartTotal = salesChartRows.reduce((sum, r) => sum + r.monto, 0);
+  const salesChartLast = salesChartRows[salesChartRows.length - 1];
+  const salesChartPrev = salesChartRows[salesChartRows.length - 2];
+  const salesChartTrend = salesChartPrev && salesChartPrev.monto > 0
+    ? ((salesChartLast?.monto || 0) - salesChartPrev.monto) / salesChartPrev.monto * 100
+    : ((salesChartLast?.monto || 0) > 0 ? 100 : 0);
+  const formatSalesCurrency = salesCurrency === 'USD' ? usdMoney : money;
   const paymentVsDelinquency = mergeByMonth(lastSixMonths, overdueByMonth.slice(-6));
   const currentCollected = lastValue(byMonth);
   const previousCollected = previousValue(byMonth);
@@ -648,50 +664,86 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
           <div className="card overflow-hidden p-0 xl:col-span-2">
             <ChartHeader
-              title="Ventas por mes (S/)"
-              subtitle={salesRange === 3 ? 'Ultimos 3 meses' : 'Ultimos 6 meses'}
+              title={`Ventas por ${salesPeriod === 'year' ? 'ano' : 'mes'} (${salesCurrency === 'USD' ? 'US$' : 'S/'})`}
+              subtitle={salesPeriod === 'year' ? 'Historico por ano' : (salesRange === 3 ? 'Ultimos 3 meses' : 'Ultimos 6 meses')}
               menuRows={[
-                ['Mes actual', money(salesTrends.nowValue)],
-                ['Mes anterior', money(salesTrends.prevValue)],
-                ['Variacion', pct(salesTrends.trend)],
-                ['Total vendido', money(totalSalesApproved)],
+                [salesPeriod === 'year' ? 'Ano actual' : 'Mes actual', formatSalesCurrency(salesChartLast?.monto || 0)],
+                [salesPeriod === 'year' ? 'Ano anterior' : 'Mes anterior', formatSalesCurrency(salesChartPrev?.monto || 0)],
+                ['Variacion', pct(salesChartTrend)],
+                ['Total vendido', formatSalesCurrency(salesChartTotal)],
               ]}
               actions={
-                <div className="flex items-center gap-1">
-                  {([3, 6] as const).map((value) => {
-                    const active = salesRange === value;
-                    return (
-                      <button
-                        key={value}
-                        type="button"
-                        onClick={() => setSalesRange(value)}
-                        className="h-7 rounded-md border px-2.5 text-xs font-semibold transition-colors"
-                        style={{
-                          borderColor: active ? BLUE : BORDER,
-                          background: active ? BLUE : '#fff',
-                          color: active ? '#fff' : MUTED,
-                        }}
-                      >
-                        {value} meses
-                      </button>
-                    );
-                  })}
+                <div className="flex flex-wrap items-center gap-1">
+                  <div className="flex items-center gap-1">
+                    {([['PEN', 'S/'], ['USD', 'US$']] as const).map(([value, label]) => {
+                      const active = salesCurrency === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setSalesCurrency(value)}
+                          className="h-7 rounded-md border px-2.5 text-xs font-semibold transition-colors"
+                          style={{ borderColor: active ? BLUE : BORDER, background: active ? BLUE : '#fff', color: active ? '#fff' : MUTED }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {([['month', 'Mes'], ['year', 'Ano']] as const).map(([value, label]) => {
+                      const active = salesPeriod === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => setSalesPeriod(value)}
+                          className="h-7 rounded-md border px-2.5 text-xs font-semibold transition-colors"
+                          style={{ borderColor: active ? BLUE : BORDER, background: active ? BLUE : '#fff', color: active ? '#fff' : MUTED }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {salesPeriod === 'month' && (
+                    <div className="flex items-center gap-1">
+                      {([3, 6] as const).map((value) => {
+                        const active = salesRange === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => setSalesRange(value)}
+                            className="h-7 rounded-md border px-2.5 text-xs font-semibold transition-colors"
+                            style={{
+                              borderColor: active ? BLUE : BORDER,
+                              background: active ? BLUE : '#fff',
+                              color: active ? '#fff' : MUTED,
+                            }}
+                          >
+                            {value} meses
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               }
             />
-            {salesRangeRows.length ? (
+            {salesChartRows.length ? (
               <div className="mx-auto h-[260px] w-full max-w-[680px] px-3 pt-4 sm:h-[300px] sm:px-4 sm:pt-5">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={salesRangeRows.map((r) => ({ month: r.month, vendido: Number(r.monto || 0) }))} margin={{ left: 8, right: 20, top: 12, bottom: 16 }}>
+                  <AreaChart data={salesChartRows} margin={{ left: 8, right: 20, top: 12, bottom: 16 }}>
                     <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
-                    <YAxis tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
-                    <Tooltip content={<FinanceTooltip />} cursor={{ stroke: BLUE, strokeWidth: 1, strokeDasharray: '4 4' }} />
-                    <Area type="monotone" dataKey="vendido" name="Vendido" stroke={BLUE} strokeWidth={3} fill={BLUE} fillOpacity={0.08} activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} />
+                    <XAxis dataKey="label" tickFormatter={salesPeriod === 'year' ? (v: string) => v : monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={salesCurrency === 'USD' ? shortUsd : shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
+                    <Tooltip formatter={(value: number) => formatSalesCurrency(Number(value || 0))} labelFormatter={(label: string) => (salesPeriod === 'year' ? label : monthLabel(label))} cursor={{ stroke: BLUE, strokeWidth: 1, strokeDasharray: '4 4' }} />
+                    <Area type="monotone" dataKey="monto" name="Vendido" stroke={BLUE} strokeWidth={3} fill={BLUE} fillOpacity={0.08} activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} />
                   </AreaChart>
                 </ResponsiveContainer>
               </div>
-            ) : <EmptyChart text="Sin ventas por mes para mostrar." />}
+            ) : <EmptyChart text="Sin ventas para mostrar." />}
           </div>
 
           <div className="card overflow-hidden p-0 xl:col-span-3">
