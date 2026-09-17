@@ -19,6 +19,7 @@ const PROJECT_MODULES = [
   { key: 'finances', label: 'Finanzas', roles: ['admin'] },
   { key: 'campaigns', label: 'Campanas', roles: ['admin'] },
   { key: 'construction-budget', label: 'Presupuesto de obra', roles: ['admin'] },
+  { key: 'banking', label: 'Cuentas y bancos', roles: ['admin'] },
   { key: 'income-statement', label: 'Estado de resultados', roles: ['admin'] },
 ];
 

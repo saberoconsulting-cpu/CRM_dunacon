@@ -59,7 +59,7 @@ function projectNav(projectId: number): NavItem[] {
     { key: 'finances', number: 7, href: `/projects/${projectId}/finances`, label: 'Finanzas', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
     { key: 'campaigns', number: 8, href: `/projects/${projectId}/campaigns`, label: 'Campanas', icon: <FiVolume2 />, roles: ['superadmin', 'admin'] },
     { key: 'clients', number: 9, href: `/projects/${projectId}/clients`, label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
-    { key: 'banking', number: 10, href: '#estado-cc-bancos', label: 'Cuentas y bancos', icon: <FiCreditCard />, roles: ['superadmin', 'admin'], soon: true },
+    { key: 'banking', number: 10, href: `/projects/${projectId}/bank-accounts`, label: 'Cuentas y bancos', icon: <FiCreditCard />, roles: ['superadmin', 'admin'] },
     { key: 'construction-budget', number: 11, href: `/projects/${projectId}/construction-budget`, label: 'Presupuesto de obra', icon: <FiLayers />, roles: ['superadmin', 'admin'] },
     { key: 'income-statement', number: 12, href: `/projects/${projectId}/income-statement`, label: 'Estado de resultados', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
     { key: 'cashflow', number: 13, href: '#flujo-caja', label: 'Flujo de caja', icon: <FiPieChart />, roles: ['superadmin', 'admin'], soon: true },

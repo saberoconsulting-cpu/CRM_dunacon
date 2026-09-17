@@ -24,6 +24,8 @@ import { AppSettingEntity } from './shared/infrastructure/entities/app-setting.e
 import { ProjectDocumentEntity } from './shared/infrastructure/entities/project-document.entity';
 import { QuoteEntity } from './shared/infrastructure/entities/quote.entity';
 import { ConstructionBudgetItemEntity } from './shared/infrastructure/entities/construction-budget-item.entity';
+import { BankAccountMovementEntity } from './shared/infrastructure/entities/bank-account-movement.entity';
+import { BankCategoryMappingEntity } from './shared/infrastructure/entities/bank-category-mapping.entity';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ProjectsModule } from './modules/projects/projects.module';
@@ -38,6 +40,7 @@ import { SettingsModule } from './modules/settings/settings.module';
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { QuotesModule } from './modules/quotes/quotes.module';
 import { ConstructionBudgetModule } from './modules/construction-budget/construction-budget.module';
+import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module';
 
 @Module({
   imports: [
@@ -54,7 +57,7 @@ import { ConstructionBudgetModule } from './modules/construction-budget/construc
       database: process.env.DB_NAME || 'crm_inmobiliario',
       ...(process.env.DB_SSL === 'true' ? { ssl: { rejectUnauthorized: false } } : {}),
       extra: {
-        max: Number(process.env.DB_POOL_MAX || 5),
+        max: Number(process.env.DB_POOL_MAX || 10),
       },
       entities: [
         UserEntity, ProjectEntity, PlanEntity, BlockEntity, LotEntity,
@@ -66,6 +69,8 @@ import { ConstructionBudgetModule } from './modules/construction-budget/construc
         ProjectDocumentEntity,
         QuoteEntity,
         ConstructionBudgetItemEntity,
+        BankAccountMovementEntity,
+        BankCategoryMappingEntity,
       ],
       synchronize: false,
       logging: false,
@@ -84,6 +89,7 @@ import { ConstructionBudgetModule } from './modules/construction-budget/construc
     DashboardsModule,
     QuotesModule,
     ConstructionBudgetModule,
+    BankAccountsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })

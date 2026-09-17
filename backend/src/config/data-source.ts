@@ -21,6 +21,8 @@ import { SaleInstallmentEntity } from '../shared/infrastructure/entities/sale-in
 import { ProjectDocumentEntity } from '../shared/infrastructure/entities/project-document.entity';
 import { QuoteEntity } from '../shared/infrastructure/entities/quote.entity';
 import { ConstructionBudgetItemEntity } from '../shared/infrastructure/entities/construction-budget-item.entity';
+import { BankAccountMovementEntity } from '../shared/infrastructure/entities/bank-account-movement.entity';
+import { BankCategoryMappingEntity } from '../shared/infrastructure/entities/bank-category-mapping.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -30,7 +32,7 @@ export const AppDataSource = new DataSource({
   password: process.env.DB_PASSWORD || '',
   database: process.env.DB_NAME || 'crm_inmobiliario',
   extra: {
-    max: Number(process.env.DB_POOL_MAX || 5),
+    max: Number(process.env.DB_POOL_MAX || 10),
   },
   entities: [
     UserEntity,
@@ -52,6 +54,8 @@ export const AppDataSource = new DataSource({
     ProjectDocumentEntity,
     QuoteEntity,
     ConstructionBudgetItemEntity,
+    BankAccountMovementEntity,
+    BankCategoryMappingEntity,
   ],
   migrations:
     process.env.NODE_ENV === 'production'
