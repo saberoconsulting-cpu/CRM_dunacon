@@ -31,13 +31,44 @@ export function printHtml(html: string) {
       frame.remove();
       return;
     }
-    setTimeout(() => {
-      win.focus();
-      win.print();
-      setTimeout(() => frame.remove(), 1000);
-    }, 300);
+    win.focus();
+    win.print();
+    setTimeout(() => frame.remove(), 1500);
   };
 
-  frame.onload = runPrint;
-  setTimeout(runPrint, 700);
+  // Espera a que carguen las imagenes (logos y evidencias remotas) antes de
+  // imprimir; si alguna falla o tarda, un temporizador de respaldo imprime de
+  // todas formas para que el PDF nunca quede en blanco.
+  const waitForImages = () => {
+    const images = Array.from(doc.images || []);
+    if (!images.length) {
+      setTimeout(runPrint, 400);
+      return;
+    }
+    let pending = images.filter((img) => !img.complete).length;
+    if (!pending) {
+      setTimeout(runPrint, 400);
+      return;
+    }
+    const settle = () => {
+      pending -= 1;
+      if (pending <= 0) {
+        setTimeout(runPrint, 400);
+      }
+    };
+    images.forEach((img) => {
+      if (img.complete) return;
+      img.addEventListener('load', settle, { once: true });
+      img.addEventListener('error', settle, { once: true });
+    });
+    // Respaldo por si algun evento nunca dispara.
+    setTimeout(runPrint, 6000);
+  };
+
+  if (doc.readyState === 'complete') {
+    waitForImages();
+  } else {
+    frame.onload = waitForImages;
+    setTimeout(waitForImages, 1200);
+  }
 }

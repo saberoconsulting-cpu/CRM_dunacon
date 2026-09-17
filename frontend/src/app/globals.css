@@ -78,6 +78,40 @@ h1, h2, h3 { font-weight: 600; color: #171717; }
     font-size: 13px;
     color: #171717;
   }
+  /* Boton compacto de acciones dentro de filas de tabla: parece boton de
+     verdad (borde, fondo, sombra sutil) y se ve elegante en poco espacio. */
+  .row-action {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-md border bg-white font-semibold transition-all;
+    height: 26px;
+    padding: 0 9px;
+    font-size: 11px;
+    line-height: 1;
+    white-space: nowrap;
+    border-color: #D1D5DB;
+    color: #374151;
+    box-shadow: 0 1px 1px rgba(16, 24, 40, .04);
+  }
+  .row-action:hover {
+    border-color: #1877F2;
+    color: #1877F2;
+    background: #F5F9FF;
+    box-shadow: 0 2px 4px rgba(24, 119, 242, .12);
+  }
+  .row-action:active { transform: translateY(1px); box-shadow: none; }
+  .row-action:disabled { opacity: .5; cursor: not-allowed; }
+  .row-action svg { font-size: 12px; flex-shrink: 0; }
+  /* Variante primaria: aprobar/editar (accion principal de la fila). */
+  .row-action--primary {
+    border-color: #1877F2;
+    color: #1877F2;
+    background: #F0F6FF;
+  }
+  .row-action--primary:hover {
+    background: #1877F2;
+    border-color: #1877F2;
+    color: #fff;
+    box-shadow: 0 2px 6px rgba(24, 119, 242, .28);
+  }
   /* Acento superior azul en tarjetas KPI */
   .card-kpi { border-top: 3px solid #1877F2; }
 }

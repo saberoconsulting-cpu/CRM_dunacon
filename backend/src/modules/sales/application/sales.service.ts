@@ -8,6 +8,8 @@ import { LotEntity } from '../../../shared/infrastructure/entities/lot.entity';
 import { ClientEntity } from '../../../shared/infrastructure/entities/client.entity';
 import { UserEntity } from '../../../shared/infrastructure/entities/user.entity';
 import { FinancialTransactionEntity } from '../../../shared/infrastructure/entities/financial-transaction.entity';
+import { PaymentEntity } from '../../../shared/infrastructure/entities/payment.entity';
+import { ProjectEntity } from '../../../shared/infrastructure/entities/project.entity';
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
 import { calcValorCuota } from '../../../shared/domain/finance.util';import { CreateSaleDto } from './dto/sale.dto';
@@ -370,6 +372,30 @@ export class SalesService {
    * de cada cuota y cual le toca pagar ahora.
    */
   async paymentContext(filters: { clientId?: number; lotId?: number; projectId?: number; search?: string }) {
+    // Resuelve el texto buscado a IDs reales antes de filtrar las ventas:
+    // asi no dependemos del JOIN por nombre de columna (Postgres pliega los
+    // alias sin comillas a minusculas) ni de que exista una venta previa.
+    // Funciona con cualquier codigo de lote o nombre de cliente que exista.
+    let searchLotIds: number[] = [];
+    let searchClientIds: number[] = [];
+    const term = filters.search?.trim();
+    if (term && !filters.clientId && !filters.lotId) {
+      const like = `%${term}%`;
+      const lotQb = this.lotRepo.createQueryBuilder('l')
+        .select('l.id', 'id')
+        .where('l.code ILIKE :like', { like });
+      if (filters.projectId) lotQb.andWhere('l.project_id = :projectId', { projectId: filters.projectId });
+      const matchedLots = await lotQb.limit(50).getRawMany();
+      searchLotIds = matchedLots.map((l) => Number(l.id)).filter(Boolean);
+
+      const clientQb = this.dataSource.getRepository(ClientEntity).createQueryBuilder('c')
+        .select('c.id', 'id')
+        .where('c.full_name ILIKE :like', { like })
+        .limit(50);
+      const matchedClients = await clientQb.getRawMany();
+      searchClientIds = matchedClients.map((c) => Number(c.id)).filter(Boolean);
+    }
+
     const qb = this.saleRepo
       .createQueryBuilder('s')
       .leftJoinAndSelect(UserEntity, 'u', 'u.id = s.agent_id')
@@ -390,25 +416,44 @@ export class SalesService {
     if (filters.clientId) qb.andWhere('s.client_id = :clientId', { clientId: filters.clientId });
     if (filters.lotId) qb.andWhere('s.lot_id = :lotId', { lotId: filters.lotId });
     if (filters.projectId) qb.andWhere('s.project_id = :projectId', { projectId: filters.projectId });
-    if (filters.search?.trim()) {
-      const term = `%${filters.search.trim()}%`;
-      qb.andWhere('(c.full_name ILIKE :term OR l.code ILIKE :term)', { term });
+    if (term && !filters.clientId && !filters.lotId) {
+      // Coincidencias por codigo de lote o nombre de cliente, resueltas arriba.
+      if (!searchLotIds.length && !searchClientIds.length) {
+        qb.andWhere('(c.full_name ILIKE :term OR l.code ILIKE :term)', { term: `%${term}%` });
+      } else {
+        const ors: string[] = [];
+        const params: Record<string, any> = {};
+        if (searchLotIds.length) { ors.push('s.lot_id IN (:...searchLotIds)'); params.searchLotIds = searchLotIds; }
+        if (searchClientIds.length) { ors.push('s.client_id IN (:...searchClientIds)'); params.searchClientIds = searchClientIds; }
+        qb.andWhere(`(${ors.join(' OR ')})`, params);
+      }
     }
 
     const raw = await qb.orderBy('s.id', 'DESC').limit(20).getRawMany();
     if (!raw.length) return { sales: [] };
 
     const ids = raw.map((r) => Number(r.s_id));
-    const [lots, clients, agents, installments] = await Promise.all([
-      this.lotRepo.findByIds([...new Set(raw.map((r) => Number(r.s_lot_id)).filter(Boolean))]),
+    const lotIds = [...new Set(raw.map((r) => Number(r.s_lot_id)).filter(Boolean))];
+    const [lots, clients, agents, installments, payments] = await Promise.all([
+      this.lotRepo.findByIds(lotIds),
       this.dataSource.getRepository(ClientEntity).findByIds([...new Set(raw.map((r) => Number(r.s_client_id)).filter(Boolean))]),
       this.userRepo.findByIds([...new Set(raw.map((r) => Number(r.s_agent_id)).filter(Boolean))]),
       this.instRepo.find({ where: { saleId: In(ids) }, order: { installmentNo: 'ASC' } }),
+      // Pagos de los lotes involucrados: se usan para enriquecer cada cuota con
+      // los datos reales del pago (fecha, TC, US$, op. bancaria, boleta).
+      lotIds.length
+        ? this.dataSource.getRepository(PaymentEntity).find({ where: { lotId: In(lotIds) }, order: { paidAt: 'ASC', id: 'ASC' } })
+        : Promise.resolve([] as PaymentEntity[]),
     ]);
 
     const lotMap = new Map(lots.map((l) => [Number(l.id), l]));
     const clientMap = new Map(clients.map((c) => [Number(c.id), c]));
     const agentMap = new Map(agents.map((a) => [Number(a.id), a]));
+    const paymentsByLot = new Map<number, PaymentEntity[]>();
+    for (const p of payments) {
+      const key = Number(p.lotId);
+      paymentsByLot.set(key, [...(paymentsByLot.get(key) || []), p]);
+    }
 
     return {
       sales: raw.map((r) =>
@@ -417,19 +462,327 @@ export class SalesService {
           client: clientMap.get(Number(r.s_client_id)) || null,
           agent: agentMap.get(Number(r.s_agent_id)) || null,
           installments: installments.filter((i) => Number(i.saleId) === Number(r.s_id)),
+          payments: paymentsByLot.get(Number(r.s_lot_id)) || [],
         }),
       ),
     };
   }
 
+  // Datos del pago listos para la ficha: TC, fecha de pago, monto en US$ y
+  // numero de operacion bancaria que se registro al pagar.
+  private paymentDetails(payment?: PaymentEntity | null) {
+    if (!payment) return null;
+    return {
+      paymentId: Number(payment.id),
+      paidAt: payment.paidAt || null,
+      exchangeRate: payment.exchangeRate != null ? Number(payment.exchangeRate) : null,
+      amountUsd: payment.amountUsd != null ? Number(payment.amountUsd) : null,
+      bankOperationNumber: payment.bankOperationNumber || null,
+      receiptNumber: payment.receiptNumber || null,
+      receiptValue: payment.receiptValue != null ? Number(payment.receiptValue) : null,
+      paymentMethod: payment.paymentMethod || null,
+      reference: payment.reference || null,
+      voucherUrl: payment.voucherUrl || null,
+      receiptDocumentUrl: payment.receiptDocumentUrl || null,
+      // Voucher de la operacion bancaria subido al registrar el pago.
+      approvalDocumentUrl: payment.approvalDocumentUrl || null,
+      type: payment.type || null,
+      status: payment.status || null,
+    };
+  }
+
+  /**
+   * Historial de pagos de un lote para la pantalla "Pagos de lotes": busca la
+   * venta del lote (sin filtrar por estado de aprobacion, porque el cliente
+   * puede estar pagando una separacion pendiente) y devuelve el cronograma
+   * con los datos del pago de cada cuota (fecha, TC, US$, N° op. bancaria).
+   */
+  async lotPaymentHistory(lotId: number) {
+    const sale = await this.saleRepo.findOne({ where: { lotId }, order: { id: 'DESC' } });
+    const [lot, payments] = await Promise.all([
+      this.lotRepo.findOne({ where: { id: lotId } }),
+      this.dataSource.getRepository(PaymentEntity).find({
+        where: { lotId },
+        order: { paidAt: 'ASC', id: 'ASC' },
+      }),
+    ]);
+    const client = sale?.clientId
+      ? await this.dataSource.getRepository(ClientEntity).findOne({ where: { id: sale.clientId } })
+      : (lot?.clientId ? await this.dataSource.getRepository(ClientEntity).findOne({ where: { id: lot.clientId } }) : null);
+    const agent = sale?.agentId ? await this.userRepo.findOne({ where: { id: sale.agentId } }) : null;
+
+    // Sin venta registrada igual se pueden mostrar los pagos sueltos del lote.
+    if (!sale) {
+      return {
+        sale: null,
+        lot: lot ? { id: lot.id, code: lot.code, areaM2: Number(lot.areaM2 || 0), price: Number(lot.price || 0), streetName: (lot as any).streetName || null } : null,
+        client: client ? { id: client.id, fullName: client.fullName || null } : null,
+        agent: agent ? { id: agent.id, name: agent.name } : null,
+        clientName: client?.fullName || null,
+        lotCode: lot?.code || null,
+        installments: [],
+        otherPayments: payments.map((p) => ({
+          ...this.paymentDetails(p),
+          amount: Number(p.amount || 0),
+          dueDate: p.dueDate || null,
+        })),
+        allPayments: payments.map((p) => ({
+          ...this.paymentDetails(p),
+          amount: Number(p.amount || 0),
+          dueDate: p.dueDate || null,
+        })),
+        summary: { totalCuotas: 0, paidCount: 0, pendingCount: 0, nextInstallmentNo: null, nextAmount: 0, nextDueDate: null, nextIsOverdue: false },
+      };
+    }
+
+    const installments = await this.instRepo.find({ where: { saleId: sale.id }, order: { installmentNo: 'ASC' } });
+
+    const row: any = {
+      s_id: sale.id,
+      s_project_id: sale.projectId,
+      s_lot_id: sale.lotId,
+      s_client_id: sale.clientId,
+      s_agent_id: sale.agentId,
+      s_sale_price: sale.salePrice,
+      totalCuotas: sale.totalCuotas,
+      s_valor_cuota: sale.valorCuota,
+      s_interest_type: sale.interestType,
+      s_tea: (sale as any).tea,
+      s_conditions: (sale as any).conditions,
+      s_sale_date: sale.saleDate,
+      approvalStatus: sale.approvalStatus,
+      planStatus: sale.planStatus,
+      clientName: client?.fullName || null,
+      lotCode: lot?.code || null,
+    };
+
+    return this.buildPaymentContextRow(row, { lot, client, agent, installments, payments });
+  }
+
+  /**
+   * Buscador del modal "Registrar pago". Devuelve resultados por LOTE y por
+   * CLIENTE existentes en la BD, tengan o no una venta registrada: un lote sin
+   * venta igual debe poder recibir un pago (reserva, cuota inicial, etc.).
+   * Si el lote/cliente tiene venta, se adjunta su cronograma y la cuota que le
+   * toca pagar para autocompletar el formulario.
+   */
+  async paymentSearch(q?: string, projectId?: number) {
+    const term = (q || '').trim();
+    if (term.length < 2) return { results: [] };
+    const like = `%${term}%`;
+
+    // 1) Lotes que coinciden por codigo.
+    const lotQb = this.lotRepo.createQueryBuilder('l')
+      .select('l.id', 'id')
+      .addSelect('l.code AS "code"')
+      .addSelect('l.project_id AS "projectId"')
+      .addSelect('l.client_id AS "clientId"')
+      .addSelect('l.price AS "price"')
+      .addSelect('l.sale_price AS "salePrice"')
+      .addSelect('l.status AS "status"')
+      .addSelect('p.name AS "projectName"')
+      .addSelect('c.full_name AS "clientName"')
+      .leftJoin(ProjectEntity, 'p', 'p.id = l.project_id')
+      .leftJoin(ClientEntity, 'c', 'c.id = l.client_id')
+      .where('l.code ILIKE :like', { like });
+    if (projectId) lotQb.andWhere('l.project_id = :projectId', { projectId });
+    const lots = await lotQb.limit(25).getRawMany();
+
+    // 2) Clientes que coinciden por nombre (dentro del proyecto si aplica).
+    const clientQb = this.dataSource.getRepository(ClientEntity).createQueryBuilder('c')
+      .select('c.id', 'id')
+      .addSelect('c.full_name AS "fullName"')
+      .leftJoin(LotEntity, 'l', 'l.client_id = c.id')
+      .where('c.full_name ILIKE :like', { like })
+      .groupBy('c.id')
+      .addGroupBy('c.full_name');
+    if (projectId) clientQb.andWhere('l.project_id = :projectId', { projectId });
+    const clients = await clientQb.limit(25).getRawMany();
+
+    const lotIds = lots.map((l) => Number(l.id));
+    const clientIds = clients.map((c) => Number(c.id));
+    if (!lotIds.length && !clientIds.length) return { results: [] };
+
+    // 3) Ventas existentes para esos lotes o clientes (si las hubiera).
+    const ors: string[] = [];
+    const params: Record<string, any> = {};
+    if (lotIds.length) { ors.push('s.lot_id IN (:...lotIds)'); params.lotIds = lotIds; }
+    if (clientIds.length) { ors.push('s.client_id IN (:...clientIds)'); params.clientIds = clientIds; }
+    const saleRows = await this.saleRepo.createQueryBuilder('s')
+      .select('s.id', 'id')
+      .addSelect('s.lot_id AS "lotId"')
+      .addSelect('s.client_id AS "clientId"')
+      .addSelect('s.project_id AS "projectId"')
+      .addSelect('s.approval_status AS "approvalStatus"')
+      .where(`(${ors.join(' OR ')})`, params)
+      .orderBy('s.id', 'DESC')
+      .limit(50)
+      .getRawMany();
+    const saleByLot = new Map<number, any>();
+    const salesByClient = new Map<number, any[]>();
+    for (const s of saleRows) {
+      const lotKey = Number(s.lotId);
+      const clientKey = Number(s.clientId);
+      if (!saleByLot.has(lotKey)) saleByLot.set(lotKey, s);
+      if (clientKey) salesByClient.set(clientKey, [...(salesByClient.get(clientKey) || []), s]);
+    }
+
+    // 4) Arma cada resultado. `hasSale` indica si se puede autocompletar la cuota.
+    const results: any[] = [];
+    const seen = new Set<string>();
+
+    for (const l of lots) {
+      const lotId = Number(l.id);
+      const sale = saleByLot.get(lotId) || null;
+      const context = sale ? await this.buildSaleContext(Number(sale.id)) : null;
+      results.push({
+        kind: 'lot',
+        lotId,
+        lotCode: l.code || null,
+        projectId: l.projectId != null ? Number(l.projectId) : null,
+        projectName: l.projectName || null,
+        clientId: l.clientId != null ? Number(l.clientId) : (sale?.clientId != null ? Number(sale.clientId) : null),
+        clientName: l.clientName || context?.clientName || null,
+        price: l.salePrice != null ? Number(l.salePrice) : (l.price != null ? Number(l.price) : 0),
+        lotStatus: l.status || null,
+        hasSale: !!sale,
+        approvalStatus: sale?.approvalStatus || null,
+        summary: context?.summary || null,
+      });
+      seen.add(`lot:${lotId}`);
+    }
+
+    for (const c of clients) {
+      const clientId = Number(c.id);
+      // Un cliente puede tener varios lotes: se listan TODOS para que el usuario
+      // elija de cual lote es el pago.
+      const clientSales = salesByClient.get(clientId) || [];
+      if (!clientSales.length) {
+        // Cliente sin venta: se puede seleccionar para registrar reserva/inicial.
+        const key = `client:${clientId}:0`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          results.push({
+            kind: 'client',
+            lotId: null,
+            lotCode: null,
+            projectId: null,
+            projectName: null,
+            clientId,
+            clientName: c.fullName || null,
+            price: 0,
+            lotStatus: null,
+            hasSale: false,
+            approvalStatus: null,
+            summary: null,
+          });
+        }
+        continue;
+      }
+      // Tambien se consideran los lotes asignados al cliente sin venta previa.
+      const seenLotIds = new Set<number>();
+      for (const sale of clientSales) {
+        const lotId = Number(sale.lotId);
+        seenLotIds.add(lotId);
+        const key = `client:${clientId}:${lotId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const context = await this.buildSaleContext(Number(sale.id));
+        results.push({
+          kind: 'client',
+          lotId,
+          lotCode: context?.lotCode || context?.lot?.code || null,
+          projectId: context?.sale?.projectId ?? (sale.projectId != null ? Number(sale.projectId) : null),
+          projectName: null,
+          clientId,
+          clientName: c.fullName || null,
+          price: context?.sale?.salePrice || 0,
+          lotStatus: null,
+          hasSale: true,
+          approvalStatus: sale.approvalStatus || null,
+          summary: context?.summary || null,
+        });
+      }
+      // Lotes del cliente sin venta registrada (asignados pero sin cerrar venta).
+      const extraLots = await this.lotRepo.find({ where: { clientId } });
+      for (const lot of extraLots) {
+        const lotId = Number(lot.id);
+        if (seenLotIds.has(lotId)) continue;
+        const key = `client:${clientId}:${lotId}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        results.push({
+          kind: 'client',
+          lotId,
+          lotCode: lot.code || null,
+          projectId: lot.projectId != null ? Number(lot.projectId) : null,
+          projectName: null,
+          clientId,
+          clientName: c.fullName || null,
+          price: Number((lot as any).salePrice ?? lot.price ?? 0),
+          lotStatus: lot.status || null,
+          hasSale: false,
+          approvalStatus: null,
+          summary: null,
+        });
+      }
+    }
+
+    return { results };
+  }
+
+  /** Contexto de una venta puntual, para autocompletar el pago. */
+  private async buildSaleContext(saleId: number) {
+    const sale = await this.saleRepo.findOne({ where: { id: saleId } });
+    if (!sale) return null;
+    const [lot, client, agent, installments, payments] = await Promise.all([
+      this.lotRepo.findOne({ where: { id: sale.lotId } }),
+      sale.clientId ? this.dataSource.getRepository(ClientEntity).findOne({ where: { id: sale.clientId } }) : Promise.resolve(null),
+      sale.agentId ? this.userRepo.findOne({ where: { id: sale.agentId } }) : Promise.resolve(null),
+      this.instRepo.find({ where: { saleId }, order: { installmentNo: 'ASC' } }),
+      this.dataSource.getRepository(PaymentEntity).find({ where: { lotId: sale.lotId }, order: { paidAt: 'ASC', id: 'ASC' } }),
+    ]);
+    const row: any = {
+      s_id: sale.id,
+      s_project_id: sale.projectId,
+      s_lot_id: sale.lotId,
+      s_client_id: sale.clientId,
+      s_agent_id: sale.agentId,
+      s_sale_price: sale.salePrice,
+      totalCuotas: sale.totalCuotas,
+      s_valor_cuota: sale.valorCuota,
+      s_interest_type: sale.interestType,
+      s_tea: (sale as any).tea,
+      s_conditions: (sale as any).conditions,
+      s_sale_date: sale.saleDate,
+      approvalStatus: sale.approvalStatus,
+      planStatus: sale.planStatus,
+      clientName: client?.fullName || null,
+      lotCode: lot?.code || null,
+    };
+    return this.buildPaymentContextRow(row, { lot, client, agent, installments, payments });
+  }
+
   private buildPaymentContextRow(
     r: any,
-    related: { lot: any; client: any; agent: any; installments: SaleInstallmentEntity[] },
+    related: { lot: any; client: any; agent: any; installments: SaleInstallmentEntity[]; payments?: PaymentEntity[] },
   ) {
     const today = new Date().toISOString().slice(0, 10);
+    // Los pagos del lote se asignan a las cuotas ya pagadas en orden (1:1) para
+    // poder mostrar la fecha de pago, TC, monto en US$ y N° de operacion
+    // bancaria de cada cuota. Si la cuota trae `payment_id` se respeta ese match.
+    const pool = [...(related.payments || [])];
+    const takeByPaymentId = (paymentId?: number | null) => {
+      if (!paymentId) return null;
+      const idx = pool.findIndex((p) => Number(p.id) === Number(paymentId));
+      if (idx < 0) return null;
+      return pool.splice(idx, 1)[0];
+    };
+
     const rows = related.installments.map((inst) => {
       const paid = inst.status === 'pagado';
       const overdue = !paid && !!inst.dueDate && String(inst.dueDate).slice(0, 10) < today;
+      const payment = paid ? (takeByPaymentId((inst as any).paymentId) || pool.shift() || null) : null;
       return {
         id: inst.id,
         installmentNo: inst.installmentNo,
@@ -439,6 +792,7 @@ export class SalesService {
         paid,
         overdue,
         isCurrent: !paid && !overdue && !!inst.dueDate,
+        payment: this.paymentDetails(payment),
       };
     });
 
@@ -470,6 +824,18 @@ export class SalesService {
       clientName: r.clientName || (client as any)?.fullName || null,
       lotCode: r.lotCode || lot?.code || null,
       installments: rows,
+      // Pagos que no corresponden a una cuota del cronograma (reserva,
+      // cuota inicial, adelantos). Alimentan la ficha de venta de esos pagos.
+      otherPayments: pool.map((p) => ({
+        ...this.paymentDetails(p),
+        amount: Number(p.amount || 0),
+        dueDate: p.dueDate || null,
+      })),
+      allPayments: (related.payments || []).map((p) => ({
+        ...this.paymentDetails(p),
+        amount: Number(p.amount || 0),
+        dueDate: p.dueDate || null,
+      })),
       summary: {
         totalCuotas: rows.length,
         paidCount,

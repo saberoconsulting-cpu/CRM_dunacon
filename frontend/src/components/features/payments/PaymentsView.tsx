@@ -19,13 +19,13 @@ import {
 } from 'recharts';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { formatMoney, formatDate } from '@/lib/types';
-import { useDisplayCurrency } from '@/lib/currency';
+import { useDisplayCurrency, DEFAULT_EXCHANGE_RATE } from '@/lib/currency';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { printHtml } from '@/lib/print';
-import { FiActivity, FiAlertTriangle, FiCamera, FiChevronDown, FiCreditCard, FiDollarSign, FiMoreVertical, FiTrendingUp, FiUpload, FiX } from 'react-icons/fi';
+import { FiActivity, FiAlertTriangle, FiCamera, FiChevronDown, FiClock, FiCreditCard, FiDollarSign, FiEdit3, FiFileText, FiMoreVertical, FiRefreshCw, FiTrendingUp, FiUpload, FiX } from 'react-icons/fi';
 
 type P = {
-  id: number; projectId: number; lotId: number; type: string; amount: string;
+  id: number; projectId: number; lotId: number; clientId?: number | null; type: string; amount: string;
   dueDate?: string | null; paidAt?: string | null; status: string; createdAt?: string | null;
   lotCode?: string | null; clientName?: string | null; salePrice?: number | null;
   receivedByName?: string | null; paymentMethod?: string; reference?: string | null; voucherUrl?: string | null;
@@ -232,6 +232,80 @@ function ChartMenu({ rows }: { rows: Array<[string, string]> }) {
     </details>
   );
 }
+/**
+ * Campo de monto con conversion S/ <-> US$ mediante un icono.
+ *
+ * El sistema guarda los montos en soles (moneda base), asi que el valor que
+ * mantiene el estado del formulario SIEMPRE son soles. El icono solo cambia la
+ * moneda en la que se captura/muestra: al escribir en US$ se hace la conversion
+ * con el tipo de cambio antes de tocar el estado, y al capturar en soles se
+ * escribe el valor tal cual.
+ */
+function AmountField({
+  label, value, onChange, currency, onToggleCurrency, rate, placeholder, helper,
+}: {
+  label: string;
+  value: number;
+  onChange: (next: number) => void;
+  currency: 'PEN' | 'USD';
+  onToggleCurrency: () => void;
+  rate: number;
+  placeholder?: string;
+  helper?: string;
+}) {
+  const safeRate = Number(rate) > 0 ? Number(rate) : DEFAULT_EXCHANGE_RATE;
+  // Lo que se ve en pantalla: el monto base (soles) llevado a la moneda activa.
+  const shown = currency === 'USD'
+    ? Math.round((Number(value || 0) / safeRate) * 100) / 100
+    : Math.round(Number(value || 0) * 100) / 100;
+
+  // Al escribir, se regresa siempre a soles para mantener una sola base.
+  function handleInput(raw: string) {
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) { onChange(0); return; }
+    onChange(currency === 'USD' ? Math.round(parsed * safeRate * 100) / 100 : parsed);
+  }
+
+  return (
+    <Field label={label}>
+      <div className="flex items-stretch gap-1.5">
+        <div className="relative min-w-0 flex-1">
+          <span
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs font-semibold"
+            style={{ color: currency === 'USD' ? GREEN : MUTED }}
+          >
+            {currency === 'USD' ? 'US$' : 'S/'}
+          </span>
+          <input
+            type="number"
+            step="0.01"
+            className="input !pl-11"
+            value={shown || ''}
+            placeholder={placeholder}
+            onChange={(event) => handleInput(event.target.value)}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={onToggleCurrency}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md border bg-white px-2 text-xs font-semibold transition-colors hover:bg-slate-50"
+          style={{ borderColor: currency === 'USD' ? '#A9C9FB' : BORDER, color: currency === 'USD' ? BLUE : MUTED }}
+          title={`Convertir a ${currency === 'USD' ? 'soles (S/)' : 'dolares (US$)'} con TC ${safeRate}`}
+          aria-label={`Convertir a ${currency === 'USD' ? 'soles' : 'dolares'}`}
+        >
+          <FiRefreshCw style={{ fontSize: 12 }} />
+          {currency === 'USD' ? 'US$' : 'S/'}
+        </button>
+      </div>
+      {helper && (
+        <p className="mt-1 text-[10px]" style={{ color: MUTED }}>
+          {helper}
+        </p>
+      )}
+    </Field>
+  );
+}
+
 // Grid del cronograma: verde pagada, rojo en mora, ambar la que toca, gris pendiente.
 function InstallmentGrid({ sale, compact = false, formatter = money }: { sale: any; compact?: boolean; formatter?: (value: number) => string }) {
   const rows = sale?.installments || [];
@@ -327,6 +401,252 @@ export function PaymentHistoryPdf({ sale }: { sale: any }) {
   `);
 }
 
+// Estilos compartidos por los PDF de pagos (ficha e historial completo).
+const PAYMENT_PDF_STYLE = `
+  body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white}
+  .brand{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}
+  .logos{display:flex;align-items:center;gap:12px}
+  .logos img{height:42px;max-width:150px;object-fit:contain}
+  .eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+  h1{margin:0;font-size:23px;line-height:1.15;color:#111827}
+  h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
+  p{margin:4px 0 0;color:#6B7280;font-size:12px}
+  .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}
+  .summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}
+  .summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+  .summary strong{display:block;margin-top:4px;color:#111827;font-size:12px}
+  table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}
+  th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:9px;text-align:left;text-transform:uppercase}
+  td{border:1px solid #E5E7EB;padding:8px 7px;font-size:11px;vertical-align:top}
+  tbody tr:nth-child(even){background:#F8FAFC}
+  .label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}
+  .num{text-align:right;white-space:nowrap;font-weight:700;color:#1259C4}
+  .watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.06;z-index:-1}
+  .watermark img{width:560px;max-width:72vw}
+  .evidence{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:16px}
+  .evidence-item{border:1px solid #E5E7EB;border-radius:6px;padding:8px;background:#fff;break-inside:avoid}
+  .evidence-item span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px}
+  .evidence-item img{width:100%;max-height:300px;object-fit:contain;border-radius:4px;border:1px solid #E5E7EB}
+  .evidence-group{margin-bottom:14px;break-inside:avoid}
+  .evidence-title{margin:0 0 6px;font-size:11px;font-weight:700;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
+  .footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:10px;text-align:right}
+  @media (max-width:640px){body{margin:12px}.brand{flex-direction:column;gap:10px}.logos img{height:32px;max-width:120px}h1{font-size:17px}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}table{table-layout:auto}th,td{padding:5px 4px;font-size:9px}.watermark img{width:300px}.evidence{grid-template-columns:1fr}}
+  @media print{body{margin:18px}thead{display:table-header-group}.brand,.summary,.evidence-item{break-inside:avoid}.watermark{position:fixed}}
+`;
+
+/** Resuelve una URL de archivo a absoluta para que se vea dentro del PDF. */
+function absoluteUrl(url?: string | null) {
+  if (!url) return '';
+  if (/^(https?:)?\/\//i.test(url) || url.startsWith('data:')) return url;
+  if (typeof window === 'undefined') return url;
+  return `${window.location.origin}${url.startsWith('/') ? '' : '/'}${url}`;
+}
+
+/** Ficha de un pago/cuota determinada (descarga individual). */
+export function PaymentReceiptPdf({ sale, installment, projectName }: { sale: any; installment: any; projectName?: string }) {
+  if (!sale || !installment) return;
+  const pay = installment.payment || null;
+  const adminLogoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
+  const projectLogoUrl = sale.projectLogoUrl || '';
+  const clientName = sale.client?.fullName || sale.clientName || '-';
+  const lotCode = sale.lot?.code || sale.lotCode || `Lote ${sale.sale?.lotId ?? ''}`;
+  const isInitial = !installment.installmentNo;
+  const cuotaLabel = isInitial ? 'Cuota inicial' : `Cuota N° ${installment.installmentNo}`;
+  const amountPen = Number(installment.amount || 0);
+  const tc = pay?.exchangeRate != null ? Number(pay.exchangeRate) : null;
+  const amountUsd = pay?.amountUsd != null ? Number(pay.amountUsd) : (tc && tc > 0 ? amountPen / tc : null);
+  const paidAt = pay?.paidAt ? formatDate(pay.paidAt) : (installment.paid ? formatDate(installment.dueDate) : '-');
+  const estado = installment.paid ? 'Pagada' : (installment.overdue ? 'En mora' : 'Pendiente');
+
+  // Imagenes de sustento del pago: voucher de la operacion bancaria y boleta.
+  const bankOpImage = absoluteUrl(pay?.approvalDocumentUrl);
+  const receiptImage = absoluteUrl(pay?.receiptDocumentUrl);
+  const voucherImage = absoluteUrl(pay?.voucherUrl);
+  const evidence: Array<{ label: string; url: string }> = [
+    { label: 'Voucher de operacion bancaria', url: bankOpImage },
+    { label: 'Boleta', url: receiptImage },
+    { label: 'Comprobante del pago', url: voucherImage },
+  ].filter((e) => !!e.url);
+
+  const evidenceHtml = evidence.length
+    ? `<h2>Evidencia del pago</h2>
+       <div class="evidence">
+         ${evidence.map((e) => `<div class="evidence-item"><span>${escapeHtml(e.label)}</span><img src="${escapeHtml(e.url)}" alt="${escapeHtml(e.label)}" /></div>`).join('')}
+       </div>`
+    : '';
+
+  const detailRows: Array<[string, string]> = [
+    ['Cliente', clientName],
+    ['Lote', String(lotCode)],
+    ['Proyecto', projectName || `Proyecto ${sale.sale?.projectId ?? ''}`],
+    ['Cuota', cuotaLabel],
+    ['Fecha de pago', paidAt],
+    ['Tipo de cambio (TC)', tc ? String(tc) : '-'],
+    ['Monto en soles (S/)', formatMoney(amountPen)],
+    ['Monto en dolares (US$)', amountUsd != null ? `US$ ${Number(amountUsd).toFixed(2)}` : '-'],
+    ['N° operacion bancaria', pay?.bankOperationNumber || '-'],
+    ['N° boleta', pay?.receiptNumber || '-'],
+    ['Medio de pago', pay?.paymentMethod || '-'],
+    ['Referencia', pay?.reference || '-'],
+    ['Estado', estado],
+  ];
+
+  printHtml(`
+    <html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Ficha de pago - ${escapeHtml(clientName)}</title><style>${PAYMENT_PDF_STYLE}</style></head><body>
+      <div class="watermark"><img src="${escapeHtml(adminLogoUrl)}" alt="" /></div>
+      <div class="brand">
+        <div>
+          <p class="eyebrow">Ficha de pago</p>
+          <h1>${escapeHtml(cuotaLabel)}</h1>
+          <p>${escapeHtml(clientName)} - ${escapeHtml(String(lotCode))}</p>
+          <p>${escapeHtml(projectName || `Proyecto ${sale.sale?.projectId ?? ''}`)} - generado ${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+        </div>
+        <div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div>
+      </div>
+      <div class="summary">
+        <div><span>Monto S/</span><strong>${escapeHtml(formatMoney(amountPen))}</strong></div>
+        <div><span>Monto US$</span><strong>${amountUsd != null ? 'US$ ' + Number(amountUsd).toFixed(2) : '-'}</strong></div>
+        <div><span>Tipo de cambio</span><strong>${tc ? escapeHtml(String(tc)) : '-'}</strong></div>
+        <div><span>Estado</span><strong>${escapeHtml(estado)}</strong></div>
+      </div>
+      <h2>Detalle del pago</h2>
+      <table><tbody>${detailRows.map(([label, value]) => `<tr><td class="label">${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join('')}</tbody></table>
+      ${evidenceHtml}
+      <div class="footer">Dunacon - CRM Inmobiliario</div>
+    </body></html>
+  `);
+}
+
+/** Miniaturas clicables de las evidencias del pago (op. bancaria, boleta, voucher). */
+function EvidenceThumbs({ pay }: { pay?: any }) {
+  if (!pay) return <span className="text-slate-300">—</span>;
+  const items = [
+    { label: 'Op. bancaria', url: pay.approvalDocumentUrl },
+    { label: 'Boleta', url: pay.receiptDocumentUrl },
+    { label: 'Comprobante', url: pay.voucherUrl },
+  ].filter((i) => !!i.url);
+  if (!items.length) return <span className="text-slate-300">—</span>;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {items.map((i) => (
+        <a key={i.label} href={i.url} target="_blank" rel="noreferrer" title={i.label} className="block">
+          <img src={i.url} alt={i.label} className="h-10 w-10 rounded border object-cover" />
+        </a>
+      ))}
+    </div>
+  );
+}
+
+/** Historial completo de financiamiento y pagos de un cliente. */
+export function ClientPaymentHistoryPdf({ sale, projectName }: { sale: any; projectName?: string }) {
+  if (!sale) return;
+  const adminLogoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
+  const projectLogoUrl = sale.projectLogoUrl || '';
+  const clientName = sale.client?.fullName || sale.clientName || '-';
+  const lotCode = sale.lot?.code || sale.lotCode || `Lote ${sale.sale?.lotId ?? ''}`;
+  const rows = sale.installments || [];
+  const others = sale.otherPayments || [];
+
+  // Evidencias: una tarjeta por cada pago con boleta o voucher de op. bancaria.
+  const evidenceItems: string[] = [];
+  for (const r of rows) {
+    const p = r.payment;
+    if (!p) continue;
+    const bankOp = absoluteUrl(p.approvalDocumentUrl);
+    const receipt = absoluteUrl(p.receiptDocumentUrl);
+    const voucher = absoluteUrl(p.voucherUrl);
+    const imgs = [
+      bankOp ? { label: 'Op. bancaria', url: bankOp } : null,
+      receipt ? { label: 'Boleta', url: receipt } : null,
+      voucher ? { label: 'Comprobante', url: voucher } : null,
+    ].filter(Boolean) as Array<{ label: string; url: string }>;
+    if (!imgs.length) continue;
+    evidenceItems.push(`<div class="evidence-group">
+      <p class="evidence-title">Cuota ${escapeHtml(String(r.installmentNo))}${p.paidAt ? ' — pagada el ' + escapeHtml(formatDate(p.paidAt)) : ''}</p>
+      <div class="evidence">${imgs.map((i) => `<div class="evidence-item"><span>${escapeHtml(i.label)}</span><img src="${escapeHtml(i.url)}" alt="${escapeHtml(i.label)}" /></div>`).join('')}</div>
+    </div>`);
+  }
+  for (const p of others) {
+    const bankOp = absoluteUrl(p.approvalDocumentUrl);
+    const receipt = absoluteUrl(p.receiptDocumentUrl);
+    const voucher = absoluteUrl(p.voucherUrl);
+    const imgs = [
+      bankOp ? { label: 'Op. bancaria', url: bankOp } : null,
+      receipt ? { label: 'Boleta', url: receipt } : null,
+      voucher ? { label: 'Comprobante', url: voucher } : null,
+    ].filter(Boolean) as Array<{ label: string; url: string }>;
+    if (!imgs.length) continue;
+    const concepto = TYPE_LABEL[p.type] || p.type || 'Pago';
+    evidenceItems.push(`<div class="evidence-group">
+      <p class="evidence-title">${escapeHtml(concepto)}${p.paidAt ? ' — pagada el ' + escapeHtml(formatDate(p.paidAt)) : ''}</p>
+      <div class="evidence">${imgs.map((i) => `<div class="evidence-item"><span>${escapeHtml(i.label)}</span><img src="${escapeHtml(i.url)}" alt="${escapeHtml(i.label)}" /></div>`).join('')}</div>
+    </div>`);
+  }
+  const evidenceSection = evidenceItems.length
+    ? `<h2>Evidencia de pagos (boletas y operaciones bancarias)</h2>${evidenceItems.join('')}`
+    : '';
+
+  const bodyRows = rows.map((r: any) => {
+    const estado = r.paid ? 'Pagada' : (r.overdue ? 'En mora' : (r.installmentNo === sale.summary?.nextInstallmentNo ? 'Por pagar' : 'Pendiente'));
+    const color = r.paid ? '#16A34A' : (r.overdue ? '#DC2626' : (r.installmentNo === sale.summary?.nextInstallmentNo ? '#B45309' : '#64748B'));
+    const pay = r.payment;
+    return `<tr>
+      <td>Cuota ${r.installmentNo}</td>
+      <td>${escapeHtml(formatDate(r.dueDate))}</td>
+      <td class="num">${escapeHtml(formatMoney(r.amount))}</td>
+      <td>${pay?.exchangeRate != null ? escapeHtml(String(pay.exchangeRate)) : '-'}</td>
+      <td>${pay?.paidAt ? escapeHtml(formatDate(pay.paidAt)) : '-'}</td>
+      <td class="num">${pay?.amountUsd != null ? 'US$ ' + Number(pay.amountUsd).toFixed(2) : '-'}</td>
+      <td>${escapeHtml(pay?.bankOperationNumber || '-')}</td>
+      <td style="color:${color};font-weight:700">${estado}</td>
+    </tr>`;
+  }).join('');
+
+  const otherRows = others.map((p: any) => `<tr>
+      <td>${escapeHtml(TYPE_LABEL[p.type] || p.type || 'Pago')}</td>
+      <td>${escapeHtml(p.dueDate ? formatDate(p.dueDate) : '-')}</td>
+      <td class="num">${escapeHtml(formatMoney(p.amount))}</td>
+      <td>${p.exchangeRate != null ? escapeHtml(String(p.exchangeRate)) : '-'}</td>
+      <td>${p.paidAt ? escapeHtml(formatDate(p.paidAt)) : '-'}</td>
+      <td class="num">${p.amountUsd != null ? 'US$ ' + Number(p.amountUsd).toFixed(2) : '-'}</td>
+      <td>${escapeHtml(p.bankOperationNumber || '-')}</td>
+      <td style="color:#16A34A;font-weight:700">Pagada</td>
+    </tr>`).join('');
+
+  printHtml(`
+    <html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Historial de pagos - ${escapeHtml(clientName)}</title><style>${PAYMENT_PDF_STYLE}</style></head><body>
+      <div class="watermark"><img src="${escapeHtml(adminLogoUrl)}" alt="" /></div>
+      <div class="brand">
+        <div>
+          <p class="eyebrow">Historial de pagos</p>
+          <h1>${escapeHtml(clientName)}</h1>
+          <p>${escapeHtml(String(lotCode))} - ${escapeHtml(projectName || `Proyecto ${sale.sale?.projectId ?? ''}`)}</p>
+          <p>Emitido: ${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+        </div>
+        <div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div>
+      </div>
+      <div class="summary">
+        <div><span>Precio de venta</span><strong>${escapeHtml(formatMoney(sale.sale?.salePrice || 0))}</strong></div>
+        <div><span>Valor cuota</span><strong>${escapeHtml(formatMoney(sale.sale?.valorCuota || 0))}</strong></div>
+        <div><span>Cuotas pagadas</span><strong>${sale.summary?.paidCount || 0} de ${sale.summary?.totalCuotas || 0}</strong></div>
+        <div><span>Cuota que toca</span><strong>${sale.summary?.nextInstallmentNo ? 'N. ' + sale.summary.nextInstallmentNo : 'Todas pagadas'}</strong></div>
+      </div>
+      <h2>Cronograma de cuotas</h2>
+      <table>
+        <thead><tr><th>Cuota</th><th>Vence</th><th class="num">Monto</th><th>TC</th><th>Fecha pago</th><th class="num">Pagado US$</th><th>N° Op. Bco</th><th>Estado</th></tr></thead>
+        <tbody>${bodyRows || '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody>
+      </table>
+      ${otherRows ? `<h2>Otros pagos (reserva / cuota inicial)</h2>
+      <table>
+        <thead><tr><th>Concepto</th><th>Vence</th><th class="num">Monto</th><th>TC</th><th>Fecha pago</th><th class="num">Pagado US$</th><th>N° Op. Bco</th><th>Estado</th></tr></thead>
+        <tbody>${otherRows}</tbody>
+      </table>` : ''}
+      ${evidenceSection}
+      <div class="footer">Dunacon - CRM Inmobiliario</div>
+    </body></html>
+  `);
+}
+
 function ChartHeader({ title, subtitle, menuRows, actions }: { title: string; subtitle: string; menuRows: Array<[string, string]>; actions?: ReactNode }) {
   return (
     <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-start sm:justify-between" style={{ borderColor: BORDER }}>
@@ -355,9 +675,13 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [isNarrow, setIsNarrow] = useState(false);
   const [paySearch, setPaySearch] = useState('');
   const [payClientSearch, setPayClientSearch] = useState('');
-  const [payContext, setPayContext] = useState<any>(null);
-  const [payContextIndex, setPayContextIndex] = useState(0);
+  // Marca que el texto del buscador proviene de haber elegido un resultado de la
+  // lista (no es un termino tecleado). Sirve para no repetir la busqueda ni
+  // mostrar el aviso de "no se encontro" cuando el input ya quedo resuelto.
+  const [paySearchPicked, setPaySearchPicked] = useState(false);
   const [payContextLoading, setPayContextLoading] = useState(false);
+  // Contexto de la venta elegida (cronograma + cuota que toca + demas pagos).
+  const [activeSale, setActiveSale] = useState<any>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -381,6 +705,10 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [voucherUrl, setVoucherUrl] = useState('');
   const [formExchangeRate, setFormExchangeRate] = useState('');
   const [amountUsd, setAmountUsd] = useState('');
+  // Moneda en la que se capturan los montos del formulario. El sistema guarda en
+  // soles (base), asi que al capturar en US$ se convierte con el TC antes de enviar.
+  const [amountCurrency, setAmountCurrency] = useState<'PEN' | 'USD'>('PEN');
+  const [cuotaCurrency, setCuotaCurrency] = useState<'PEN' | 'USD'>('PEN');
   // Datos para adjuntar durante el registro (op. bancaria como foto y boleta).
   const [regBankOp, setRegBankOp] = useState('');
   const [regBankOpFile, setRegBankOpFile] = useState<File | null>(null);
@@ -389,6 +717,12 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [regReceiptFile, setRegReceiptFile] = useState<File | null>(null);
   const [regReceiptUrl, setRegReceiptUrl] = useState('');
   const [regCuotaValue, setRegCuotaValue] = useState('');
+  // Modal de historial de pagos por cliente (boton "Ver" en la tabla).
+  const [historyRow, setHistoryRow] = useState<P | null>(null);
+  const [historySale, setHistorySale] = useState<any>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  // Resultados del buscador "Buscar cliente o lote" (lotes/clientes, con o sin venta).
+  const [searchResults, setSearchResults] = useState<any[]>([]);
   const [editingPayment, setEditingPayment] = useState<P | null>(null);
   const [editVoucher, setEditVoucher] = useState<File | null>(null);
   const [editVoucherUrl, setEditVoucherUrl] = useState('');
@@ -397,8 +731,6 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [approvalReceiptValue, setApprovalReceiptValue] = useState('');
   const [approvalDoc, setApprovalDoc] = useState<File | null>(null);
   const [approvalDocUrl, setApprovalDocUrl] = useState('');
-  // Solo admin/superadmin pueden aprobar un pago. Agentes y gerentes solo
-  // registran; el pago queda pendiente hasta que un admin lo apruebe.
   const currentRole = (() => { try { return JSON.parse(localStorage.getItem('crm_user') || '{}').role || ''; } catch { return ''; } })();
   const payCanMark = currentRole === 'admin' || currentRole === 'superadmin';
 
@@ -407,37 +739,66 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   useEffect(() => {
     if (!open) return;
     const term = payClientSearch.trim();
-    if (!clientId && !lotId && term.length < 2) { setPayContext(null); return; }
+    // Texto colocado por elegir un resultado: ya esta resuelto, no se busca ni se avisa.
+    if (paySearchPicked) { setSearchResults([]); return; }
+    if (!clientId && !lotId && term.length < 2) { setSearchResults([]); return; }
+    // Si ya se eligio lote o cliente, no hace falta seguir buscando por texto.
+    if (clientId || lotId) { setSearchResults([]); return; }
     let alive = true;
     setPayContextLoading(true);
     const q = new URLSearchParams();
-    if (clientId) q.set('clientId', String(clientId));
-    if (lotId) q.set('lotId', String(lotId));
-    if (lockedProjectId) q.set('projectId', String(lockedProjectId));
-    if (!clientId && !lotId && term) q.set('search', term);
+    q.set('q', term);
+    // Al buscar por texto no se fuerza el proyecto: el lote puede pertenecer a
+    // otro proyecto y aun asi debe encontrarse para registrar su pago.
     const timer = setTimeout(() => {
-      api.get<any>(`/sales/payment-context?${q.toString()}`)
-        .then((d) => { if (alive) { setPayContext(d || { sales: [] }); setPayContextIndex(0); } })
-        .catch(() => { if (alive) setPayContext({ sales: [] }); })
+      api.get<any>(`/sales/payment-search?${q.toString()}`)
+        .then((d) => { if (alive) setSearchResults(d?.results || []); })
+        .catch(() => { if (alive) setSearchResults([]); })
         .finally(() => { if (alive) setPayContextLoading(false); });
     }, 350);
     return () => { alive = false; clearTimeout(timer); };
-  }, [open, clientId, lotId, lockedProjectId, payClientSearch]);
+  }, [open, clientId, lotId, payClientSearch, paySearchPicked]);
 
-  const activeSale = payContext?.sales?.[payContextIndex] || null;
-
-  useEffect(() => {
-    if (!activeSale) return;
-    setPayProjectId(activeSale.sale.projectId);
-    setLotId(activeSale.sale.lotId);
-    if (activeSale.sale.clientId) setClientId(activeSale.sale.clientId);
-    const nextAmount = Number(activeSale.summary?.nextAmount || 0);
-    setAmount(nextAmount);
-    setPayType((activeSale.summary?.paidCount || 0) > 0 ? 'cuota' : 'adelanto');
-    setDueDate(activeSale.summary?.nextDueDate || '');
-    // Valor de la cuota: se llena solo con el monto de la cuota que le toca pagar.
-    setRegCuotaValue(nextAmount > 0 ? String(nextAmount) : '');
-  }, [activeSale]);
+  /**
+   * Aplica un resultado del buscador al formulario. Si el lote/cliente tiene
+   * venta, carga su contexto (cronograma + cuota que toca) para autocompletar;
+   * si no la tiene, igual deja lote/cliente seleccionados para registrar el pago.
+   */
+  async function selectSearchResult(r: any) {
+    if (r.projectId) setPayProjectId(Number(r.projectId));
+    if (r.lotId) setLotId(Number(r.lotId));
+    if (r.clientId) setClientId(Number(r.clientId));
+    setSearchResults([]);
+    setPayContextLoading(false);
+    // El texto que se muestra es una etiqueta armada (cliente - lote), no un
+    // termino buscable: se marca como elegido para no volver a consultar.
+    setPaySearchPicked(true);
+    setPayClientSearch(r.clientName ? `${r.clientName}${r.lotCode ? ' - Lote ' + r.lotCode : ''}` : `Lote ${r.lotCode || r.lotId}`);
+    // Sin venta ni lote: se registra como reserva con lo que haya.
+    if (!r.hasSale || !r.lotId) {
+      setActiveSale(null);
+      setPayType('reserva');
+      if (r.lotId) {
+        const lot = lots.find((l: any) => Number(l.id) === Number(r.lotId));
+        if (lot) setAmount(Number(lot.price || 0));
+      }
+      return;
+    }
+    // Con venta: se trae el cronograma y la cuota que le toca pagar.
+    try {
+      const ctx = await api.get<any>(`/sales/lot/${r.lotId}/history`);
+      setActiveSale(ctx || null);
+      const nextAmount = Number(ctx?.summary?.nextAmount || 0);
+      if (nextAmount > 0) {
+        setAmount(nextAmount);
+        setRegCuotaValue(String(nextAmount));
+      }
+      if (ctx?.summary?.nextDueDate) setDueDate(ctx.summary.nextDueDate);
+      setPayType((ctx?.summary?.paidCount || 0) > 0 ? 'cuota' : 'adelanto');
+    } catch {
+      setActiveSale(null);
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -482,6 +843,8 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   }, []);
 
   const availableLots = payProjectId ? lots.filter((l: any) => Number(l.projectId) === Number(payProjectId)) : lots;
+  // Indice de proyectos para resolver nombre y logo al generar los PDF.
+  const projectsById = new Map<number, any>(payProjects.map((p: any) => [Number(p.id), p]));
   // Al elegir el lote, precargar su cliente asignado (si tiene) — igual se
   // puede cambiar a mano con el selector de Cliente.
   function selectLot(id: number) {
@@ -502,6 +865,8 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
       if (regReceiptFile) { await uploadFile(`/payments/receipt-doc/${saved?.id}`, regReceiptFile); }
       toast(voucher ? 'Pago registrado con comprobante adjunto' : 'Pago registrado');
       setOpen(false); setAmount(0); setDueDate(''); setNote(''); setLotId(0); setClientId(0); setPayMethod('yape'); setReference(''); setVoucher(null); setVoucherUrl(''); setFormExchangeRate(''); setAmountUsd('');
+      setPayClientSearch(''); setPaySearchPicked(false); setSearchResults([]); setActiveSale(null);
+      setAmountCurrency('PEN'); setCuotaCurrency('PEN');
       setRegBankOp(''); setRegBankOpFile(null); setRegBankOpUrl(''); setRegReceiptNo(''); setRegReceiptFile(null); setRegReceiptUrl(''); setRegCuotaValue('');
       load();
     } catch (e: any) { toast(e.message, 'err'); }
@@ -581,6 +946,26 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
       setEditVoucherUrl('');
       await load();
     } catch (e: any) { toast(e.message, 'err'); }
+  }
+
+  async function openHistory(row: P) {
+    setHistoryRow(row);
+    setHistorySale(null);
+    setHistoryLoading(true);
+    try {
+      // Endpoint dedicado: devuelve la venta del lote (aunque sea una
+      // separacion pendiente) con el cronograma y los datos de cada pago.
+      const data = await api.get<any>(`/sales/lot/${row.lotId}/history`);
+      if (data) {
+        data.projectLogoUrl = projectsById.get(Number(data.sale?.projectId || row.projectId))?.logoImageUrl || '';
+      }
+      setHistorySale(data);
+    } catch (e: any) {
+      toast(e.message, 'err');
+      setHistorySale(null);
+    } finally {
+      setHistoryLoading(false);
+    }
   }
 
   async function exportMonthPdf() {
@@ -1028,6 +1413,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 <th className="th-base">Voucher</th><th className="th-base">Monto registrado</th><th className="th-base">Monto pagado</th>
                 <th className="th-base">Estado</th><th className="th-base">Vence</th><th className="th-base">Pagado</th>
                 <th className="th-base">Recepciona pago</th>
+                <th className="th-base">Acciones</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {filteredRows.map((p) => (
@@ -1043,16 +1429,33 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                     <td className="td-base font-medium">{show(p.amount)}</td>
                     <td className="td-base font-medium" style={{ color: p.status === 'pagado' ? GREEN : MUTED }}>{p.status === 'pagado' ? show(p.amount) : '—'}</td>
                     <td className="td-base">
-                      <div className="flex flex-col items-start gap-1">
+                      <div className="flex flex-col items-start gap-1.5">
                         {st(p)}
                         {p.status === 'pendiente' && (
-                          <button type="button" className="btn-secondary !h-6 !px-2 text-[11px] whitespace-nowrap" onClick={() => openEditPayment(p)}>{payCanMark ? 'Aprobar / Editar' : 'Ver / Editar'}</button>
+                          <button
+                            type="button"
+                            className="row-action row-action--primary"
+                            onClick={() => openEditPayment(p)}
+                            title={payCanMark ? 'Aprobar o editar este pago' : 'Editar este pago'}
+                          >
+                            <FiEdit3 /> {payCanMark ? 'Aprobar' : 'Editar'}
+                          </button>
                         )}
                       </div>
                     </td>
                     <td className="td-base">{formatDate(p.dueDate)}</td>
                     <td className="td-base">{formatDate(p.paidAt)}</td>
                     <td className="td-base">{p.receivedByName || '—'}</td>
+                    <td className="td-base">
+                      <button
+                        type="button"
+                        className="row-action"
+                        onClick={() => openHistory(p)}
+                        title="Ver historial de cuotas del cliente"
+                      >
+                        <FiClock /> Historial
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1096,22 +1499,55 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                     className="input"
                     placeholder="Escribe el nombre del cliente o el codigo del lote..."
                     value={payClientSearch}
-                    onChange={(e) => { setPayClientSearch(e.target.value); setClientId(0); setLotId(0); }}
+                    onChange={(e) => { setPayClientSearch(e.target.value); setClientId(0); setLotId(0); setPaySearchPicked(false); }}
                   />
                 </label>
-                {payContextLoading && <p className="mt-2 text-xs text-slate-400">Buscando venta...</p>}
-                {!payContextLoading && payContext?.sales?.length > 1 && (
-                  <div className="mt-2">
-                    <span className="label">Este cliente tiene varias ventas. Elige cual:</span>
-                    <select className="input" value={payContextIndex} onChange={(e) => setPayContextIndex(Number(e.target.value))}>
-                      {payContext.sales.map((s: any, i: number) => (
-                        <option key={s.sale.id} value={i}>Lote {s.lot?.code || s.sale.lotId} - {show(s.sale.salePrice)}</option>
+                {payContextLoading && <p className="mt-2 text-xs text-slate-400">Buscando...</p>}
+                {!payContextLoading && searchResults.length > 0 && (
+                  <div className="mt-2 rounded-md border bg-white" style={{ borderColor: BORDER }}>
+                    <div className="border-b px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide" style={{ borderColor: '#F1F5F9', color: MUTED }}>
+                      {searchResults.length === 1
+                        ? '1 resultado'
+                        : `${searchResults.length} resultados — elige el lote a pagar`}
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {searchResults.map((r: any, i: number) => (
+                        <button
+                          key={`${r.kind}-${r.lotId}-${r.clientId}-${i}`}
+                          type="button"
+                          onClick={() => selectSearchResult(r)}
+                          className="flex w-full items-center justify-between gap-3 border-b px-3 py-2 text-left last:border-b-0 hover:bg-slate-50"
+                          style={{ borderColor: '#F1F5F9' }}
+                        >
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-semibold" style={{ color: INK }}>
+                              {r.lotCode ? `Lote ${r.lotCode}` : 'Sin lote asignado'}
+                              {r.clientName ? ` · ${r.clientName}` : ''}
+                            </span>
+                            <span className="block truncate text-[11px]" style={{ color: MUTED }}>
+                              {r.projectName ? `${r.projectName} · ` : ''}
+                              {r.price ? show(r.price) : 'Sin precio'}
+                              {r.summary?.nextInstallmentNo
+                                ? ` · cuota ${r.summary.nextInstallmentNo} de ${r.summary.totalCuotas}`
+                                : (r.hasSale ? ' · todas pagadas' : '')}
+                            </span>
+                          </span>
+                          {r.hasSale ? (
+                            <span className="badge shrink-0" style={{ background: '#EAF7EE', color: '#257849' }}>
+                              {r.approvalStatus || 'con venta'}
+                            </span>
+                          ) : (
+                            <span className="badge shrink-0" style={{ background: '#FFF6E4', color: '#B45309' }}>sin venta</span>
+                          )}
+                        </button>
                       ))}
-                    </select>
+                    </div>
                   </div>
                 )}
-                {!payContextLoading && payContext && payContext.sales?.length === 0 && (
-                  <p className="mt-2 text-xs text-amber-600">No se encontro una venta o separacion para ese cliente/lote en este proyecto.</p>
+                {!payContextLoading && !paySearchPicked && searchResults.length === 0 && payClientSearch.trim().length >= 2 && (
+                  <p className="mt-2 text-xs text-amber-600">
+                    No se encontro ningun lote o cliente con «{payClientSearch.trim()}».
+                  </p>
                 )}
               </div>
               {activeSale && (
@@ -1210,10 +1646,27 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="TC (opcional)"><input type="number" step="0.0001" className="input" value={formExchangeRate} onChange={(e) => setFormExchangeRate(e.target.value)} placeholder="Ej: 3.75" /></Field>
-                <Field label="Monto US$ (opcional)"><input type="number" step="0.01" className="input" value={amountUsd} onChange={(e) => setAmountUsd(e.target.value)} /></Field>
+                <AmountField
+                  label="Monto US$"
+                  value={amountUsd ? Number(amountUsd) : 0}
+                  onChange={(next) => setAmountUsd(next ? String(next) : '')}
+                  currency="USD"
+                  onToggleCurrency={() => setAmountUsd('')}
+                  rate={Number(formExchangeRate) || exchangeRate}
+                  placeholder="Equivalente en dolares"
+                  helper="Se guarda como monto referencial en dolares."
+                />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Monto (S/)"><input type="number" className="input" value={amount} onChange={(e) => setAmount(Number(e.target.value))} /></Field>
+                <AmountField
+                  label="Monto"
+                  value={amount}
+                  onChange={setAmount}
+                  currency={amountCurrency}
+                  onToggleCurrency={() => setAmountCurrency((c) => (c === 'PEN' ? 'USD' : 'PEN'))}
+                  rate={Number(formExchangeRate) || exchangeRate}
+                  helper={amountCurrency === 'USD' ? `Se guardara ${money(amount)} con TC ${Number(formExchangeRate) || exchangeRate}` : undefined}
+                />
                 <Field label="Vence (opcional)"><input type="date" className="input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
               </div>
               <Field label="Nota (opcional)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
@@ -1228,9 +1681,16 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   <Field label="N° Op. Bco (opcional)"><input className="input" value={regBankOp} onChange={(e) => setRegBankOp(e.target.value)} placeholder="Ej: 0293-4521-1000" /></Field>
                   <Field label="N° Boleta (opcional)"><input className="input" value={regReceiptNo} onChange={(e) => setRegReceiptNo(e.target.value)} placeholder="Ej: B001-4521" /></Field>
                 </div>
-                <Field label="Valor de la cuota">
-                  <input type="number" step="0.01" className="input" value={regCuotaValue} onChange={(e) => setRegCuotaValue(e.target.value)} placeholder="Se llena solo segun la cuota que le toca" />
-                </Field>
+                <AmountField
+                  label="Valor de la cuota"
+                  value={regCuotaValue ? Number(regCuotaValue) : 0}
+                  onChange={(next) => setRegCuotaValue(next ? String(next) : '')}
+                  currency={cuotaCurrency}
+                  onToggleCurrency={() => setCuotaCurrency((c) => (c === 'PEN' ? 'USD' : 'PEN'))}
+                  rate={Number(formExchangeRate) || exchangeRate}
+                  placeholder="Se llena solo segun la cuota que le toca"
+                  helper={cuotaCurrency === 'USD' ? `Se guardara ${money(regCuotaValue ? Number(regCuotaValue) : 0)} con TC ${Number(formExchangeRate) || exchangeRate}` : undefined}
+                />
                 <Field label="Adj. op. bancaria (foto)">
                   <div className="flex flex-wrap items-center gap-2">
                     <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
@@ -1340,6 +1800,129 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
               <button className="btn-secondary" onClick={saveEditVoucher} disabled={!editVoucher}>Guardar voucher</button>
               {payCanMark && <button className="btn-primary" onClick={approvePayment}>Aprobar Pago</button>}
             </div>
+          </div>
+        </div>
+      )}
+      {historyRow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => { setHistoryRow(null); setHistorySale(null); }} />
+          <div className="relative max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="font-semibold" style={{ fontSize: 17 }}>Historial de pagos</h3>
+                <p className="mt-1 truncate text-sm text-slate-500">
+                  {historySale?.client?.fullName || historyRow.clientName || 'Cliente'} — Lote {historySale?.lot?.code || historyRow.lotCode || historyRow.lotId}
+                </p>
+              </div>
+              <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-md border text-slate-500" style={{ borderColor: BORDER }} onClick={() => { setHistoryRow(null); setHistorySale(null); }} aria-label="Cerrar">
+                <FiX />
+              </button>
+            </div>
+
+            {historyLoading && <p className="p-6 text-center text-sm text-slate-400">Cargando historial...</p>}
+            {!historyLoading && !historySale && (
+              <p className="p-6 text-center text-sm text-slate-400">No se encontro informacion de este lote.</p>
+            )}
+
+            {!historyLoading && historySale && (
+              <div className="space-y-4">
+                {!historySale.sale && (
+                  <p className="rounded-md border bg-amber-50 px-3 py-2 text-xs" style={{ borderColor: '#FDE68A', color: '#B45309' }}>
+                    Este lote aun no tiene una venta o financiamiento registrado. Abajo se listan los pagos
+                    que ya se registraron y de cada uno puedes descargar su ficha.
+                  </p>
+                )}
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  <MiniMetric label="Precio de venta" value={show(historySale.sale?.salePrice || 0)} />
+                  <MiniMetric label="Valor cuota" value={show(historySale.sale?.valorCuota || 0)} />
+                  <MiniMetric label="Cuotas pagadas" value={`${historySale.summary?.paidCount || 0} de ${historySale.summary?.totalCuotas || 0}`} color={GREEN} />
+                  <MiniMetric label="Cuota que toca" value={historySale.summary?.nextInstallmentNo ? `N. ${historySale.summary.nextInstallmentNo}` : 'Todas pagadas'} color={AMBER} />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold">Cronograma de cuotas</span>
+                  <button
+                    type="button"
+                    className="btn-outline !h-9 text-xs"
+                    onClick={() => ClientPaymentHistoryPdf({ sale: historySale, projectName: projectsById.get(Number(historySale.sale?.projectId))?.name })}
+                  >
+                    <FiFileText /> Descargar todo el historial (PDF)
+                  </button>
+                </div>
+
+                <div className="overflow-auto">
+                  <table className="table-base" style={{ width: '100%', minWidth: 820 }}>
+                    <thead>
+                      <tr>
+                        <th className="th-base">Cuota</th>
+                        <th className="th-base">Vence</th>
+                        <th className="th-base">Monto</th>
+                        <th className="th-base">TC</th>
+                        <th className="th-base">Fecha pago</th>
+                        <th className="th-base">Pagado US$</th>
+                        <th className="th-base">N° Op. Bco</th>
+                        <th className="th-base">Estado</th>
+                        <th className="th-base">Evidencia</th>
+                        <th className="th-base">Ficha</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(historySale.installments || []).map((r: any) => {
+                        const pay = r.payment;
+                        const estado = r.paid ? 'Pagada' : (r.overdue ? 'En mora' : (r.installmentNo === historySale.summary?.nextInstallmentNo ? 'Por pagar' : 'Pendiente'));
+                        const color = r.paid ? GREEN : (r.overdue ? RED : (r.installmentNo === historySale.summary?.nextInstallmentNo ? AMBER : MUTED));
+                        return (
+                          <tr key={r.id || r.installmentNo}>
+                            <td className="td-base font-semibold">Cuota {r.installmentNo}</td>
+                            <td className="td-base">{formatDate(r.dueDate)}</td>
+                            <td className="td-base tabular-nums">{show(r.amount)}</td>
+                            <td className="td-base">{pay?.exchangeRate != null ? pay.exchangeRate : '—'}</td>
+                            <td className="td-base">{pay?.paidAt ? formatDate(pay.paidAt) : '—'}</td>
+                            <td className="td-base tabular-nums">{pay?.amountUsd != null ? `US$ ${Number(pay.amountUsd).toFixed(2)}` : '—'}</td>
+                            <td className="td-base">{pay?.bankOperationNumber || '—'}</td>
+                            <td className="td-base font-semibold" style={{ color }}>{estado}</td>
+                            <td className="td-base"><EvidenceThumbs pay={pay} /></td>
+                            <td className="td-base">
+                              {r.paid && (
+                                <button
+                                  type="button"
+                                  className="row-action"
+                                  onClick={() => PaymentReceiptPdf({ sale: historySale, installment: r, projectName: projectsById.get(Number(historySale.sale?.projectId))?.name })}
+                                >
+                                  <FiFileText /> Ficha
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                      {(historySale.otherPayments || []).map((p: any, i: number) => (
+                        <tr key={`other-${p.paymentId || i}`} style={{ background: '#F8FAFC' }}>
+                          <td className="td-base font-semibold">{TYPE_LABEL[p.type] || p.type || 'Pago'}</td>
+                          <td className="td-base">{p.dueDate ? formatDate(p.dueDate) : '—'}</td>
+                          <td className="td-base tabular-nums">{show(p.amount)}</td>
+                          <td className="td-base">{p.exchangeRate != null ? p.exchangeRate : '—'}</td>
+                          <td className="td-base">{p.paidAt ? formatDate(p.paidAt) : '—'}</td>
+                          <td className="td-base tabular-nums">{p.amountUsd != null ? `US$ ${Number(p.amountUsd).toFixed(2)}` : '—'}</td>
+                          <td className="td-base">{p.bankOperationNumber || '—'}</td>
+                          <td className="td-base font-semibold" style={{ color: GREEN }}>Pagada</td>
+                          <td className="td-base"><EvidenceThumbs pay={p} /></td>
+                          <td className="td-base">
+                            <button
+                              type="button"
+                              className="row-action"
+                              onClick={() => PaymentReceiptPdf({ sale: historySale, installment: { payment: p, installmentNo: null, paid: true, amount: p.amount, dueDate: p.dueDate }, projectName: projectsById.get(Number(historySale.sale?.projectId))?.name })}
+                            >
+                              <FiFileText /> Ficha
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

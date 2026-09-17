@@ -54,6 +54,19 @@ export class SalesController {
     });
   }
 
+  @Get('payment-search')
+  paymentSearch(
+    @Query('q') q?: string,
+    @Query('projectId') projectId?: string,
+  ) {
+    return this.salesService.paymentSearch(q, projectId ? Number(projectId) : undefined);
+  }
+
+  @Get('lot/:lotId/history')
+  lotPaymentHistory(@Param('lotId', ParseIntPipe) lotId: number) {
+    return this.salesService.lotPaymentHistory(lotId);
+  }
+
   @Get(':id/schedule')
   schedule(@Param('id', ParseIntPipe) id: number) {
     return this.salesService.schedule(id);

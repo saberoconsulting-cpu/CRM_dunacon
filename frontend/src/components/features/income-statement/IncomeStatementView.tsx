@@ -95,6 +95,12 @@ function deviation(real: number, projected: number) {
   return ((real - projected) / projected) * 100;
 }
 
+/** Participacion de cada linea sobre el ingreso total real (la primera linea es 100%). */
+function incomeShare(real: number, totalIncome: number) {
+  if (!totalIncome) return real ? 100 : 0;
+  return (real / totalIncome) * 100;
+}
+
 function lotRevenue(lot: Lot) {
   return num(lot.finalPrice || lot.salePrice || lot.price);
 }
@@ -350,7 +356,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
             <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BORDER }}>
               <div>
                 <h3 className="font-semibold" style={{ color: INK }}>Resultado economico del proyecto</h3>
-                <p className="mt-1 text-xs" style={{ color: MUTED }}>Proyectado vs real con desviacion porcentual para lectura contable y gerencial.</p>
+                <p className="mt-1 text-xs" style={{ color: MUTED }}>Proyectado vs real con desviacion porcentual y participacion de cada linea sobre el ingreso real.</p>
               </div>
               <button className="btn-neutral !h-9 text-xs" onClick={load} disabled={loading}>
                 <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar
@@ -363,8 +369,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                     <th className="px-5 py-3">Concepto</th>
                     <th className="px-4 py-3 text-right">Proyectado S/</th>
                     <th className="px-4 py-3 text-right">Real S/</th>
-                    <th className="px-4 py-3 text-right">Desviacion</th>
-                    <th className="px-5 py-3">Lectura</th>
+                    <th className="px-4 py-3 text-right">% del Ingreso</th>
+                    <th className="px-5 py-3 text-right">Desviacion</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y" style={{ borderColor: BORDER }}>
@@ -373,6 +379,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                   ) : report.rows.map((row) => {
                     const tone = rowTone(row);
                     const diff = deviation(row.real, row.projected);
+                    const share = incomeShare(row.real, report.realRevenue);
                     return (
                       <tr key={row.label} className="transition-colors hover:bg-slate-50">
                         <td className="px-5 py-3">
@@ -388,13 +395,11 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                         </td>
                         <td className="px-4 py-3 text-right text-sm font-semibold tabular-nums" style={{ color: INK }}>{show(row.projected)}</td>
                         <td className="px-4 py-3 text-right text-sm font-bold tabular-nums" style={{ color: row.real < 0 ? RED : INK }}>{show(row.real)}</td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right text-sm tabular-nums" style={{ color: row.real < 0 ? RED : row.accent === 'income' ? GREEN : MUTED, fontWeight: row.accent === 'income' || row.accent === 'final' || row.accent === 'subtotal' ? 700 : 500 }}>{pct(share)}</td>
+                        <td className="px-5 py-3 text-right">
                           <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
                             {diff >= 0 ? '+' : ''}{pct(diff)}
                           </span>
-                        </td>
-                        <td className="px-5 py-3 text-xs" style={{ color: MUTED }}>
-                          {row.real >= row.projected ? 'Por encima o alineado al plan' : 'Por debajo del plan registrado'}
                         </td>
                       </tr>
                     );
