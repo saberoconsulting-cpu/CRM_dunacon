@@ -6,21 +6,36 @@ import { PaginationBar } from '@/components/ui/PaginationBar';
 import { api } from '@/lib/api';
 import { normalizePaginated, buildQuery } from '@/lib/pagination';
 import { formatMoney, formatDate } from '@/lib/types';
+import { useDisplayCurrency } from '@/lib/currency';
+import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { printHtml } from '@/lib/print';
 import { FiDownload, FiHome, FiCheckCircle, FiDollarSign, FiTrendingUp, FiPercent, FiBookmark, FiArrowDownCircle } from 'react-icons/fi';
 
 // Tarjeta de estadística al estilo del dashboard (MetricTile): icono, acento
 // superior de color y tipografía compacta del proyecto.
+// El numero se auto-escala segun su largo para que SIEMPRE se vea completo
+// (sin truncar con "…"), porque en pantallas angostas una cifra como
+// "S/ 1,234,567" no cabe con el tamaño original.
 function SalesMetric({ label, value, icon, tone = '#1877F2' }: { label: string; value: ReactNode; icon: ReactNode; tone?: string }) {
+  const text = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+  // Longitud total del texto (incluye simbolo y separadores), que es lo que
+  // realmente determina si cabe en el ancho de la tarjeta.
+  const len = text.length;
+  const sizeClass = len > 13
+    ? 'text-[10px] sm:text-[11px] lg:text-[12px] xl:text-sm'
+    : len > 10
+      ? 'text-[11px] sm:text-[13px] lg:text-sm xl:text-base'
+      : 'text-[13px] sm:text-base lg:text-[15px] xl:text-lg';
+
   return (
-    <div className="relative overflow-hidden rounded-lg border bg-white px-4 py-3" style={{ borderColor: '#E5E7EB', boxShadow: '0 1px 2px rgba(16,24,40,.04)' }}>
+    <div className="relative min-w-0 overflow-hidden rounded-lg border bg-white px-2.5 py-2.5 sm:px-3 sm:py-3" style={{ borderColor: '#E5E7EB', boxShadow: '0 1px 2px rgba(16,24,40,.04)' }}>
       <div className="absolute inset-x-0 top-0 h-0.5" style={{ background: tone }} />
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium" style={{ color: '#6B7280' }}>{label}</p>
-          <p className="mt-1 truncate text-xl font-semibold tabular-nums" style={{ color: '#111827' }}>{value}</p>
+      <div className="flex min-w-0 items-start justify-between gap-1.5 sm:gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-medium leading-tight sm:text-[11px]" style={{ color: '#6B7280' }} title={label}>{label}</p>
+          <p className={`mt-1 whitespace-nowrap font-semibold leading-tight tabular-nums ${sizeClass}`} style={{ color: '#111827' }} title={text || undefined}>{value}</p>
         </div>
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md" style={{ background: `${tone}12`, color: tone }}>{icon}</span>
+        <span className="hidden h-7 w-7 shrink-0 place-items-center rounded-md text-sm md:grid" style={{ background: `${tone}12`, color: tone }}>{icon}</span>
       </div>
     </div>
   );
@@ -117,6 +132,16 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [preview, setPreview] = useState<any>(null);
   const queryLotId = Number(searchParams?.get('lotId') || 0);
   const shouldOpenSale = searchParams?.get('openSale') === '1';
+  // Moneda unica de la pantalla: `show()` convierte los montos a la moneda activa.
+  // (No se aplica al formulario de registro, que trabaja siempre en soles con su
+  // propio tipo de cambio `exchangeRate`.)
+  const {
+    currency,
+    setCurrency,
+    exchangeRate: displayRate,
+    setExchangeRate: setDisplayRate,
+    format: show,
+  } = useDisplayCurrency();
 
   useEffect(() => { if (lockedProjectId) setProjectId(lockedProjectId); }, [lockedProjectId]);
 
@@ -400,14 +425,23 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     <>
       <Toaster />
       <div className="space-y-5">
-        <div className="grid grid-cols-2 gap-4 lg:grid-cols-7">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="font-semibold">Resumen de ventas</h3>
+          <CurrencyToggle
+            currency={currency}
+            setCurrency={setCurrency}
+            exchangeRate={displayRate}
+            setExchangeRate={setDisplayRate}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-4">
           <SalesMetric label="Area Vendida m2" value={soldArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} icon={<FiHome />} tone="#1259C4" />
           <SalesMetric label="Lotes vendidos" value={String(totalSales)} icon={<FiCheckCircle />} tone="#0F8B5F" />
-          <SalesMetric label="Monto total vendido" value={formatMoney(total)} icon={<FiDollarSign />} tone="#171717" />
-          <SalesMetric label="Financiamiento D." value={formatMoney(financingTotal)} icon={<FiTrendingUp />} tone="#1259C4" />
-          <SalesMetric label="Comisiones devengadas" value={formatMoney(comm)} icon={<FiPercent />} tone="#B45309" />
+          <SalesMetric label="Monto total vendido" value={show(total)} icon={<FiDollarSign />} tone="#171717" />
+          <SalesMetric label="Financiamiento D." value={show(financingTotal)} icon={<FiTrendingUp />} tone="#1259C4" />
+          <SalesMetric label="Comisiones devengadas" value={show(comm)} icon={<FiPercent />} tone="#B45309" />
           <SalesMetric label="Separaciones" value={pending.length} icon={<FiBookmark />} tone="#0E7490" />
-          <SalesMetric label="Pago Inicial" value={formatMoney(initialPaymentTotal)} icon={<FiArrowDownCircle />} tone="#1259C4" />
+          <SalesMetric label="Pago Inicial" value={show(initialPaymentTotal)} icon={<FiArrowDownCircle />} tone="#1259C4" />
         </div>
         <div className="card">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -455,13 +489,13 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     <td className="td-base text-slate-400">V{s.id}</td>
                     <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
                     <td className="td-base">{s.clientName || '—'}</td>
-                    <td className="td-base">{formatMoney(s.salePrice)}</td>
+                    <td className="td-base font-medium">{show(s.salePrice)}</td>
                     <td className="td-base">{s.totalCuotas ? 'Al crédito' : 'Contado'}</td>
                     <td className="td-base">{s.totalCuotas || 0}</td>
                     <td className="td-base">{s.interestType !== 'tea' ? (s.totalCuotas || 0) : '—'}</td>
                     <td className="td-base">{formatDate(s.saleDate)}</td>
                     <td className="td-base">{s.agentName || '—'}</td>
-                    <td className="td-base">{formatMoney(s.commission)}</td>
+                    <td className="td-base">{show(s.commission)}</td>
                     <td className="td-base" style={{ textAlign: 'center' }}>
                       <button type="button" className="inline-grid h-8 w-8 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
                         <FiDownload />
@@ -498,14 +532,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     <td className="td-base text-slate-400">V{s.id}</td>
                     <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
                     <td className="td-base">{s.clientName || '—'}</td>
-                    <td className="td-base font-medium">{formatMoney(s.salePrice)}</td>
+                    <td className="td-base font-medium">{show(s.salePrice)}</td>
                     <td className="td-base">{s.totalCuotas ? 'Al crédito' : 'Contado'}</td>
                     <td className="td-base">{s.totalCuotas || 'Contado'}</td>
                     <td className="td-base">{s.interestType !== 'tea' ? (s.totalCuotas || 0) : '—'}</td>
                     <td className="td-base">{s.approvalStatus === 'pendiente' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#FEF3C7', color:'#92400E' }}>Pendiente</span> : <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#D1FAE5', color:'#065F46' }}>Aprobada</span>}</td>
                     <td className="td-base">{formatDate(s.saleDate)}</td>
                     <td className="td-base">{s.agentName || '—'}</td>
-                    <td className="td-base">{formatMoney(s.commission)}</td>
+                    <td className="td-base">{show(s.commission)}</td>
                     <td className="td-base" style={{ textAlign: 'center' }}>
                       <button type="button" className="inline-grid h-8 w-8 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
                         <FiDownload />
@@ -517,9 +551,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               <tfoot>
                 <tr style={{ background: '#0B2F6E' }}>
                   <td className="td-base font-bold text-white" colSpan={3}>Totales ({totalSales})</td>
-                  <td className="td-base font-bold text-white">{formatMoney(total)}</td>
+                  <td className="td-base font-bold text-white">{show(total)}</td>
                   <td className="td-base" colSpan={6}></td>
-                  <td className="td-base font-bold text-white">{formatMoney(comm)}</td>
+                  <td className="td-base font-bold text-white">{show(comm)}</td>
                   <td className="td-base"></td>
                 </tr>
               </tfoot>

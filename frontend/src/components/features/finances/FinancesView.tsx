@@ -1,8 +1,10 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { Toaster, toast, Field, StatCard } from '@/components/ui/ui';
+import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
-import { formatMoney, formatDate } from '@/lib/types';
+import { formatDate } from '@/lib/types';
+import { useDisplayCurrency } from '@/lib/currency';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 
 type T = { id: number; type: string; category: string; concept: string; amount: string; txnDate: string; projectId?: number | null };
@@ -25,6 +27,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const [iForm, setIForm] = useState<any>({});
   const ef = (k: string, v: any) => setEForm((p: any) => ({ ...p, [k]: v }));
   const inf = (k: string, v: any) => setIForm((p: any) => ({ ...p, [k]: v }));
+  // Moneda unica de la pantalla: `show()` convierte los montos (que vienen en
+  // soles de la base de datos) a la moneda activa antes de pintarlos.
+  const { currency, setCurrency, exchangeRate, setExchangeRate, format: show } = useDisplayCurrency();
 
   const load = useCallback(async () => {
     try {
@@ -70,40 +75,41 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     <>
       <Toaster />
       <div className="space-y-5">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard label="Ingresos" value={formatMoney(income)} color="#125A3B" />
-          <StatCard label="Egresos" value={formatMoney(expense)} color="#1259C4" />
-          <StatCard label="Utilidad estimada" value={formatMoney(income - expense)} color={income - expense >= 0 ? '#125A3B' : '#1259C4'} />
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="font-semibold">Resumen financiero</h3>
+          <CurrencyToggle
+            currency={currency}
+            setCurrency={setCurrency}
+            exchangeRate={exchangeRate}
+            setExchangeRate={setExchangeRate}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+          <StatCard label="Ingresos" value={show(income)} color="#125A3B" />
+          <StatCard label="Egresos" value={show(expense)} color="#1259C4" />
+          <StatCard label="Utilidad estimada" value={show(income - expense)} color={income - expense >= 0 ? '#125A3B' : '#1259C4'} />
           <StatCard label="Movimientos" value={meta.total} />
         </div>
         {statement && (
           <div className="card">
             <h3 className="font-semibold mb-3">Estado de resultados (por familia de gasto)</h3>
-            <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-              <div className="rounded-xl p-3" style={{ background:'#F0FDF4' }}>
-                <div className="text-xs" style={{ color:'#16A34A' }}>Ingresos</div>
-                <div className="text-lg font-bold" style={{ color:'#125A3B' }}>{formatMoney(statement.ingresos)}</div>
-              </div>
-              <div className="rounded-xl p-3" style={{ background:'#FFF7ED' }}>
-                <div className="text-xs" style={{ color:'#EA580C' }}>Compra de terreno</div>
-                <div className="text-lg font-bold" style={{ color:'#9A3412' }}>{formatMoney((statement.egresos_clasificados || {}).compra_terreno)}</div>
-              </div>
-              <div className="rounded-xl p-3" style={{ background:'#F1F5F9' }}>
-                <div className="text-xs" style={{ color:'#0F766E' }}>Inversión (construcción)</div>
-                <div className="text-lg font-bold" style={{ color:'#0F766E' }}>{formatMoney((statement.egresos_clasificados || {}).inversion)}</div>
-              </div>
-              <div className="rounded-xl p-3" style={{ background:'#EEE7FF' }}>
-                <div className="text-xs" style={{ color:'#6D28D9' }}>Financiamiento</div>
-                <div className="text-lg font-bold" style={{ color:'#5B21B6' }}>{formatMoney((statement.egresos_clasificados || {}).financiamiento)}</div>
-              </div>
-              <div className="rounded-xl p-3" style={{ background:'#E7F0FE' }}>
-                <div className="text-xs" style={{ color:'#1877F2' }}>Operación</div>
-                <div className="text-lg font-bold" style={{ color:'#1259C4' }}>{formatMoney((statement.egresos_clasificados || {}).operacion)}</div>
-              </div>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+              {[
+                { label: 'Ingresos', value: statement.ingresos, labelColor: '#16A34A', bg: '#F0FDF4', valueColor: '#125A3B' },
+                { label: 'Compra de terreno', value: (statement.egresos_clasificados || {}).compra_terreno, labelColor: '#EA580C', bg: '#FFF7ED', valueColor: '#9A3412' },
+                { label: 'Inversión (construcción)', value: (statement.egresos_clasificados || {}).inversion, labelColor: '#0F766E', bg: '#F1F5F9', valueColor: '#0F766E' },
+                { label: 'Financiamiento', value: (statement.egresos_clasificados || {}).financiamiento, labelColor: '#6D28D9', bg: '#EEE7FF', valueColor: '#5B21B6' },
+                { label: 'Operación', value: (statement.egresos_clasificados || {}).operacion, labelColor: '#1877F2', bg: '#E7F0FE', valueColor: '#1259C4' },
+              ].map((item) => (
+                <div key={item.label} className="min-w-0 rounded-xl px-3 py-2.5" style={{ background: item.bg }}>
+                  <div className="truncate text-[11px] font-medium leading-tight sm:text-xs" style={{ color: item.labelColor }} title={item.label}>{item.label}</div>
+                  <div className="truncate text-sm font-bold tabular-nums sm:text-lg" style={{ color: item.valueColor }}>{show(item.value)}</div>
+                </div>
+              ))}
             </div>
             <div className="flex flex-wrap gap-6 mt-4 pt-3 border-t" style={{ borderColor:'#E2E8F0' }}>
-              <div><span className="text-sm" style={{ color:'#6B7280' }}>Total egresos:</span> <b>{formatMoney(statement.egresos_total)}</b></div>
-              <div><span className="text-sm" style={{ color:'#6B7280' }}>Utilidad:</span> <b style={{ color: Number(statement.utilidad) >= 0 ? '#125A3B' : '#1259C4' }}>{formatMoney(statement.utilidad)}</b></div>
+              <div><span className="text-sm" style={{ color:'#6B7280' }}>Total egresos:</span> <b>{show(statement.egresos_total)}</b></div>
+              <div><span className="text-sm" style={{ color:'#6B7280' }}>Utilidad:</span> <b style={{ color: Number(statement.utilidad) >= 0 ? '#125A3B' : '#1259C4' }}>{show(statement.utilidad)}</b></div>
             </div>
           </div>
         )}
@@ -139,7 +145,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                       <td className="td-base"><span className="badge" style={{ background: t.type === 'ingreso' ? '#EAF7EE' : '#E7F0FE', color: t.type === 'ingreso' ? '#125A3B' : '#1259C4' }}>{t.type}</span></td>
                       <td className="td-base capitalize">{t.category}</td>
                       <td className="td-base">{t.concept}</td>
-                      <td className="td-base font-medium">{formatMoney(t.amount)}</td>
+                      <td className="td-base font-medium">{show(t.amount)}</td>
                       <td className="td-base">{formatDate(t.txnDate)}</td>
                     </tr>
                   ))}

@@ -109,11 +109,25 @@ export default function InteractivePlan({
     setT({ x: nx, y: ny });
   }
 
-  function onWheel(e: any) {
-    e.preventDefault?.();
+  // React registra onWheel como listener *passive*, por lo que preventDefault()
+  // se ignora y el navegador avisa por consola. Registramos el listener nativo
+  // con { passive: false } para poder bloquear el scroll de la pagina al hacer zoom.
+  function onWheel(e: WheelEvent) {
     if (viewLocked) return;
+    e.preventDefault();
     zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1 / 1.15 : 1.15);
   }
+
+  const wheelHandlerRef = useRef(onWheel);
+  wheelHandlerRef.current = onWheel;
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const handler = (event: WheelEvent) => wheelHandlerRef.current(event);
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
 
   function onPointerDown(e: any) {
     if (viewLocked) return;
@@ -157,7 +171,6 @@ export default function InteractivePlan({
       ref={containerRef}
       className="relative w-full h-full overflow-hidden rounded-lg select-none touch-none"
       style={{ aspectRatio: `${SVG_W}/${SVG_H}`, background: '#EEEFF1' }}
-      onWheel={onWheel}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

@@ -5,8 +5,10 @@ import { FiActivity, FiAlertTriangle, FiArrowDownCircle, FiChevronDown, FiCredit
 import { BRAND } from '@/lib/types';
 
 // --- Formato ---
-function usdMoney(value: unknown): string {
-  return `US$ ${Number(value || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+// Formato por defecto: Soles. El contenedor inyecta el formateador de la moneda
+// activa (S/ o US$) mediante el prop `formatter` para uniformizar la pantalla.
+function penMoney(value: unknown): string {
+  return `S/ ${Number(value || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 function pct(value: unknown): string {
@@ -139,7 +141,7 @@ export function ChartShell({ title, subtitle, children, className = '', flex1 = 
 }
 
 // Donut con conic-gradient, total al centro y leyenda lateral.
-function DonutChart({ data, formatter = usdMoney, centered = false }: { data: { name: string; value: number; color: string }[]; formatter?: (value: number) => string; centered?: boolean }) {
+function DonutChart({ data, formatter = penMoney, centered = false }: { data: { name: string; value: number; color: string }[]; formatter?: (value: number) => string; centered?: boolean }) {
   const total = data.reduce((sum, item) => sum + item.value, 0);
   const [hover, setHover] = useState<number | null>(null);
   if (!total) return <EmptyChart text="Sin datos para graficar." />;
@@ -184,7 +186,7 @@ function DonutChart({ data, formatter = usdMoney, centered = false }: { data: { 
 function LineSeriesChart({
   rows,
   series,
-  formatter = usdMoney,
+  formatter = penMoney,
 }: {
   rows: { label: string; values: number[] }[];
   series: { name: string; color: string }[];
@@ -329,7 +331,7 @@ function LineSeriesChart({
 function GroupedColumns({
   rows,
   series,
-  formatter = usdMoney,
+  formatter = penMoney,
 }: {
   rows: { label: string; values: number[] }[];
   series: { name: string; color: string }[];
@@ -389,7 +391,7 @@ function GroupedColumns({
   );
 }
 
-function HorizontalBars({ data, formatter = usdMoney }: { data: { name: string; value: number; color: string }[]; formatter?: (value: number) => string }) {
+function HorizontalBars({ data, formatter = penMoney }: { data: { name: string; value: number; color: string }[]; formatter?: (value: number) => string }) {
   const visible = data.filter((item) => item.value > 0).sort((a, b) => b.value - a.value);
   if (!visible.length) return <EmptyChart text="Sin datos para graficar." />;
 
@@ -445,9 +447,12 @@ export interface ProjectReportsData {
   } | null;
 }
 
-export default function ProjectReports({ data }: { data: ProjectReportsData }) {
+export default function ProjectReports({ data, formatter }: { data: ProjectReportsData; formatter?: (value: number) => string }) {
   const [rangeMonths, setRangeMonths] = useState<1 | 6 | 12>(6);
   const [showIndicators, setShowIndicators] = useState(false);
+  // Moneda unica de la pantalla: si el contenedor no inyecta un formateador,
+  // se usa Soles por defecto (los montos llegan en soles desde la base de datos).
+  const money = formatter || penMoney;
 
   const range = rangeMonths;
   const timeline = monthSequence(range);
@@ -506,6 +511,7 @@ export default function ProjectReports({ data }: { data: ProjectReportsData }) {
           <div className="flex min-h-[230px] items-center justify-center">
             <DonutChart
               centered
+              formatter={money}
               data={[
                 { name: 'Cobrado', value: data.paidAmount, color: '#0F8B5F' },
                 { name: 'Por cobrar', value: Math.max(0, data.soldAmount - data.paidAmount), color: '#E5E7EB' },
@@ -519,7 +525,7 @@ export default function ProjectReports({ data }: { data: ProjectReportsData }) {
             <RangeFilter rangeMonths={rangeMonths} onChange={setRangeMonths} />
           </div>
           <div className="min-h-[190px] flex-1">
-            <LineSeriesChart rows={collectionData} series={[{ name: 'Recaudado', color: BRAND.blue }]} />
+            <LineSeriesChart rows={collectionData} series={[{ name: 'Recaudado', color: BRAND.blue }]} formatter={money} />
           </div>
         </ChartShell>
 
@@ -527,6 +533,7 @@ export default function ProjectReports({ data }: { data: ProjectReportsData }) {
           <div className="min-h-[190px] flex-1">
             <LineSeriesChart
               rows={paymentVsDelinquency}
+              formatter={money}
               series={[
                 { name: 'Pagado', color: BRAND.blue },
                 { name: 'Moroso', color: '#E11D48' },
@@ -539,6 +546,7 @@ export default function ProjectReports({ data }: { data: ProjectReportsData }) {
           <div className="min-h-[190px] flex-1">
             <GroupedColumns
               rows={investmentData}
+              formatter={money}
               series={[
                 { name: 'Vendido', color: BRAND.blue },
                 { name: 'Moroso', color: '#E11D48' },
@@ -576,11 +584,11 @@ export default function ProjectReports({ data }: { data: ProjectReportsData }) {
           <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <KpiTile label="Lotes del proyecto" value={String(totalLots)} helper="Unidades registradas" icon={<FiPieChart />} accent="#1259C4" />
-              <KpiTile label="Valor total" value={usdMoney(inventoryValue)} helper="Valor lista del inventario" icon={<FiDollarSign />} accent="#0F8B5F" />
+              <KpiTile label="Valor total" value={money(inventoryValue)} helper="Valor lista del inventario" icon={<FiDollarSign />} accent="#0F8B5F" />
               <KpiTile label="Lotes vendidos" value={String(soldLotsCount)} helper="Unidades vendidas" icon={<FiTag />} accent="#111827" />
-              <KpiTile label="Venta lotes" value={usdMoney(soldAmount)} helper="Valor lista vendido" icon={<FiTrendingUp />} accent="#1259C4" />
-              <KpiTile label="Pago lotes" value={usdMoney(paidAmount)} helper="Cuotas cobradas" icon={<FiCreditCard />} accent="#0F8B5F" />
-              <KpiTile label="Pago pendiente" value={usdMoney(pendingAmount)} helper="Saldo por cobrar" icon={<FiAlertTriangle />} accent="#B45309" />
+              <KpiTile label="Venta lotes" value={money(soldAmount)} helper="Valor lista vendido" icon={<FiTrendingUp />} accent="#1259C4" />
+              <KpiTile label="Pago lotes" value={money(paidAmount)} helper="Cuotas cobradas" icon={<FiCreditCard />} accent="#0F8B5F" />
+              <KpiTile label="Pago pendiente" value={money(pendingAmount)} helper="Saldo por cobrar" icon={<FiAlertTriangle />} accent="#B45309" />
               <KpiTile label="Morosidad" value={pct(delinquencyRate)} helper="Mora sobre pendientes" icon={<FiActivity />} accent="#E11D48" />
               <KpiTile label="Tasa de cobro" value={pct(collectionRate)} helper="Cobrado sobre vendido" icon={<FiTrendingUp />} accent="#7C3AED" />
             </div>
@@ -590,22 +598,22 @@ export default function ProjectReports({ data }: { data: ProjectReportsData }) {
                 title="Estado de resultados"
                 subtitle="Resumen economico del proyecto"
                 menuRows={[
-                  ['Ingreso real', usdMoney(ingresoReal)],
-                  ['Costo de ventas', usdMoney(costoVentas)],
-                  ['Gastos operativos', usdMoney(gastosProyecto)],
-                  ['Impuesto a la renta', usdMoney(igv)],
-                  ['Utilidad neta', usdMoney(utilidadNeta)],
+                  ['Ingreso real', money(ingresoReal)],
+                  ['Costo de ventas', money(costoVentas)],
+                  ['Gastos operativos', money(gastosProyecto)],
+                  ['Impuesto a la renta', money(igv)],
+                  ['Utilidad neta', money(utilidadNeta)],
                 ]}
               />
               <div className="grid grid-cols-2 gap-3 p-4">
-                <KpiTile label="Ingreso real" value={usdMoney(ingresoReal)} helper="Cobrado registrado en finanzas" icon={<FiDollarSign />} accent="#1259C4" />
-                <KpiTile label="Costo de ventas" value={usdMoney(costoVentas)} helper="Terreno + directo + indirecto" icon={<FiArrowDownCircle />} accent="#6B7280" />
-                <KpiTile label="Utilidad bruta" value={usdMoney(utilidadBruta)} helper={`Margen ${pct(utilidadBrutaPct)}`} icon={<FiTrendingUp />} accent="#1259C4" />
-                <KpiTile label="Gastos operativos" value={usdMoney(gastosProyecto)} helper="Ventas, admin y financieros" icon={<FiArrowDownCircle />} accent="#E11D48" />
-                <KpiTile label="Utilidad operativa" value={usdMoney(utilidadOperativa)} helper="Bruta menos gastos" icon={<FiTrendingUp />} accent="#1259C4" />
-                <KpiTile label="Utilidad antes de impuestos" value={usdMoney(utilidadAntes)} helper="Resultado operativo" icon={<FiTrendingUp />} accent="#B45309" />
-                <KpiTile label="Impuesto a la renta" value={usdMoney(igv)} helper="29.5% sobre utilidad" icon={<FiActivity />} accent="#B45309" />
-                <KpiTile label="Utilidad neta" value={usdMoney(utilidadNeta)} helper={`Margen neto ${pct(margenNeto)}`} icon={<FiTrendingUp />} accent="#0F8B5F" />
+                <KpiTile label="Ingreso real" value={money(ingresoReal)} helper="Cobrado registrado en finanzas" icon={<FiDollarSign />} accent="#1259C4" />
+                <KpiTile label="Costo de ventas" value={money(costoVentas)} helper="Terreno + directo + indirecto" icon={<FiArrowDownCircle />} accent="#6B7280" />
+                <KpiTile label="Utilidad bruta" value={money(utilidadBruta)} helper={`Margen ${pct(utilidadBrutaPct)}`} icon={<FiTrendingUp />} accent="#1259C4" />
+                <KpiTile label="Gastos operativos" value={money(gastosProyecto)} helper="Ventas, admin y financieros" icon={<FiArrowDownCircle />} accent="#E11D48" />
+                <KpiTile label="Utilidad operativa" value={money(utilidadOperativa)} helper="Bruta menos gastos" icon={<FiTrendingUp />} accent="#1259C4" />
+                <KpiTile label="Utilidad antes de impuestos" value={money(utilidadAntes)} helper="Resultado operativo" icon={<FiTrendingUp />} accent="#B45309" />
+                <KpiTile label="Impuesto a la renta" value={money(igv)} helper="29.5% sobre utilidad" icon={<FiActivity />} accent="#B45309" />
+                <KpiTile label="Utilidad neta" value={money(utilidadNeta)} helper={`Margen neto ${pct(margenNeto)}`} icon={<FiTrendingUp />} accent="#0F8B5F" />
               </div>
             </div>
           </div>
@@ -618,7 +626,7 @@ export default function ProjectReports({ data }: { data: ProjectReportsData }) {
             </ChartShell>
 
             <ChartShell title="Valor por estado" subtitle="Suma real del precio lista">
-              <HorizontalBars data={lotAmountData.map((item) => ({ ...item, color: lotColorByLabel(item.name) }))} formatter={usdMoney} />
+              <HorizontalBars data={lotAmountData.map((item) => ({ ...item, color: lotColorByLabel(item.name) }))} formatter={money} />
             </ChartShell>
 
             {showLeadsChart && (

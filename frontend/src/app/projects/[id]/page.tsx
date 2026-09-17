@@ -6,11 +6,13 @@ import { FiCamera, FiUsers, FiTag, FiDollarSign, FiArrowDownCircle, FiTrendingUp
 import { IoLocationSharp } from 'react-icons/io5';
 import Layout from '@/components/layout/Layout';
 import { Toaster, toast } from '@/components/ui/ui';
+import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import ProjectReports from '@/components/features/projects/ProjectReports';
 import { api, getToken, uploadFile } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
-import { Lot, formatMoney, LOT_STATUS_COLOR, LOT_STATUS_LABEL } from '@/lib/types';
+import { Lot, LOT_STATUS_COLOR, LOT_STATUS_LABEL } from '@/lib/types';
+import { useDisplayCurrency } from '@/lib/currency';
 
 type AgentRanking = { agentId?: number | null; agentName: string; salesCount: number; salesAmount: number; commission: number };
 
@@ -32,17 +34,9 @@ const LEAD_CHANNEL_COLOR: Record<string, string> = {
   Otro: '#9AA1AB',
 };
 
-function usdMoney(value: unknown): string {
-  return `US$ ${Number(value || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-}
-
 function asNumber(value: unknown): number {
   const n = Number(value || 0);
   return Number.isFinite(n) ? n : 0;
-}
-
-function money(value: unknown): string {
-  return formatMoney(asNumber(value));
 }
 
 function sumBy<T>(items: T[], selector: (item: T) => unknown): number {
@@ -77,6 +71,9 @@ export default function ProjectPage() {
   const [agentPage, setAgentPage] = useState(0);
   const [leadsByChannel, setLeadsByChannel] = useState<{ channel: string; total: number }[]>([]);
   const [cash, setCash] = useState<any>({ methods: [], byMonth: [], overdueByMonth: [], salesByMonth: [], metrics: {} });
+  // Moneda unica de la pantalla: el toggle S/ <-> US$ la controla y `fmt` convierte
+  // todos los montos (que vienen en soles de la base de datos) antes de pintarlos.
+  const { currency, setCurrency, exchangeRate, setExchangeRate, format: fmt } = useDisplayCurrency();
 
   async function loadAll() {
     try {
@@ -107,6 +104,8 @@ export default function ProjectPage() {
     try {
       const updated = await uploadFile(`/projects/logo/${projectId}`, file);
       setProject((current: any | null) => ({ ...(current || {}), logoImageUrl: updated?.logoImageUrl || current?.logoImageUrl }));
+      // Avisa al Layout para que el sidebar y el header refresquen el logo.
+      window.dispatchEvent(new CustomEvent('project-logo-updated'));
       toast('Logo del proyecto actualizado');
     } catch (e: any) {
       toast(e.message, 'err');
@@ -234,38 +233,47 @@ export default function ProjectPage() {
             <p className="flex items-center gap-1 text-sm text-slate-500"><IoLocationSharp /> {project.location}</p>
             {project.description && <p className="mt-1 text-xs text-slate-400">{project.description}</p>}
             <span className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold" style={{ background: '#EAF7EE', color: '#125A3B' }}>
-              Ingreso registrado: {money(income)}
+              Ingreso registrado: {fmt(income)}
             </span>
           </div>
-          {canEdit && (
-            <div className="flex w-full flex-col gap-2 sm:w-48">
-              <label className="btn-neutral !h-8 cursor-pointer justify-center text-xs">
-                <FiCamera />
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; reemplazarLogo(file); }} />
-                Cambiar logo
-              </label>
-              <label className="btn-neutral !h-8 cursor-pointer justify-center text-xs">
-                <FiCamera />
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; reemplazarPortada(file); }} />
-                Actualizar imagen
-              </label>
-              <button className="btn-danger !h-8 text-xs" onClick={borrarProyecto}>Eliminar proyecto</button>
-            </div>
-          )}
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+            <CurrencyToggle
+              currency={currency}
+              setCurrency={setCurrency}
+              exchangeRate={exchangeRate}
+              setExchangeRate={setExchangeRate}
+            />
+            {canEdit && (
+              <div className="flex w-full flex-col gap-2 sm:w-48">
+                <label className="btn-neutral !h-8 cursor-pointer justify-center text-xs">
+                  <FiCamera />
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; reemplazarLogo(file); }} />
+                  Cambiar logo
+                </label>
+                <label className="btn-neutral !h-8 cursor-pointer justify-center text-xs">
+                  <FiCamera />
+                  <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; reemplazarPortada(file); }} />
+                  Actualizar imagen
+                </label>
+                <button className="btn-danger !h-8 text-xs" onClick={borrarProyecto}>Eliminar proyecto</button>
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:col-span-3 xl:grid-cols-6">
           <MetricTile label="Leads del proyecto" value={totalLeads} icon={<FiUsers />} />
           <MetricTile label="Ventas registradas" value={salesCount} icon={<FiTag />} tone="#111827" />
-          <MetricTile label="Ingresos" value={money(income)} icon={<FiDollarSign />} tone="#0F8B5F" />
-          <MetricTile label="Egresos" value={money(expense)} icon={<FiArrowDownCircle />} tone="#E11D48" />
-          <MetricTile label="Utilidad" value={money(profit)} icon={<FiTrendingUp />} tone="#1259C4" />
+          <MetricTile label="Ingresos" value={fmt(income)} icon={<FiDollarSign />} tone="#0F8B5F" />
+          <MetricTile label="Egresos" value={fmt(expense)} icon={<FiArrowDownCircle />} tone="#E11D48" />
+          <MetricTile label="Utilidad" value={fmt(profit)} icon={<FiTrendingUp />} tone="#1259C4" />
           <MetricTile label="Lotes vendidos" value={soldLots} icon={<FiPieChart />} tone="#6B7280" />
         </div>
 
         <div className="min-w-0 xl:col-span-3">
           {/* Reportes del proyecto */}
           <ProjectReports
+            formatter={fmt}
             data={{
               paidAmount,
               soldAmount,

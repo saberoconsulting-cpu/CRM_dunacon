@@ -14,8 +14,10 @@ import {
   FiTrash2,
 } from 'react-icons/fi';
 import { Toaster, toast, Field } from '@/components/ui/ui';
-import { api, uploadFile } from '@/lib/api';
-import { BRAND, formatMoney } from '@/lib/types';
+import CurrencyToggle from '@/components/ui/CurrencyToggle';
+import { api } from '@/lib/api';
+import { BRAND } from '@/lib/types';
+import { useDisplayCurrency } from '@/lib/currency';
 
 type BudgetCategory = 'costo_terreno' | 'costo_directo' | 'costo_indirecto' | 'gastos_ventas_admin' | 'gastos_financieros_impuestos';
 type BudgetItem = {
@@ -32,28 +34,6 @@ type BudgetItem = {
   isActive: boolean;
 };
 
-type ImportPreviewRow = {
-  rowNumber: number;
-  category: BudgetCategory | '';
-  code: string;
-  parentCode?: string | null;
-  name: string;
-  description?: string | null;
-  amount: number;
-  currency: string;
-  sortOrder: number;
-  errors: string[];
-};
-
-type ImportPreview = {
-  sheet: string;
-  totalRows: number;
-  validRows: number;
-  errors: Array<{ rowNumber: number; message: string }>;
-  rows: ImportPreviewRow[];
-  expectedColumns: string[];
-};
-
 const CATEGORIES: Array<{ key: BudgetCategory; label: string; letter: string; color: string; helper: string }> = [
   { key: 'costo_terreno', label: 'Costo de terreno', letter: 'A', color: '#0866E5', helper: 'Compra del fundo matriz y formalizacion legal.' },
   { key: 'costo_directo', label: 'Costos directos', letter: 'B', color: '#16A36A', helper: 'Ejecucion fisica de habilitacion urbana.' },
@@ -65,10 +45,6 @@ const CATEGORIES: Array<{ key: BudgetCategory; label: string; letter: string; co
 const BORDER = '#E2E8F0';
 const INK = '#0F172A';
 const MUTED = '#64748B';
-
-function money(n: unknown) {
-  return formatMoney(Number(n || 0));
-}
 
 function nextCode(items: BudgetItem[], category: BudgetCategory) {
   const meta = CATEGORIES.find((item) => item.key === category);
@@ -89,8 +65,9 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
   const [editing, setEditing] = useState<BudgetItem | null>(null);
   const [deleting, setDeleting] = useState<BudgetItem | null>(null);
   const [form, setForm] = useState<any>({});
-  const [preview, setPreview] = useState<ImportPreview | null>(null);
-  const [importing, setImporting] = useState(false);
+  // Moneda unica de la pantalla: los montos se guardan siempre en soles y
+  // `show()` los convierte a la moneda activa al momento de pintarlos.
+  const { currency, setCurrency, exchangeRate, setExchangeRate, format: show } = useDisplayCurrency();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -188,37 +165,6 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     }
   }
 
-  async function previewExcel(file?: File) {
-    if (!file) return;
-    setImporting(true);
-    try {
-      const data = await uploadFile('/construction-budget/import/preview', file);
-      setPreview(data);
-      toast(data.errors?.length ? 'Excel leido con observaciones' : 'Excel listo para importar');
-    } catch (error: any) {
-      toast(error?.message || 'No se pudo leer el Excel', 'err');
-    } finally {
-      setImporting(false);
-    }
-  }
-
-  async function confirmImport() {
-    if (!preview?.rows?.length) return;
-    if (preview.errors?.length) return toast('Corrige los errores del Excel antes de importar', 'err');
-    setImporting(true);
-    try {
-      const data = await api.post<any>('/construction-budget/import', { projectId, rows: preview.rows });
-      setPreview(null);
-      setOpenCats(Object.fromEntries(CATEGORIES.map((cat) => [cat.key, true])));
-      await load();
-      toast(`Importacion completa: ${data.imported || 0} filas`);
-    } catch (error: any) {
-      toast(error?.message || 'No se pudo importar el Excel', 'err');
-    } finally {
-      setImporting(false);
-    }
-  }
-
   function renderItem(item: BudgetItem & { children?: BudgetItem[] }, level = 0) {
     return (
       <div key={item.id} className="border-t" style={{ borderColor: '#EEF2F7' }}>
@@ -230,7 +176,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
               {item.description && <p className="truncate text-xs" style={{ color: MUTED }}>{item.description}</p>}
             </div>
           </div>
-          <div className="text-right text-sm font-bold tabular-nums" style={{ color: INK }}>{money(item.amount)}</div>
+          <div className="text-right text-sm font-bold tabular-nums" style={{ color: INK }}>{show(item.amount)}</div>
           <div className="flex justify-end gap-1">
             <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Agregar subpartida" onClick={() => openCreate(item.category, item.id)}><FiPlus /></button>
             <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Editar" onClick={() => openEdit(item)}><FiEdit3 /></button>
@@ -258,88 +204,32 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
               </p>
             </div>
             <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:max-w-[520px] lg:flex-wrap lg:justify-end">
+              <div className="flex w-full justify-center sm:col-span-2 lg:w-auto lg:justify-start">
+                <CurrencyToggle
+                  currency={currency}
+                  setCurrency={setCurrency}
+                  exchangeRate={exchangeRate}
+                  setExchangeRate={setExchangeRate}
+                />
+              </div>
               <button className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={load} disabled={loading}><FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar</button>
               <button className="btn-outline w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={seedBase}><FiFilePlus /> Base</button>
-              <label className="btn-outline w-full cursor-pointer justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto">
-                <FiFilePlus /> Importar Excel
-                <input
-                  type="file"
-                  accept=".xlsx,.xls"
-                  className="hidden"
-                  onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ''; previewExcel(file); }}
-                />
-              </label>
               <button className="btn-primary w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={() => openCreate('costo_directo')}><FiPlus /> Nueva partida</button>
             </div>
           </div>
-          <div className="grid gap-3 border-t bg-[#F8FAFC] p-4 sm:grid-cols-2 xl:grid-cols-6" style={{ borderColor: BORDER }}>
-            <div className="rounded-md border bg-white p-4 xl:col-span-1" style={{ borderColor: BORDER }}>
-              <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: MUTED }}>Total presupuesto</p>
-              <p className="mt-1 text-xl font-bold tabular-nums" style={{ color: INK }}>{money(summary?.grandTotal)}</p>
+          <div className="grid grid-cols-2 gap-3 border-t bg-[#F8FAFC] p-4 xl:grid-cols-6" style={{ borderColor: BORDER }}>
+            <div className="min-w-0 rounded-md border bg-white p-3 sm:p-4 xl:col-span-1" style={{ borderColor: BORDER }}>
+              <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }}>Total presupuesto</p>
+              <p className="mt-1 truncate text-base font-bold tabular-nums sm:text-xl" style={{ color: INK }}>{show(summary?.grandTotal)}</p>
             </div>
             {CATEGORIES.map((cat) => (
-              <div key={cat.key} className="rounded-md border bg-white p-4" style={{ borderColor: BORDER }}>
-                <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: MUTED }}>{cat.letter}. {cat.label}</p>
-                <p className="mt-1 text-lg font-bold tabular-nums" style={{ color: cat.color }}>{money(summary?.categories?.[cat.key])}</p>
+              <div key={cat.key} className="min-w-0 rounded-md border bg-white p-3 sm:p-4" style={{ borderColor: BORDER }}>
+                <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }} title={`${cat.letter}. ${cat.label}`}>{cat.letter}. {cat.label}</p>
+                <p className="mt-1 truncate text-base font-bold tabular-nums sm:text-lg" style={{ color: cat.color }}>{show(summary?.categories?.[cat.key])}</p>
               </div>
             ))}
           </div>
         </section>
-
-        {preview && (
-          <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
-            <div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: BORDER }}>
-              <div>
-                <h3 className="font-semibold" style={{ color: INK }}>Vista previa del Excel</h3>
-                <p className="mt-1 text-xs" style={{ color: MUTED }}>
-                  Hoja {preview.sheet} - {preview.validRows}/{preview.totalRows} filas validas - Columnas esperadas: {preview.expectedColumns.join(', ')}
-                </p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <button className="btn-neutral !h-8 text-xs" onClick={() => setPreview(null)} disabled={importing}>Cancelar</button>
-                <button className="btn-primary !h-8 text-xs" onClick={confirmImport} disabled={importing || preview.errors.length > 0}>
-                  {importing ? 'Importando...' : 'Confirmar importacion'}
-                </button>
-              </div>
-            </div>
-            {preview.errors.length > 0 && (
-              <div className="border-b bg-red-50 px-5 py-3 text-xs text-red-700" style={{ borderColor: '#FECACA' }}>
-                <b>{preview.errors.length} errores:</b> {preview.errors.slice(0, 6).map((error) => `Fila ${error.rowNumber}: ${error.message}`).join(' - ')}
-                {preview.errors.length > 6 ? ' - ...' : ''}
-              </div>
-            )}
-            <div className="overflow-auto">
-              <table className="table-base" style={{ minWidth: 960, width: '100%' }}>
-                <thead>
-                  <tr>
-                    <th className="th-base">Fila</th>
-                    <th className="th-base">Categoria</th>
-                    <th className="th-base">Codigo</th>
-                    <th className="th-base">Padre</th>
-                    <th className="th-base">Partida</th>
-                    <th className="th-base">Monto</th>
-                    <th className="th-base">Estado</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {preview.rows.slice(0, 80).map((row) => (
-                    <tr key={`${row.rowNumber}-${row.code}`}>
-                      <td className="td-base text-slate-400">{row.rowNumber}</td>
-                      <td className="td-base">{CATEGORIES.find((cat) => cat.key === row.category)?.label || row.category || '-'}</td>
-                      <td className="td-base font-semibold">{row.code}</td>
-                      <td className="td-base">{row.parentCode || '-'}</td>
-                      <td className="td-base">{row.name}</td>
-                      <td className="td-base font-semibold tabular-nums">{money(row.amount)}</td>
-                      <td className="td-base">
-                        {row.errors.length ? <span className="badge bg-red-100 text-red-700">{row.errors.join(', ')}</span> : <span className="badge bg-emerald-50 text-emerald-700">OK</span>}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </section>
-        )}
 
         <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
           {loading ? (
@@ -365,7 +255,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                   </span>
                 </span>
                 <span className="flex items-center gap-4">
-                  <b className="text-sm tabular-nums" style={{ color: cat.color }}>{money(summary?.categories?.[cat.key])}</b>
+                  <b className="text-sm tabular-nums" style={{ color: cat.color }}>{show(summary?.categories?.[cat.key])}</b>
                   {openCats[cat.key] ? <FiChevronDown /> : <FiChevronRight />}
                 </span>
               </button>

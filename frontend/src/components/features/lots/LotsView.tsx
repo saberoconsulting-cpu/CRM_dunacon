@@ -334,20 +334,20 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
         ] as const).map((k: any) => (
           <div
             key={k.label}
-            className="card card-kpi relative overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-lg"
+            className="card card-kpi relative min-w-0 overflow-hidden !p-3 transition-all hover:-translate-y-0.5 hover:shadow-lg sm:!p-5"
             style={{ borderTop: `3px solid ${k.color}` }}
           >
             <div
-              className="absolute -right-4 -top-4 w-16 h-16 rounded-full opacity-30"
+              className="absolute -right-4 -top-4 h-12 w-12 rounded-full opacity-30 sm:h-16 sm:w-16"
               style={{ background: k.ring }}
             />
-            <div className="flex items-center gap-2">
-              <span className="grid h-7 w-7 place-items-center rounded-md" style={{ background: k.ring, color: k.color }}>
+            <div className="relative flex items-center gap-2">
+              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md" style={{ background: k.ring, color: k.color }}>
                 {k.icon}
               </span>
-              <span className="font-semibold text-[11px] uppercase tracking-wide" style={{ color: '#6B7280' }}>{k.label}</span>
+              <span className="min-w-0 truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-[11px]" style={{ color: '#6B7280' }} title={k.label}>{k.label}</span>
             </div>
-            <div className="mt-2 font-extrabold tabular-nums" style={{ fontSize: 30, color: k.color, lineHeight: 1 }}>
+            <div className="relative mt-1.5 text-2xl font-extrabold tabular-nums sm:mt-2 sm:text-[30px]" style={{ color: k.color, lineHeight: 1 }}>
               {k.value}
             </div>
           </div>

@@ -35,15 +35,18 @@ export function LegendChips() {
 export function StatCard({ label, value, color = '#171717', delta, deltaUp, date }: {
   label: string; value: ReactNode; color?: string; delta?: string; deltaUp?: boolean; date?: string;
 }) {
+  const isText = typeof value === 'string' || typeof value === 'number';
   return (
-    <div className="card card-kpi">
-      <div className="flex items-center justify-between">
-        <span className="font-medium" style={{ fontSize: 12, color: '#6B7280' }}>{label}</span>
-        <span className="w-1.5 h-1.5 rounded-full bg-[#1877F2]" />
+    <div className="card card-kpi min-w-0 !p-3 sm:!p-5">
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate font-medium" style={{ fontSize: 12, color: '#6B7280' }}>{label}</span>
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#1877F2]" />
       </div>
-      <div className="mt-1.5 font-bold" style={{ fontSize: 24, color }}>{value}</div>
+      <div className="mt-1.5 truncate font-bold tabular-nums text-lg sm:text-2xl" style={{ color }}>
+        {isText ? <span className="block truncate">{value}</span> : value}
+      </div>
       {(delta || date) && (
-        <div className="flex items-center gap-2 mt-1">
+        <div className="mt-1 flex items-center gap-2">
           {delta && (
             <span className="inline-flex items-center gap-1 text-xs font-semibold" style={{ color: deltaUp ? '#257849' : '#6B7280' }}>
               {deltaUp ? '▲' : '●'} {delta}

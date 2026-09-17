@@ -39,6 +39,21 @@ export class SalesController {
     return this.salesService.pendingApprovals(projectId ? Number(projectId) : undefined);
   }
 
+  @Get('payment-context')
+  paymentContext(
+    @Query('clientId') clientId?: string,
+    @Query('lotId') lotId?: string,
+    @Query('projectId') projectId?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.salesService.paymentContext({
+      clientId: clientId ? Number(clientId) : undefined,
+      lotId: lotId ? Number(lotId) : undefined,
+      projectId: projectId ? Number(projectId) : undefined,
+      search,
+    });
+  }
+
   @Get(':id/schedule')
   schedule(@Param('id', ParseIntPipe) id: number) {
     return this.salesService.schedule(id);

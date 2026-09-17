@@ -1,7 +1,7 @@
 // modules/sales/application/sales.service.ts
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, EntityManager, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { SaleEntity } from '../../../shared/infrastructure/entities/sale.entity';
 import { SaleInstallmentEntity } from '../../../shared/infrastructure/entities/sale-installment.entity';
 import { LotEntity } from '../../../shared/infrastructure/entities/lot.entity';
@@ -362,5 +362,123 @@ export class SalesService {
   /** Cronograma de una venta aprobada. */
   async schedule(saleId: number) {
     return this.instRepo.find({ where: { saleId }, order: { installmentNo: 'ASC' } });
+  }
+
+  /**
+   * Contexto de pago para el modal "Registrar pago": busca la venta del cliente
+   * o del lote, y devuelve los datos comerciales + el cronograma con el estado
+   * de cada cuota y cual le toca pagar ahora.
+   */
+  async paymentContext(filters: { clientId?: number; lotId?: number; projectId?: number; search?: string }) {
+    const qb = this.saleRepo
+      .createQueryBuilder('s')
+      .leftJoinAndSelect(UserEntity, 'u', 'u.id = s.agent_id')
+      .leftJoinAndSelect(ClientEntity, 'c', 'c.id = s.client_id')
+      .leftJoinAndSelect(LotEntity, 'l', 'l.id = s.lot_id')
+      .select([
+        's.id', 's.projectId', 's.lotId', 's.clientId', 's.agentId',
+        's.salePrice', 's.saleDate', 's.totalCuotas', 's.valorCuota',
+        's.interestType', 's.tea', 's.conditions',
+      ])
+      .addSelect('s.approval_status AS "approvalStatus"')
+      .addSelect('s.plan_status AS "planStatus"')
+      .addSelect('c.full_name AS "clientName"')
+      .addSelect('l.code AS "lotCode"')
+      .addSelect('u.name AS "agentName"')
+      .where("s.approval_status IN ('pendiente','aprobada')");
+
+    if (filters.clientId) qb.andWhere('s.client_id = :clientId', { clientId: filters.clientId });
+    if (filters.lotId) qb.andWhere('s.lot_id = :lotId', { lotId: filters.lotId });
+    if (filters.projectId) qb.andWhere('s.project_id = :projectId', { projectId: filters.projectId });
+    if (filters.search?.trim()) {
+      const term = `%${filters.search.trim()}%`;
+      qb.andWhere('(c.full_name ILIKE :term OR l.code ILIKE :term)', { term });
+    }
+
+    const raw = await qb.orderBy('s.id', 'DESC').limit(20).getRawMany();
+    if (!raw.length) return { sales: [] };
+
+    const ids = raw.map((r) => Number(r.s_id));
+    const [lots, clients, agents, installments] = await Promise.all([
+      this.lotRepo.findByIds([...new Set(raw.map((r) => Number(r.s_lot_id)).filter(Boolean))]),
+      this.dataSource.getRepository(ClientEntity).findByIds([...new Set(raw.map((r) => Number(r.s_client_id)).filter(Boolean))]),
+      this.userRepo.findByIds([...new Set(raw.map((r) => Number(r.s_agent_id)).filter(Boolean))]),
+      this.instRepo.find({ where: { saleId: In(ids) }, order: { installmentNo: 'ASC' } }),
+    ]);
+
+    const lotMap = new Map(lots.map((l) => [Number(l.id), l]));
+    const clientMap = new Map(clients.map((c) => [Number(c.id), c]));
+    const agentMap = new Map(agents.map((a) => [Number(a.id), a]));
+
+    return {
+      sales: raw.map((r) =>
+        this.buildPaymentContextRow(r, {
+          lot: lotMap.get(Number(r.s_lot_id)) || null,
+          client: clientMap.get(Number(r.s_client_id)) || null,
+          agent: agentMap.get(Number(r.s_agent_id)) || null,
+          installments: installments.filter((i) => Number(i.saleId) === Number(r.s_id)),
+        }),
+      ),
+    };
+  }
+
+  private buildPaymentContextRow(
+    r: any,
+    related: { lot: any; client: any; agent: any; installments: SaleInstallmentEntity[] },
+  ) {
+    const today = new Date().toISOString().slice(0, 10);
+    const rows = related.installments.map((inst) => {
+      const paid = inst.status === 'pagado';
+      const overdue = !paid && !!inst.dueDate && String(inst.dueDate).slice(0, 10) < today;
+      return {
+        id: inst.id,
+        installmentNo: inst.installmentNo,
+        amount: Number(inst.amount || 0),
+        dueDate: inst.dueDate,
+        status: inst.status,
+        paid,
+        overdue,
+        isCurrent: !paid && !overdue && !!inst.dueDate,
+      };
+    });
+
+    const nextDue = rows.find((x) => x.overdue) || rows.find((x) => x.isCurrent) || rows.find((x) => !x.paid) || null;
+    const paidCount = rows.filter((x) => x.paid).length;
+    const { lot, client, agent } = related;
+
+    return {
+      sale: {
+        id: Number(r.s_id),
+        projectId: Number(r.s_project_id),
+        lotId: Number(r.s_lot_id),
+        clientId: r.s_client_id ? Number(r.s_client_id) : null,
+        agentId: r.s_agent_id ? Number(r.s_agent_id) : null,
+        salePrice: Number(r.s_sale_price || 0),
+        cuotaInicial: Math.max(0, Number(r.s_sale_price || 0) - Number(r.s_valor_cuota || 0) * Number(r.totalCuotas || 0)),
+        totalCuotas: Number(r.totalCuotas || rows.length),
+        valorCuota: Number(r.s_valor_cuota || 0),
+        interestType: r.s_interest_type || 'sin_intereses',
+        tea: Number(r.s_tea || 0),
+        paymentMethod: r.s_conditions || 'Al crédito',
+        approvalStatus: r.approvalStatus || 'pendiente',
+        planStatus: r.planStatus || 'pendiente',
+        saleDate: r.s_sale_date,
+      },
+      lot: lot ? { id: lot.id, code: lot.code, areaM2: Number(lot.areaM2 || 0), price: Number(lot.price || 0), streetName: (lot as any).streetName || null } : null,
+      client: client ? { id: client.id, fullName: client.fullName || null, phone: (client as any).phone || null, email: (client as any).email || null } : null,
+      agent: agent ? { id: agent.id, name: agent.name } : null,
+      clientName: r.clientName || (client as any)?.fullName || null,
+      lotCode: r.lotCode || lot?.code || null,
+      installments: rows,
+      summary: {
+        totalCuotas: rows.length,
+        paidCount,
+        pendingCount: rows.length - paidCount,
+        nextInstallmentNo: nextDue?.installmentNo || null,
+        nextAmount: nextDue?.amount || 0,
+        nextDueDate: nextDue?.dueDate || null,
+        nextIsOverdue: !!nextDue?.overdue,
+      },
+    };
   }
 }

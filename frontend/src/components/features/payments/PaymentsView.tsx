@@ -19,12 +19,14 @@ import {
 } from 'recharts';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { formatMoney, formatDate } from '@/lib/types';
+import { useDisplayCurrency } from '@/lib/currency';
+import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { printHtml } from '@/lib/print';
 import { FiActivity, FiAlertTriangle, FiCamera, FiChevronDown, FiCreditCard, FiDollarSign, FiMoreVertical, FiTrendingUp, FiUpload, FiX } from 'react-icons/fi';
 
 type P = {
   id: number; projectId: number; lotId: number; type: string; amount: string;
-  dueDate?: string | null; paidAt?: string | null; status: string;
+  dueDate?: string | null; paidAt?: string | null; status: string; createdAt?: string | null;
   lotCode?: string | null; clientName?: string | null; salePrice?: number | null;
   receivedByName?: string | null; paymentMethod?: string; reference?: string | null; voucherUrl?: string | null;
   exchangeRate?: number | null; amountUsd?: number | null;
@@ -94,6 +96,14 @@ function monthLabel(month: string) {
   return date.toLocaleDateString('es-PE', { month: 'short', year: '2-digit' }).replace('.', '');
 }
 
+// Version corta (solo el mes) para los ejes en pantallas angostas.
+function monthLabelShort(month: string) {
+  const [year, rawMonth] = String(month || '').split('-');
+  const date = new Date(Number(year), Number(rawMonth || 1) - 1, 1);
+  if (Number.isNaN(date.getTime())) return String(month || '-');
+  return date.toLocaleDateString('es-PE', { month: 'short' }).replace('.', '');
+}
+
 function currentMonthValue() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -118,7 +128,7 @@ function variation(current: number, previous: number) {
   return ((current - previous) / previous) * 100;
 }
 
-function FinanceTooltip({ active, payload, label }: any) {
+function FinanceTooltip({ active, payload, label, formatter = money }: any) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border bg-white px-3 py-2 shadow-xl" style={{ borderColor: BORDER }}>
@@ -130,7 +140,7 @@ function FinanceTooltip({ active, payload, label }: any) {
               <span className="h-2 w-2 rounded-full" style={{ background: entry.color }} />
               {entry.name}
             </span>
-            <b style={{ color: INK }}>{String(entry.dataKey).includes('Rate') || String(entry.name).includes('%') ? pct(Number(entry.value || 0)) : money(Number(entry.value || 0))}</b>
+            <b style={{ color: INK }}>{String(entry.dataKey).includes('Rate') || String(entry.name).includes('%') ? pct(Number(entry.value || 0)) : formatter(Number(entry.value || 0))}</b>
           </div>
         ))}
       </div>
@@ -146,15 +156,15 @@ function KpiTile({ label, value, helper, icon, accent }: {
   accent: string;
 }) {
   return (
-    <div className="rounded-md border bg-white px-4 py-3 shadow-sm" style={{ borderColor: BORDER }}>
-      <div className="flex items-center justify-between gap-3">
-        <p className="min-w-0 truncate text-[11px] font-semibold uppercase" style={{ color: MUTED }}>{label}</p>
-        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md" style={{ background: `${accent}12`, color: accent }}>
+    <div className="rounded-md border bg-white px-2.5 py-2.5 shadow-sm sm:px-4 sm:py-3" style={{ borderColor: BORDER }}>
+      <div className="flex items-start justify-between gap-1.5 sm:items-center sm:gap-3">
+        <p className="min-w-0 truncate text-[10px] font-semibold uppercase leading-tight sm:text-[11px]" style={{ color: MUTED }}>{label}</p>
+        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[13px] sm:h-7 sm:w-7 sm:text-base" style={{ background: `${accent}12`, color: accent }}>
           {icon}
         </span>
       </div>
-      <p className="mt-2 truncate text-xl font-bold tabular-nums" style={{ color: INK }}>{value}</p>
-      <p className="mt-0.5 truncate text-[11px]" style={{ color: MUTED }}>{helper}</p>
+      <p className="mt-1.5 truncate text-base font-bold tabular-nums sm:mt-2 sm:text-xl" style={{ color: INK }}>{value}</p>
+      <p className="mt-0.5 truncate text-[10px] sm:text-[11px]" style={{ color: MUTED }}>{helper}</p>
     </div>
   );
 }
@@ -172,7 +182,7 @@ function MiniMetric({ label, value, color = INK }: { label: string; value: strin
   );
 }
 
-function PaymentMethodRanking({ items }: { items: Array<{ name: string; value: number; count: number; method: string }> }) {
+function PaymentMethodRanking({ items, formatter = money }: { items: Array<{ name: string; value: number; count: number; method: string }>; formatter?: (value: number) => string }) {
   const max = Math.max(...items.map((item) => item.value), 1);
   const colors: Record<string, string> = {
     yape: '#7C3AED',
@@ -193,7 +203,7 @@ function PaymentMethodRanking({ items }: { items: Array<{ name: string; value: n
           <div key={item.method} className="space-y-1.5">
             <div className="flex items-center justify-between gap-3 text-xs">
               <span className="min-w-0 truncate font-semibold" style={{ color: INK }}>{item.name}</span>
-              <span className="shrink-0 tabular-nums" style={{ color: MUTED }}>{money(item.value)} · {item.count}</span>
+              <span className="shrink-0 tabular-nums" style={{ color: MUTED }}>{formatter(item.value)} · {item.count}</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-slate-100">
               <div className="h-full rounded-full" style={{ width: `${Math.max(5, (item.value / max) * 100)}%`, background: color }} />
@@ -222,6 +232,100 @@ function ChartMenu({ rows }: { rows: Array<[string, string]> }) {
     </details>
   );
 }
+// Grid del cronograma: verde pagada, rojo en mora, ambar la que toca, gris pendiente.
+function InstallmentGrid({ sale, compact = false, formatter = money }: { sale: any; compact?: boolean; formatter?: (value: number) => string }) {
+  const rows = sale?.installments || [];
+  if (!rows.length) {
+    return <p className="text-xs text-slate-400">Esta venta no tiene cronograma de cuotas registrado.</p>;
+  }
+  return (
+    <div className={compact ? 'space-y-2' : 'space-y-3'}>
+      <div className="flex flex-wrap items-center gap-3 text-[11px]">
+        <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm" style={{ background: GREEN }} /> Pagadas ({sale.summary?.paidCount || 0})</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm" style={{ background: AMBER }} /> Cuota a pagar</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm" style={{ background: '#E5E7EB' }} /> Pendientes ({sale.summary?.pendingCount || 0})</span>
+        <span className="inline-flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm" style={{ background: RED }} /> En mora</span>
+      </div>
+      <div className="grid grid-cols-3 gap-1.5 sm:grid-cols-6">
+        {rows.map((r: any) => {
+          const bg = r.paid ? GREEN : (r.overdue ? RED : (r.installmentNo === sale.summary?.nextInstallmentNo ? AMBER : '#E5E7EB'));
+          const color = r.paid || r.overdue || r.installmentNo === sale.summary?.nextInstallmentNo ? '#fff' : INK;
+          return (
+            <div
+              key={r.id || r.installmentNo}
+              className="rounded-md border px-2 py-1.5 text-center"
+              style={{ background: bg, borderColor: 'rgba(0,0,0,.06)', color }}
+              title={`Cuota ${r.installmentNo} - ${formatter(r.amount)} - vence ${formatDate(r.dueDate)}`}
+            >
+              <p className="text-[10px] font-bold leading-none">Cuota {r.installmentNo}</p>
+              <p className="mt-1 text-[10px] tabular-nums leading-none">{formatter(r.amount)}</p>
+              <p className="mt-1 text-[9px] leading-none opacity-90">{formatDate(r.dueDate)}</p>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+
+
+export function PaymentHistoryPdf({ sale }: { sale: any }) {
+  const rows = sale?.installments || [];
+  if (!rows.length) return;
+  const bodyRows = rows.map((r: any) => {
+    const estado = r.paid ? 'Pagada' : (r.overdue ? 'En mora' : (r.installmentNo === sale.summary?.nextInstallmentNo ? 'Por pagar' : 'Pendiente'));
+    const color = r.paid ? '#16A34A' : (r.overdue ? '#DC2626' : (r.installmentNo === sale.summary?.nextInstallmentNo ? '#B45309' : '#64748B'));
+    return `<tr><td>${r.installmentNo}</td><td>${escapeHtml(formatDate(r.dueDate))}</td><td class="num">${escapeHtml(formatMoney(r.amount))}</td><td style="color:${color};font-weight:700">${estado}</td></tr>`;
+  }).join('');
+  const generatedAt = new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' });
+
+  printHtml(`
+    <html>
+      <head>
+        <title>Historial de cuotas - Lote ${escapeHtml(sale?.lot?.code || '')}</title>
+        <style>
+          body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#111827;background:white}
+          .brand{display:flex;justify-content:space-between;gap:20px;border-bottom:3px solid #1259C4;padding-bottom:12px;margin-bottom:16px}
+          .eyebrow{margin:0 0 4px;color:#1259C4;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.12em}
+          h1{margin:0;font-size:23px}
+          p{margin:4px 0 0;color:#64748B;font-size:12px}
+          .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:14px 0}
+          .summary div{border:1px solid #E5E7EB;background:#F8FAFC;border-radius:6px;padding:10px}
+          .summary span{display:block;color:#64748B;font-size:9px;font-weight:700;text-transform:uppercase}
+          .summary strong{display:block;margin-top:4px;font-size:14px;color:#111827}
+          table{width:100%;border-collapse:collapse}
+          th{background:#0B2F6E;color:white;border:1px solid #0B2F6E;padding:7px 6px;font-size:9px;text-align:left;text-transform:uppercase}
+          td{border:1px solid #E5E7EB;padding:7px 6px;font-size:11px}
+          .num{text-align:right}
+          tfoot td{background:#F1F5F9;font-weight:700}
+        </style>
+      </head>
+      <body>
+        <div class="brand">
+          <div>
+            <p class="eyebrow">Dunacon</p>
+            <h1>Historial de cuotas</h1>
+            <p>Lote ${escapeHtml(sale?.lot?.code || '-')} ${sale?.client?.fullName ? '- ' + escapeHtml(sale.client.fullName) : ''}</p>
+          </div>
+          <div style="text-align:right">
+            <p>Emitido: ${escapeHtml(generatedAt)}</p>
+          </div>
+        </div>
+        <div class="summary">
+          <div><span>Precio de venta</span><strong>${escapeHtml(formatMoney(sale?.sale?.salePrice || 0))}</strong></div>
+          <div><span>Valor cuota</span><strong>${escapeHtml(formatMoney(sale?.sale?.valorCuota || 0))}</strong></div>
+          <div><span>Cuotas pagadas</span><strong>${sale?.summary?.paidCount || 0} de ${sale?.summary?.totalCuotas || 0}</strong></div>
+          <div><span>Cuota que toca</span><strong>${sale?.summary?.nextInstallmentNo ? 'N. ' + sale.summary.nextInstallmentNo : 'Todas pagadas'}</strong></div>
+        </div>
+        <table>
+          <thead><tr><th>Cuota</th><th>Vence</th><th class="num">Monto</th><th>Estado</th></tr></thead>
+          <tbody>${bodyRows}</tbody>
+        </table>
+      </body>
+    </html>
+  `);
+}
 
 function ChartHeader({ title, subtitle, menuRows, actions }: { title: string; subtitle: string; menuRows: Array<[string, string]>; actions?: ReactNode }) {
   return (
@@ -230,7 +334,7 @@ function ChartHeader({ title, subtitle, menuRows, actions }: { title: string; su
         <h3 className="truncate text-sm font-semibold" style={{ color: INK }}>{title}</h3>
         <p className="mt-0.5 text-xs" style={{ color: MUTED }}>{subtitle}</p>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      <div className="flex min-w-0 shrink-0 items-start gap-2">
         {actions}
         <ChartMenu rows={menuRows} />
       </div>
@@ -247,8 +351,14 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [showMoreKpis, setShowMoreKpis] = useState(false);
   const [salesRange, setSalesRange] = useState<3 | 6>(6);
   const [salesPeriod, setSalesPeriod] = useState<'month' | 'year'>('month');
-  const [salesCurrency, setSalesCurrency] = useState<'PEN' | 'USD'>('PEN');
+  const { currency, setCurrency, exchangeRate, setExchangeRate, format: show } = useDisplayCurrency();
+  const [isNarrow, setIsNarrow] = useState(false);
   const [paySearch, setPaySearch] = useState('');
+  const [payClientSearch, setPayClientSearch] = useState('');
+  const [payContext, setPayContext] = useState<any>(null);
+  const [payContextIndex, setPayContextIndex] = useState(0);
+  const [payContextLoading, setPayContextLoading] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
@@ -269,7 +379,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [reference, setReference] = useState('');
   const [voucher, setVoucher] = useState<File | null>(null);
   const [voucherUrl, setVoucherUrl] = useState('');
-  const [exchangeRate, setExchangeRate] = useState('');
+  const [formExchangeRate, setFormExchangeRate] = useState('');
   const [amountUsd, setAmountUsd] = useState('');
   const [editingPayment, setEditingPayment] = useState<P | null>(null);
   const [editVoucher, setEditVoucher] = useState<File | null>(null);
@@ -282,6 +392,38 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const payCanMark = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
 
   useEffect(() => { if (lockedProjectId) setPayProjectId(lockedProjectId); }, [lockedProjectId]);
+
+  useEffect(() => {
+    if (!open) return;
+    const term = payClientSearch.trim();
+    if (!clientId && !lotId && term.length < 2) { setPayContext(null); return; }
+    let alive = true;
+    setPayContextLoading(true);
+    const q = new URLSearchParams();
+    if (clientId) q.set('clientId', String(clientId));
+    if (lotId) q.set('lotId', String(lotId));
+    if (lockedProjectId) q.set('projectId', String(lockedProjectId));
+    if (!clientId && !lotId && term) q.set('search', term);
+    const timer = setTimeout(() => {
+      api.get<any>(`/sales/payment-context?${q.toString()}`)
+        .then((d) => { if (alive) { setPayContext(d || { sales: [] }); setPayContextIndex(0); } })
+        .catch(() => { if (alive) setPayContext({ sales: [] }); })
+        .finally(() => { if (alive) setPayContextLoading(false); });
+    }, 350);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [open, clientId, lotId, lockedProjectId, payClientSearch]);
+
+  const activeSale = payContext?.sales?.[payContextIndex] || null;
+
+  useEffect(() => {
+    if (!activeSale) return;
+    setPayProjectId(activeSale.sale.projectId);
+    setLotId(activeSale.sale.lotId);
+    if (activeSale.sale.clientId) setClientId(activeSale.sale.clientId);
+    setAmount(activeSale.summary?.nextAmount || 0);
+    setPayType((activeSale.summary?.paidCount || 0) > 0 ? 'cuota' : 'adelanto');
+    setDueDate(activeSale.summary?.nextDueDate || '');
+  }, [activeSale]);
 
   const load = useCallback(async () => {
     try {
@@ -316,6 +458,15 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     api.get<any>(`/payments/caja${q}`).then(setCash).catch(() => {});
   }, [lockedProjectId]);
 
+  // Detecta pantallas angostas para simplificar los ejes de los graficos.
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)');
+    const apply = () => setIsNarrow(mq.matches);
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
   const availableLots = payProjectId ? lots.filter((l: any) => Number(l.projectId) === Number(payProjectId)) : lots;
   // Al elegir el lote, precargar su cliente asignado (si tiene) — igual se
   // puede cambiar a mano con el selector de Cliente.
@@ -330,10 +481,10 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     if (!amount) return toast('Ingresa monto', 'err');
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
-      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined, exchangeRate: exchangeRate ? Number(exchangeRate) : undefined, amountUsd: amountUsd ? Number(amountUsd) : undefined });
+      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined, exchangeRate: formExchangeRate ? Number(formExchangeRate) : undefined, amountUsd: amountUsd ? Number(amountUsd) : undefined });
       if (voucher) { await uploadFile(`/payments/voucher/${saved?.id}`, voucher); }
       toast(voucher ? 'Pago registrado con comprobante adjunto' : 'Pago registrado');
-      setOpen(false); setAmount(0); setDueDate(''); setNote(''); setLotId(0); setClientId(0); setPayMethod('yape'); setReference(''); setVoucher(null); setVoucherUrl(''); setExchangeRate(''); setAmountUsd('');
+      setOpen(false); setAmount(0); setDueDate(''); setNote(''); setLotId(0); setClientId(0); setPayMethod('yape'); setReference(''); setVoucher(null); setVoucherUrl(''); setFormExchangeRate(''); setAmountUsd('');
       load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -554,15 +705,21 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   })();
   const salesChartRows = (
     salesPeriod === 'year' ? salesByYear : salesRangeRows.map((r) => ({ label: r.month, monto: r.monto }))
-  ).map((r) => ({ label: r.label, monto: salesCurrency === 'USD' ? r.monto / SALES_CHART_EXCHANGE_RATE : r.monto }));
+  ).map((r) => ({ label: r.label, monto: currency === 'USD' ? r.monto / exchangeRate : r.monto }));
   const salesChartTotal = salesChartRows.reduce((sum, r) => sum + r.monto, 0);
   const salesChartLast = salesChartRows[salesChartRows.length - 1];
   const salesChartPrev = salesChartRows[salesChartRows.length - 2];
   const salesChartTrend = salesChartPrev && salesChartPrev.monto > 0
     ? ((salesChartLast?.monto || 0) - salesChartPrev.monto) / salesChartPrev.monto * 100
     : ((salesChartLast?.monto || 0) > 0 ? 100 : 0);
-  const formatSalesCurrency = salesCurrency === 'USD' ? usdMoney : money;
-  const paymentVsDelinquency = mergeByMonth(lastSixMonths, overdueByMonth.slice(-6));
+  // Formato corto para ejes de graficos segun la moneda activa.
+  const shortCurrency = currency === 'USD' ? shortUsd : shortMoney;
+  const paymentVsDelinquency = mergeByMonth(lastSixMonths, overdueByMonth.slice(-6))
+    .map((row) => ({
+      ...row,
+      pagado: currency === 'USD' ? Number(row.pagado || 0) / exchangeRate : Number(row.pagado || 0),
+      moroso: currency === 'USD' ? Number(row.moroso || 0) / exchangeRate : Number(row.moroso || 0),
+    }));
   const currentCollected = lastValue(byMonth);
   const previousCollected = previousValue(byMonth);
   const collectedTrend = variation(currentCollected, previousCollected);
@@ -593,14 +750,14 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
         )}
         <div className="relative">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-7">
-            <KpiTile label="Cuotas Pendientes" value={String(metrics.pendingCuotas || 0)} helper={money(metrics.pendingAmount || 0)} icon={<FiCreditCard />} accent={BLUE} />
-            <KpiTile label="Cuotas Pendientes US$" value={money(metrics.pendingAmount || 0)} helper="Saldo pendiente" icon={<FiDollarSign />} accent={BLUE} />
-            <KpiTile label="Pagos en Mora" value={String(metrics.overduePayments || 0)} helper={money(metrics.overdueAmount || 0)} icon={<FiAlertTriangle />} accent={RED} />
-            <KpiTile label="Pago en mora US$" value={money(metrics.overdueAmount || 0)} helper="Cuotas vencidas" icon={<FiAlertTriangle />} accent={RED} />
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-7">
+            <KpiTile label="Cuotas Pendientes" value={String(metrics.pendingCuotas || 0)} helper={show(metrics.pendingAmount || 0)} icon={<FiCreditCard />} accent={BLUE} />
+            <KpiTile label="Cuotas Pendientes US$" value={show(metrics.pendingAmount || 0)} helper="Saldo pendiente" icon={<FiDollarSign />} accent={BLUE} />
+            <KpiTile label="Pagos en Mora" value={String(metrics.overduePayments || 0)} helper={show(metrics.overdueAmount || 0)} icon={<FiAlertTriangle />} accent={RED} />
+            <KpiTile label="Pago en mora US$" value={show(metrics.overdueAmount || 0)} helper="Cuotas vencidas" icon={<FiAlertTriangle />} accent={RED} />
             <KpiTile label="Morosidad %" value={pct(delinquencyRate)} helper="Mora sobre pendientes" icon={<FiActivity />} accent={AMBER} />
             <KpiTile label="Pagos por vencer" value={String(metrics.upcomingPayments || 0)} helper="Max 30 dias" icon={<FiCreditCard />} accent={BLUE_DARK} />
-            <KpiTile label="Pago por vencer US$" value={money(metrics.upcomingAmount || 0)} helper="Max 30 dias" icon={<FiDollarSign />} accent={BLUE_DARK} />
+            <KpiTile label="Pago por vencer US$" value={show(metrics.upcomingAmount || 0)} helper="Max 30 dias" icon={<FiDollarSign />} accent={BLUE_DARK} />
           </div>
 
           <button
@@ -616,14 +773,14 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
         </div>
 
         {showMoreKpis && (
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-7">
-            <KpiTile label="Total venta (lotes)" value={String(metrics.totalSaleLots || 0)} helper={money(metrics.totalSaleAmount || 0)} icon={<FiTrendingUp />} accent={BLUE} />
-            <KpiTile label="Total Venta" value={money(metrics.totalSaleAmount || 0)} helper="Ventas y separaciones" icon={<FiDollarSign />} accent={BLUE} />
-            <KpiTile label="Pago Inicial US$" value={money(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} />
-            <KpiTile label="Financiamiento D." value={money(metrics.financingAmount || 0)} helper="Monto financiado" icon={<FiTrendingUp />} accent={BLUE_DARK} />
+          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-7">
+            <KpiTile label="Total venta (lotes)" value={String(metrics.totalSaleLots || 0)} helper={show(metrics.totalSaleAmount || 0)} icon={<FiTrendingUp />} accent={BLUE} />
+            <KpiTile label="Total Venta" value={show(metrics.totalSaleAmount || 0)} helper="Ventas y separaciones" icon={<FiDollarSign />} accent={BLUE} />
+            <KpiTile label="Pago Inicial US$" value={show(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} />
+            <KpiTile label="Financiamiento D." value={show(metrics.financingAmount || 0)} helper="Monto financiado" icon={<FiTrendingUp />} accent={BLUE_DARK} />
             <KpiTile label="Cuotas Financiam." value={String(metrics.financedCuotas || 0)} helper="Cronograma generado" icon={<FiCreditCard />} accent={BLUE} />
-            <KpiTile label="Pago de Cuotas" value={String(metrics.paidCuotas || 0)} helper={money(metrics.paidCuotasAmount || 0)} icon={<FiCreditCard />} accent={GREEN} />
-            <KpiTile label="Pago de Cuotas US$" value={money(metrics.paidCuotasAmount || 0)} helper="Cuotas pagadas" icon={<FiDollarSign />} accent={GREEN} />
+            <KpiTile label="Pago de Cuotas" value={String(metrics.paidCuotas || 0)} helper={show(metrics.paidCuotasAmount || 0)} icon={<FiCreditCard />} accent={GREEN} />
+            <KpiTile label="Pago de Cuotas US$" value={show(metrics.paidCuotasAmount || 0)} helper="Cuotas pagadas" icon={<FiDollarSign />} accent={GREEN} />
           </div>
         )}
 
@@ -632,7 +789,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             <ChartHeader
               title="Pago de lotes"
               subtitle="Distribucion del cobro por tipo"
-              menuRows={paymentBreakdown.map((row) => [row.name, money(row.value)] as [string, string])}
+              menuRows={paymentBreakdown.map((row) => [row.name, show(row.value)] as [string, string])}
             />
             {paymentBreakdown.length ? (
               <div className="px-3 pt-4 sm:px-4 sm:pt-5">
@@ -642,7 +799,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                       <Pie data={paymentBreakdown} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={2}>
                         {paymentBreakdown.map((row) => <Cell key={row.key} fill={row.color} />)}
                       </Pie>
-                      <Tooltip formatter={(value: number) => money(Number(value || 0))} />
+                      <Tooltip formatter={(value: number) => show(Number(value || 0))} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -653,7 +810,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: row.color }} /> {row.name}
                       </span>
                       <b className="shrink-0 tabular-nums" style={{ color: INK }}>
-                        {money(row.value)} · {totalPaymentBreakdown > 0 ? pct((row.value / totalPaymentBreakdown) * 100) : '0.0%'}
+                        {show(row.value)} · {totalPaymentBreakdown > 0 ? pct((row.value / totalPaymentBreakdown) * 100) : '0.0%'}
                       </b>
                     </div>
                   ))}
@@ -664,32 +821,16 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
           <div className="card overflow-hidden p-0 xl:col-span-2">
             <ChartHeader
-              title={`Ventas por ${salesPeriod === 'year' ? 'ano' : 'mes'} (${salesCurrency === 'USD' ? 'US$' : 'S/'})`}
+              title={`Ventas por ${salesPeriod === 'year' ? 'ano' : 'mes'} (${currency === 'USD' ? 'US$' : 'S/'})`}
               subtitle={salesPeriod === 'year' ? 'Historico por ano' : (salesRange === 3 ? 'Ultimos 3 meses' : 'Ultimos 6 meses')}
               menuRows={[
-                [salesPeriod === 'year' ? 'Ano actual' : 'Mes actual', formatSalesCurrency(salesChartLast?.monto || 0)],
-                [salesPeriod === 'year' ? 'Ano anterior' : 'Mes anterior', formatSalesCurrency(salesChartPrev?.monto || 0)],
+                [salesPeriod === 'year' ? 'Ano actual' : 'Mes actual', show(salesChartLast?.monto || 0)],
+                [salesPeriod === 'year' ? 'Ano anterior' : 'Mes anterior', show(salesChartPrev?.monto || 0)],
                 ['Variacion', pct(salesChartTrend)],
-                ['Total vendido', formatSalesCurrency(salesChartTotal)],
+                ['Total vendido', show(salesChartTotal)],
               ]}
               actions={
                 <div className="flex flex-wrap items-center gap-1">
-                  <div className="flex items-center gap-1">
-                    {([['PEN', 'S/'], ['USD', 'US$']] as const).map(([value, label]) => {
-                      const active = salesCurrency === value;
-                      return (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() => setSalesCurrency(value)}
-                          className="h-7 rounded-md border px-2.5 text-xs font-semibold transition-colors"
-                          style={{ borderColor: active ? BLUE : BORDER, background: active ? BLUE : '#fff', color: active ? '#fff' : MUTED }}
-                        >
-                          {label}
-                        </button>
-                      );
-                    })}
-                  </div>
                   <div className="flex items-center gap-1">
                     {([['month', 'Mes'], ['year', 'Ano']] as const).map(([value, label]) => {
                       const active = salesPeriod === value;
@@ -698,7 +839,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                           key={value}
                           type="button"
                           onClick={() => setSalesPeriod(value)}
-                          className="h-7 rounded-md border px-2.5 text-xs font-semibold transition-colors"
+                          className="h-7 rounded-md border px-2 text-[11px] font-semibold transition-colors sm:px-2.5 sm:text-xs"
                           style={{ borderColor: active ? BLUE : BORDER, background: active ? BLUE : '#fff', color: active ? '#fff' : MUTED }}
                         >
                           {label}
@@ -715,14 +856,14 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                             key={value}
                             type="button"
                             onClick={() => setSalesRange(value)}
-                            className="h-7 rounded-md border px-2.5 text-xs font-semibold transition-colors"
+                            className="h-7 rounded-md border px-2 text-[11px] font-semibold transition-colors sm:px-2.5 sm:text-xs"
                             style={{
                               borderColor: active ? BLUE : BORDER,
                               background: active ? BLUE : '#fff',
                               color: active ? '#fff' : MUTED,
                             }}
                           >
-                            {value} meses
+                            {value}m
                           </button>
                         );
                       })}
@@ -732,16 +873,34 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
               }
             />
             {salesChartRows.length ? (
-              <div className="mx-auto h-[260px] w-full max-w-[680px] px-3 pt-4 sm:h-[300px] sm:px-4 sm:pt-5">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={salesChartRows} margin={{ left: 8, right: 20, top: 12, bottom: 16 }}>
-                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="label" tickFormatter={salesPeriod === 'year' ? (v: string) => v : monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
-                    <YAxis tickFormatter={salesCurrency === 'USD' ? shortUsd : shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
-                    <Tooltip formatter={(value: number) => formatSalesCurrency(Number(value || 0))} labelFormatter={(label: string) => (salesPeriod === 'year' ? label : monthLabel(label))} cursor={{ stroke: BLUE, strokeWidth: 1, strokeDasharray: '4 4' }} />
-                    <Area type="monotone" dataKey="monto" name="Vendido" stroke={BLUE} strokeWidth={3} fill={BLUE} fillOpacity={0.08} activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} />
-                  </AreaChart>
-                </ResponsiveContainer>
+              <div className="w-full px-2 pt-4 pb-3 sm:h-[300px] sm:px-4 sm:pt-5">
+                <div className="h-[240px] w-full sm:h-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={salesChartRows} margin={{ left: 0, right: 12, top: 12, bottom: 4 }}>
+                      <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
+                      <XAxis
+                        dataKey="label"
+                        tickFormatter={salesPeriod === 'year' ? (v: string) => v : (isNarrow ? monthLabelShort : monthLabel)}
+                        tick={{ fontSize: isNarrow ? 10 : 11, fill: MUTED }}
+                        axisLine={false}
+                        tickLine={false}
+                        interval="preserveStartEnd"
+                        minTickGap={isNarrow ? 16 : 8}
+                        tickMargin={6}
+                      />
+                      <YAxis
+                        tickFormatter={shortCurrency}
+                        tick={{ fontSize: isNarrow ? 10 : 11, fill: MUTED }}
+                        axisLine={false}
+                        tickLine={false}
+                        width={isNarrow ? 44 : 62}
+                        tickMargin={4}
+                      />
+                      <Tooltip formatter={(value: number) => show(Number(value || 0))} labelFormatter={(label: string) => (salesPeriod === 'year' ? label : monthLabel(label))} cursor={{ stroke: BLUE, strokeWidth: 1, strokeDasharray: '4 4' }} />
+                      <Area type="monotone" dataKey="monto" name="Vendido" stroke={BLUE} strokeWidth={3} fill={BLUE} fillOpacity={0.08} activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
             ) : <EmptyChart text="Sin ventas para mostrar." />}
           </div>
@@ -751,26 +910,41 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
               title="Pagos vs Morosidad"
               subtitle="Ultimos 6 meses"
               menuRows={[
-                ['Pagado actual', money(currentCollected)],
-                ['Moroso actual', money(currentOverdue)],
-                ['Mora mes anterior', money(previousOverdue)],
+                ['Pagado actual', show(currentCollected)],
+                ['Moroso actual', show(currentOverdue)],
+                ['Mora mes anterior', show(previousOverdue)],
                 ['Morosidad', pct(currentDelinquencyRate || delinquencyRate)],
               ]}
             />
             {paymentVsDelinquency.length ? (
-              <div className="mx-auto h-[290px] w-full max-w-[680px] px-3 pt-4 sm:h-[330px] sm:px-4 sm:pt-5">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={paymentVsDelinquency} margin={{ left: 8, right: 24, top: 12, bottom: 16 }}>
-                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
-                    <YAxis yAxisId="left" tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
-                    <YAxis yAxisId="right" orientation="right" tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
-                    <Tooltip content={<FinanceTooltip />} />
-                    <Bar yAxisId="left" dataKey="pagado" name="Pagado" stackId="cash" fill={BLUE} radius={[4, 4, 0, 0]} maxBarSize={46} />
-                    <Bar yAxisId="left" dataKey="moroso" name="Moroso" stackId="cash" fill={RED} radius={[4, 4, 0, 0]} maxBarSize={46} />
-                    <Line yAxisId="right" type="monotone" dataKey="moroso" name="Moroso" stroke={RED} strokeWidth={2} dot={{ r: 3, fill: '#fff', stroke: RED, strokeWidth: 2 }} />
-                  </ComposedChart>
-                </ResponsiveContainer>
+              <div className="w-full px-2 pt-4 pb-3 sm:h-[330px] sm:px-4 sm:pt-5">
+                <div className="h-[260px] w-full sm:h-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={paymentVsDelinquency} margin={{ left: 0, right: isNarrow ? 4 : 16, top: 12, bottom: 4 }}>
+                      <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
+                      <XAxis
+                        dataKey="month"
+                        tickFormatter={isNarrow ? monthLabelShort : monthLabel}
+                        tick={{ fontSize: isNarrow ? 10 : 11, fill: MUTED }}
+                        axisLine={false}
+                        tickLine={false}
+                        interval="preserveStartEnd"
+                        minTickGap={isNarrow ? 16 : 8}
+                        tickMargin={6}
+                      />
+                      <YAxis yAxisId="left" tickFormatter={shortCurrency} tick={{ fontSize: isNarrow ? 9 : 11, fill: MUTED }} axisLine={false} tickLine={false} width={isNarrow ? 40 : 62} tickMargin={4} />
+                      {!isNarrow && (
+                        <YAxis yAxisId="right" orientation="right" tickFormatter={shortCurrency} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} tickMargin={4} />
+                      )}
+                      <Tooltip content={<FinanceTooltip formatter={show} />} />
+                      <Bar yAxisId="left" dataKey="pagado" name="Pagado" stackId="cash" fill={BLUE} radius={[4, 4, 0, 0]} maxBarSize={46} />
+                      <Bar yAxisId="left" dataKey="moroso" name="Moroso" stackId="cash" fill={RED} radius={[4, 4, 0, 0]} maxBarSize={46} />
+                      {!isNarrow && (
+                        <Line yAxisId="right" type="monotone" dataKey="moroso" name="Moroso" stroke={RED} strokeWidth={2} dot={{ r: 3, fill: '#fff', stroke: RED, strokeWidth: 2 }} />
+                      )}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
                 <div className="flex justify-center gap-4 pb-3 text-xs">
                   <span className="inline-flex items-center gap-1.5" style={{ color: BLUE }}><span className="h-2.5 w-2.5 rounded-sm" style={{ background: BLUE }} /> Pagado</span>
                   <span className="inline-flex items-center gap-1.5" style={{ color: RED }}><span className="h-2.5 w-2.5 rounded-full" style={{ background: RED }} /> Moroso</span>
@@ -782,7 +956,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
         <div className="card">
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <h3 className="font-semibold">Historial de pagos</h3>
-            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
               <select className="input w-full sm:!w-auto" value={status} onChange={(e) => setStatus(e.target.value)}>
                 <option value="">Estado: todos</option>
                 <option value="pagado">Pagado</option>
@@ -796,16 +970,16 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 onChange={(e) => setPaySearch(e.target.value)}
                 aria-label="Buscar por codigo de lote o nombre de cliente"
               />
-              <div className="flex gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-wrap sm:items-center">
                 <input
-                  className="input flex-1 sm:!w-auto"
+                  className="input w-full sm:!w-auto"
                   type="month"
                   value={pdfMonth}
                   onChange={(e) => setPdfMonth(e.target.value)}
                   aria-label="Mes para descargar PDF"
                 />
-                <button className="btn-ghost whitespace-nowrap" type="button" onClick={exportMonthPdf}>Descargar PDF</button>
-                <button className="btn-primary whitespace-nowrap" onClick={() => setOpen(true)}>Registrar pago</button>
+                <button className="btn-outline w-full whitespace-nowrap sm:w-auto" type="button" onClick={exportMonthPdf}>Descargar PDF</button>
+                <button className="btn-primary w-full whitespace-nowrap sm:w-auto" onClick={() => setOpen(true)}>Registrar pago</button>
               </div>
             </div>
           </div>
@@ -831,13 +1005,13 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                     <td className="td-base text-slate-400">P{p.id}</td>
                     <td className="td-base font-medium">{p.lotCode || `Lote ${p.lotId}`}</td>
                     <td className="td-base">{p.clientName || '—'}</td>
-                    <td className="td-base">{p.salePrice ? formatMoney(p.salePrice) : '—'}</td>
+                    <td className="td-base">{p.salePrice ? show(p.salePrice) : '—'}</td>
                     <td className="td-base capitalize">{TYPE_LABEL[p.type] || p.type}</td>
                     <td className="td-base capitalize">{METHOD_LABEL[p.paymentMethod || ''] || p.paymentMethod || '—'}</td>
                     <td className="td-base">{p.reference || '—'}</td>
                     <td className="td-base">{p.voucherUrl ? <a href={p.voucherUrl} target="_blank" rel="noreferrer" className="text-[#1877F2] hover:underline">Ver voucher</a> : '—'}</td>
-                    <td className="td-base font-medium">{formatMoney(p.amount)}</td>
-                    <td className="td-base font-medium" style={{ color: p.status === 'pagado' ? GREEN : MUTED }}>{p.status === 'pagado' ? formatMoney(p.amount) : '—'}</td>
+                    <td className="td-base font-medium">{show(p.amount)}</td>
+                    <td className="td-base font-medium" style={{ color: p.status === 'pagado' ? GREEN : MUTED }}>{p.status === 'pagado' ? show(p.amount) : '—'}</td>
                     <td className="td-base">
                       <div className="flex flex-col items-start gap-1">
                         {st(p)}
@@ -855,10 +1029,10 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
               <tfoot>
                 <tr style={{ background: '#0B2F6E' }}>
                   <td className="td-base font-bold text-white" colSpan={3}>Totales ({filteredRows.length})</td>
-                  <td className="td-base font-bold text-white">{formatMoney(totalPrecioVenta)}</td>
+                  <td className="td-base font-bold text-white">{show(totalPrecioVenta)}</td>
                   <td className="td-base" colSpan={4}></td>
-                  <td className="td-base font-bold text-white">{formatMoney(totalRegistrado)}</td>
-                  <td className="td-base font-bold text-white">{formatMoney(totalPagado)}</td>
+                  <td className="td-base font-bold text-white">{show(totalRegistrado)}</td>
+                  <td className="td-base font-bold text-white">{show(totalPagado)}</td>
                   <td className="td-base font-bold text-white" colSpan={4} style={{ background: '#16A34A' }}>% Pago: {pctPago.toFixed(1)}%</td>
                 </tr>
               </tfoot>
@@ -885,6 +1059,73 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
             {/* Cuerpo */}
             <div className="px-6 py-5 max-h-[65vh] overflow-y-auto space-y-4">
+              <div className="rounded-xl border p-3" style={{ borderColor: '#A9C9FB', background: '#F8FBFF' }}>
+                <label className="block">
+                  <span className="label">Buscar cliente o lote</span>
+                  <input
+                    className="input"
+                    placeholder="Escribe el nombre del cliente o el codigo del lote..."
+                    value={payClientSearch}
+                    onChange={(e) => { setPayClientSearch(e.target.value); setClientId(0); setLotId(0); }}
+                  />
+                </label>
+                {payContextLoading && <p className="mt-2 text-xs text-slate-400">Buscando venta...</p>}
+                {!payContextLoading && payContext?.sales?.length > 1 && (
+                  <div className="mt-2">
+                    <span className="label">Este cliente tiene varias ventas. Elige cual:</span>
+                    <select className="input" value={payContextIndex} onChange={(e) => setPayContextIndex(Number(e.target.value))}>
+                      {payContext.sales.map((s: any, i: number) => (
+                        <option key={s.sale.id} value={i}>Lote {s.lot?.code || s.sale.lotId} - {show(s.sale.salePrice)}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+                {!payContextLoading && payContext && payContext.sales?.length === 0 && (
+                  <p className="mt-2 text-xs text-amber-600">No se encontro una venta o separacion para ese cliente/lote en este proyecto.</p>
+                )}
+              </div>
+              {activeSale && (
+                <div className="rounded-xl border p-3 space-y-3" style={{ borderColor: '#BBF7D0', background: '#F0FDF4' }}>
+                  <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Lote</span><b>{activeSale.lot?.code || activeSale.sale.lotId}</b></div>
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Cliente</span><b>{activeSale.client?.fullName || 'Sin cliente'}</b></div>
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Forma de pago</span><b>{activeSale.sale.paymentMethod}</b></div>
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Precio de venta</span><b>{show(activeSale.sale.salePrice)}</b></div>
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Cuota inicial</span><b>{show(activeSale.sale.cuotaInicial)}</b></div>
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Plazo</span><b>{activeSale.sale.totalCuotas} meses</b></div>
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Interes</span><b>{activeSale.sale.interestType === 'tea' ? `TEA ${activeSale.sale.tea}%` : 'Sin intereses'}</b></div>
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Valor cuota</span><b>{show(activeSale.sale.valorCuota)}</b></div>
+                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Estado</span><b>{activeSale.sale.approvalStatus}</b></div>
+                  </div>
+
+                  <div className="rounded-lg border bg-white px-3 py-2" style={{ borderColor: '#BBF7D0' }}>
+                    <p className="text-[10px] font-bold uppercase text-slate-500">Cuota que le toca pagar</p>
+                    {activeSale.summary?.nextInstallmentNo ? (
+                      <p className="mt-0.5 text-sm font-bold" style={{ color: activeSale.summary.nextIsOverdue ? RED : AMBER }}>
+                        Cuota N. {activeSale.summary.nextInstallmentNo} — {show(activeSale.summary.nextAmount)} — {formatDate(activeSale.summary.nextDueDate)}
+                        {activeSale.summary.nextIsOverdue ? ' — EN MORA' : ''}
+                      </p>
+                    ) : (
+                      <p className="mt-0.5 text-sm font-bold" style={{ color: GREEN }}>Todas las cuotas estan pagadas.</p>
+                    )}
+                  </div>
+
+                  <button type="button" className="btn-neutral !h-8 w-full text-xs" onClick={() => setShowHistory((v) => !v)}>
+                    {showHistory ? 'Ocultar historial de pagos' : 'Ver historial de pagos'}
+                  </button>
+
+                  {showHistory && (
+                    <div className="rounded-lg border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold">Historial de cuotas</span>
+                        <button type="button" className="btn-primary !h-7 text-xs" onClick={() => PaymentHistoryPdf({ sale: activeSale })}>Descargar PDF</button>
+                      </div>
+                      <InstallmentGrid sale={activeSale} compact formatter={show} />
+                    </div>
+                  )}
+                </div>
+              )}
+
               {!lockedProjectId && (
                 <Field label="Proyecto">
                   <select className="input" value={payProjectId} onChange={(e) => { setPayProjectId(Number(e.target.value)); setLotId(0); setClientId(0); }}>
@@ -897,7 +1138,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 <Field label="Lote">
                   <select className="input" value={lotId} onChange={(e) => selectLot(Number(e.target.value))}>
                     <option value={0}>{payProjectId ? 'Selecciona el lote…' : 'Primero elige un proyecto'}</option>
-                    {availableLots.map((l: any) => <option key={l.id} value={l.id}>Lote {l.code} — {formatMoney(l.price)}</option>)}
+                    {availableLots.map((l: any) => <option key={l.id} value={l.id}>Lote {l.code} — {show(l.price)}</option>)}
                   </select>
                 </Field>
                 <Field label="Cliente">
@@ -938,7 +1179,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 </div>
               </Field>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="TC (opcional)"><input type="number" step="0.0001" className="input" value={exchangeRate} onChange={(e) => setExchangeRate(e.target.value)} placeholder="Ej: 3.75" /></Field>
+                <Field label="TC (opcional)"><input type="number" step="0.0001" className="input" value={formExchangeRate} onChange={(e) => setFormExchangeRate(e.target.value)} placeholder="Ej: 3.75" /></Field>
                 <Field label="Monto US$ (opcional)"><input type="number" step="0.01" className="input" value={amountUsd} onChange={(e) => setAmountUsd(e.target.value)} /></Field>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -963,7 +1204,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             <div className="mb-5 flex items-start justify-between gap-3">
               <div>
                 <h3 className="font-semibold" style={{ fontSize: 17 }}>Editar pago pendiente</h3>
-                <p className="mt-1 text-sm text-slate-500">Lote {editingPayment.lotCode || editingPayment.lotId} - {formatMoney(editingPayment.amount)}</p>
+                <p className="mt-1 text-sm text-slate-500">Lote {editingPayment.lotCode || editingPayment.lotId} - {show(editingPayment.amount)}</p>
               </div>
               <button type="button" className="grid h-9 w-9 place-items-center rounded-md border text-slate-500" style={{ borderColor: BORDER }} onClick={() => setEditingPayment(null)} aria-label="Cerrar">
                 <FiX />
@@ -971,8 +1212,8 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             </div>
 
             <div className="mb-4 grid grid-cols-2 gap-2 text-sm">
-              <MiniMetric label="Monto registrado" value={formatMoney(editingPayment.amount)} />
-              <MiniMetric label="Monto pagado" value={editingPayment.status === 'pagado' ? formatMoney(editingPayment.amount) : 'S/ 0'} color={GREEN} />
+              <MiniMetric label="Monto registrado" value={show(editingPayment.amount)} />
+              <MiniMetric label="Monto pagado" value={editingPayment.status === 'pagado' ? show(editingPayment.amount) : show(0)} color={GREEN} />
               <MiniMetric label="Estado" value={editingPayment.status} color={editingPayment.status === 'pagado' ? GREEN : AMBER} />
               <MiniMetric label="Vence" value={formatDate(editingPayment.dueDate)} />
             </div>

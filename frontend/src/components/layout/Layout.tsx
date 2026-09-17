@@ -116,9 +116,17 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
       return;
     }
 
-    api.get<any>(`/projects/${activeProjectId}`)
-      .then((project) => setActiveProject({ id: activeProjectId, name: project?.name || `Proyecto ${activeProjectId}`, logoImageUrl: project?.logoImageUrl || null }))
-      .catch(() => setActiveProject({ id: activeProjectId, name: `Proyecto ${activeProjectId}` }));
+    const loadActiveProject = () => {
+      api.get<any>(`/projects/${activeProjectId}`)
+        .then((project) => setActiveProject({ id: activeProjectId, name: project?.name || `Proyecto ${activeProjectId}`, logoImageUrl: project?.logoImageUrl || null }))
+        .catch(() => setActiveProject({ id: activeProjectId, name: `Proyecto ${activeProjectId}` }));
+    };
+
+    loadActiveProject();
+    // Escucha el evento que emite la pantalla del proyecto al cambiar el logo,
+    // para que el sidebar y el header se actualicen sin recargar la pagina.
+    window.addEventListener('project-logo-updated', loadActiveProject);
+    return () => window.removeEventListener('project-logo-updated', loadActiveProject);
   }, [activeProjectId]);
 
   useEffect(() => {
@@ -264,9 +272,13 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
                 type="button"
                 onClick={() => navigate('/dashboard')}
                 className="flex h-11 min-w-0 flex-1 items-center justify-center rounded-md hover:bg-[#F3F4F6]"
-                title="Ir al inicio"
+                title="Dunacon - ir al inicio"
               >
-                <img src="/logo/dunacon.png" alt="Dunacon" className="h-11 w-auto object-contain mr-3" />
+                <img
+                  src="/logo/dunacon.png"
+                  alt="Dunacon"
+                  className="h-11 w-auto max-w-full object-contain mr-3"
+                />
               </button>
               <button
                 type="button"
@@ -280,15 +292,30 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
               </button>
             </div>
           ) : (
-            <button
-              type="button"
-              onClick={toggleCollapsed}
-              className="grid h-9 w-full place-items-center border bg-white"
-              style={{ borderColor: BRAND.ink, borderRadius: 2, color: BRAND.ink }}
-              title="Expandir menu"
-            >
-              <FiChevronRight />
-            </button>
+            <div className="flex flex-col items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => navigate('/dashboard')}
+                className="grid h-9 w-full place-items-center overflow-hidden rounded-md hover:bg-[#F3F4F6]"
+                title="Dunacon - ir al inicio"
+              >
+                <img
+                  src="/logo/dunacon.png"
+                  alt="Dunacon"
+                  className="h-8 max-w-10 object-contain"
+                />
+              </button>
+              <button
+                type="button"
+                onClick={toggleCollapsed}
+                className="grid h-8 w-full place-items-center rounded-md border bg-white text-[#374151] transition-colors hover:bg-[#F3F4F6]"
+                style={{ borderColor: BRAND.border }}
+                title="Expandir menu"
+                aria-label="Expandir menu"
+              >
+                <FiChevronRight />
+              </button>
+            </div>
           )}
         </div>
       ) : (
@@ -383,11 +410,25 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
             <FiMenu style={{ fontSize: 22 }} />
           </button>
           <div className="min-w-0 flex-1">
-            {titleLogoUrl ? (
-              <img src={titleLogoUrl} alt={title || 'Proyecto'} className="h-8 max-w-48 object-contain" />
-            ) : (
-              title && <h1 className="truncate" style={{ fontSize: 17 }}>{title}</h1>
-            )}
+            {(() => {
+              // En pestanas de proyecto el header muestra SOLO el logo del proyecto
+              // (sin el nombre), al mismo tamano que el logo Dunacon del sidebar
+              // para que se vea con presencia. El Layout obtiene `activeProject` de
+              // la URL, asi que aplica a todas las pestanas del proyecto.
+              if (isProjectContext && activeProject?.logoImageUrl) {
+                return (
+                  <img
+                    src={activeProject.logoImageUrl}
+                    alt={activeProject.name || 'Proyecto'}
+                    className="h-10 w-auto max-w-52 object-contain"
+                  />
+                );
+              }
+              if (titleLogoUrl) {
+                return <img src={titleLogoUrl} alt={title || 'Proyecto'} className="h-10 max-w-52 object-contain" />;
+              }
+              return title ? <h1 className="truncate" style={{ fontSize: 17 }}>{title}</h1> : null;
+            })()}
           </div>
           {isProjectContext && activeProjectId && (
             <button

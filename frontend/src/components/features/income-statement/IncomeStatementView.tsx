@@ -25,8 +25,10 @@ import {
   FiTrendingUp,
 } from 'react-icons/fi';
 import { Toaster, toast } from '@/components/ui/ui';
+import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
-import { BRAND, formatMoney, Lot, Project } from '@/lib/types';
+import { BRAND, Lot, Project } from '@/lib/types';
+import { useDisplayCurrency, formatCurrency } from '@/lib/currency';
 
 type IncomeStatement = {
   ingresos: number | string;
@@ -76,7 +78,7 @@ const DEFAULT_RUC = '20601820049';
 const INCOME_TAX_RATE = 0.295;
 
 function money(n: number) {
-  return formatMoney(Number.isFinite(n) ? n : 0);
+  return formatCurrency(Number.isFinite(n) ? n : 0, 'PEN');
 }
 
 function pct(n: number) {
@@ -86,13 +88,6 @@ function pct(n: number) {
 
 function num(n: unknown) {
   return Number(n || 0);
-}
-
-function shortMoney(n: number) {
-  const value = Number(n || 0);
-  if (Math.abs(value) >= 1000000) return `S/ ${(value / 1000000).toLocaleString('es-PE', { maximumFractionDigits: 1 })}M`;
-  if (Math.abs(value) >= 1000) return `S/ ${(value / 1000).toLocaleString('es-PE', { maximumFractionDigits: 0 })}k`;
-  return `S/ ${value.toLocaleString('es-PE', { maximumFractionDigits: 0 })}`;
 }
 
 function deviation(real: number, projected: number) {
@@ -114,29 +109,33 @@ function rowTone(row: StatementRow) {
 
 function KpiCard({ label, value, helper, icon, color = BLUE }: { label: string; value: string; helper: string; icon: JSX.Element; color?: string }) {
   return (
-    <div className="rounded-md border bg-white p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg" style={{ borderColor: BORDER }}>
-      <div className="flex items-start justify-between gap-3">
-        <span className="grid h-10 w-10 place-items-center rounded-md" style={{ background: `${color}15`, color }}>
+    <div className="min-w-0 rounded-md border bg-white p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg sm:p-4" style={{ borderColor: BORDER }}>
+      {/* En movil el icono va a la izquierda y los textos a la derecha, para que la
+          tarjeta quede ancha y baja. Desde sm vuelve al layout vertical original. */}
+      <div className="flex min-w-0 items-start gap-2.5 sm:block">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-[15px] sm:h-10 sm:w-10 sm:text-lg" style={{ background: `${color}15`, color }}>
           {icon}
         </span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:mt-4 sm:text-xs" style={{ color: MUTED }}>{label}</p>
+          <p className="mt-0.5 truncate text-base font-bold leading-tight tabular-nums sm:mt-1 sm:text-2xl" style={{ color: INK }}>{value}</p>
+        </div>
       </div>
-      <p className="mt-4 text-xs font-semibold uppercase tracking-wide" style={{ color: MUTED }}>{label}</p>
-      <p className="mt-1 text-2xl font-bold tabular-nums" style={{ color: INK }}>{value}</p>
-      <p className="mt-1 text-xs" style={{ color: MUTED }}>{helper}</p>
+      <p className="mt-1 truncate text-[10px] leading-tight sm:mt-1 sm:text-xs" style={{ color: MUTED }}>{helper}</p>
     </div>
   );
 }
 
 function MetricPill({ label, value, color = BLUE }: { label: string; value: string; color?: string }) {
   return (
-    <div className="rounded-md border bg-white px-4 py-3" style={{ borderColor: BORDER }}>
-      <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: MUTED }}>{label}</p>
-      <p className="mt-1 text-lg font-bold tabular-nums" style={{ color }}>{value}</p>
+    <div className="min-w-0 rounded-md border bg-white px-3 py-2.5 sm:px-4 sm:py-3" style={{ borderColor: BORDER }}>
+      <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }}>{label}</p>
+      <p className="mt-1 truncate text-base font-bold tabular-nums sm:text-lg" style={{ color }}>{value}</p>
     </div>
   );
 }
 
-function StatementTooltip({ active, payload, label }: any) {
+function StatementTooltip({ active, payload, label, formatter = money }: any) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-lg border bg-white px-3 py-2 shadow-xl" style={{ borderColor: BORDER }}>
@@ -144,7 +143,7 @@ function StatementTooltip({ active, payload, label }: any) {
       {payload.map((entry: any) => (
         <div key={entry.dataKey} className="flex items-center justify-between gap-5 text-xs">
           <span style={{ color: MUTED }}>{entry.name}</span>
-          <b style={{ color: INK }}>{money(Number(entry.value || 0))}</b>
+          <b style={{ color: INK }}>{formatter(Number(entry.value || 0))}</b>
         </div>
       ))}
     </div>
@@ -173,6 +172,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   const [lots, setLots] = useState<Lot[]>([]);
   const [loading, setLoading] = useState(true);
   const [ruc, setRuc] = useState(DEFAULT_RUC);
+  // Moneda unica de la pantalla: `show()` convierte los montos a la moneda activa.
+  const { currency, setCurrency, exchangeRate, setExchangeRate, format: show, formatShort: short } = useDisplayCurrency();
 
   useEffect(() => {
     try {
@@ -302,6 +303,15 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 </p>
               </div>
               <div className="grid gap-3 rounded-md bg-white/10 p-3 ring-1 ring-white/20 backdrop-blur-sm sm:min-w-[360px]">
+                <div className="flex items-center justify-between gap-3">
+                  <label className="text-xs font-semibold uppercase tracking-wide text-blue-50">Moneda</label>
+                  <CurrencyToggle
+                    currency={currency}
+                    setCurrency={setCurrency}
+                    exchangeRate={exchangeRate}
+                    setExchangeRate={setExchangeRate}
+                  />
+                </div>
                 <label className="text-xs font-semibold uppercase tracking-wide text-blue-50">Proyecto</label>
                 <div className="flex min-h-10 items-center rounded-md bg-white px-3 text-sm font-bold" style={{ color: INK }}>
                   {project?.name || `Proyecto ${projectId}`}
@@ -320,17 +330,17 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
               </div>
             </div>
           </div>
-          <div className="grid gap-3 border-t bg-[#F8FAFC] p-4 sm:grid-cols-2 xl:grid-cols-4" style={{ borderColor: BORDER }}>
-            <MetricPill label="Precio proyectado m2" value={money(report.projectedM2)} />
-            <MetricPill label="Ingreso real m2" value={money(report.realM2)} color={GREEN} />
+          <div className="grid grid-cols-2 gap-3 border-t bg-[#F8FAFC] p-4 xl:grid-cols-4" style={{ borderColor: BORDER }}>
+            <MetricPill label="Precio proyectado m2" value={show(report.projectedM2)} />
+            <MetricPill label="Ingreso real m2" value={show(report.realM2)} color={GREEN} />
             <MetricPill label="Area venta m2" value={`${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} m2`} color={BLUE_DARK} />
             <MetricPill label="Fecha de reporte" value={new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })} color={INK} />
           </div>
         </section>
 
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          <KpiCard label="Ingreso real" value={money(report.realRevenue)} helper="Ingresos registrados en finanzas" icon={<FiDollarSign />} color={GREEN} />
-          <KpiCard label="Utilidad neta" value={money(report.netProfit)} helper={`Margen neto ${pct(report.margin)}`} icon={<FiTrendingUp />} color={report.netProfit >= 0 ? BLUE : RED} />
+        <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+          <KpiCard label="Ingreso real" value={show(report.realRevenue)} helper="Ingresos registrados en finanzas" icon={<FiDollarSign />} color={GREEN} />
+          <KpiCard label="Utilidad neta" value={show(report.netProfit)} helper={`Margen neto ${pct(report.margin)}`} icon={<FiTrendingUp />} color={report.netProfit >= 0 ? BLUE : RED} />
           <KpiCard label="Lotes vendidos" value={`${report.soldLots}/${lots.length}`} helper="Conteo desde lotizacion" icon={<FiGrid />} color={BLUE_DARK} />
           <KpiCard label="Area vendible" value={`${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 0 })} m2`} helper={project?.location || 'Ubicacion del proyecto'} icon={<FiMapPin />} color="#7C3AED" />
         </div>
@@ -376,8 +386,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-right text-sm font-semibold tabular-nums" style={{ color: INK }}>{money(row.projected)}</td>
-                        <td className="px-4 py-3 text-right text-sm font-bold tabular-nums" style={{ color: row.real < 0 ? RED : INK }}>{money(row.real)}</td>
+                        <td className="px-4 py-3 text-right text-sm font-semibold tabular-nums" style={{ color: INK }}>{show(row.projected)}</td>
+                        <td className="px-4 py-3 text-right text-sm font-bold tabular-nums" style={{ color: row.real < 0 ? RED : INK }}>{show(row.real)}</td>
                         <td className="px-4 py-3 text-right">
                           <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
                             {diff >= 0 ? '+' : ''}{pct(diff)}
@@ -404,9 +414,9 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={report.chart} layout="vertical" margin={{ left: 8, right: 24, top: 8, bottom: 12 }}>
                     <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" horizontal={false} />
-                    <XAxis type="number" tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <XAxis type="number" tickFormatter={short} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: MUTED }} width={88} axisLine={false} tickLine={false} />
-                    <Tooltip content={<StatementTooltip />} cursor={{ fill: '#F8FAFC' }} />
+                    <Tooltip content={<StatementTooltip formatter={show} />} cursor={{ fill: '#F8FAFC' }} />
                     <Bar dataKey="value" name="Monto" radius={[0, 8, 8, 0]}>
                       {report.chart.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
                     </Bar>

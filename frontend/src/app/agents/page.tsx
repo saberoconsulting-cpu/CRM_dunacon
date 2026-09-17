@@ -2,8 +2,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Layout from '@/components/layout/Layout';
 import { Modal, StatCard, Toaster, toast } from '@/components/ui/ui';
+import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
-import { formatMoney } from '@/lib/types';
+import { useDisplayCurrency } from '@/lib/currency';
 import { printHtml } from '@/lib/print';
 import { FiDownload, FiFileText, FiSettings } from 'react-icons/fi';
 
@@ -87,6 +88,8 @@ export default function AgentsPage() {
   const [projectId, setProjectId] = useState('');
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [modalPeriod, setModalPeriod] = useState<Period>('month');
+  // Moneda unica de la pantalla: `show()` convierte los montos a la moneda activa.
+  const { currency, setCurrency, exchangeRate, setExchangeRate, format: show } = useDisplayCurrency();
 
   const load = useCallback(async () => {
     try {
@@ -178,8 +181,8 @@ export default function AgentsPage() {
         <td>${sale.lotCode || sale.lot_code || sale.lotId || sale.lot_id || '-'}</td>
         <td>${sale.clientName || sale.client_name || '-'}</td>
         <td>${sale.agentName || selectedAgent.name}</td>
-        <td class="num">${formatMoney(saleAmount(sale))}</td>
-        <td class="num">${formatMoney(saleCommission(sale))}</td>
+        <td class="num">${show(saleAmount(sale))}</td>
+        <td class="num">${show(saleCommission(sale))}</td>
         <td>${formatDate(sale.saleDate || sale.sale_date || sale.createdAt)}</td>
       </tr>
     `).join('');
@@ -194,7 +197,7 @@ export default function AgentsPage() {
         .summary span{display:block;color:#6B7280;font-size:10px;text-transform:uppercase}.summary b{display:block;margin-top:3px}
       </style></head><body>
         <h1>Ficha de ventas - ${selectedAgent.name}</h1><p>Periodo: ${PERIOD_LABEL[modalPeriod]} - Generado: ${generatedAt}</p>
-        <div class="summary"><div><span>Ventas</span><b>${fichaSales.length}</b></div><div><span>Monto vendido</span><b>${formatMoney(fichaAmount)}</b></div><div><span>Comision acumulada</span><b>${formatMoney(fichaCommission)}</b></div><div><span>Comision %</span><b>${Number(selectedAgent.commissionRate || 0)}%</b></div></div>
+        <div class="summary"><div><span>Ventas</span><b>${fichaSales.length}</b></div><div><span>Monto vendido</span><b>${show(fichaAmount)}</b></div><div><span>Comision acumulada</span><b>${show(fichaCommission)}</b></div><div><span>Comision %</span><b>${Number(selectedAgent.commissionRate || 0)}%</b></div></div>
         <table><thead><tr><th>ID</th><th>Lote</th><th>Cliente</th><th>Agente</th><th>Monto</th><th>Comision</th><th>Fecha</th></tr></thead><tbody>${rowsHtml || '<tr><td colspan="7">Sin ventas registradas.</td></tr>'}</tbody></table>
       </body></html>
     `);
@@ -204,20 +207,29 @@ export default function AgentsPage() {
     <Layout title="Agentes y rendimiento">
       <Toaster />
       <div className="space-y-5">
-        <div className="flex justify-end">
-          <select className="input max-w-xs" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-            <option value="">Todos los proyectos</option>
-            {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
-          </select>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-semibold">Rendimiento de agentes</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <CurrencyToggle
+              currency={currency}
+              setCurrency={setCurrency}
+              exchangeRate={exchangeRate}
+              setExchangeRate={setExchangeRate}
+            />
+            <select className="input max-w-xs" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
+              <option value="">Todos los proyectos</option>
+              {projects.map((project) => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-6">
           <StatCard label="Agentes activos" value={activeAgents} />
           <StatCard label="Lotes Totales" value={scopedLots.length} color="#1259C4" />
           <StatCard label="Lotes Vendidos" value={soldLots} color="#1259C4" />
-          <StatCard label="Monto Vendido US$" value={formatMoney(totalSold)} color="#1259C4" />
-          <StatCard label="Monto vendido (agentes)" value={formatMoney(totalSold)} color="#125A3B" />
-          <StatCard label="Comision Total US$" value={formatMoney(totalCommission)} color="#1259C4" />
+          <StatCard label="Monto vendido" value={show(totalSold)} color="#1259C4" />
+          <StatCard label="Monto vendido (agentes)" value={show(totalSold)} color="#125A3B" />
+          <StatCard label="Comision total" value={show(totalCommission)} color="#1259C4" />
         </div>
 
         <div className="card overflow-auto p-0">
@@ -237,8 +249,8 @@ export default function AgentsPage() {
                         <td className="td-base font-medium">{agent.name}</td>
                         <td className="td-base"><button onClick={() => changeCommission(agent)} className="inline-flex items-center gap-1 text-xs font-medium text-[#1877F2] hover:underline"><FiSettings /> {Number(agent.commissionRate || 0)}% editar</button></td>
                         <td className="td-base">{metric.count}</td>
-                        <td className="td-base">{formatMoney(metric.amount)}</td>
-                        <td className="td-base font-medium" style={{ color: '#1259C4' }}>{formatMoney(metric.commission)}</td>
+                        <td className="td-base">{show(metric.amount)}</td>
+                        <td className="td-base font-medium" style={{ color: '#1259C4' }}>{show(metric.commission)}</td>
                         <td className="td-base">{agent.monthlyGoalLots || 0}</td>
                         <td className="td-base"><span className="badge" style={{ background: agent.status === 'active' ? '#EAF7EE' : '#F1F5F9', color: agent.status === 'active' ? '#125A3B' : '#64748B' }}>{agent.status}</span></td>
                         <td className="td-base"><button className="btn-neutral !h-7 text-xs" onClick={() => toggle(agent)}>{agent.status === 'active' ? 'Desactivar' : 'Activar'}</button></td>
@@ -271,8 +283,8 @@ export default function AgentsPage() {
                     <td className="td-base font-semibold" style={{ color: '#1877F2' }}>{index + 1}</td>
                     <td className="td-base truncate font-medium">{row.agent.name}</td>
                     <td className="td-base text-right tabular-nums">{row.count}</td>
-                    <td className="td-base text-right font-semibold tabular-nums">{formatMoney(row.amount)}</td>
-                    <td className="td-base text-right tabular-nums">{formatMoney(row.commission)}</td>
+                    <td className="td-base text-right font-semibold tabular-nums">{show(row.amount)}</td>
+                    <td className="td-base text-right tabular-nums">{show(row.commission)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -302,8 +314,8 @@ export default function AgentsPage() {
 
           <div className="grid grid-cols-3 gap-3">
             <StatCard label="Ventas" value={fichaSales.length} />
-            <StatCard label="Monto vendido" value={formatMoney(fichaAmount)} color="#1259C4" />
-            <StatCard label="Comision" value={formatMoney(fichaCommission)} color="#1259C4" />
+            <StatCard label="Monto vendido" value={show(fichaAmount)} color="#1259C4" />
+            <StatCard label="Comision" value={show(fichaCommission)} color="#1259C4" />
           </div>
 
           <div className="overflow-x-auto">
@@ -315,8 +327,8 @@ export default function AgentsPage() {
                     <td className="td-base">V{sale.id}</td>
                     <td className="td-base">{sale.lotCode || sale.lotId || '-'}</td>
                     <td className="td-base">{sale.clientName || '-'}</td>
-                    <td className="td-base text-right font-semibold">{formatMoney(saleAmount(sale))}</td>
-                    <td className="td-base text-right">{formatMoney(saleCommission(sale))}</td>
+                    <td className="td-base text-right font-semibold">{show(saleAmount(sale))}</td>
+                    <td className="td-base text-right">{show(saleCommission(sale))}</td>
                     <td className="td-base">{formatDate(sale.saleDate || sale.sale_date || sale.createdAt)}</td>
                   </tr>
                 ))}

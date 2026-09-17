@@ -3,7 +3,9 @@ import { ReactNode, useEffect, useState } from 'react';
 import { FiArrowDown, FiCreditCard, FiDownload, FiFileText, FiLayers, FiTag, FiUsers } from 'react-icons/fi';
 import { api } from '@/lib/api';
 import { FormattedDashboard } from '@/lib/dboard';
-import { BRAND, LOT_STATUS_COLOR, formatMoney } from '@/lib/types';
+import { BRAND, LOT_STATUS_COLOR } from '@/lib/types';
+import { moneyGlobal, useCurrencyStoreSync } from '@/lib/currency';
+import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { printHtml } from '@/lib/print';
 import { Modal } from '@/components/ui/ui';
 
@@ -24,8 +26,10 @@ const MOVEMENTS_HISTORY_SIZE = 10;
 const MOVEMENTS_EXPORT_SIZE = 100000;
 const CHART_COLORS = [BRAND.blue, BRAND.blueDark, '#16A36A', '#F59E0B', '#E11D48', '#8064A2', '#0EA5E9', '#64748B'];
 
+// Los montos llegan en soles desde el backend; `moneyGlobal` los convierte a la
+// moneda activa (S/ o US$) segun el almacen global de moneda.
 function money(value: unknown): string {
-  return formatMoney(Number(value || 0));
+  return moneyGlobal(value);
 }
 
 function pageCount(total: number, size: number) {
@@ -194,26 +198,26 @@ function CommercialSummary({ d }: { d: FormattedDashboard }) {
       <div className="relative overflow-hidden border bg-white p-5" style={{ borderColor: BRAND.border, borderRadius: 6 }}>
         <div className="absolute left-0 top-0 h-full w-1.5" style={{ background: BRAND.blue }} />
         <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">Resumen comercial</p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
           {financialBoxes.map((box) => (
-            <div key={box.label} className="border bg-white p-3" style={{ borderColor: BRAND.border, borderRadius: 6 }}>
+            <div key={box.label} className="min-w-0 border bg-white p-3" style={{ borderColor: BRAND.border, borderRadius: 6 }}>
               <span className="block h-1 w-9" style={{ background: box.color }} />
-              <p className="mt-3 min-h-[2rem] text-[11px] font-semibold leading-4 text-slate-500">{box.label}</p>
-              <p className="mt-1 text-lg font-semibold tabular-nums tracking-tight" style={{ color: box.color }}>{money(box.value)}</p>
+              <p className="mt-3 min-h-[2rem] text-[10px] font-semibold leading-4 text-slate-500 sm:text-[11px]">{box.label}</p>
+              <p className="mt-1 truncate text-base font-semibold tabular-nums tracking-tight sm:text-lg" style={{ color: box.color }}>{money(box.value)}</p>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-2 gap-3">
         {secondary.map((item) => (
-          <div key={item.label} className="border bg-white p-4" style={{ borderColor: BRAND.border, borderRadius: 6 }}>
+          <div key={item.label} className="min-w-0 border bg-white p-3 sm:p-4" style={{ borderColor: BRAND.border, borderRadius: 6 }}>
             <div className="flex items-start justify-between gap-3">
-              <span className="grid h-8 w-8 place-items-center rounded-md" style={{ background: `${item.tone}12`, color: item.tone }}>{item.icon}</span>
-              <span className="h-1.5 w-1.5" style={{ background: BRAND.blue }} />
+              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md" style={{ background: `${item.tone}12`, color: item.tone }}>{item.icon}</span>
+              <span className="h-1.5 w-1.5 shrink-0" style={{ background: BRAND.blue }} />
             </div>
-            <p className="mt-4 text-[11px] font-medium text-slate-500">{item.label}</p>
-            <p className="mt-1 text-xl font-semibold tabular-nums" style={{ color: BRAND.ink }}>{item.value}</p>
+            <p className="mt-3 truncate text-[10px] font-medium leading-tight text-slate-500 sm:mt-4 sm:text-[11px]">{item.label}</p>
+            <p className="mt-1 truncate text-lg font-semibold tabular-nums sm:text-xl" style={{ color: BRAND.ink }}>{item.value}</p>
           </div>
         ))}
       </div>
@@ -383,7 +387,8 @@ function PieSummary({
   const data = rows.filter((row) => Number(row.value || 0) > 0).map((row, index) => ({ ...row, color: row.color || CHART_COLORS[index % CHART_COLORS.length] }));
   const total = data.reduce((sum, row) => sum + row.value, 0);
   const formattedTotal = valueFormatter(total);
-  const moneyMatch = formattedTotal.match(/^(S\/)\s*(.+)$/);
+  // Separa el simbolo de moneda (S/ o US$) del numero para pintarlos en dos lineas.
+  const moneyMatch = formattedTotal.match(/^(S\/|US\$)\s*(.+)$/);
 
   return (
     <SectionShell title={title} subtitle={subtitle} className={className}>
@@ -897,6 +902,9 @@ function MovementsCenter({ sales, payments, projects, projectName }: {
 
 export default function GeneralView({ d, compact = false }: { d: FormattedDashboard | null; compact?: boolean }) {
   const [projects, setProjects] = useState<any[]>([]);
+  // Sincroniza el almacen global de moneda para que todos los sub-componentes
+  // (que llaman a `money()`) se repinten al cambiar S/ <-> US$.
+  const { currency, setCurrency, exchangeRate, setExchangeRate } = useCurrencyStoreSync();
 
   useEffect(() => {
     api.get<any[]>('/projects')
@@ -939,6 +947,16 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
 
   return (
     <div className="space-y-5">
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="font-semibold">Dashboard general</h3>
+        <CurrencyToggle
+          currency={currency}
+          setCurrency={setCurrency}
+          exchangeRate={exchangeRate}
+          setExchangeRate={setExchangeRate}
+        />
+      </div>
+
       <CommercialSummary d={d} />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]">
