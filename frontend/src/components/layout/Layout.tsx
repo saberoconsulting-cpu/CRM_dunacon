@@ -62,7 +62,8 @@ function projectNav(projectId: number): NavItem[] {
     { key: 'banking', number: 10, href: '#estado-cc-bancos', label: 'Cuentas y bancos', icon: <FiCreditCard />, roles: ['superadmin', 'admin'], soon: true },
     { key: 'construction-budget', number: 11, href: `/projects/${projectId}/construction-budget`, label: 'Presupuesto de obra', icon: <FiLayers />, roles: ['superadmin', 'admin'] },
     { key: 'income-statement', number: 12, href: `/projects/${projectId}/income-statement`, label: 'Estado de resultados', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
-    { key: 'cashflow', number: 13, href: '#flujo-caja', label: 'Flujo de caja', icon: <FiPieChart />, roles: ['superadmin', 'admin'], soon: true },
+    { key: 'cashflow', number: 13, href: `/projects/${projectId}/cashflow`, label: 'Flujo de caja', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
+    { key: 'financial-model', number: 14, href: `/projects/${projectId}/financial-model`, label: 'Modelo financiero', icon: <FiFileText />, roles: ['superadmin', 'admin'] },
   ];
 }
 
@@ -173,7 +174,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const projectAllowedModules = activeProjectId ? moduleAccess[activeProjectId] : null;
   const visiblePrimary = (isProjectContext ? projectNav(activeProjectId) : GLOBAL_NAV)
     .filter((item) => item.roles.includes(user.role))
-    .filter((item) => !isProjectContext || user.role === 'superadmin' || !Array.isArray(projectAllowedModules) || projectAllowedModules.includes(item.key || ''));
+    .filter((item) => item.key === 'financial-model' || !isProjectContext || user.role === 'superadmin' || !Array.isArray(projectAllowedModules) || projectAllowedModules.includes(item.key || ''));
   const visibleEnd = isProjectContext ? [] : GLOBAL_END_NAV.filter((item) => item.roles.includes(user.role));
   const showLabels = drawerOpen || !collapsed;
   const sidebarWidth = collapsed ? 76 : 248;
@@ -484,7 +485,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
             )}
           </div>
         </header>
-        <main className="flex-1 overflow-y-auto bg-canvas p-4 sm:p-5 md:p-6">{children}</main>
+        <main className={`flex-1 overflow-y-auto bg-canvas ${title === 'Modelo financiero' ? 'p-2 sm:p-3 md:p-4' : 'p-4 sm:p-5 md:p-6'}`}>{children}</main>
       </div>
       {projectDocumentsOpen && activeProjectId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

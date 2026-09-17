@@ -68,6 +68,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
       toast('Ingreso adicional registrado'); setOpenIn(false); setIForm({}); load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
+
   const income = Number(summary?.income || 0);
   const expense = Number(summary?.expense || 0);
 

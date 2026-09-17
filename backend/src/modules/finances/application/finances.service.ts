@@ -8,6 +8,7 @@ import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-lo
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
 import { CreateExpenseDto, CreateAdditionalIncomeDto } from './dto/finance.dto';
 import { ConstructionBudgetService } from '../../construction-budget/application/construction-budget.service';
+import * as XLSX from 'xlsx';
 
 @Injectable()
 export class FinancesService {
@@ -65,6 +66,75 @@ export class FinancesService {
     await this.audit(actorId, 'REGISTRAR_INGRESO_EXTRA', 'financial_transactions', txn.id);
     this.gateway.emitToAll('payment.created', txn);
     return txn;
+  }
+
+  async importSpreadsheet(buffer: Buffer, actorId: number, projectId?: number) {
+    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    if (!firstSheet) throw new Error('El archivo no contiene hojas');
+    const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: null, raw: true });
+    if (!rows.length) throw new Error('La primera hoja no contiene filas de datos');
+
+    const normalized = (value: unknown) => String(value ?? '')
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const field = (row: Record<string, unknown>, names: string[]) => {
+      const key = Object.keys(row).find((candidate) => names.includes(normalized(candidate)));
+      return key ? row[key] : undefined;
+    };
+    const numberValue = (value: unknown) => {
+      if (typeof value === 'number') return value;
+      const text = String(value ?? '').replace(/[^0-9,.-]/g, '').replace(/\.(?=.*\.)/g, '').replace(',', '.');
+      return Number(text);
+    };
+    const dateValue = (value: unknown) => {
+      if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+      if (typeof value === 'number') return XLSX.SSF.parse_date_code(value) ? new Date(Math.round((value - 25569) * 86400 * 1000)) : undefined;
+      const date = new Date(String(value ?? ''));
+      return Number.isNaN(date.getTime()) ? undefined : date;
+    };
+    const imported: FinancialTransactionEntity[] = [];
+    const rejected: { row: number; reason: string }[] = [];
+
+    for (const [index, row] of rows.entries()) {
+      const rawAmount = field(row, ['monto', 'importe', 'amount', 'valor', 'total']);
+      const rawIncome = field(row, ['ingreso', 'ingresos', 'entrada', 'entradas', 'income', 'inflow']);
+      const rawExpense = field(row, ['egreso', 'egresos', 'salida', 'salidas', 'expense', 'outflow']);
+      const concept = String(field(row, ['concepto', 'descripcion', 'detalle', 'description', 'concept']) ?? '').trim();
+      const rawType = normalized(field(row, ['tipo', 'movimiento', 'nature', 'type']));
+      const defaultType = ['ingreso', 'entrada', 'income', 'inflow', 'deposito', 'deposit'].includes(rawType) ? 'ingreso' :
+        ['egreso', 'salida', 'expense', 'outflow', 'retiro', 'withdrawal'].includes(rawType) ? 'egreso' :
+          (Number(rawAmount) < 0 ? 'egreso' : 'ingreso');
+      const amounts = rawIncome !== undefined || rawExpense !== undefined
+        ? [{ type: 'ingreso', amount: Math.abs(numberValue(rawIncome)) }, { type: 'egreso', amount: Math.abs(numberValue(rawExpense)) }]
+        : [{ type: defaultType, amount: Math.abs(numberValue(rawAmount)) }];
+      const validAmounts = amounts.filter((item) => item.amount > 0);
+      if (!concept || !validAmounts.length) {
+        rejected.push({ row: index + 2, reason: 'Falta concepto o monto válido' });
+        continue;
+      }
+      const txnDate = dateValue(field(row, ['fecha', 'date', 'fechamovimiento', 'periodo'])) || new Date();
+      const category = String(field(row, ['categoria', 'category', 'rubro', 'cuenta']) ?? 'importado').trim().slice(0, 80);
+      for (const item of validAmounts) {
+        imported.push(this.txnRepo.create({ projectId, createdBy: actorId, type: item.type, category, concept: concept.slice(0, 255), amount: item.amount.toFixed(2), txnDate }));
+      }
+    }
+    if (!imported.length) throw new Error('No se encontraron movimientos válidos en la primera hoja');
+
+    const saved = await this.txnRepo.save(imported);
+    for (const transaction of saved.filter((item) => item.type === 'egreso')) {
+      await this.expenseRepo.save({
+        projectId,
+        category: transaction.category,
+        expenseClass: 'operacion',
+        concept: transaction.concept,
+        amount: transaction.amount,
+        expenseDate: transaction.txnDate.toISOString().slice(0, 10),
+        createdBy: actorId,
+      });
+    }
+    await this.audit(actorId, 'IMPORTAR_FLUJO_CAJA', 'financial_transactions', saved[0]?.id);
+    this.gateway.emitToAll('financial.imported', { count: saved.length, projectId });
+    return { imported: saved.length, rejected, sheet: workbook.SheetNames[0] };
   }
 
   async transactions(filters: {

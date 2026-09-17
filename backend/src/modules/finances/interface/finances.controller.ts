@@ -3,10 +3,15 @@ import {
   Body,
   Controller,
   Get,
+  BadRequestException,
   Post,
   Query,
+  UploadedFile,
+  UseInterceptors,
   UseGuards,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { FinancesService } from '../application/finances.service';
 import { CreateExpenseDto, CreateAdditionalIncomeDto } from '../application/dto/finance.dto';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
@@ -76,5 +81,24 @@ export class FinancesController {
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
   registerIncome(@Body() dto: CreateAdditionalIncomeDto, @CurrentUser('id') actorId: number) {
     return this.financesService.registerAdditionalIncome(dto, actorId);
+  }
+
+  @Post('import')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  @UseInterceptors(FileInterceptor('file', {
+    storage: memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 },
+  }))
+  importSpreadsheet(
+    @UploadedFile() file: Express.Multer.File,
+    @Query('projectId') projectId: string | undefined,
+    @CurrentUser('id') actorId: number,
+  ) {
+    if (!file) throw new BadRequestException('Adjunta un archivo Excel');
+    const extension = file.originalname.toLowerCase().split('.').pop();
+    if (!['xlsx', 'xls', 'csv'].includes(extension || '')) {
+      throw new BadRequestException('El archivo debe ser Excel (.xlsx, .xls) o CSV');
+    }
+    return this.financesService.importSpreadsheet(file.buffer, actorId, projectId ? Number(projectId) : undefined);
   }
 }
