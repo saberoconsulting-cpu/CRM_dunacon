@@ -69,6 +69,9 @@ export class PaymentsService {
         createdBy: actorId,
         exchangeRate: dto.exchangeRate != null ? String(dto.exchangeRate) : null,
         amountUsd: dto.amountUsd != null ? String(dto.amountUsd) : null,
+        bankOperationNumber: dto.bankOperationNumber || null,
+        receiptNumber: dto.receiptNumber || null,
+        receiptValue: dto.receiptValue != null ? String(dto.receiptValue) : null,
       });
       // Si no hay fecha de vencimiento, se considera pago inmediato (pagado)
       if (!dto.dueDate) payment.status = 'pagado';
@@ -160,7 +163,7 @@ export class PaymentsService {
           'p.id', 'p.projectId', 'p.lotId', 'p.clientId', 'p.agentId', 'p.type', 'p.amount',
           'p.dueDate', 'p.paymentMethod', 'p.reference', 'p.voucherUrl', 'p.paidAt', 'p.status', 'p.createdAt',
           'p.exchangeRate', 'p.amountUsd', 'p.bankOperationNumber', 'p.receiptNumber', 'p.receiptValue',
-          'p.approvalDocumentUrl', 'p.approvedAt',
+          'p.approvalDocumentUrl', 'p.receiptDocumentUrl', 'p.approvedAt',
         ])
         // Postgres pliega a minúsculas cualquier alias sin comillas — mismo bug
         // ya corregido en lots.service.ts y sales.service.ts.
@@ -203,6 +206,7 @@ export class PaymentsService {
       receiptNumber: r.p_receipt_number || null,
       receiptValue: r.p_receipt_value != null ? Number(r.p_receipt_value) : null,
       approvalDocumentUrl: r.p_approval_document_url || null,
+      receiptDocumentUrl: r.p_receipt_document_url || null,
       approvedAt: r.p_approved_at || null,
       approvedByName: r.approvedByName || null,
     }));
@@ -258,6 +262,16 @@ export class PaymentsService {
     const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
     if (!payment) return null;
     payment.approvalDocumentUrl = url;
+    const saved = await this.paymentRepo.save(payment);
+    this.gateway.emitToAll('payment.updated', saved);
+    return saved;
+  }
+
+  // Adjuntar la imagen de la boleta al registrar el pago (URL de subida previa).
+  async attachReceiptDoc(paymentId: number, url: string) {
+    const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
+    if (!payment) return null;
+    payment.receiptDocumentUrl = url;
     const saved = await this.paymentRepo.save(payment);
     this.gateway.emitToAll('payment.updated', saved);
     return saved;

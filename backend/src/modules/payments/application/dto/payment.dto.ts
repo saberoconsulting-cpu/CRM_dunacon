@@ -58,4 +58,18 @@ export class CreatePaymentDto {
   @IsOptional()
   @IsNumber()
   amountUsd?: number;
+
+  // Datos bancarios que el agente/gerente deja al registrar el pago; el admin
+  // los revisa y completa/confirma al aprobar.
+  @IsOptional()
+  @IsString()
+  bankOperationNumber?: string;
+
+  @IsOptional()
+  @IsString()
+  receiptNumber?: string;
+
+  @IsOptional()
+  @IsNumber()
+  receiptValue?: number;
 }

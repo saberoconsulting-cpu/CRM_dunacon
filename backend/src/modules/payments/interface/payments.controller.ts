@@ -82,4 +82,11 @@ export class PaymentsController {
     const up = await uploadToCloudinary(file.buffer, 'uploads');
     return this.paymentsService.attachApprovalDoc(id, up.secure_url);
   }
+
+  @Post('receipt-doc/:id')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  async attachReceiptDoc(@Param('id', ParseIntPipe) id: number, @UploadedFile() file: Express.Multer.File) {
+    const up = await uploadToCloudinary(file.buffer, 'uploads');
+    return this.paymentsService.attachReceiptDoc(id, up.secure_url);
+  }
 }

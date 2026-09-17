@@ -74,6 +74,10 @@ export class PaymentEntity {
   @Column({ name: 'approval_document_url', type: 'varchar', length: 500, nullable: true })
   approvalDocumentUrl: string | null;
 
+  // Imagen de la boleta/comprobante adjuntada al registrar el pago.
+  @Column({ name: 'receipt_document_url', type: 'varchar', length: 500, nullable: true })
+  receiptDocumentUrl: string | null;
+
   @Column({ name: 'approved_by', type: 'int', nullable: true })
   approvedBy: number | null;
 

@@ -31,7 +31,7 @@ type P = {
   receivedByName?: string | null; paymentMethod?: string; reference?: string | null; voucherUrl?: string | null;
   exchangeRate?: number | null; amountUsd?: number | null;
   bankOperationNumber?: string | null; receiptNumber?: string | null; receiptValue?: number | null;
-  approvalDocumentUrl?: string | null; approvedByName?: string | null; approvedAt?: string | null;
+  approvalDocumentUrl?: string | null; receiptDocumentUrl?: string | null; approvedByName?: string | null; approvedAt?: string | null;
 };
 const TYPE_LABEL: any = { reserva: 'Reserva', adelanto: 'Cuota inicial', primera_cuota: 'Cuota normal', cuota: 'Cuota' };
 const BADGE: any = { pagado: ['#EAF7EE', '#257849'], pendiente: ['#FFF6E4', '#B45309'], vencido: ['#E7F0FE', '#1259C4'] };
@@ -381,6 +381,14 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [voucherUrl, setVoucherUrl] = useState('');
   const [formExchangeRate, setFormExchangeRate] = useState('');
   const [amountUsd, setAmountUsd] = useState('');
+  // Datos para adjuntar durante el registro (op. bancaria como foto y boleta).
+  const [regBankOp, setRegBankOp] = useState('');
+  const [regBankOpFile, setRegBankOpFile] = useState<File | null>(null);
+  const [regBankOpUrl, setRegBankOpUrl] = useState('');
+  const [regReceiptNo, setRegReceiptNo] = useState('');
+  const [regReceiptFile, setRegReceiptFile] = useState<File | null>(null);
+  const [regReceiptUrl, setRegReceiptUrl] = useState('');
+  const [regCuotaValue, setRegCuotaValue] = useState('');
   const [editingPayment, setEditingPayment] = useState<P | null>(null);
   const [editVoucher, setEditVoucher] = useState<File | null>(null);
   const [editVoucherUrl, setEditVoucherUrl] = useState('');
@@ -389,7 +397,10 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [approvalReceiptValue, setApprovalReceiptValue] = useState('');
   const [approvalDoc, setApprovalDoc] = useState<File | null>(null);
   const [approvalDocUrl, setApprovalDocUrl] = useState('');
-  const payCanMark = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
+  // Solo admin/superadmin pueden aprobar un pago. Agentes y gerentes solo
+  // registran; el pago queda pendiente hasta que un admin lo apruebe.
+  const currentRole = (() => { try { return JSON.parse(localStorage.getItem('crm_user') || '{}').role || ''; } catch { return ''; } })();
+  const payCanMark = currentRole === 'admin' || currentRole === 'superadmin';
 
   useEffect(() => { if (lockedProjectId) setPayProjectId(lockedProjectId); }, [lockedProjectId]);
 
@@ -420,9 +431,12 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     setPayProjectId(activeSale.sale.projectId);
     setLotId(activeSale.sale.lotId);
     if (activeSale.sale.clientId) setClientId(activeSale.sale.clientId);
-    setAmount(activeSale.summary?.nextAmount || 0);
+    const nextAmount = Number(activeSale.summary?.nextAmount || 0);
+    setAmount(nextAmount);
     setPayType((activeSale.summary?.paidCount || 0) > 0 ? 'cuota' : 'adelanto');
     setDueDate(activeSale.summary?.nextDueDate || '');
+    // Valor de la cuota: se llena solo con el monto de la cuota que le toca pagar.
+    setRegCuotaValue(nextAmount > 0 ? String(nextAmount) : '');
   }, [activeSale]);
 
   const load = useCallback(async () => {
@@ -481,12 +495,28 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     if (!amount) return toast('Ingresa monto', 'err');
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
-      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined, exchangeRate: formExchangeRate ? Number(formExchangeRate) : undefined, amountUsd: amountUsd ? Number(amountUsd) : undefined });
+      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined, exchangeRate: formExchangeRate ? Number(formExchangeRate) : undefined, amountUsd: amountUsd ? Number(amountUsd) : undefined, bankOperationNumber: regBankOp.trim() || undefined, receiptNumber: regReceiptNo.trim() || undefined, receiptValue: regCuotaValue ? Number(regCuotaValue) : undefined });
+      // Adjuntos del registro: voucher del pago, foto de la operacion bancaria y boleta.
       if (voucher) { await uploadFile(`/payments/voucher/${saved?.id}`, voucher); }
+      if (regBankOpFile) { await uploadFile(`/payments/approval-doc/${saved?.id}`, regBankOpFile); }
+      if (regReceiptFile) { await uploadFile(`/payments/receipt-doc/${saved?.id}`, regReceiptFile); }
       toast(voucher ? 'Pago registrado con comprobante adjunto' : 'Pago registrado');
       setOpen(false); setAmount(0); setDueDate(''); setNote(''); setLotId(0); setClientId(0); setPayMethod('yape'); setReference(''); setVoucher(null); setVoucherUrl(''); setFormExchangeRate(''); setAmountUsd('');
+      setRegBankOp(''); setRegBankOpFile(null); setRegBankOpUrl(''); setRegReceiptNo(''); setRegReceiptFile(null); setRegReceiptUrl(''); setRegCuotaValue('');
       load();
     } catch (e: any) { toast(e.message, 'err'); }
+  }
+
+  function pickRegBankOp(f?: File) {
+    if (!f) { setRegBankOpFile(null); setRegBankOpUrl(''); return; }
+    setRegBankOpFile(f);
+    if (window) { try { if (regBankOpUrl.startsWith('blob:')) URL.revokeObjectURL(regBankOpUrl); } catch {} setRegBankOpUrl(URL.createObjectURL(f)); }
+  }
+
+  function pickRegReceipt(f?: File) {
+    if (!f) { setRegReceiptFile(null); setRegReceiptUrl(''); return; }
+    setRegReceiptFile(f);
+    if (window) { try { if (regReceiptUrl.startsWith('blob:')) URL.revokeObjectURL(regReceiptUrl); } catch {} setRegReceiptUrl(URL.createObjectURL(f)); }
   }
 
   function pickVoucher(f?: File) {
@@ -1016,7 +1046,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                       <div className="flex flex-col items-start gap-1">
                         {st(p)}
                         {p.status === 'pendiente' && (
-                          <button type="button" className="btn-secondary !h-6 !px-2 text-[11px] whitespace-nowrap" onClick={() => openEditPayment(p)}>{payCanMark ? 'Aprobar / Editar' : 'Editar'}</button>
+                          <button type="button" className="btn-secondary !h-6 !px-2 text-[11px] whitespace-nowrap" onClick={() => openEditPayment(p)}>{payCanMark ? 'Aprobar / Editar' : 'Ver / Editar'}</button>
                         )}
                       </div>
                     </td>
@@ -1187,12 +1217,59 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 <Field label="Vence (opcional)"><input type="date" className="input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
               </div>
               <Field label="Nota (opcional)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+
+              {/* Datos de la operacion bancaria y boleta. Se adjuntan al registrar
+                  el pago para que el admin los revise al aprobar. */}
+              <div className="mt-4 space-y-3 rounded-lg border p-3" style={{ borderColor: BORDER, background: '#FAFBFC' }}>
+                <p className="text-xs font-semibold" style={{ color: '#B45309' }}>
+                  Operacion bancaria y boleta (se revisan al aprobar el pago)
+                </p>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="N° Op. Bco (opcional)"><input className="input" value={regBankOp} onChange={(e) => setRegBankOp(e.target.value)} placeholder="Ej: 0293-4521-1000" /></Field>
+                  <Field label="N° Boleta (opcional)"><input className="input" value={regReceiptNo} onChange={(e) => setRegReceiptNo(e.target.value)} placeholder="Ej: B001-4521" /></Field>
+                </div>
+                <Field label="Valor de la cuota">
+                  <input type="number" step="0.01" className="input" value={regCuotaValue} onChange={(e) => setRegCuotaValue(e.target.value)} placeholder="Se llena solo segun la cuota que le toca" />
+                </Field>
+                <Field label="Adj. op. bancaria (foto)">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                      <FiUpload /> <input type="file" accept="image/*" className="hidden" onChange={(e) => { pickRegBankOp(e.target.files?.[0]); e.target.value = ''; }} /> Subir imagen
+                    </label>
+                    <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                      <FiCamera /> <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pickRegBankOp(e.target.files?.[0]); e.target.value = ''; }} /> Tomar foto
+                    </label>
+                    {regBankOpUrl && (
+                      <div className="flex items-center gap-2">
+                        <img src={regBankOpUrl} alt="Operacion bancaria" className="h-16 w-16 rounded-lg border object-cover shadow-sm" />
+                        <button type="button" className="text-xs text-red-500 hover:underline" onClick={() => pickRegBankOp(undefined)}>Quitar</button>
+                      </div>
+                    )}
+                  </div>
+                </Field>
+                <Field label="Adj. boleta (foto)">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                      <FiUpload /> <input type="file" accept="image/*" className="hidden" onChange={(e) => { pickRegReceipt(e.target.files?.[0]); e.target.value = ''; }} /> Subir imagen
+                    </label>
+                    <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
+                      <FiCamera /> <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { pickRegReceipt(e.target.files?.[0]); e.target.value = ''; }} /> Tomar foto
+                    </label>
+                    {regReceiptUrl && (
+                      <div className="flex items-center gap-2">
+                        <img src={regReceiptUrl} alt="Boleta" className="h-16 w-16 rounded-lg border object-cover shadow-sm" />
+                        <button type="button" className="text-xs text-red-500 hover:underline" onClick={() => pickRegReceipt(undefined)}>Quitar</button>
+                      </div>
+                    )}
+                  </div>
+                </Field>
+              </div>
             </div>
 
-            {/* Pie */}
-            <div className="flex justify-end gap-2 px-6 py-4 border-t bg-canvas" style={{ borderColor: '#EEF0F2' }}>
+            {/* Pie: agentes y gerentes solo guardan; el admin ademas aprueba. */}
+            <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-canvas px-6 py-4" style={{ borderColor: '#EEF0F2' }}>
               <button className="btn-neutral" onClick={() => setOpen(false)}>Cancelar</button>
-              <button className="btn-primary" onClick={registrar}>Registrar pago</button>
+              <button className="btn-primary" onClick={registrar}>Guardar pago</button>
             </div>
           </div>
         </div>
@@ -1234,6 +1311,14 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             {payCanMark && (
               <div className="mt-4 space-y-3 rounded-lg border p-3" style={{ borderColor: BORDER, background: '#FAFBFC' }}>
                 <p className="text-xs font-semibold" style={{ color: '#B45309' }}>Estos campos se llenan para aprobar el pago</p>
+                {editingPayment.receiptDocumentUrl && (
+                  <div>
+                    <p className="mb-1 text-xs font-semibold" style={{ color: MUTED }}>Boleta adjuntada por el vendedor</p>
+                    <a href={editingPayment.receiptDocumentUrl} target="_blank" rel="noreferrer">
+                      <img src={editingPayment.receiptDocumentUrl} alt="Boleta" className="h-24 w-24 rounded-lg border object-cover" />
+                    </a>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="N° Op. Bco"><input className="input" value={approvalBankOp} onChange={(e) => setApprovalBankOp(e.target.value)} /></Field>
                   <Field label="N° Boleta"><input className="input" value={approvalReceiptNo} onChange={(e) => setApprovalReceiptNo(e.target.value)} /></Field>
