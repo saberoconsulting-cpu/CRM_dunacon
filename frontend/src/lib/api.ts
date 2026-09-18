@@ -67,9 +67,10 @@ export const api = {
   delete: <T>(p: string) => request<T>('DELETE', p),
 };
 
-export async function uploadFile(path: string, file: File): Promise<any> {
+export async function uploadFile(path: string, file: File, fields?: Record<string, string | number>): Promise<any> {
   const form = new FormData();
   form.append('file', file);
+  Object.entries(fields || {}).forEach(([key, value]) => form.append(key, String(value)));
   const token = getToken();
   const res = await fetch(BASE + path, {
     method: 'POST',
