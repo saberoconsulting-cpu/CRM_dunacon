@@ -124,10 +124,10 @@ function KpiCard({ label, value, helper, icon, color = BLUE }: { label: string; 
         </span>
         <div className="min-w-0 flex-1">
           <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:mt-4 sm:text-xs" style={{ color: MUTED }}>{label}</p>
-          <p className="mt-0.5 truncate text-base font-bold leading-tight tabular-nums sm:mt-1 sm:text-2xl" style={{ color: INK }}>{value}</p>
+          <p className="mt-0.5 whitespace-nowrap text-sm font-bold leading-tight tabular-nums sm:mt-1 sm:text-2xl" style={{ color: INK }}>{value}</p>
         </div>
       </div>
-      <p className="mt-1 truncate text-[10px] leading-tight sm:mt-1 sm:text-xs" style={{ color: MUTED }}>{helper}</p>
+      <p className="mt-1 min-h-[1.25rem] break-words text-[9px] leading-tight sm:mt-1 sm:text-xs" style={{ color: MUTED }}>{helper}</p>
     </div>
   );
 }
@@ -344,7 +344,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
           </div>
         </section>
 
-        <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-2 sm:gap-4 xl:grid-cols-4">
           <KpiCard label="Ingreso real" value={show(report.realRevenue)} helper="Ingresos registrados en finanzas" icon={<FiDollarSign />} color={GREEN} />
           <KpiCard label="Utilidad neta" value={show(report.netProfit)} helper={`Margen neto ${pct(report.margin)}`} icon={<FiTrendingUp />} color={report.netProfit >= 0 ? BLUE : RED} />
           <KpiCard label="Lotes vendidos" value={`${report.soldLots}/${lots.length}`} helper="Conteo desde lotizacion" icon={<FiGrid />} color={BLUE_DARK} />

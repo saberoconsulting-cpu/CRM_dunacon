@@ -215,7 +215,7 @@ export default function ProjectsPage() {
       {openCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpenCreate(false)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-lg p-6">
+          <div className="relative max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6">
             <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Nuevo proyecto</h3>
             <Field label="Nombre *"><input className="input" value={form.name || ''} onChange={(e) => setf('name', e.target.value)} /></Field>
             <Field label="Ubicación / dirección"><input className="input" value={form.location || ''} onChange={(e) => setf('location', e.target.value)} /></Field>
@@ -225,8 +225,8 @@ export default function ProjectsPage() {
               <Field label="Longitud (mapa)"><input className="input" value={form.longitude || ''} onChange={(e) => setf('longitude', e.target.value)} /></Field>
             </div>
             <Field label="Precio referencial (S/)"><input type="number" className="input" value={form.referencePrice || ''} onChange={(e) => setf('referencePrice', e.target.value)} /></Field>
-            <Field label="Logo"><input type="file" accept="image/*" onChange={(e) => setLogo(e.target.files?.[0] || null)} /></Field>
-            <Field label="Portada"><input type="file" accept="image/*" onChange={(e) => setCover(e.target.files?.[0] || null)} /></Field>
+            <Field label="Logo"><input type="file" accept="image/*" className="block w-full min-w-0 max-w-full overflow-hidden text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium" onChange={(e) => setLogo(e.target.files?.[0] || null)} /></Field>
+            <Field label="Portada"><input type="file" accept="image/*" className="block w-full min-w-0 max-w-full overflow-hidden text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium" onChange={(e) => setCover(e.target.files?.[0] || null)} /></Field>
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-neutral" onClick={() => setOpenCreate(false)}>Cancelar</button>
               <button className="btn-primary" onClick={crearProyecto}>Crear proyecto</button>

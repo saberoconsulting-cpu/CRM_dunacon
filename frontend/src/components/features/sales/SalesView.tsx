@@ -450,15 +450,17 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               {search && (<button className="btn-neutral !h-9 text-xs" onClick={() => { setSearch(''); setDebouncedSearch(''); }}>Limpiar</button>)}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <select className="input !w-auto !h-9 !text-xs" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} title="Estado de aprobación">
-                <option value="">Estado: Todas</option>
-                <option value="aprobada">Aprobadas</option>
-                <option value="pendiente">Pendientes</option>
-              </select>
-              <select className="input !w-auto !h-9 !text-xs" value={agentFilter} onChange={(e) => setAgentFilter(Number(e.target.value))} title="Asesor">
-                <option value={0}>Asesor: Todos</option>
-                {agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
+              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+                <select className="input !h-9 !w-full !text-xs sm:!w-auto" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} title="Estado de aprobación">
+                  <option value="">Estado: Todas</option>
+                  <option value="aprobada">Aprobadas</option>
+                  <option value="pendiente">Pendientes</option>
+                </select>
+                <select className="input !h-9 !w-full !text-xs sm:!w-auto" value={agentFilter} onChange={(e) => setAgentFilter(Number(e.target.value))} title="Asesor">
+                  <option value={0}>Asesor: Todos</option>
+                  {agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </div>
               <label className="flex items-center gap-1 text-xs text-slate-500">
                 Desde <input className="input !w-36 !h-9 !text-xs" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
               </label>
@@ -469,7 +471,6 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             </div>
             <button className="btn-primary" onClick={() => setOpen(true)}>Registrar venta</button>
           </div>
-          <p className="text-sm mt-1" style={{ color: '#6B7280' }}>Un lote Vendido no puede volver a venderse. El sistema lo valida.</p>
         </div>
 
         {isAdmin && pending.length > 0 && (
@@ -558,7 +559,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 </tr>
               </tfoot>
             </table>
-            <div className="px-4 pb-4"><PaginationBar page={page} totalPages={meta.totalPages} total={meta.total} limit={limit} setPage={setPage} setLimit={(n) => { setLimit(n); setPage(1); }} label="Ventas" /></div>
+            <div className="px-3 pb-4 sm:px-4"><PaginationBar mobileCompact page={page} totalPages={meta.totalPages} total={meta.total} limit={limit} setPage={setPage} setLimit={(n) => { setLimit(n); setPage(1); }} label="Ventas" /></div>
             </>
             )}
         </div>

@@ -79,13 +79,15 @@ export default function ClientsView({ lockedProjectId }: { lockedProjectId?: num
         <div className="card">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h3 className="font-semibold">Bandeja de clientes</h3>
-            <div className="flex flex-wrap gap-2 items-center">
-              <select className="input !w-auto" value={fSource} onChange={(e) => setFSource(e.target.value)}>
-                <option value="">Canal: todos</option>{SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
-              </select>
-              <select className="input !w-auto" value={fPipeline} onChange={(e) => setFPipeline(e.target.value)}>
-                <option value="">Estado: todos</option>{Object.keys(PIPELINE).map((k) => <option key={k} value={k}>{PIPELINE[k]}</option>)}
-              </select>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
+                <select className="input !w-full sm:!w-auto" value={fSource} onChange={(e) => setFSource(e.target.value)}>
+                  <option value="">Canal: todos</option>{SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <select className="input !w-full sm:!w-auto" value={fPipeline} onChange={(e) => setFPipeline(e.target.value)}>
+                  <option value="">Estado: todos</option>{Object.keys(PIPELINE).map((k) => <option key={k} value={k}>{PIPELINE[k]}</option>)}
+                </select>
+              </div>
               <button className="btn-primary" onClick={() => setOpen(true)}>Nuevo cliente</button>
             </div>
           </div>

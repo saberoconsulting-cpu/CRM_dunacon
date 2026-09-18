@@ -4,10 +4,12 @@ import { useSearchParams } from 'next/navigation';
 import { FiDownload, FiEye, FiFileText, FiCreditCard, FiDollarSign, FiTrendingUp, FiCheckCircle } from 'react-icons/fi';
 import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
 import { PaginationBar } from '@/components/ui/PaginationBar';
+import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/types';
 import { buildQuery, normalizePaginated } from '@/lib/pagination';
 import { printHtml } from '@/lib/print';
+import { useDisplayCurrency } from '@/lib/currency';
 
 type Q = {
   id: number; projectId: number; lotId: number; lotCode?: string | null; clientName: string;
@@ -404,7 +406,7 @@ function QuoteKpi({ label, value, helper, icon, accent }: { label: string; value
         <p className="min-w-0 truncate text-[11px] font-semibold uppercase" style={{ color: '#6B7280' }}>{label}</p>
         <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-xs" style={{ background: `${accent}12`, color: accent }}>{icon}</span>
       </div>
-      <p className="mt-1.5 truncate text-base font-bold tabular-nums leading-tight" style={{ color: '#111827' }}>{value}</p>
+      <p className="mt-1.5 truncate text-sm font-bold tabular-nums leading-tight sm:text-base" style={{ color: '#111827' }}>{value}</p>
       <p className="mt-0.5 truncate text-[11px]" style={{ color: '#6B7280' }}>{helper}</p>
     </div>
   );
@@ -451,6 +453,9 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [streetId, setStreetId] = useState(0);
   const [interestType, setInterestType] = useState<'sin_intereses' | 'tea'>('sin_intereses');
   const [tea, setTea] = useState(10);
+  const { currency, setCurrency, exchangeRate: displayExchangeRate, setExchangeRate: setDisplayExchangeRate, format: formatDisplay } = useDisplayCurrency();
+
+  const formatQuoteAmount = (amountUsd: number | null | undefined) => formatDisplay(Number(amountUsd || 0) * (currency === 'PEN' ? displayExchangeRate : 1));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -583,6 +588,14 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     <>
       <Toaster />
       <div className="space-y-5">
+        <div className="flex justify-end">
+          <CurrencyToggle
+            currency={currency}
+            setCurrency={setCurrency}
+            exchangeRate={displayExchangeRate}
+            setExchangeRate={setDisplayExchangeRate}
+          />
+        </div>
         {/* Panel de resumen de estadisticas (tarjetas compactas) */}
         <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
           <QuoteKpi
@@ -607,22 +620,22 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             accent="#16A36A"
           />
           <QuoteKpi
-            label="Monto Cotizado US$"
-            value={`US$ ${(stats?.montoTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            label={`Monto Cotizado ${currency === 'PEN' ? 'S/' : 'US$'}`}
+            value={formatQuoteAmount(stats?.montoTotal)}
             helper="Suma de cotizaciones"
             icon={<FiDollarSign />}
             accent="#0B2F6E"
           />
           <QuoteKpi
-            label="Cuota Inicial US$"
-            value={`US$ ${(stats?.cuotaInicialTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            label={`Cuota Inicial ${currency === 'PEN' ? 'S/' : 'US$'}`}
+            value={formatQuoteAmount(stats?.cuotaInicialTotal)}
             helper="Iniciales cotizadas"
             icon={<FiTrendingUp />}
             accent="#1259C4"
           />
           <QuoteKpi
-            label="Cuota Contado US$"
-            value={`US$ ${(stats?.cuotaContadoTotal ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+            label={`Cuota Contado ${currency === 'PEN' ? 'S/' : 'US$'}`}
+            value={formatQuoteAmount(stats?.cuotaContadoTotal)}
             helper="Cuotas al contado"
             icon={<FiDollarSign />}
             accent="#0B2F6E"
@@ -671,8 +684,8 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                       <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('clientName')}>Cliente{sortArrow('clientName')}</th>
                       <th className="th-base">Area M2</th>
                       <th className="th-base">Estado</th>
-                      <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('finalPriceUsd')}>Precio Final{sortArrow('finalPriceUsd')}</th>
-                      <th className="th-base">Cuota Inicial</th>
+                      <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('finalPriceUsd')}>Precio Final ({currency === 'PEN' ? 'S/' : 'US$'}){sortArrow('finalPriceUsd')}</th>
+                      <th className="th-base">Cuota Inicial ({currency === 'PEN' ? 'S/' : 'US$'})</th>
                       <th className="th-base">Cuotas</th>
                       <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')}>Fecha{sortArrow('createdAt')}</th>
                       <th className="th-base"></th>
@@ -694,8 +707,8 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                               {q.status === 'enviada' ? 'Enviada' : q.status === 'desestimada' ? 'Desestimada' : q.status === 'actualizada' ? 'Actualizada' : q.status}
                             </span>
                           </td>
-                          <td className="td-base font-medium">{fmtUsd(q.finalPriceUsd)}</td>
-                          <td className="td-base">{q.paymentMethod === 'credito' ? fmtUsd(q.cuotaInicialUsd) : 'Contado'}</td>
+                          <td className="td-base text-xs font-medium sm:text-sm">{formatQuoteAmount(q.finalPriceUsd)}</td>
+                          <td className="td-base text-xs sm:text-sm">{q.paymentMethod === 'credito' ? formatQuoteAmount(q.cuotaInicialUsd) : 'Contado'}</td>
                           <td className="td-base">{q.totalCuotas || '-'}</td>
                           <td className="td-base">{formatDate(q.createdAt)}</td>
                           <td className="td-base whitespace-nowrap">

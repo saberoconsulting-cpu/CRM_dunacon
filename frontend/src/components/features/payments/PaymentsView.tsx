@@ -1177,12 +1177,14 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
           <button
             type="button"
-            className="mx-auto mt-3 grid h-7 w-7 place-items-center rounded-full border bg-white text-slate-500 shadow-sm transition-colors hover:bg-slate-50 lg:absolute lg:-right-1 lg:top-1/2 lg:mt-0 lg:-translate-y-1/2"
+            className="mx-auto mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm transition-colors hover:bg-slate-50 sm:w-auto lg:absolute lg:-right-1 lg:top-1/2 lg:mt-0 lg:h-7 lg:w-7 lg:-translate-y-1/2 lg:rounded-full lg:p-0"
             style={{ borderColor: BORDER }}
             onClick={() => setShowMoreKpis((v) => !v)}
             aria-label={showMoreKpis ? 'Ocultar indicadores' : 'Ver mas indicadores'}
+            aria-expanded={showMoreKpis}
             title={showMoreKpis ? 'Ocultar indicadores' : 'Ver mas indicadores'}
           >
+            <span className="lg:hidden">{showMoreKpis ? 'Ocultar indicadores' : 'Ver más indicadores'}</span>
             <FiChevronDown style={{ transform: showMoreKpis ? 'rotate(180deg)' : 'none', transition: 'transform .2s ease' }} />
           </button>
         </div>

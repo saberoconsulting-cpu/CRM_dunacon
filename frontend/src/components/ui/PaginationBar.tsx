@@ -12,9 +12,10 @@ interface Props {
   setLimit?: (n: number) => void;
   label?: string;
   compact?: boolean;
+  mobileCompact?: boolean;
 }
 
-export const PaginationBar: FC<Props> = ({ page, totalPages, total, limit, setPage, setLimit, label, compact = false }) => {
+export const PaginationBar: FC<Props> = ({ page, totalPages, total, limit, setPage, setLimit, label, compact = false, mobileCompact = false }) => {
   if (!total) return null;
   const safeTotalPages = Math.max(1, totalPages);
   const pages: Array<number | 'start-gap' | 'end-gap'> = [];
@@ -35,16 +36,16 @@ export const PaginationBar: FC<Props> = ({ page, totalPages, total, limit, setPa
   return (
     <div className="flex flex-col gap-3 border-t pt-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: '#EDEEF0' }}>
       <p className="text-xs text-slate-500">{compact ? 'Mostrando ' : ''}<b>{from}–{to}</b> de {total} {compact ? (label || 'resultados').toLowerCase() : (label || 'Resultados')}</p>
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      <div className={`flex min-w-0 flex-wrap items-center gap-1.5 ${mobileCompact ? 'w-full justify-between sm:w-auto sm:justify-start' : ''}`}>
         {!compact && setLimit && (
-          <select aria-label="Resultados por página" className="input !h-8 !w-auto !text-xs" value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }}>
+          <select aria-label="Resultados por página" className={`input !h-8 !w-auto !text-xs ${mobileCompact ? 'hidden sm:block' : ''}`} value={limit} onChange={(e) => { setLimit(Number(e.target.value)); setPage(1); }}>
             <option value={10}>10 / página</option>
             <option value={20}>20 / página</option>
             <option value={50}>50 / página</option>
             <option value={100}>100 / página</option>
           </select>
         )}
-        {!compact && <button type="button" aria-label="Primera página" title="Primera página" className="btn-neutral !h-8 !w-8 !p-0" disabled={currentPage <= 1} onClick={() => setPage(1)}><FiChevronsLeft /></button>}
+        {!compact && <button type="button" aria-label="Primera página" title="Primera página" className={`btn-neutral !h-8 !w-8 !p-0 ${mobileCompact ? 'hidden sm:inline-flex' : ''}`} disabled={currentPage <= 1} onClick={() => setPage(1)}><FiChevronsLeft /></button>}
         <button type="button" aria-label="Página anterior" title="Página anterior" className="btn-neutral !h-8 !text-xs" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>{compact ? 'Anterior' : <FiChevronLeft />}</button>
         {pages.map((item) => (
           item === 'start-gap' || item === 'end-gap'
@@ -52,7 +53,7 @@ export const PaginationBar: FC<Props> = ({ page, totalPages, total, limit, setPa
             : <button key={item} type="button" aria-label={`Página ${item}`} aria-current={item === currentPage ? 'page' : undefined} className={`!h-8 !min-w-8 !px-2 !text-xs rounded-lg ${item === currentPage ? 'text-white' : 'text-slate-600 hover:bg-slate-100'}`} style={item === currentPage ? { background: '#1877F2' } : undefined} onClick={() => setPage(item)}>{item}</button>
         ))}
         <button type="button" aria-label="Página siguiente" title="Página siguiente" className="btn-neutral !h-8 !text-xs" disabled={currentPage >= safeTotalPages} onClick={() => setPage(currentPage + 1)}>{compact ? 'Siguiente' : <FiChevronRight />}</button>
-        {!compact && <button type="button" aria-label="Última página" title="Última página" className="btn-neutral !h-8 !w-8 !p-0" disabled={currentPage >= safeTotalPages} onClick={() => setPage(safeTotalPages)}><FiChevronsRight /></button>}
+        {!compact && <button type="button" aria-label="Última página" title="Última página" className={`btn-neutral !h-8 !w-8 !p-0 ${mobileCompact ? 'hidden sm:inline-flex' : ''}`} disabled={currentPage >= safeTotalPages} onClick={() => setPage(safeTotalPages)}><FiChevronsRight /></button>}
       </div>
     </div>
   );
