@@ -77,6 +77,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
+  const [showQuoteHint, setShowQuoteHint] = useState(true);
   const [showCotizaciones, setShowCotizaciones] = useState(false);
   const [quotes, setQuotes] = useState<any[]>([]);
   const [selectedQuoteId, setSelectedQuoteId] = useState(0);
@@ -179,6 +180,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   }, [role, lockedProjectId, debouncedSearch, statusFilter, agentFilter, fromDate, toDate, sort, order, page, limit]);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    if (!open) return undefined;
+    setShowQuoteHint(true);
+    const timer = window.setTimeout(() => setShowQuoteHint(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [open]);
   // Debounce de 400ms para no disparar un request por cada tecla.
   useEffect(() => {
     const t = setTimeout(() => { setDebouncedSearch(search.trim()); }, 400);
@@ -567,7 +574,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-2xl p-6 max-h-[92vh] overflow-y-auto">
+          <div className="relative max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-4 sm:p-6">
             <div className="mb-4">
               <h3 className="font-semibold" style={{ fontSize: 17 }}>Registrar venta</h3>
               <p className="mt-0.5 text-xs text-slate-500">Filtra la cotizacion por cliente o fecha y asignala para autocompletar la ficha.</p>
@@ -643,7 +650,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <p className="font-semibold" style={{ color: '#166534' }}>
                   Cotización Q{selectedQuote.id} cargada: precio final, cliente y forma de pago vienen de la cotización.
                 </p>
-              ) : (
+              ) : showQuoteHint ? (
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p style={{ color: '#1259C4' }}>Para registrar una venta primero selecciona una cotización. Si no existe, genera una y vuelve a cargarla aquí.</p>
                   <a
@@ -653,13 +660,13 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     Generar cotización
                   </a>
                 </div>
-              )}
+              ) : null}
             </div>
 
             {/* Lote y responsable */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               {!lockedProjectId && (
-                <Field label="Proyecto">
+                <Field label="Proyecto" className="col-span-2">
                   <select className="input" value={projectId} onChange={(e) => { setProjectId(Number(e.target.value)); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setSalePrice(0); }}>
                     <option value={0}>Auto / Todos</option>
                     {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -674,17 +681,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   ))}
                 </select>
               </Field>
+              <div className="hidden"><Field label="Cliente"><select className="input" value={clientId} onChange={(e) => setClientId(Number(e.target.value))}><option value={0}>— Sin asignar —</option>{clients.map((c: any) => <option key={c.id} value={c.id}>{(c.fullName || c.full_name || '— Sin nombre —')}</option>)}</select></Field></div>
+              <Field label="Agente *"><select className="input" value={agentId} onChange={(e) => setAgentId(Number(e.target.value))}><option value={0}>Selecciona…</option>{agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
             </div>
             {lotId > 0 && salePrice > 0 && (
               <p className="text-xs mt-1" style={{ color: '#1259C4' }}>
                 {selectedQuote ? 'Precio final cargado desde la cotizacion seleccionada.' : 'Precio referencial autocompletado desde el Precio Venta de Lotizacion de este lote.'}
               </p>
             )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-              <div className="hidden"><Field label="Cliente"><select className="input" value={clientId} onChange={(e) => setClientId(Number(e.target.value))}><option value={0}>— Sin asignar —</option>{clients.map((c: any) => <option key={c.id} value={c.id}>{(c.fullName || c.full_name || '— Sin nombre —')}</option>)}</select></Field></div>
-              <Field label="Agente *"><select className="input" value={agentId} onChange={(e) => setAgentId(Number(e.target.value))}><option value={0}>Selecciona…</option>{agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
-            </div>
 
             <div className="mt-3 rounded-md border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
@@ -737,7 +741,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     onChange={(e) => setSalePrice(Math.round(Number(e.target.value || 0) * exchangeRate))}
                   />
                 </Field>
-                <Field label="Tipo de cambio (S/ por US$)">
+                <Field label="T. cambio (S/ por US$)">
                   <input
                     type="number"
                     step="0.0001"
