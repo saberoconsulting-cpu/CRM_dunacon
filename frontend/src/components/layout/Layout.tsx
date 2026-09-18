@@ -178,6 +178,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const showLabels = drawerOpen || !collapsed;
   const sidebarWidth = collapsed ? 76 : 248;
   const userInitial = user.name?.trim()?.charAt(0)?.toUpperCase() || user.email?.charAt(0)?.toUpperCase() || 'U';
+  const activeProjectSection = visiblePrimary.find((item) => isActive(item.href))?.label || title || 'Proyecto';
 
   function isActive(href: string) {
     if (href.startsWith('#')) return false;
@@ -260,7 +261,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
 
   const sidebar = (
     <aside
-      className={`${drawerOpen ? 'translate-x-0' : '-translate-x-full'} fixed inset-y-0 left-0 z-30 flex w-[min(90vw,320px)] flex-col border-r bg-white shadow-2xl transition-[transform,width] duration-200 md:static md:translate-x-0 md:shadow-none`}
+      className={`${drawerOpen ? 'translate-x-0' : '-translate-x-full'} fixed inset-y-0 left-0 z-30 flex w-[min(70vw,240px)] flex-col border-r bg-white shadow-2xl transition-[transform,width] duration-200 md:static md:translate-x-0 md:shadow-none`}
       style={{ borderColor: BRAND.border, width: drawerOpen ? undefined : sidebarWidth }}
     >
       {isProjectContext ? (
@@ -409,28 +410,57 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           <button type="button" className="text-[#374151] md:hidden" onClick={() => setDrawerOpen(true)} aria-label="Abrir menu">
             <FiMenu style={{ fontSize: 22 }} />
           </button>
-          <div className="min-w-0 flex-1">
+          <div className="order-1 min-w-0 flex-1 md:order-none">
             {(() => {
-              if (isProjectContext && activeProject?.logoImageUrl) {
+              if (isProjectContext) {
                 return (
-                  <div className="flex min-w-0 items-center gap-3">
-                    <img
-                      src={activeProject.logoImageUrl}
-                      alt={activeProject.name || 'Proyecto'}
-                      className="h-10 w-auto max-w-52 object-contain"
-                    />
-                    <span className="truncate text-base font-semibold text-[#171717]">
-                      {activeProject.name}
-                    </span>
-                  </div>
+                  <>
+                    <h1 className="truncate text-base font-semibold text-[#171717] md:hidden">
+                      {activeProjectSection}
+                    </h1>
+                    <div className="hidden min-w-0 items-center gap-3 md:flex">
+                      {activeProject?.logoImageUrl && (
+                        <img
+                          src={activeProject.logoImageUrl}
+                          alt={activeProject.name || 'Proyecto'}
+                          className="h-10 w-auto max-w-52 object-contain"
+                        />
+                      )}
+                      <span className="truncate text-base font-semibold text-[#171717]">
+                        {activeProject?.name || title}
+                      </span>
+                    </div>
+                  </>
                 );
               }
-              if (titleLogoUrl) {
-                return <img src={titleLogoUrl} alt={title || 'Proyecto'} className="h-10 max-w-52 object-contain" />;
-              }
-              return title ? <h1 className="truncate" style={{ fontSize: 17 }}>{title}</h1> : null;
+              <>
+                <h1 className="truncate text-base font-semibold text-[#171717] md:hidden">
+                  {title || 'Inicio'}
+                </h1>
+                <div className="hidden md:block">
+                  {titleLogoUrl ? (
+                    <img src={titleLogoUrl} alt={title || 'Proyecto'} className="h-10 max-w-52 object-contain" />
+                  ) : (
+                    title ? <h1 className="truncate" style={{ fontSize: 17 }}>{title}</h1> : null
+                  )}
+                </div>
+              </>
             })()}
           </div>
+          {isProjectContext && activeProject?.logoImageUrl && (
+            <img
+              src={activeProject.logoImageUrl}
+              alt={activeProject.name || 'Proyecto'}
+              className="order-3 h-9 w-auto max-w-24 shrink-0 object-contain md:order-none md:hidden"
+            />
+          )}
+          {!isProjectContext && (
+            <img
+              src="/logo/dunacon.png"
+              alt="Dunacon"
+              className="order-3 h-9 w-auto max-w-24 shrink-0 object-contain md:order-none md:hidden"
+            />
+          )}
           {isProjectContext && activeProjectId && (
             <button
               type="button"
@@ -446,7 +476,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: BRAND.blue }} /> Acceso de administracion
             </span>
           )}
-          <div className="relative">
+          <div className="relative order-2 md:order-none">
             <button className="relative p-1 text-[#6B7280] hover:text-[#171717]" aria-label="Notificaciones" onClick={() => setBellOpen((value) => !value)}>
               <FiBell style={{ fontSize: 17 }} />
               {canManage && pendingApp.count > 0 && (
