@@ -184,3 +184,39 @@ export class UpdateBankMovementDto {
   @IsIn(BANK_CURRENCIES)
   currency?: BankCurrency;
 }
+
+export class UpdateBankOpeningBalanceDto {
+  @IsNumber()
+  projectId!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  accountKey?: string;
+
+  @IsOptional()
+  @IsIn(BANK_CURRENCIES)
+  currency?: BankCurrency;
+
+  @IsNumber()
+  openingBalance!: number;
+}
+
+export class CreateBankAccountDto {
+  @IsNumber()
+  projectId!: number;
+
+  @IsString()
+  @MaxLength(120)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  bank?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  accountNumber?: string;
+}

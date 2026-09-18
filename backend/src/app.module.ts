@@ -25,6 +25,8 @@ import { ProjectDocumentEntity } from './shared/infrastructure/entities/project-
 import { QuoteEntity } from './shared/infrastructure/entities/quote.entity';
 import { ConstructionBudgetItemEntity } from './shared/infrastructure/entities/construction-budget-item.entity';
 import { BankAccountMovementEntity } from './shared/infrastructure/entities/bank-account-movement.entity';
+import { BankAccountBalanceEntity } from './shared/infrastructure/entities/bank-account-balance.entity';
+import { BankAccountEntity } from './shared/infrastructure/entities/bank-account.entity';
 import { BankCategoryMappingEntity } from './shared/infrastructure/entities/bank-category-mapping.entity';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
@@ -70,6 +72,8 @@ import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module
         QuoteEntity,
         ConstructionBudgetItemEntity,
         BankAccountMovementEntity,
+        BankAccountBalanceEntity,
+        BankAccountEntity,
         BankCategoryMappingEntity,
       ],
       synchronize: false,

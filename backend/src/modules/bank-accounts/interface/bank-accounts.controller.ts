@@ -7,7 +7,7 @@ import { Roles } from '../../../shared/application/decorators/roles.decorator';
 import { CurrentUser } from '../../../shared/application/decorators/current-user.decorator';
 import { UserRole } from '../../../shared/domain/enums';
 import { BankAccountsService } from '../application/bank-accounts.service';
-import { CreateBankCategoryDto, CreateBankMovementDto, UpdateBankCategoryDto, UpdateBankMovementDto } from '../application/dto/bank-account.dto';
+import { CreateBankAccountDto, CreateBankCategoryDto, CreateBankMovementDto, UpdateBankCategoryDto, UpdateBankMovementDto, UpdateBankOpeningBalanceDto } from '../application/dto/bank-account.dto';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('bank-accounts')
@@ -17,6 +17,7 @@ export class BankAccountsController {
   @Get()
   list(
     @Query('projectId') projectId: string,
+    @Query('accountKey') accountKey?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('currency') currency?: string,
@@ -24,7 +25,18 @@ export class BankAccountsController {
     @Query('eerrClassification') eerrClassification?: string,
     @Query('search') search?: string,
   ) {
-    return this.bankAccountsService.list(Number(projectId), { from, to, currency, movementType, eerrClassification, search });
+    return this.bankAccountsService.list(Number(projectId), { accountKey, from, to, currency, movementType, eerrClassification, search });
+  }
+
+  @Get('accounts')
+  listAccounts(@Query('projectId') projectId: string) {
+    return this.bankAccountsService.listAccounts(Number(projectId));
+  }
+
+  @Post('accounts')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  createAccount(@Body() dto: CreateBankAccountDto) {
+    return this.bankAccountsService.createAccount(dto);
   }
 
   @Get('categories')
@@ -60,8 +72,9 @@ export class BankAccountsController {
     @Query('projectId') projectId: string,
     @Query('year') year?: string,
     @Query('currency') currency?: string,
+    @Query('accountKey') accountKey?: string,
   ) {
-    return this.bankAccountsService.annualReport(Number(projectId), year ? Number(year) : undefined, currency);
+    return this.bankAccountsService.annualReport(Number(projectId), year ? Number(year) : undefined, currency, accountKey);
   }
 
   @Post('import/preview')
@@ -96,6 +109,12 @@ export class BankAccountsController {
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
   removeBatch(@Param('batch') batch: string, @Query('projectId') projectId: string) {
     return this.bankAccountsService.removeBatch(Number(projectId), batch);
+  }
+
+  @Patch('opening-balance')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  updateOpeningBalance(@Body() dto: UpdateBankOpeningBalanceDto) {
+    return this.bankAccountsService.updateOpeningBalance(dto);
   }
 
   @Post()

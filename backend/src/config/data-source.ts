@@ -22,6 +22,8 @@ import { ProjectDocumentEntity } from '../shared/infrastructure/entities/project
 import { QuoteEntity } from '../shared/infrastructure/entities/quote.entity';
 import { ConstructionBudgetItemEntity } from '../shared/infrastructure/entities/construction-budget-item.entity';
 import { BankAccountMovementEntity } from '../shared/infrastructure/entities/bank-account-movement.entity';
+import { BankAccountBalanceEntity } from '../shared/infrastructure/entities/bank-account-balance.entity';
+import { BankAccountEntity } from '../shared/infrastructure/entities/bank-account.entity';
 import { BankCategoryMappingEntity } from '../shared/infrastructure/entities/bank-category-mapping.entity';
 
 export const AppDataSource = new DataSource({
@@ -55,6 +57,8 @@ export const AppDataSource = new DataSource({
     QuoteEntity,
     ConstructionBudgetItemEntity,
     BankAccountMovementEntity,
+    BankAccountBalanceEntity,
+    BankAccountEntity,
     BankCategoryMappingEntity,
   ],
   migrations:

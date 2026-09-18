@@ -54,11 +54,12 @@ function short(value: number, symbol: string) {
   return `${symbol} ${value.toLocaleString('es-PE', { maximumFractionDigits: 0 })}`;
 }
 
-const cellHead = { border: CELL_BORDER, padding: 6, fontWeight: 'bold' as const };
-const cellBody = { border: CELL_BORDER, padding: 4, textAlign: 'right' as const, fontVariantNumeric: 'tabular-nums' as const };
+const cellHead = { border: CELL_BORDER, padding: 3, fontWeight: 'bold' as const, fontSize: 10, whiteSpace: 'nowrap' as const };
+const cellBody = { border: CELL_BORDER, padding: 2, textAlign: 'right' as const, fontSize: 10, whiteSpace: 'nowrap' as const, fontVariantNumeric: 'tabular-nums' as const };
 
-export default function AnnualReportPanel({ projectId, currency, rate, refreshKey = 0 }: {
+export default function AnnualReportPanel({ projectId, accountKey, currency, rate, refreshKey = 0 }: {
   projectId: number;
+  accountKey?: string;
   currency: Currency;
   rate: number;
   refreshKey?: number;
@@ -74,7 +75,7 @@ export default function AnnualReportPanel({ projectId, currency, rate, refreshKe
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ projectId: String(projectId) });
+      const params = new URLSearchParams({ projectId: String(projectId), accountKey: accountKey || 'GENERAL' });
       if (year) params.set('year', String(year));
       const data = await api.get<AnnualReport>(`/bank-accounts/annual-report?${params.toString()}`);
       setReport(data);
@@ -84,7 +85,7 @@ export default function AnnualReportPanel({ projectId, currency, rate, refreshKe
     } finally {
       setLoading(false);
     }
-  }, [projectId, year]);
+  }, [projectId, year, accountKey]);
 
   useEffect(() => { load(); }, [load, refreshKey]);
 
@@ -151,7 +152,7 @@ export default function AnnualReportPanel({ projectId, currency, rate, refreshKe
             <tbody>
               {(report?.months || []).map((month) => (
                 <tr key={month.month} style={{ backgroundColor: month.movimientos ? '#fff' : '#F8FAFC' }}>
-                  <td style={{ border: CELL_BORDER, padding: 4, textAlign: 'left', color: '#0F172A' }}>{month.name}</td>
+                  <td style={{ border: CELL_BORDER, padding: 3, textAlign: 'left', fontSize: 10, whiteSpace: 'nowrap', color: '#0F172A' }}>{month.name}</td>
                   <td style={cellBody}>{money(month.saldoInicial, 'S/')}</td>
                   <td style={{ ...cellBody, color: month.abonos > 0 ? '#16A36A' : '#94A3B8' }}>
                     {month.abonos > 0 ? money(month.abonos, 'S/') : '-'}

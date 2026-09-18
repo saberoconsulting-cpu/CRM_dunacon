@@ -6,13 +6,17 @@ import {
   FiCheckCircle,
   FiChevronLeft,
   FiChevronRight,
+  FiChevronDown,
   FiCreditCard,
+  FiArrowDown,
+  FiArrowUp,
   FiDownload,
   FiEdit3,
   FiFilter,
   FiPlus,
   FiRefreshCw,
   FiSearch,
+  FiSave,
   FiSettings,
   FiTrash2,
   FiUploadCloud,
@@ -84,6 +88,14 @@ type Category = {
   eerrClassification: string;
 };
 
+type BankAccount = {
+  id: number;
+  accountKey: string;
+  name: string;
+  bank: string | null;
+  accountNumber: string | null;
+};
+
 const BORDER = '#E2E8F0';
 const INK = '#0F172A';
 const MUTED = '#64748B';
@@ -107,7 +119,7 @@ function monthLabel(value: string | null) {
 function prettyDate(value: string | null) {
   if (!value) return '-';
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+  return match ? `${match[3]}/${match[2]}/${match[1].slice(-2)}` : value;
 }
 
 function salaryToUSD(value: unknown, rate: number) {
@@ -167,20 +179,32 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryRows, setCategoryRows] = useState(0);
   const [dataVersion, setDataVersion] = useState(0);
+  const [openingBalanceDraft, setOpeningBalanceDraft] = useState('0');
+  const [savingOpeningBalance, setSavingOpeningBalance] = useState(false);
+  const [operationAscending, setOperationAscending] = useState(true);
+  const [accounts, setAccounts] = useState<BankAccount[]>([]);
+  const [accountKey, setAccountKey] = useState('GENERAL');
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [accountForm, setAccountForm] = useState({ name: '', bank: '', accountNumber: '' });
+  const [savingAccount, setSavingAccount] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLDivElement | null>(null);
   const { currency, setCurrency, exchangeRate, setExchangeRate, toDisplay, format: show } = useDisplayCurrency();
 
   const query = useMemo(() => {
-    const params = new URLSearchParams({ projectId: String(projectId) });
+    const params = new URLSearchParams({ projectId: String(projectId), accountKey });
     Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value); });
     return params.toString();
-  }, [projectId, filters]);
+  }, [projectId, accountKey, filters]);
 
   const applyData = useCallback((data: any) => {
     if (!data) return;
     if (data.items) setItems(data.items);
-    if (data.summary) setSummary(data.summary);
+    if (data.summary) {
+      setSummary(data.summary);
+      if (data.summary.saldoInicial !== undefined) setOpeningBalanceDraft(String(data.summary.saldoInicial ?? 0));
+    }
     if (data.facets) setFacets(data.facets);
     setDataVersion((value) => value + 1);
   }, []);
@@ -200,6 +224,38 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [query]);
 
+  useEffect(() => {
+    api.get<{ items: BankAccount[] }>(`/bank-accounts/accounts?projectId=${projectId}`)
+      .then((data) => {
+        const next = data?.items || [];
+        setAccounts(next);
+        if (next.length && !next.some((item) => item.accountKey === accountKey)) setAccountKey(next[0].accountKey);
+      })
+      .catch(() => setAccounts([]));
+  }, [projectId]);
+
+  async function addAccount() {
+    if (!accountForm.name.trim()) return toast('Ingresa el nombre de la cuenta', 'err');
+    setSavingAccount(true);
+    try {
+      const data = await api.post<{ items: BankAccount[] }>('/bank-accounts/accounts', {
+        projectId,
+        name: accountForm.name.trim(),
+        bank: accountForm.bank.trim() || undefined,
+        accountNumber: accountForm.accountNumber.trim() || undefined,
+      });
+      setAccounts(data.items || []);
+      const created = data.items?.[data.items.length - 1];
+      if (created) setAccountKey(created.accountKey);
+      setAccountForm({ name: '', bank: '', accountNumber: '' });
+      setAccountModalOpen(false);
+      toast('Cuenta bancaria agregada');
+    } catch (error: any) {
+      toast(error?.message || 'No se pudo agregar la cuenta', 'err');
+    } finally {
+      setSavingAccount(false);
+    }
+  }
   // El mapeo EERR alimenta el desplegable TIPO y el autocompletado del form.
   const loadCategories = useCallback(async () => {
     try {
@@ -241,7 +297,17 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   }
 
   const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
-  const pageItems = items.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const sortedItems = useMemo(() => [...items].sort((left, right) => {
+    const leftOperation = left.itemNumber ?? Number.MAX_SAFE_INTEGER;
+    const rightOperation = right.itemNumber ?? Number.MAX_SAFE_INTEGER;
+    if (leftOperation !== rightOperation) return operationAscending ? leftOperation - rightOperation : rightOperation - leftOperation;
+    return operationAscending ? left.id - right.id : right.id - left.id;
+  }), [items, operationAscending]);
+  const pageItems = sortedItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const movementTotals = useMemo(() => ({
+    deposits: items.reduce((total, item) => total + num(item.depositAmount), 0),
+    charges: items.reduce((total, item) => total + num(item.chargeAmount), 0),
+  }), [items]);
 
   async function handleFile(file?: File | null) {
     if (!file) return;
@@ -265,7 +331,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
       const data = await api.post<any>('/bank-accounts/import', {
         projectId,
         rows: preview.rows.filter((row) => row.errors.length === 0),
-        accountKey: 'GENERAL',
+        accountKey,
         currency: currency === 'USD' ? 'USD' : 'PEN',
         sourceFile: preview.sourceFile,
         importBatch: `batch-${Date.now()}`,
@@ -350,6 +416,26 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     }
   }
 
+  async function saveOpeningBalance() {
+    const value = num(openingBalanceDraft);
+    if (value < 0) return toast('El saldo inicial no puede ser negativo', 'err');
+    setSavingOpeningBalance(true);
+    try {
+      const data = await api.patch<any>('/bank-accounts/opening-balance', {
+        projectId,
+        accountKey,
+        currency: 'PEN',
+        openingBalance: value,
+      });
+      applyData(data);
+      toast('Saldo inicial actualizado');
+    } catch (error: any) {
+      toast(error?.message || 'No se pudo actualizar el saldo inicial', 'err');
+    } finally {
+      setSavingOpeningBalance(false);
+    }
+  }
+
   const f = (key: string, value: any) => setFilters((current) => ({ ...current, [key]: value }));
   const activeFilters = Object.values(filters).filter(Boolean).length;
 
@@ -369,18 +455,54 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
         <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
           <div className="flex flex-col gap-4 px-5 py-5 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
-              <div className="inline-flex items-center gap-2 rounded-md px-3 py-1 text-xs font-bold" style={{ background: '#EAF3FF', color: BRAND.blue }}>
-                <FiCreditCard /> Modulo 10
-              </div>
               <h2 className="mt-3 text-2xl font-bold" style={{ color: INK }}>Cuentas y bancos</h2>
               <p className="mt-1 max-w-3xl text-sm" style={{ color: MUTED }}>
-                Estado de cuenta bancario (EC BCP). Sube el Excel las veces que necesites: los movimientos se acumulan sin borrar los anteriores.
+                Sube el Excel las veces que necesites: los movimientos se acumulan sin borrar los anteriores.
               </p>
             </div>
-            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:max-w-[560px] lg:flex-wrap lg:justify-end">
-              <div className="flex w-full justify-center sm:col-span-2 lg:w-auto lg:justify-start">
-                <CurrencyToggle currency={currency} setCurrency={setCurrency} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} />
-              </div>
+            <div className="order-first flex w-full justify-start lg:order-none lg:w-auto lg:justify-end">
+              <CurrencyToggle currency={currency} setCurrency={setCurrency} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} />
+            </div>
+            <div className="relative flex w-full items-center gap-2 lg:w-auto">
+              <button
+                type="button"
+                className="flex h-9 min-w-0 flex-1 items-center justify-between gap-2 rounded-md border bg-white px-3 text-left text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 sm:text-sm lg:w-56 lg:flex-none"
+                style={{ borderColor: BORDER }}
+                onClick={() => setAccountMenuOpen((value) => !value)}
+                aria-expanded={accountMenuOpen}
+                aria-label="Seleccionar cuenta bancaria"
+              >
+                <span className="min-w-0 truncate">
+                  {accounts.find((account) => account.accountKey === accountKey)?.bank
+                    ? `${accounts.find((account) => account.accountKey === accountKey)?.bank} - `
+                    : ''}
+                  {accounts.find((account) => account.accountKey === accountKey)?.name || 'Seleccionar cuenta'}
+                </span>
+                <FiChevronDown className={`shrink-0 transition-transform ${accountMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {accountMenuOpen && (
+                <>
+                  <div className="fixed inset-0 z-30" onClick={() => setAccountMenuOpen(false)} />
+                  <div className="absolute left-0 top-11 z-40 w-full overflow-hidden rounded-md border bg-white p-1 shadow-xl lg:w-64" style={{ borderColor: BORDER }}>
+                    {accounts.map((account) => (
+                      <button
+                        key={account.accountKey}
+                        type="button"
+                        className={`flex w-full items-center justify-between rounded px-3 py-2 text-left text-xs transition-colors hover:bg-[#F3F7FC] sm:text-sm ${account.accountKey === accountKey ? 'bg-[#EAF3FF] text-[#1877F2]' : 'text-slate-700'}`}
+                        onClick={() => { setAccountKey(account.accountKey); setAccountMenuOpen(false); }}
+                      >
+                        <span className="min-w-0 truncate">{account.bank ? `${account.bank} - ` : ''}{account.name}</span>
+                        {account.accountNumber && <span className="ml-2 shrink-0 text-[10px] text-slate-400">...{account.accountNumber.slice(-4)}</span>}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+              <button className="btn-outline !h-9 shrink-0 justify-center whitespace-nowrap !px-2 text-xs sm:!px-3" onClick={() => setAccountModalOpen(true)}>
+                <FiPlus /> <span className="sm:hidden">Agregar</span><span className="hidden sm:inline">Agregar cuenta</span>
+              </button>
+            </div>
+            <div className="grid w-full grid-cols-2 gap-2 lg:flex lg:w-auto lg:max-w-[560px] lg:flex-wrap lg:justify-end">
               <button className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={load} disabled={loading}>
                 <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar
               </button>
@@ -388,7 +510,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 <FiUploadCloud /> {uploading ? 'Leyendo...' : 'Subir Excel'}
               </button>
               <button className="btn-primary w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={openCreate}>
-                <FiPlus /> Registrar
+                <FiPlus /> <span className="sm:hidden">Registrar Op.</span><span className="hidden sm:inline">Registrar</span>
               </button>
               <button
                 className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto"
@@ -405,7 +527,30 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
             {cards.map((card) => (
               <div key={card.label} className="min-w-0 rounded-md border bg-white p-3 sm:p-4" style={{ borderColor: BORDER }}>
                 <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }} title={card.label}>{card.label}</p>
-                <p className="mt-1 truncate text-base font-bold tabular-nums sm:text-lg" style={{ color: card.color }} title={card.value}>{card.value}</p>
+                {card.label === 'Saldo inicial' ? (
+                  <div className="mt-1 flex min-w-0 items-center gap-1">
+                    <input
+                      className="input !h-8 min-w-0 flex-1 !px-2 text-sm font-bold tabular-nums"
+                      type="number"
+                      step="0.01"
+                      value={openingBalanceDraft}
+                      onChange={(event) => setOpeningBalanceDraft(event.target.value)}
+                      aria-label="Saldo inicial"
+                    />
+                    <button
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-white"
+                      style={{ background: BRAND.blue }}
+                      onClick={saveOpeningBalance}
+                      disabled={savingOpeningBalance}
+                      title="Guardar saldo inicial"
+                      aria-label="Guardar saldo inicial"
+                    >
+                      <FiSave />
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-1 truncate text-base font-bold tabular-nums sm:text-lg" style={{ color: card.color }} title={card.value}>{card.value}</p>
+                )}
                 <p className="mt-0.5 hidden truncate text-[10px] sm:block" style={{ color: '#94A3B8' }}>{card.helper}</p>
               </div>
             ))}
@@ -419,6 +564,54 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
             onChange={(event) => handleFile(event.target.files?.[0])}
           />
         </section>
+
+        {accountModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="absolute inset-0 bg-slate-900/50" onClick={() => setAccountModalOpen(false)} />
+            <form
+              className="relative w-full max-w-md rounded-xl bg-white p-5 shadow-2xl"
+              onSubmit={(event) => { event.preventDefault(); addAccount(); }}
+            >
+              <div className="flex items-start justify-between gap-3 border-b pb-3" style={{ borderColor: BORDER }}>
+                <div>
+                  <h3 className="text-base font-semibold" style={{ color: INK }}>Agregar cuenta bancaria</h3>
+                  <p className="mt-1 text-xs" style={{ color: MUTED }}>Los movimientos quedaran separados en esta cuenta.</p>
+                </div>
+                <button type="button" className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" onClick={() => setAccountModalOpen(false)} aria-label="Cerrar">
+                  <FiX />
+                </button>
+              </div>
+              <div className="mt-4 grid gap-3">
+                <Field label="Nombre de la cuenta">
+                  <input autoFocus className="input" placeholder="Ej. Cuenta BBVA" value={accountForm.name} onChange={(event) => setAccountForm((current) => ({ ...current, name: event.target.value }))} />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Banco">
+                    <input className="input" placeholder="BBVA" value={accountForm.bank} onChange={(event) => setAccountForm((current) => ({ ...current, bank: event.target.value }))} />
+                  </Field>
+                  <Field label="Nro. de cuenta (14 dígitos)">
+                    <input
+                      className="input"
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={14}
+                      pattern="[0-9]{14}"
+                      placeholder="Opcional"
+                      value={accountForm.accountNumber}
+                      onChange={(event) => setAccountForm((current) => ({ ...current, accountNumber: event.target.value.replace(/\D/g, '').slice(0, 14) }))}
+                    />
+                  </Field>
+                </div>
+              </div>
+              <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                <button type="button" className="btn-neutral justify-center" onClick={() => setAccountModalOpen(false)}>Cancelar</button>
+                <button type="submit" className="btn-primary justify-center" disabled={savingAccount}>
+                  <FiPlus /> {savingAccount ? 'Guardando...' : 'Guardar cuenta'}
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
 
         <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
           <div className="flex flex-col gap-2 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between" style={{ borderColor: BORDER }}>
@@ -489,6 +682,16 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
             </div>
           ) : (
             <>
+              <div className="flex items-center justify-between gap-2 border-b bg-white px-4 py-2" style={{ borderColor: BORDER }}>
+                <p className="text-xs font-semibold" style={{ color: MUTED }}>Movimientos por operación</p>
+                <button
+                  className="btn-neutral !h-8 !px-2 text-xs"
+                  onClick={() => setOperationAscending((value) => !value)}
+                  title={operationAscending ? 'Ordenar de la última operación a la primera' : 'Ordenar de la primera operación a la última'}
+                >
+                  {operationAscending ? <FiArrowDown /> : <FiArrowUp />} {operationAscending ? 'Última primero' : 'Primera primero'}
+                </button>
+              </div>
               <div className="overflow-x-auto">
                 <table className="table-base">
                   <thead>
@@ -522,18 +725,18 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                           onClick={() => openEdit(item)}
                           title="Clic para cargar este registro en el formulario"
                         >
-                          <td className="td-base text-center tabular-nums" style={{ color: MUTED }}>{item.itemNumber ?? '-'}</td>
-                          <td className="td-base whitespace-nowrap tabular-nums">{prettyDate(item.movementDate)}</td>
+                          <td className="td-base whitespace-nowrap text-center text-xs tabular-nums" style={{ color: MUTED }}>{item.itemNumber ?? '-'}</td>
+                          <td className="td-base whitespace-nowrap text-xs tabular-nums">{prettyDate(item.movementDate)}</td>
                           <td className="td-base whitespace-nowrap" style={{ color: MUTED }}>{item.monthLabel || monthLabel(item.movementDate)}</td>
                           <td className="td-base max-w-[240px] truncate" title={item.description || ''}>{item.description || '-'}</td>
                           <td className="td-base max-w-[220px] truncate" title={item.counterparty || ''}>{item.counterparty || '-'}</td>
-                          <td className="td-base text-right font-semibold tabular-nums" style={{ color: deposit ? '#16A36A' : '#CBD5E1' }}>
+                          <td className="td-base whitespace-nowrap text-right text-xs font-semibold tabular-nums" style={{ color: deposit ? '#16A36A' : '#CBD5E1' }}>
                             {deposit ? show(deposit) : '-'}
                           </td>
-                          <td className="td-base text-right font-semibold tabular-nums" style={{ color: charge ? '#DC2626' : '#CBD5E1' }}>
+                          <td className="td-base whitespace-nowrap text-right text-xs font-semibold tabular-nums" style={{ color: charge ? '#DC2626' : '#CBD5E1' }}>
                             {charge ? show(charge) : '-'}
                           </td>
-                          <td className="td-base text-right font-bold tabular-nums" style={{ color: INK }}>
+                          <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: INK }}>
                             {item.bookBalance === null ? '-' : show(num(item.bookBalance))}
                           </td>
                           <td className="td-base">
@@ -554,6 +757,15 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                       );
                     })}
                   </tbody>
+                  <tfoot>
+                    <tr className="border-t bg-[#F8FAFC] font-bold" style={{ borderColor: BORDER }}>
+                      <td className="td-base text-xs" colSpan={5} style={{ color: INK }}>Totales</td>
+                      <td className="td-base whitespace-nowrap text-right text-xs tabular-nums" style={{ color: '#16A36A' }}>{show(movementTotals.deposits)}</td>
+                      <td className="td-base whitespace-nowrap text-right text-xs tabular-nums" style={{ color: '#DC2626' }}>{show(movementTotals.charges)}</td>
+                      <td className="td-base whitespace-nowrap text-right text-xs tabular-nums" style={{ color: INK }}>{show(num(summary?.saldoFinal))}</td>
+                      <td className="td-base" colSpan={5} />
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
 
@@ -571,7 +783,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
           )}
         </section>
 
-        <AnnualReportPanel projectId={projectId} currency={currency} rate={exchangeRate} refreshKey={dataVersion} />
+        <AnnualReportPanel projectId={projectId} accountKey={accountKey} currency={currency} rate={exchangeRate} refreshKey={dataVersion} />
 
         {categoriesOpen && (
           <CategoryMasterPanel
@@ -697,18 +909,12 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
               )}
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-2 gap-3">
               <Field label="Fecha de abono">
                 <input type="date" className="input" value={form.movementDate || ''} onChange={(event) => pickDate(event.target.value)} />
               </Field>
               <Field label="Mes (automatico)">
                 <input className="input" readOnly placeholder="Se completa con la fecha" value={form.monthLabel || ''} />
-              </Field>
-              <Field label="Moneda">
-                <select className="input" value={form.currency || 'PEN'} onChange={(event) => setForm((p: any) => ({ ...p, currency: event.target.value }))}>
-                  <option value="PEN">S/ PEN</option>
-                  <option value="USD">US$ USD</option>
-                </select>
               </Field>
             </div>
 
@@ -739,12 +945,18 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
               </Field>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-3 gap-2">
               <Field label="Abono (ingreso)">
                 <input type="number" step="0.01" min="0" className="input" value={form.depositAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, depositAmount: event.target.value, chargeAmount: event.target.value ? '' : p.chargeAmount }))} />
               </Field>
               <Field label="Cargo (egreso)">
                 <input type="number" step="0.01" min="0" className="input" value={form.chargeAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, chargeAmount: event.target.value, depositAmount: event.target.value ? '' : p.depositAmount }))} />
+              </Field>
+              <Field label="Moneda">
+                <select className="input" value={form.currency || 'PEN'} onChange={(event) => setForm((p: any) => ({ ...p, currency: event.target.value }))}>
+                  <option value="PEN">S/ PEN</option>
+                  <option value="USD">US$ USD</option>
+                </select>
               </Field>
             </div>
 
@@ -766,27 +978,23 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
               </Field>
             </div>
 
-            <div className="grid gap-3 sm:grid-cols-2">
+            <div className="grid grid-cols-2 gap-3">
               <Field label="Nro. Factura / Boleta">
                 <input className="input" value={form.invoiceNumber || ''} onChange={(event) => setForm((p: any) => ({ ...p, invoiceNumber: event.target.value }))} />
               </Field>
-              <Field label="Saldo contable">
-                <input type="number" step="0.01" className="input" placeholder="Se calcula al guardar" value={form.bookBalance ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, bookBalance: event.target.value }))} />
+              <Field label="Observacion">
+                <input
+                  className="input"
+                  list="bank-observations"
+                  placeholder="Ej. Cuota Inicial"
+                  value={form.observation || ''}
+                  onChange={(event) => setForm((p: any) => ({ ...p, observation: event.target.value }))}
+                />
+                <datalist id="bank-observations">
+                  {QUICK_OBSERVATIONS.map((option) => <option key={option} value={option} />)}
+                </datalist>
               </Field>
             </div>
-
-            <Field label="Observacion">
-              <input
-                className="input"
-                list="bank-observations"
-                placeholder="Ej. Cuota Inicial"
-                value={form.observation || ''}
-                onChange={(event) => setForm((p: any) => ({ ...p, observation: event.target.value }))}
-              />
-              <datalist id="bank-observations">
-                {QUICK_OBSERVATIONS.map((option) => <option key={option} value={option} />)}
-              </datalist>
-            </Field>
 
             <div className="flex flex-col-reverse justify-end gap-2 pt-2 sm:flex-row">
               <button className="btn-neutral justify-center" onClick={() => setFormOpen(false)}>Cerrar</button>

@@ -411,17 +411,18 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           </button>
           <div className="min-w-0 flex-1">
             {(() => {
-              // En pestanas de proyecto el header muestra SOLO el logo del proyecto
-              // (sin el nombre), al mismo tamano que el logo Dunacon del sidebar
-              // para que se vea con presencia. El Layout obtiene `activeProject` de
-              // la URL, asi que aplica a todas las pestanas del proyecto.
               if (isProjectContext && activeProject?.logoImageUrl) {
                 return (
-                  <img
-                    src={activeProject.logoImageUrl}
-                    alt={activeProject.name || 'Proyecto'}
-                    className="h-10 w-auto max-w-52 object-contain"
-                  />
+                  <div className="flex min-w-0 items-center gap-3">
+                    <img
+                      src={activeProject.logoImageUrl}
+                      alt={activeProject.name || 'Proyecto'}
+                      className="h-10 w-auto max-w-52 object-contain"
+                    />
+                    <span className="truncate text-base font-semibold text-[#171717]">
+                      {activeProject.name}
+                    </span>
+                  </div>
                 );
               }
               if (titleLogoUrl) {

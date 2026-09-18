@@ -4,6 +4,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, Repository } from 'typeorm';
 import * as XLSX from 'xlsx';
 import { BankAccountMovementEntity } from '../../../shared/infrastructure/entities/bank-account-movement.entity';
+import { BankAccountBalanceEntity } from '../../../shared/infrastructure/entities/bank-account-balance.entity';
+import { BankAccountEntity } from '../../../shared/infrastructure/entities/bank-account.entity';
 import { BankCategoryMappingEntity } from '../../../shared/infrastructure/entities/bank-category-mapping.entity';
 import {
   BankMovementImportRow,
@@ -11,6 +13,8 @@ import {
   CreateBankMovementDto,
   UpdateBankCategoryDto,
   UpdateBankMovementDto,
+  UpdateBankOpeningBalanceDto,
+  CreateBankAccountDto,
 } from './dto/bank-account.dto';
 
 export const BANK_EXPECTED_COLUMNS = [
@@ -36,6 +40,7 @@ const MONTH_NAMES = [
 ];
 
 type ListFilters = {
+  accountKey?: string;
   from?: string;
   to?: string;
   currency?: string;
@@ -49,15 +54,21 @@ export class BankAccountsService {
   constructor(
     @InjectRepository(BankAccountMovementEntity)
     private readonly movementRepo: Repository<BankAccountMovementEntity>,
+    @InjectRepository(BankAccountBalanceEntity)
+    private readonly balanceRepo: Repository<BankAccountBalanceEntity>,
+    @InjectRepository(BankAccountEntity)
+    private readonly accountRepo: Repository<BankAccountEntity>,
     @InjectRepository(BankCategoryMappingEntity)
     private readonly categoryRepo: Repository<BankCategoryMappingEntity>,
   ) {}
 
   async list(projectId: number, filters: ListFilters = {}) {
     if (!projectId) throw new BadRequestException('Proyecto requerido');
+    const accountKey = filters.accountKey || 'GENERAL';
 
     const qb = this.movementRepo.createQueryBuilder('m')
-      .where('m.project_id = :projectId', { projectId });
+      .where('m.project_id = :projectId', { projectId })
+      .andWhere('m.account_key = :accountKey', { accountKey });
 
     if (filters.from) qb.andWhere('m.movement_date >= :from', { from: filters.from });
     if (filters.to) qb.andWhere('m.movement_date <= :to', { to: filters.to });
@@ -77,13 +88,13 @@ export class BankAccountsService {
       .addOrderBy('m.id', 'ASC')
       .getMany();
 
-    const summary = this.buildSummary(items);
-    const facets = await this.buildFacets(projectId);
+    const summary = await this.buildSummary(items, projectId, accountKey);
+    const facets = await this.buildFacets(projectId, accountKey);
 
     return { items, summary, facets };
   }
 
-  private buildSummary(items: BankAccountMovementEntity[]) {
+  private async buildSummary(items: BankAccountMovementEntity[], projectId: number, accountKey: string) {
     let depositPEN = 0;
     let chargePEN = 0;
     let depositUSD = 0;
@@ -101,14 +112,7 @@ export class BankAccountsService {
       }
     }
 
-    // Saldo inicial = H1 - F1 + G1, o el valor declarado del Excel (F24).
-    const declaredOpening = items.find((item) => item.openingBalance !== null);
-    const firstWithBalance = items.find((item) => item.bookBalance !== null);
-    const saldoInicial = declaredOpening
-      ? Number(declaredOpening.openingBalance)
-      : firstWithBalance
-        ? Number(firstWithBalance.bookBalance) - Number(firstWithBalance.depositAmount || 0) + Number(firstWithBalance.chargeAmount || 0)
-        : 0;
+    const saldoInicial = await this.getOpeningBalance(projectId, 'PEN', accountKey, items);
 
     // Saldo Final = Saldo Inicial + Total Abonos - Total Cargos (periodo visible).
     const saldoFinal = saldoInicial + depositPEN - chargePEN;
@@ -129,11 +133,12 @@ export class BankAccountsService {
     };
   }
 
-  private async buildFacets(projectId: number) {
+  private async buildFacets(projectId: number, accountKey: string) {
     const classifications = await this.movementRepo.createQueryBuilder('m')
       .select('m.eerr_classification', 'value')
       .addSelect('COUNT(*)', 'count')
       .where('m.project_id = :projectId', { projectId })
+      .andWhere('m.account_key = :accountKey', { accountKey })
       .andWhere('m.eerr_classification IS NOT NULL')
       .andWhere("m.eerr_classification <> ''")
       .groupBy('m.eerr_classification')
@@ -143,6 +148,7 @@ export class BankAccountsService {
     const months = await this.movementRepo.createQueryBuilder('m')
       .select("to_char(m.movement_date, 'YYYY-MM')", 'value')
       .where('m.project_id = :projectId', { projectId })
+      .andWhere('m.account_key = :accountKey', { accountKey })
       .andWhere('m.movement_date IS NOT NULL')
       .groupBy("to_char(m.movement_date, 'YYYY-MM')")
       .orderBy("to_char(m.movement_date, 'YYYY-MM')", 'DESC')
@@ -154,6 +160,7 @@ export class BankAccountsService {
       .addSelect('COUNT(*)', 'count')
       .addSelect('MIN(m.created_at)', 'createdAt')
       .where('m.project_id = :projectId', { projectId })
+      .andWhere('m.account_key = :accountKey', { accountKey })
       .andWhere('m.import_batch IS NOT NULL')
       .groupBy('m.source_file')
       .addGroupBy('m.import_batch')
@@ -218,7 +225,7 @@ export class BankAccountsService {
       await this.recalculateBalances(dto.projectId, currency, accountKey, manager);
     });
 
-    return this.list(dto.projectId);
+    return this.list(dto.projectId, { accountKey });
   }
 
   async update(id: number, dto: UpdateBankMovementDto) {
@@ -248,7 +255,7 @@ export class BankAccountsService {
 
     await this.movementRepo.save(item);
     await this.recalculateBalances(item.projectId, item.currency, item.accountKey);
-    return this.list(item.projectId);
+    return this.list(item.projectId, { accountKey: item.accountKey });
   }
 
   async remove(id: number) {
@@ -257,7 +264,38 @@ export class BankAccountsService {
     const { projectId, currency, accountKey } = item;
     await this.movementRepo.delete(id);
     await this.recalculateBalances(projectId, currency, accountKey);
-    return this.list(projectId);
+    return this.list(projectId, { accountKey });
+  }
+
+  async updateOpeningBalance(dto: UpdateBankOpeningBalanceDto) {
+    if (!dto.projectId) throw new BadRequestException('Proyecto requerido');
+    const accountKey = dto.accountKey || 'GENERAL';
+    const currency = dto.currency || 'PEN';
+    const openingBalance = Number(dto.openingBalance);
+    if (!Number.isFinite(openingBalance)) throw new BadRequestException('Saldo inicial no valido');
+
+    await this.saveOpeningBalance(dto.projectId, currency, accountKey, openingBalance);
+    await this.recalculateBalances(dto.projectId, currency, accountKey);
+    return this.list(dto.projectId, { accountKey });
+  }
+
+  async listAccounts(projectId: number) {
+    if (!projectId) throw new BadRequestException('Proyecto requerido');
+    let items = await this.accountRepo.find({ where: { projectId, isActive: true }, order: { id: 'ASC' } });
+    if (!items.length) {
+      const account = await this.accountRepo.save(this.accountRepo.create({ projectId, accountKey: 'GENERAL', name: 'Cuenta principal', bank: 'BCP', accountNumber: null, isActive: true }));
+      items = [account];
+    }
+    return { items };
+  }
+
+  async createAccount(dto: CreateBankAccountDto) {
+    if (!dto.projectId) throw new BadRequestException('Proyecto requerido');
+    const name = dto.name.trim();
+    if (!name) throw new BadRequestException('Ingresa el nombre de la cuenta');
+    const accountKey = `${name.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80)}-${Date.now()}`;
+    await this.accountRepo.save(this.accountRepo.create({ projectId: dto.projectId, accountKey, name, bank: dto.bank?.trim() || null, accountNumber: dto.accountNumber?.trim() || null, isActive: true }));
+    return this.listAccounts(dto.projectId);
   }
 
   /**
@@ -266,7 +304,7 @@ export class BankAccountsService {
    *   Saldo Inicial(m>1)  = Saldo Final(m-1).
    *   Saldo Final(m)      = Saldo Inicial(m) + Abonos(m) - Pagos(m).
    */
-  async annualReport(projectId: number, year?: number, currency?: string) {
+  async annualReport(projectId: number, year?: number, currency?: string, accountKey = 'GENERAL') {
     if (!projectId) throw new BadRequestException('Proyecto requerido');
 
     const years = await this.movementRepo.createQueryBuilder('m')
@@ -284,17 +322,11 @@ export class BankAccountsService {
     // Para encadenar los saldos se traen TODOS los movimientos previos al anio
     // (de cualquier fecha anterior), no solo los del anio seleccionado.
     const items = await this.movementRepo.find({
-      where: { projectId, currency: selectedCurrency },
+      where: { projectId, currency: selectedCurrency, accountKey },
       order: { movementDate: 'ASC', itemNumber: 'ASC', id: 'ASC' },
     });
 
-    const declaredOpening = items.find((item) => item.openingBalance !== null);
-    const firstWithBalance = items.find((item) => item.bookBalance !== null);
-    const openingBalance = declaredOpening
-      ? Number(declaredOpening.openingBalance)
-      : firstWithBalance
-        ? Number(firstWithBalance.bookBalance) - Number(firstWithBalance.depositAmount || 0) + Number(firstWithBalance.chargeAmount || 0)
-        : 0;
+    const openingBalance = await this.getOpeningBalance(projectId, selectedCurrency, accountKey, items);
 
     // Saldo Inicial del anio = saldo acumulado al cierre del anio anterior.
     let running = openingBalance;
@@ -365,12 +397,8 @@ export class BankAccountsService {
     });
     if (!items.length) return;
 
-    // El saldo inicial viene del Excel (F24); si no existe se deduce del primer
-    // movimiento con saldo contable: saldoInicial = H1 - F1 + G1.
-    const declared = items.find((item) => item.openingBalance !== null);
-    let running = declared
-      ? Number(declared.openingBalance)
-      : Number(items[0].bookBalance ?? 0) - Number(items[0].depositAmount || 0) + Number(items[0].chargeAmount || 0);
+    const openingBalance = await this.getOpeningBalance(projectId, currency, accountKey, items, manager);
+    let running = openingBalance;
 
     const changed: BankAccountMovementEntity[] = [];
     for (const item of items) {
@@ -386,6 +414,33 @@ export class BankAccountsService {
     for (let index = 0; index < changed.length; index += 200) {
       await repo.save(changed.slice(index, index + 200), { chunk: 200 });
     }
+  }
+
+  private async getOpeningBalance(
+    projectId: number,
+    currency: string,
+    accountKey: string,
+    items: BankAccountMovementEntity[] = [],
+    manager?: EntityManager,
+  ) {
+    const repo = manager ? manager.getRepository(BankAccountBalanceEntity) : this.balanceRepo;
+    const configured = await repo.findOne({ where: { projectId, currency, accountKey } });
+    if (configured) return Number(configured.openingBalance || 0);
+
+    // Compatibilidad con importaciones anteriores que guardaron el dato en la primera fila.
+    const declared = items.find((item) => item.openingBalance !== null);
+    return declared ? Number(declared.openingBalance || 0) : 0;
+  }
+
+  private async saveOpeningBalance(projectId: number, currency: string, accountKey: string, openingBalance: number, manager?: EntityManager) {
+    const repo = manager ? manager.getRepository(BankAccountBalanceEntity) : this.balanceRepo;
+    const existing = await repo.findOne({ where: { projectId, currency, accountKey } });
+    if (existing) {
+      existing.openingBalance = String(round2(openingBalance));
+      await repo.save(existing);
+      return;
+    }
+    await repo.save(repo.create({ projectId, currency, accountKey, openingBalance: String(round2(openingBalance)) }));
   }
 
   async listCategories(projectId: number) {
@@ -606,13 +661,13 @@ export class BankAccountsService {
       }));
     }
 
+    const opening = options.openingBalance === undefined || options.openingBalance === null
+      ? null
+      : round2(options.openingBalance);
     if (pending.length) {
       // Se recalcula la cadena de saldos de toda la cuenta tras importar.
-      const opening = options.openingBalance === undefined || options.openingBalance === null
-        ? null
-        : String(round2(options.openingBalance));
       if (opening !== null) {
-        for (const item of pending) item.openingBalance = opening;
+        for (const item of pending) item.openingBalance = String(opening);
       }
       // Se inserta por lotes dentro de una transaccion: evita saturar el pool
       // y garantiza que la carga se guarde completa o no se guarde.
@@ -627,6 +682,11 @@ export class BankAccountsService {
       }
     }
 
+    if (opening !== null) {
+      await this.saveOpeningBalance(projectId, defaultCurrency, accountKey, opening);
+      await this.recalculateBalances(projectId, defaultCurrency, accountKey);
+    }
+
     const result = await this.list(projectId);
     return {
       ...result,
@@ -639,6 +699,7 @@ export class BankAccountsService {
 
   async removeBatch(projectId: number, batch: string) {
     if (!projectId || !batch) throw new BadRequestException('Proyecto y lote requeridos');
+    const affected = await this.movementRepo.find({ where: { projectId, importBatch: batch }, select: ['accountKey'] });
     const result = await this.movementRepo.delete({ projectId, importBatch: batch });
 
     const rows = await this.movementRepo.find({ where: { projectId }, select: ['currency', 'accountKey'] });
@@ -650,7 +711,7 @@ export class BankAccountsService {
       await this.recalculateBalances(projectId, row.currency, row.accountKey);
     }
 
-    return { ...(await this.list(projectId)), removed: result.affected || 0 };
+    return { ...(await this.list(projectId, { accountKey: affected[0]?.accountKey || 'GENERAL' })), removed: result.affected || 0 };
   }
 
   private parseWorkbook(file: Express.Multer.File) {
