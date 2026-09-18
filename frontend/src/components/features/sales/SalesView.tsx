@@ -666,12 +666,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             {/* Lote y responsable */}
             <div className="grid grid-cols-2 gap-3">
               {!lockedProjectId && (
-                <Field label="Proyecto" className="col-span-2">
-                  <select className="input" value={projectId} onChange={(e) => { setProjectId(Number(e.target.value)); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setSalePrice(0); }}>
-                    <option value={0}>Auto / Todos</option>
-                    {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                </Field>
+                <div className="col-span-2">
+                  <Field label="Proyecto">
+                    <select className="input" value={projectId} onChange={(e) => { setProjectId(Number(e.target.value)); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setSalePrice(0); }}>
+                      <option value={0}>Auto / Todos</option>
+                      {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </Field>
+                </div>
               )}
               <Field label="Lote *">
                 <select className="input" value={lotId} onChange={(e) => selectLot(Number(e.target.value))}>
