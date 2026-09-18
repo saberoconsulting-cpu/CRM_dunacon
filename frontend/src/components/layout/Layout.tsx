@@ -419,6 +419,9 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
                       {activeProjectSection}
                     </h1>
                     <div className="hidden min-w-0 items-center gap-3 md:flex">
+                      <span className="truncate text-base font-semibold text-[#171717]">
+                        {activeProjectSection}
+                      </span>
                       {activeProject?.logoImageUrl && (
                         <img
                           src={activeProject.logoImageUrl}
@@ -426,9 +429,6 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
                           className="h-10 w-auto max-w-52 object-contain"
                         />
                       )}
-                      <span className="truncate text-base font-semibold text-[#171717]">
-                        {activeProject?.name || title}
-                      </span>
                     </div>
                   </>
                 );
