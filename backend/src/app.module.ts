@@ -49,7 +49,10 @@ import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module
     ConfigModule.forRoot({ isGlobal: true }),
     // Límite general por IP (protege toda la API); endpoints sensibles como
     // login usan @Throttle() con un límite más estricto encima de este.
-    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 120 }]),
+    ThrottlerModule.forRoot({
+      throttlers: [{ name: 'default', ttl: 60_000, limit: 120 }],
+      errorMessage: 'Demasiados intentos. Espera un minuto e intenta de nuevo.',
+    }),
     TypeOrmModule.forRoot({
       type: 'postgres',
       host: process.env.DB_HOST || '127.0.0.1',
