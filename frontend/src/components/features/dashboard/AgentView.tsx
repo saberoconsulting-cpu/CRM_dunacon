@@ -1,5 +1,5 @@
 'use client';
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { FiCreditCard, FiDollarSign, FiLayers, FiTag, FiUsers } from 'react-icons/fi';
 import { AgentDashboard } from '@/lib/dboard';
 import { formatMoney, formatDate } from '@/lib/types';
@@ -82,7 +82,13 @@ export default function AgentView({ d }: { d: AgentDashboard | null }) {
     current.ventas += n(row.total);
     byMonth.set(key, current);
   }
-  const activity = Array.from(byMonth.entries()).sort(([a], [b]) => a.localeCompare(b)).slice(-6).map(([month, v]) => ({ month, ...v }));
+  const now = new Date();
+  const activity = Array.from({ length: 6 }, (_, i) => {
+    const dt = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+    const month = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+    return { month, monto: byMonth.get(month)?.monto || 0, ventas: byMonth.get(month)?.ventas || 0, current: i === 5 };
+  });
+  const hasActivity = activity.some((row) => row.monto > 0);
 
   return (
     <div className="space-y-5">
@@ -96,37 +102,64 @@ export default function AgentView({ d }: { d: AgentDashboard | null }) {
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <div className="xl:col-span-2">
           <SectionCard title="Mi actividad" subtitle="Ingresos por mes (ultimos 6 meses)">
-            {activity.length ? (
-              <div className="mx-auto h-[260px] w-full max-w-[680px] px-3 pt-4 sm:px-4 sm:pt-5">
+            {hasActivity ? (
+              <div className="h-[300px] w-full px-3 pt-5 sm:px-5">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={activity} margin={{ left: 8, right: 20, top: 12, bottom: 16 }}>
-                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
-                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
-                    <YAxis tickFormatter={shortMoney} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} width={62} />
+                  <BarChart data={activity} margin={{ left: 0, right: 8, top: 24, bottom: 8 }} barCategoryGap="28%">
+                    <defs>
+                      <linearGradient id="agentBar" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#4C9AFF" />
+                        <stop offset="100%" stopColor={BLUE_DARK} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#EEF1F5" vertical={false} />
+                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 12, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <YAxis tickFormatter={shortMoney} tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={56} tickCount={5} />
                     <Tooltip
-                      cursor={{ fill: 'rgba(24,119,242,0.06)' }}
-                      formatter={(value: number, _name: string, item: any) => [`${formatMoney(value)} (${item?.payload?.ventas || 0} venta/s)`, 'Ingresos']}
+                      cursor={{ fill: 'rgba(24,119,242,0.06)', radius: 6 }}
+                      contentStyle={{ borderRadius: 10, border: `1px solid ${BORDER}`, boxShadow: '0 8px 24px rgba(15,23,42,.08)', fontSize: 12 }}
+                      formatter={(value: number, _n: string, item: any) => [`${formatMoney(value)} · ${item?.payload?.ventas || 0} venta/s`, 'Ingresos']}
                       labelFormatter={(label: string) => monthLabel(label)}
                     />
-                    <Bar dataKey="monto" name="Ingresos" fill={BLUE} radius={[4, 4, 0, 0]} maxBarSize={46} />
+                    <Bar dataKey="monto" radius={[8, 8, 0, 0]} maxBarSize={56} minPointSize={3}>
+                      {activity.map((row) => (
+                        <Cell key={row.month} fill={row.monto > 0 ? 'url(#agentBar)' : '#E8EDF3'} />
+                      ))}
+                      <LabelList dataKey="monto" position="top" formatter={(v: number) => (v > 0 ? shortMoney(v) : '')} style={{ fontSize: 11, fontWeight: 600, fill: INK }} />
+                    </Bar>
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             ) : (
-              <div className="grid h-[240px] place-items-center px-4 text-center text-sm text-slate-400">Aun no tienes ventas registradas.</div>
+              <div className="grid h-[260px] place-items-center px-4 text-center text-sm text-slate-400">Aun no tienes ventas registradas.</div>
             )}
           </SectionCard>
         </div>
 
         <SectionCard title="Mi meta mensual" subtitle="Lotes vendidos este mes" right={goalLots > 0 ? `${progress}%` : undefined}>
-          <div className="px-4 py-4">
-            <p className="text-3xl font-bold tabular-nums" style={{ color: INK }}>
-              {goalLots > 0 ? `${Math.min(salesInMonth, goalLots)} / ${goalLots}` : `${salesInMonth} vendidos`}
-            </p>
-            <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-slate-100">
-              <div className="h-full rounded-full" style={{ width: `${progress}%`, background: BLUE }} />
+          <div className="flex flex-col items-center px-4 py-5">
+            <div className="relative h-[190px] w-[190px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={[{ v: progress }, { v: Math.max(0, 100 - progress) }]}
+                    dataKey="v" startAngle={90} endAngle={-270} innerRadius={68} outerRadius={88} stroke="none" cornerRadius={10} isAnimationActive={false}
+                  >
+                    <Cell fill={BLUE} />
+                    <Cell fill="#E8EDF3" />
+                  </Pie>
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
+                <div>
+                  <p className="text-3xl font-bold tabular-nums" style={{ color: INK }}>
+                    {goalLots > 0 ? `${Math.min(salesInMonth, goalLots)}/${goalLots}` : salesInMonth}
+                  </p>
+                  <p className="text-[11px]" style={{ color: MUTED }}>{goalLots > 0 ? 'lotes del mes' : 'vendidos'}</p>
+                </div>
+              </div>
             </div>
-            <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="mt-4 grid w-full grid-cols-2 gap-2">
               <div className="rounded-md border px-3 py-2" style={{ borderColor: BORDER }}>
                 <p className="text-[11px] font-medium" style={{ color: MUTED }}>Meta en monto</p>
                 <p className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: INK }}>{formatMoney(d.cards.goalAmount)}</p>
