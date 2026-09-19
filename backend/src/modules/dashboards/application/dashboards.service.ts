@@ -273,7 +273,7 @@ export class DashboardsService {
     const monthKey = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
     const monthStart = monthKey.slice(0, 10);
 
-    const [salesMonth, salesAmountRes, commissionRes, lotsSold, leads, upcoming, salesByPeriod, weekRes] =
+    const [salesMonth, salesAmountRes, commissionRes, lotsSold, leads, upcoming, salesByPeriod, weekRes, salesByProject] =
       await Promise.all([
         this.saleRepo.createQueryBuilder('s').where('s.agent_id = :agentId', { agentId }).select('COUNT(*)', 'total').getRawOne(),
         this.saleRepo.createQueryBuilder('s').where('s.agent_id = :agentId', { agentId }).select('COALESCE(SUM(s.sale_price),0)', 'total').getRawOne(),
@@ -287,6 +287,7 @@ export class DashboardsService {
           .select('s.sale_date', 'date')
           .addSelect('COUNT(*)', 'total')
           .addSelect('COALESCE(SUM(s.sale_price),0)', 'amount')
+          .andWhere("s.approval_status <> 'rechazada'")
           .groupBy('s.sale_date')
           .getRawMany(),
         this.saleRepo
@@ -294,6 +295,20 @@ export class DashboardsService {
           .where('s.agent_id = :agentId AND s.created_at >= :monthKey', { agentId, monthKey })
           .select('COUNT(*)', 'total')
           .getRawOne(),
+        this.saleRepo
+          .createQueryBuilder('s')
+          .leftJoin(ProjectEntity, 'p', 'p.id = s.project_id')
+          .where('s.agent_id = :agentId', { agentId })
+          .andWhere("s.approval_status <> 'rechazada'")
+          .select('s.project_id', 'projectId')
+          .addSelect('p.name', 'name')
+          .addSelect('COUNT(*)', 'total')
+          .addSelect('COALESCE(SUM(s.sale_price),0)', 'amount')
+          .addSelect('COALESCE(SUM(s.commission),0)', 'commission')
+          .groupBy('s.project_id')
+          .addGroupBy('p.name')
+          .orderBy('amount', 'DESC')
+          .getRawMany(),
       ]);
 
     const agent = await this.userRepo.findOne({ where: { id: agentId } });
@@ -315,6 +330,13 @@ export class DashboardsService {
       leads,
       upcoming,
       salesByPeriod: period,
+      salesByProject: (salesByProject || []).map((r) => ({
+        projectId: Number(r.projectId),
+        name: r.name || `Proyecto ${r.projectId}`,
+        total: Number(r.total || 0),
+        amount: Number(r.amount || 0),
+        commission: Number(r.commission || 0),
+      })),
     };
   }
 
