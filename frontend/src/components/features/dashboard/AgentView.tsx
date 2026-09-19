@@ -108,7 +108,7 @@ export default function AgentView({ d }: { d: AgentDashboard | null }) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3">
         <KpiTile label="Ventas del mes" value={String(salesInMonth)} helper="Separaciones y ventas" icon={<FiTag />} accent={BLUE} />
         <KpiTile label="Ventas totales" value={formatMoney(d.cards.salesAmount)} helper="Total de este agente" icon={<FiDollarSign />} accent={GREEN} />
         <KpiTile label="Comisiones" value={formatMoney(d.cards.commissionMonth)} helper="Total acumulado" icon={<FiCreditCard />} accent={AMBER} />
