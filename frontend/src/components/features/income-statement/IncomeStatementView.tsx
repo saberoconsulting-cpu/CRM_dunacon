@@ -303,7 +303,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 <div className="inline-flex items-center gap-2 rounded-md bg-white/12 px-3 py-1 text-xs font-semibold ring-1 ring-white/20">
                   <FiFileText /> CRM - DUNACON
                 </div>
-                <h2 className="mt-5 text-3xl font-bold tracking-normal sm:text-4xl">Estado de Resultados</h2>
+                <h2 className="mt-5 text-3xl font-bold tracking-normal text-white sm:text-4xl">Estado de Resultados</h2>
                 <p className="mt-2 max-w-2xl text-sm text-blue-50">
                   Vista contable ejecutiva del proyecto, construida con ingresos, egresos y lotizacion registrada en la base de datos.
                 </p>

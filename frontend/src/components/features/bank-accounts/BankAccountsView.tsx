@@ -151,15 +151,6 @@ const QUICK_DESCRIPTIONS = [
   'PAGO HABILITACION',
 ];
 
-const QUICK_OBSERVATIONS = [
-  'Cuota Inicial',
-  'Cuota Mensual',
-  'Pago Final',
-  'Adelanto',
-  'Ajuste',
-  'Regularizacion',
-];
-
 export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [items, setItems] = useState<Movement[]>([]);
   const [summary, setSummary] = useState<any>({});
@@ -895,7 +886,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   {editing ? 'Modificar movimiento' : 'Registrar movimiento'}
                 </h3>
                 <p className="mt-0.5 text-sm" style={{ color: MUTED }}>
-                  {editing ? `Editando el registro #${editing.id} del estado de cuenta.` : 'Ingreso manual al estado de cuenta bancario.'}
+                  {editing ? `Editando el registro #${editing.id}. Solo se puede actualizar la observación.` : 'Ingreso manual al estado de cuenta bancario.'}
                 </p>
               </div>
               {editing && (
@@ -911,7 +902,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Fecha de abono">
-                <input type="date" className="input" value={form.movementDate || ''} onChange={(event) => pickDate(event.target.value)} />
+                <input type="date" className="input" readOnly={!!editing} value={form.movementDate || ''} onChange={(event) => pickDate(event.target.value)} />
               </Field>
               <Field label="Mes (automatico)">
                 <input className="input" readOnly placeholder="Se completa con la fecha" value={form.monthLabel || ''} />
@@ -924,6 +915,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   className="input"
                   list="bank-descriptions"
                   placeholder="Ej. TRAN.CTAS.TERC.BM"
+                  readOnly={!!editing}
                   value={form.description || ''}
                   onChange={(event) => setForm((p: any) => ({ ...p, description: event.target.value }))}
                 />
@@ -936,6 +928,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   className="input"
                   list="bank-counterparties"
                   placeholder="Escribe para buscar o agregar"
+                  readOnly={!!editing}
                   value={form.counterparty || ''}
                   onChange={(event) => setForm((p: any) => ({ ...p, counterparty: event.target.value }))}
                 />
@@ -947,13 +940,13 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
             <div className="grid grid-cols-3 gap-2">
               <Field label="Abono (ingreso)">
-                <input type="number" step="0.01" min="0" className="input" value={form.depositAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, depositAmount: event.target.value, chargeAmount: event.target.value ? '' : p.chargeAmount }))} />
+                <input type="number" step="0.01" min="0" className="input" readOnly={!!editing} value={form.depositAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, depositAmount: event.target.value, chargeAmount: event.target.value ? '' : p.chargeAmount }))} />
               </Field>
               <Field label="Cargo (egreso)">
-                <input type="number" step="0.01" min="0" className="input" value={form.chargeAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, chargeAmount: event.target.value, depositAmount: event.target.value ? '' : p.depositAmount }))} />
+                <input type="number" step="0.01" min="0" className="input" readOnly={!!editing} value={form.chargeAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, chargeAmount: event.target.value, depositAmount: event.target.value ? '' : p.depositAmount }))} />
               </Field>
               <Field label="Moneda">
-                <select className="input" value={form.currency || 'PEN'} onChange={(event) => setForm((p: any) => ({ ...p, currency: event.target.value }))}>
+                <select className="input" disabled={!!editing} value={form.currency || 'PEN'} onChange={(event) => setForm((p: any) => ({ ...p, currency: event.target.value }))}>
                   <option value="PEN">S/ PEN</option>
                   <option value="USD">US$ USD</option>
                 </select>
@@ -966,6 +959,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   className="input"
                   list="bank-category-types"
                   placeholder="Selecciona o escribe el concepto"
+                  readOnly={!!editing}
                   value={form.movementType || ''}
                   onChange={(event) => pickMovementType(event.target.value)}
                 />
@@ -980,19 +974,16 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Nro. Factura / Boleta">
-                <input className="input" value={form.invoiceNumber || ''} onChange={(event) => setForm((p: any) => ({ ...p, invoiceNumber: event.target.value }))} />
+                <input className="input" readOnly={!!editing} value={form.invoiceNumber || ''} onChange={(event) => setForm((p: any) => ({ ...p, invoiceNumber: event.target.value }))} />
               </Field>
               <Field label="Observacion">
                 <input
                   className="input"
-                  list="bank-observations"
                   placeholder="Ej. Cuota Inicial"
+                  maxLength={40}
                   value={form.observation || ''}
                   onChange={(event) => setForm((p: any) => ({ ...p, observation: event.target.value }))}
                 />
-                <datalist id="bank-observations">
-                  {QUICK_OBSERVATIONS.map((option) => <option key={option} value={option} />)}
-                </datalist>
               </Field>
             </div>
 

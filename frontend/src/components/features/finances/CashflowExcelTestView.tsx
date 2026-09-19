@@ -1,18 +1,38 @@
 'use client';
 
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { FiEdit3, FiRefreshCw, FiSave, FiTrendingUp } from 'react-icons/fi';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FiEdit3, FiRefreshCw, FiSave, FiTrendingUp, FiZap, FiClipboard, FiCheck } from 'react-icons/fi';
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '@/lib/api';
 import { BRAND } from '@/lib/types';
-import { Toaster } from '@/components/ui/ui';
+import { Toaster, toast } from '@/components/ui/ui';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { useDisplayCurrency } from '@/lib/currency';
 
 type Row = { id: string; label: string; group?: boolean; computed?: boolean; values: number[] };
+type CashflowMode = 'estatico' | 'dinamico';
+const MODE_LABEL: Record<CashflowMode, string> = { estatico: 'Flujo estático', dinamico: 'Flujo dinámico' };
 const YEARS = Array.from({ length: 11 }, (_, index) => `Año ${index}`);
 const money = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 0 });
 const empty = () => Array(11).fill(0) as number[];
+
+function computeIRR(flow: number[]): number | null {
+    const hasNeg = flow.some((value) => value < 0);
+    const hasPos = flow.some((value) => value > 0);
+    if (!hasNeg || !hasPos) return null;
+    const npvAt = (rate: number) => flow.reduce((sum, value, year) => sum + value / Math.pow(1 + rate, year), 0);
+    let low = -0.9, high = 10.0;
+    let lowValue = npvAt(low), highValue = npvAt(high);
+    if ((lowValue > 0 && highValue > 0) || (lowValue < 0 && highValue < 0)) return null;
+    for (let i = 0; i < 200; i++) {
+        const mid = (low + high) / 2;
+        const midValue = npvAt(mid);
+        if (Math.abs(midValue) < 1e-8) return mid;
+        if ((lowValue < 0) === (midValue < 0)) { low = mid; lowValue = midValue; }
+        else { high = mid; highValue = midValue; }
+    }
+    return (low + high) / 2;
+}
 
 const SECTIONS: Array<{ id: string; label: string; tone: string; computed?: boolean; rows: Array<{ id: string; label: string; computed?: boolean }> }> = [
     {
@@ -93,6 +113,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         managementPercent: 4,
         indemnityPercent: 1,
         contingencyPercent: 5,
+        discountRate: 10,
     });
     const projectionYears = Math.max(1, Math.min(10, Math.round(Number(manual.years) || 10)));
     const visibleYears = YEARS.slice(0, projectionYears + 1);
@@ -114,69 +135,141 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     });
     const editSnapshot = useRef<{ id: string; year: number; value: number } | null>(null);
     const [pendingEdit, setPendingEdit] = useState<{ id: string; year: number; value: number; original: number } | null>(null);
+    const [mode, setMode] = useState<CashflowMode>('estatico');
+    const [modeSwitchOpen, setModeSwitchOpen] = useState(false);
+    const [pendingMode, setPendingMode] = useState<CashflowMode | null>(null);
+    const [hasSavedModel, setHasSavedModel] = useState(false);
+    const [savingModel, setSavingModel] = useState(false);
+    const [baseYear, setBaseYear] = useState(new Date().getFullYear());
 
-    useEffect(() => {
-        async function load() {
-            setLoading(true);
-            try {
-                const [projectData, plan, budget, statement] = await Promise.all([
-                    api.get<any>(`/projects/${projectId}`),
-                    api.get<any>(`/plan/project/${projectId}`).catch(() => ({ lots: [] })),
-                    api.get<any>(`/construction-budget?projectId=${projectId}`).catch(() => ({ items: [], summary: {} })),
-                    api.get<any>(`/finances/income-statement?projectId=${projectId}`).catch(() => ({})),
-                ]);
-                const lots = plan?.lots || [];
-                const budgetItems = budget?.items || [];
-                const budgetByCategory = (category: string) => budgetItems
-                    .filter((item: any) => item.category === category)
-                    .reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
-                const budgetByName = (names: string[]) => budgetItems
-                    .filter((item: any) => names.some((name) => String(item.name || '').toLowerCase().includes(name)))
-                    .reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
-                const totalLots = lots.length || Number(projectData?.stats?.total || 0);
-                const price = Number(projectData?.referencePrice || 0);
-                const lotSaleValue = lots.reduce((sum: number, lot: any) => sum + Number(lot.finalPrice || lot.salePrice || lot.price || 0), 0);
-                const landArea = lots.reduce((sum: number, lot: any) => sum + Number(lot.areaM2 || lot.area || 0), 0);
-                const lotArea = totalLots > 0 ? landArea / totalLots : 0;
-                const saleValue = lotSaleValue || landArea * price;
-                const land = budgetByCategory('costo_terreno');
-                const direct = budgetByCategory('costo_directo');
-                const indirect = budgetByCategory('costo_indirecto');
-                const sellingAdmin = budgetByCategory('gastos_ventas_admin');
-                const financing = Number(statement?.egresos_clasificados?.financiamiento || 0);
-                const tax = Number(statement?.egresos_clasificados?.impuestos || 0);
-                const igv = budgetByName(['igv']);
-                const initialRows = SECTIONS.flatMap((section) => {
-                    if (section.id === 'cost-sales') return [row(section.id, section.label)];
-                    if (section.id === 'gross' || section.id === 'operating' || section.id === 'pre-tax' || section.id === 'net' || section.id === 'adjusted' || section.id === 'accumulated-title' || section.id === 'pre-tax-accumulated' || section.id === 'adjusted-accumulated') return [row(section.id, section.label, [0], true)];
-                    if (section.id === 'financial') return [row(section.id, section.label, [financing])];
-                    if (section.id === 'tax') return [row(section.id, section.label, [tax])];
-                    if (section.id === 'igv') return [row(section.id, section.label, [igv])];
-                    return [row(section.id, section.label), ...section.rows.map((item) => row(item.id, item.label))];
-                });
-                const setFirst = (id: string, value: number) => { const item = initialRows.find((candidate) => candidate.id === id); if (item) item.values[0] = value; };
-                setFirst('lots-sold', totalLots);
-                const initialPercent = 0.1;
-                setFirst('initial-fee', saleValue * initialPercent);
-                setFirst('financing-fee', saleValue * (1 - initialPercent));
-                setFirst('land-cost', land);
-                setFirst('alcabala', land * 0.03);
-                setFirst('construction', direct);
-                setFirst('supervision', direct * 0.04);
-                setFirst('services', direct * 0.01);
-                setFirst('design', indirect || direct * 0.03);
-                setFirst('management', saleValue * 0.04);
-                setFirst('indemnity', direct * 0.01);
-                setFirst('legal-contingency', direct * 0.05);
-                setFirst('marketing', sellingAdmin);
-                setProject(projectData);
-                setRows(initialRows);
-                setManual((current) => ({ ...current, landArea, lotArea, priceM2: price, initialPercent: current.initialPercent || 10, years: current.years || 10 }));
-                setOverrides({});
-            } finally { setLoading(false); }
-        }
-        load();
+    async function buildSeedRows(): Promise<{ rows: Row[]; manualFields: Partial<typeof manual>; project: any; baseYear: number }> {
+        const [projectData, plan, budget, statement, salesData, paymentsData] = await Promise.all([
+            api.get<any>(`/projects/${projectId}`),
+            api.get<any>(`/plan/project/${projectId}`).catch(() => ({ lots: [] })),
+            api.get<any>(`/construction-budget?projectId=${projectId}`).catch(() => ({ items: [], summary: {} })),
+            api.get<any>(`/finances/income-statement?projectId=${projectId}`).catch(() => ({})),
+            api.get<any>(`/sales?projectId=${projectId}&limit=500`).catch(() => ({ items: [] })),
+            api.get<any>(`/payments?projectId=${projectId}&limit=500`).catch(() => ({ items: [] })),
+        ]);
+        const sales = Array.isArray(salesData) ? salesData : (salesData?.items || []);
+        const payments = Array.isArray(paymentsData) ? paymentsData : (paymentsData?.items || []);
+        const lots = plan?.lots || [];
+        const budgetItems = budget?.items || [];
+        const budgetByCategory = (category: string) => budgetItems
+            .filter((item: any) => item.category === category)
+            .reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+        const budgetByName = (names: string[]) => budgetItems
+            .filter((item: any) => names.some((name) => String(item.name || '').toLowerCase().includes(name)))
+            .reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+        const totalLots = lots.length || Number(projectData?.stats?.total || 0);
+        const price = Number(projectData?.referencePrice || 0);
+        const lotSaleValue = lots.reduce((sum: number, lot: any) => sum + Number(lot.finalPrice || lot.salePrice || lot.price || 0), 0);
+        const landArea = lots.reduce((sum: number, lot: any) => sum + Number(lot.areaM2 || lot.area || 0), 0);
+        const lotArea = totalLots > 0 ? landArea / totalLots : 0;
+        const saleValue = lotSaleValue || landArea * price;
+        const landLegal = budgetByName(['gastos legales y notariales', 'legal de compra', 'notarial']);
+        const land = Math.max(0, budgetByCategory('costo_terreno') - landLegal);
+        const direct = budgetByCategory('costo_directo');
+        const indirect = budgetByCategory('costo_indirecto');
+        const sellingAdmin = budgetByCategory('gastos_ventas_admin');
+        const financing = Number(statement?.egresos_clasificados?.financiamiento || 0);
+        const tax = Number(statement?.egresos_clasificados?.impuestos || 0);
+        const igv = 0;
+        const seedRows = SECTIONS.flatMap((section) => {
+            if (section.id === 'cost-sales') return [row(section.id, section.label)];
+            if (section.computed || ['gross', 'operating', 'pre-tax', 'net', 'adjusted', 'accumulated-title', 'pre-tax-accumulated', 'adjusted-accumulated'].includes(section.id)) return [row(section.id, section.label, [0], true)];
+            if (section.id === 'financial') return [row(section.id, section.label, [financing])];
+            if (section.id === 'tax') return [row(section.id, section.label, [tax])];
+            if (section.id === 'igv') return [row(section.id, section.label, [igv])];
+            return [row(section.id, section.label), ...section.rows.map((item) => row(item.id, item.label))];
+        });
+        const YEAR_COUNT = 11;
+        const yearOf = (rawDate: any): number | null => {
+            if (!rawDate) return null;
+            const date = new Date(rawDate);
+            return Number.isNaN(date.getTime()) ? null : date.getFullYear();
+        };
+        const saleYears = sales.map((sale: any) => yearOf(sale.saleDate)).filter((year: number | null): year is number => year !== null);
+        const paymentYears = payments.map((payment: any) => yearOf(payment.paidAt || payment.paid_at || payment.createdAt)).filter((year: number | null): year is number => year !== null);
+        const allYears = [...saleYears, ...paymentYears];
+        const calculatedBaseYear = allYears.length ? Math.min(...allYears) : new Date().getFullYear();
+        const baseYear = calculatedBaseYear;
+        const toSlot = (year: number | null) => (year === null ? 0 : Math.min(YEAR_COUNT - 1, Math.max(0, year - baseYear)));
+        const emptySeries = () => Array.from({ length: YEAR_COUNT }, () => 0);
+        const setSeries = (id: string, values: number[]) => {
+            const item = seedRows.find((candidate) => candidate.id === id);
+            if (item) item.values = values;
+        };
+        const spreadByDates = (total: number, years: Array<number | null>) => {
+            const series = emptySeries();
+            if (!years.length) { series[0] = total; return series; }
+            const counts = emptySeries();
+            years.forEach((year) => { counts[toSlot(year)] += 1; });
+            const totalCount = counts.reduce((sum, value) => sum + value, 0) || 1;
+            return series.map((_, index) => total * (counts[index] / totalCount));
+        };
+        const atYearZero = (total: number) => { const series = emptySeries(); series[0] = total; return series; };
+        const initialPercent = 0.1;
+
+        const soldLots = sales.length || totalLots;
+        const salesYearsList = sales.length
+            ? sales.map((sale: any) => yearOf(sale.saleDate))
+            : Array.from({ length: Math.round(soldLots) }, () => baseYear);
+        setSeries('lots-sold', spreadByDates(soldLots, salesYearsList));
+        const realSoldValue = sales.reduce((sum: number, sale: any) => sum + Number(sale.salePrice || 0), 0);
+        const soldValue = realSoldValue || saleValue;
+        setSeries('initial-fee', spreadByDates(soldValue * initialPercent, salesYearsList));
+        const financingTotal = soldValue * (1 - initialPercent);
+        setSeries('financing-fee', paymentYears.length ? spreadByDates(financingTotal, paymentYears) : spreadByDates(financingTotal, salesYearsList));
+        setSeries('land-cost', atYearZero(land));
+        setSeries('alcabala', atYearZero(land * 0.03));
+        setSeries('legal', atYearZero(landLegal));
+        setSeries('construction', atYearZero(direct));
+        setSeries('supervision', atYearZero(direct * 0.04));
+        setSeries('services', atYearZero(direct * 0.01));
+        setSeries('design', atYearZero(indirect || direct * 0.03));
+        setSeries('indemnity', atYearZero(direct * 0.01));
+        setSeries('legal-contingency', atYearZero(direct * 0.05));
+        setSeries('management', spreadByDates(soldValue * 0.04, salesYearsList));
+        setSeries('marketing', spreadByDates(sellingAdmin, salesYearsList));
+
+        return { rows: seedRows, manualFields: { landArea, lotArea, priceM2: price }, project: projectData, baseYear: calculatedBaseYear };
+    }
+
+    const loadModel = useCallback(async (target: CashflowMode) => {
+        setLoading(true);
+        try {
+            const seed = await buildSeedRows();
+            setProject(seed.project);
+            setBaseYear(seed.baseYear);
+            if (target === 'dinamico') {
+                setRows(seed.rows);
+                setManual((current) => ({ ...current, ...seed.manualFields, initialPercent: current.initialPercent || 10, years: current.years || 10, discountRate: current.discountRate || 10 }));
+                setHasSavedModel(false);
+            } else {
+                const savedModel = await api.get<any>(`/cashflow/model?projectId=${projectId}&mode=estatico`).catch(() => null);
+                if (savedModel?.rows?.length) {
+                    const savedRows: Row[] = savedModel.rows.map((item: any) => ({
+                        id: item.id,
+                        label: item.label,
+                        values: Array.isArray(item.values) ? item.values : empty(),
+                        computed: seed.rows.find((candidate) => candidate.id === item.id)?.computed,
+                    }));
+                    setRows(savedRows);
+                    setManual((current) => ({ ...current, ...seed.manualFields, discountRate: current.discountRate || 10, ...(savedModel.assumptions || {}) }));
+                    setHasSavedModel(true);
+                } else {
+                    setRows(seed.rows);
+                    setManual((current) => ({ ...current, ...seed.manualFields, initialPercent: current.initialPercent || 10, years: current.years || 10, discountRate: current.discountRate || 10 }));
+                    setHasSavedModel(false);
+                }
+            }
+            setOverrides({});
+        } finally { setLoading(false); }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId]);
+
+    useEffect(() => { loadModel(mode); }, [mode, loadModel]);
 
     const calculated = useMemo(() => {
         const next = rows.map((item) => ({ ...item, values: [...item.values] }));
@@ -198,7 +291,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         const operating = gross.map((value, year) => value - get('sales-plan')[year] - get('marketing')[year] - get('commission')[year] - get('post-sale')[year] - get('discounts')[year]);
         const preTax = operating.map((value, year) => value - get('financial')[year]);
         const net = preTax.map((value, year) => value - get('tax')[year]);
-        const adjusted = net.map((value, year) => value - get('igv')[year]);
+        const adjusted = net.slice();
         const accumulate = (values: number[]) => values.reduce<number[]>((totals, value, year) => {
             totals.push((totals[year - 1] || 0) + value);
             return totals;
@@ -226,6 +319,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
 
     function editCell(id: string, year: number, value: string) {
         setSaved(false);
+        setHasSavedModel(false);
         const numeric = baseNumber(value);
         const item = rows.find((candidate) => candidate.id === id);
         if (item?.computed) return;
@@ -253,12 +347,46 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         setPendingEdit(null);
     }
 
-    function applyCellEdit() { setSaved(false); setPendingEdit(null); }
+    function applyCellEdit() { setSaved(false); setHasSavedModel(false); setPendingEdit(null); }
 
     function toggleSection(sectionId: string) { setExpanded((current) => ({ ...current, [sectionId]: !(current[sectionId] ?? true) })); }
 
     function openAssumptions() { setDraftManual(manual); setAssumptionsOpen(true); }
 
+    async function saveModel() {
+        setSavingModel(true);
+        try {
+            const payloadRows = calculated.map((item) => ({ id: item.id, label: item.label, values: item.values }));
+            await api.post('/cashflow/model', {
+                projectId,
+                mode,
+                assumptions: { ...manual, overrides },
+                rows: payloadRows,
+            });
+            setHasSavedModel(true);
+            setSaved(true);
+            toast(`${MODE_LABEL[mode]} guardado`);
+        } catch (error: any) {
+            toast(error?.message || 'No se pudo guardar el flujo de caja', 'err');
+        } finally { setSavingModel(false); }
+    }
+
+    async function refreshDynamic() {
+        await loadModel('dinamico');
+        toast('Data del sistema actualizada');
+    }
+
+    function requestModeSwitch(next: CashflowMode) {
+        if (next === mode) return;
+        setPendingMode(next);
+        setModeSwitchOpen(true);
+    }
+
+    function applyModeSwitch() {
+        if (pendingMode) setMode(pendingMode);
+        setPendingMode(null);
+        setModeSwitchOpen(false);
+    }
     function applyAssumptions() {
         setManual(draftManual);
         const saleValue = calculatedValue('income') || draftManual.landArea * draftManual.priceM2;
@@ -278,6 +406,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         }));
         setAssumptionsOpen(false);
         setSaved(true);
+        setHasSavedModel(false);
     }
 
     const calculatedValue = (id: string, year = 0) => calculated.find((item) => item.id === id)?.values[year] || 0;
@@ -286,6 +415,36 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const averageLotPrice = totalLots > 0 ? saleValue / totalLots : 0;
     const preTaxAccumulated = calculated.find((item) => item.id === 'pre-tax-accumulated')?.values || empty();
     const accumulatedProfit = calculated.find((item) => item.id === 'adjusted-accumulated')?.values || empty();
+
+    const netProfitSeries = calculated.find((item) => item.id === 'net')?.values || empty();
+    const revenueSeries = calculated.find((item) => item.id === 'income')?.values || empty();
+    const totalRevenue = revenueSeries.reduce((sum, value) => sum + value, 0);
+    const totalNetProfit = netProfitSeries.reduce((sum, value) => sum + value, 0);
+    const costRowIds = [
+        'cost-sales', 'land-cost', 'alcabala', 'legal', 'construction', 'supervision', 'services',
+        'design', 'management', 'indemnity', 'legal-contingency',
+        'sales-plan', 'marketing', 'commission', 'post-sale', 'discounts',
+        'financial', 'tax',
+    ];
+    const totalCosts = costRowIds.reduce((sum, id) => {
+        const values = calculated.find((item) => item.id === id)?.values || [];
+        return sum + values.reduce((inner, value) => inner + Number(value || 0), 0);
+    }, 0);
+    const cumulativeProfit = netProfitSeries.reduce<number[]>((acc, value) => {
+        acc.push((acc[acc.length - 1] || 0) + value);
+        return acc;
+    }, []);
+    const minCumulative = cumulativeProfit.reduce((minVal, value) => Math.min(minVal, value), 0);
+    const maxCapitalRequired = Math.max(0, -minCumulative);
+
+    const DISCOUNT_RATE = Math.max(0, Number(manual.discountRate) || 10) / 100; // tasa configurable en supuestos
+    const van = netProfitSeries.reduce((sum, value, year) => sum + value / Math.pow(1 + DISCOUNT_RATE, year), 0);
+    const tir = computeIRR(netProfitSeries);
+    const roi = totalCosts > 0 ? (totalNetProfit / totalCosts) * 100 : null;
+    const margin = totalRevenue > 0 ? (totalNetProfit / totalRevenue) * 100 : null;
+    const firstNegative = cumulativeProfit.findIndex((value) => value < 0);
+    const paybackYear = firstNegative === -1 ? -1 : cumulativeProfit.findIndex((value, year) => year > firstNegative && value >= 0);
+    const breakEvenLots = averageLotPrice > 0 ? totalCosts / averageLotPrice : null;
 
     if (loading) return <div className="card text-sm text-slate-500">Cargando datos del proyecto...</div>;
     return (
@@ -302,8 +461,46 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         <div className="col-span-2 lg:col-span-1">
                             <CurrencyToggle currency={currency} setCurrency={setCurrency} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} />
                         </div>
-                        <button className="btn-neutral min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" onClick={() => window.location.reload()}><FiRefreshCw /> Actualizar base</button>
+                        <button className="btn-neutral min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" onClick={() => (mode === 'dinamico' ? refreshDynamic() : loadModel('estatico'))}><FiRefreshCw /> {mode === 'dinamico' ? 'Actualizar data' : 'Recargar'}</button>
                         <button className="btn-primary min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" onClick={openAssumptions}><FiEdit3 /> Ajustar supuestos</button>
+                    </div>
+                </div>
+
+                <div className="flex flex-col gap-3 border-b bg-[#F8FAFC] px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: BRAND.border }}>
+                    <div className="flex flex-wrap items-center gap-2">
+                        {(['estatico', 'dinamico'] as CashflowMode[]).map((option) => {
+                            const active = mode === option;
+                            return (
+                                <button
+                                    key={option}
+                                    type="button"
+                                    onClick={() => requestModeSwitch(option)}
+                                    className="inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-semibold transition-colors sm:text-sm"
+                                    style={{
+                                        borderColor: active ? BRAND.blue : BRAND.border,
+                                        background: active ? BRAND.blue : '#fff',
+                                        color: active ? '#fff' : BRAND.ink,
+                                    }}
+                                >
+                                    {option === 'dinamico' ? <FiZap /> : <FiClipboard />} {MODE_LABEL[option]}
+                                </button>
+                            );
+                        })}
+                        <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ background: mode === 'dinamico' ? '#E7F0FE' : '#F1F5F9', color: mode === 'dinamico' ? BRAND.blueDark : '#475569' }}>
+                            {mode === 'dinamico' ? <><FiZap /> Se carga con la data real del sistema</> : <><FiClipboard /> Tú llenas los datos manualmente</>}
+                        </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                        {mode === 'estatico' ? (
+                            <>
+                                {hasSavedModel && <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><FiCheck /> Modelo guardado</span>}
+                                <button className="btn-primary min-w-0 justify-center whitespace-nowrap px-3 text-xs sm:text-sm" onClick={saveModel} disabled={savingModel}>
+                                    <FiSave /> {savingModel ? 'Guardando...' : 'Guardar flujo estático'}
+                                </button>
+                            </>
+                        ) : (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold" style={{ color: BRAND.blueDark }}><FiRefreshCw /> Los datos se refrescan desde el sistema</span>
+                        )}
                     </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 border-b bg-[#F8FAFC] p-4 lg:grid-cols-5" style={{ borderColor: BRAND.border }}>
@@ -316,22 +513,48 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             </section>
 
             <section className="overflow-hidden rounded-lg border bg-white shadow-sm" style={{ borderColor: BRAND.border }}>
+                <div className="flex items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BRAND.border }}>
+                    <div>
+                        <h3 className="font-semibold" style={{ color: BRAND.ink }}>Indicadores del proyecto</h3>
+                        <p className="text-xs text-slate-500">Se recalculan en tiempo real con la data del modelo · Base contable (utilidad neta) · VAN con tasa de descuento del {Number(manual.discountRate) || 10}%.</p>
+                    </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-4 lg:grid-cols-7">
+                    {[
+                        { label: 'VAN contable', value: show(van), helper: `Tasa ${Number(manual.discountRate) || 10}% · utilidad neta descontada`, tone: BRAND.blue },
+                        { label: 'TIR contable', value: tir === null ? '—' : `${(tir * 100).toFixed(2)}%`, helper: tir === null ? 'Requiere utilidad negativa en algún año' : 'Tasa interna de retorno', tone: '#15803D' },
+                        { label: 'ROI contable', value: roi === null ? '—' : `${roi.toFixed(1)}%`, helper: 'Utilidad neta / costos totales', tone: '#0EA5A9' },
+                        { label: 'Margen de utilidad', value: margin === null ? '—' : `${margin.toFixed(1)}%`, helper: 'Utilidad neta / ventas', tone: '#D97706' },
+                        { label: 'Payback', value: paybackYear >= 0 ? `Año ${paybackYear}` : 'No aplica', helper: paybackYear >= 0 ? 'Año en que se cubre la inversión' : 'No hay déficit acumulado que recuperar', tone: '#8064A2' },
+                        { label: 'Punto de equilibrio', value: breakEvenLots === null ? '—' : `${Math.round(breakEvenLots)} lotes`, helper: `Lotes para cubrir costos · ${totalLots.toLocaleString('es-PE')} totales`, tone: '#E11D48' },
+                        { label: 'Capital máximo requerido', value: show(maxCapitalRequired), helper: 'Máx. déficit de caja acumulado', tone: BRAND.blueDark },
+                    ].map(({ label, value, helper, tone }) => (
+                        <div key={label} className="min-w-0 rounded-xl border bg-white px-3 py-3" style={{ borderColor: `${tone}40` }}>
+                            <p className="truncate text-[11px] font-semibold uppercase tracking-wide" style={{ color: tone }} title={label}>{label}</p>
+                            <p className="mt-1 truncate text-lg font-bold tabular-nums" style={{ color: BRAND.ink }} title={value}>{value}</p>
+                            <p className="mt-1 truncate text-[11px] text-slate-400" title={helper}>{helper}</p>
+                        </div>
+                    ))}
+                </div>
+            </section>
+
+            <section className="overflow-hidden rounded-lg border bg-white shadow-sm" style={{ borderColor: BRAND.border }}>
                 <div className="flex items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BRAND.border }}><div><h3 className="font-semibold" style={{ color: BRAND.ink }}>Estado de resultados proyectado</h3><p className="text-xs text-slate-500">Valores en US$ · al salir de una celda se te pedirá confirmar el cambio.</p></div><FiEdit3 style={{ color: BRAND.blue }} /></div>
-                <div className="overflow-auto">
+                <div className="overflow-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
                     <table className="min-w-[1360px] w-full border-collapse text-xs">
-                        <thead>
+                        <thead className="sticky top-0 z-[15]">
                             <tr>
-                                <th className="sticky left-0 z-10 min-w-[330px] border border-slate-200 bg-[#F8FAFC] px-4 py-3 text-left text-slate-500">Concepto</th>
-                                <th className="sticky left-[330px] z-10 min-w-[100px] border border-[#0F4C9A] bg-[#1259C4] px-2 py-3 text-right text-sm font-extrabold text-white shadow-sm">{currency === 'USD' ? 'US$/m²' : 'S/m²'}</th>
+                                <th className="min-w-[200px] border border-slate-200 bg-[#F8FAFC] px-3 py-3 text-left text-slate-500 md:sticky md:left-0 md:z-20 md:min-w-[330px] md:px-4">Concepto</th>
+                                <th className="min-w-[80px] border border-[#0F4C9A] bg-[#1259C4] px-2 py-3 text-right text-sm font-extrabold text-white shadow-sm md:sticky md:left-[330px] md:z-20 md:min-w-[100px]">{currency === 'USD' ? 'US$/m²' : 'S/m²'}</th>
                                 {visibleYears.map((year) => (
                                     <th key={year} className="min-w-[86px] border border-slate-200 px-2 py-3 text-right font-semibold" style={{ background: BRAND.blue, color: '#fff' }}>{year}</th>
                                 ))}
                             </tr>
                             <tr>
-                                <th className="sticky left-0 z-10 border border-slate-200 bg-[#F8FAFC] px-4 py-2 text-left text-[11px] font-semibold" style={{ color: BRAND.muted }}>Proyección anual</th>
-                                <th className="sticky left-[330px] z-10 border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2 text-right text-[11px] font-bold text-[#1259C4]">Unidad</th>
+                                <th className="border border-slate-200 bg-[#F8FAFC] px-3 py-2 text-left text-[11px] font-semibold md:sticky md:left-0 md:z-20 md:px-4" style={{ color: BRAND.muted }}>Proyección anual</th>
+                                <th className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2 text-right text-[11px] font-bold text-[#1259C4] md:sticky md:left-[330px] md:z-20">Unidad</th>
                                 {visibleYears.map((_, year) => (
-                                    <th key={year} className="border border-slate-200 px-2 py-2 text-right text-[11px] font-medium" style={{ background: year === 0 ? '#D3E4FD' : '#EAF7EE', color: year === 0 ? BRAND.blueDark : '#125A3B' }}>{new Date().getFullYear() + year}</th>
+                                    <th key={year} className="border border-slate-200 px-2 py-2 text-right text-[11px] font-medium" style={{ background: year === 0 ? '#D3E4FD' : '#EAF7EE', color: year === 0 ? BRAND.blueDark : '#125A3B' }}>{baseYear + year}</th>
                                 ))}
                             </tr>
                         </thead>
@@ -345,18 +568,18 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     <Fragment key={section.id}>
                                         {sectionRow && (
                                             <tr onClick={() => section.rows.length > 0 && toggleSection(section.id)} className="cursor-pointer">
-                                                <td className="sticky left-0 z-[1] border border-slate-200 px-4 py-2.5 font-bold" style={{ background: surface.background, color: surface.color }}>{section.label}</td>
-                                                <td className="sticky left-[330px] z-[1] border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4]">{displayPerSquareMeter(sectionRow.values[0], manual.landArea)}</td>
+                                                <td className="border border-slate-200 px-3 py-2.5 font-bold md:sticky md:left-0 md:z-[1] md:px-4" style={{ background: surface.background, color: surface.color }}>{section.label}</td>
+                                                <td className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[330px] md:z-[1]">{displayPerSquareMeter(sectionRow.values[0], manual.landArea)}</td>
                                                 {sectionRow.values.slice(0, visibleYears.length).map((value, year) => (
                                                     <td key={year} className="border border-slate-200 px-1 py-1" style={{ background: surface.background }}>
                                                         <input
                                                             aria-label={`${section.label} ${YEARS[year]}`}
-                                                            className="w-full min-w-[78px] border border-transparent bg-transparent px-1 py-1.5 text-right font-bold tabular-nums outline-none transition focus:border-[#1877F2] focus:bg-white"
+                                                            className={`w-full min-w-[78px] border border-transparent bg-transparent px-1 py-1.5 text-right font-bold tabular-nums outline-none transition ${mode === 'dinamico' ? 'cursor-default' : 'focus:border-[#1877F2] focus:bg-white'}`}
                                                             value={value ? displayNumber(value) : ''}
-                                                            readOnly={Boolean(sectionRow.computed)}
-                                                            onFocus={() => beginCellEdit(section.id, year, value)}
-                                                            onChange={(event) => editCell(section.id, year, event.target.value)}
-                                                            onBlur={(event) => finishCellEdit(section.id, year, Number(event.target.value || 0))}
+                                                            readOnly={mode === 'dinamico' || Boolean(sectionRow.computed)}
+                                                            onFocus={() => mode === 'estatico' && beginCellEdit(section.id, year, value)}
+                                                            onChange={(event) => mode === 'estatico' && editCell(section.id, year, event.target.value)}
+                                                            onBlur={(event) => mode === 'estatico' && finishCellEdit(section.id, year, Number(event.target.value || 0))}
                                                         />
                                                     </td>
                                                 ))}
@@ -368,17 +591,18 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
 
                                             return (
                                                 <tr key={definition.id} className="hover:bg-slate-50">
-                                                    <td className="sticky left-0 z-[1] border border-slate-200 bg-white px-8 py-2 text-slate-700">{definition.label}</td>
-                                                    <td className="sticky left-[330px] z-[1] border border-[#B9D2F4] bg-[#F4F8FE] px-2 py-2 text-right tabular-nums text-[#5277A8]">{displayPerSquareMeter(item.values[0], manual.landArea)}</td>
+                                                    <td className="border border-slate-200 bg-white px-6 py-2 text-slate-700 md:sticky md:left-0 md:z-[1] md:px-8">{definition.label}</td>
+                                                    <td className="border border-[#B9D2F4] bg-[#F4F8FE] px-2 py-2 text-right tabular-nums text-[#5277A8] md:sticky md:left-[330px] md:z-[1]">{displayPerSquareMeter(item.values[0], manual.landArea)}</td>
                                                     {item.values.slice(0, visibleYears.length).map((value, year) => (
                                                         <td key={`${definition.id}-${year}`} className="border border-slate-200 bg-white px-1 py-1">
                                                             <input
                                                                 aria-label={`${definition.label} ${YEARS[year]}`}
-                                                                className="w-full min-w-[78px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition focus:border-[#1877F2] focus:bg-[#F5F9FF]"
+                                                                className={`w-full min-w-[78px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${mode === 'dinamico' ? 'cursor-default' : 'focus:border-[#1877F2] focus:bg-[#F5F9FF]'}`}
                                                                 value={value ? displayNumber(value) : ''}
-                                                                onFocus={() => beginCellEdit(definition.id, year, value)}
-                                                                onChange={(event) => editCell(definition.id, year, event.target.value)}
-                                                                onBlur={(event) => finishCellEdit(definition.id, year, Number(event.target.value || 0))}
+                                                                readOnly={mode === 'dinamico'}
+                                                                onFocus={() => mode === 'estatico' && beginCellEdit(definition.id, year, value)}
+                                                                onChange={(event) => mode === 'estatico' && editCell(definition.id, year, event.target.value)}
+                                                                onBlur={(event) => mode === 'estatico' && finishCellEdit(definition.id, year, Number(event.target.value || 0))}
                                                             />
                                                         </td>
                                                     ))}
@@ -394,9 +618,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             </section>
 
             <section className="overflow-hidden rounded-lg border bg-white shadow-sm" style={{ borderColor: BRAND.border }} aria-label="Utilidad acumulada">
-                <div className="overflow-auto">
+                <div className="overflow-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
                     <table className="min-w-[1360px] w-full border-collapse text-xs">
-                        <thead>
+                        <thead className="sticky top-0 z-[15]">
                             <tr>
                                 <th colSpan={visibleYears.length + 2} className="border border-slate-300 bg-white px-4 py-2 text-left text-base font-bold" style={{ color: BRAND.blue }}>Utilidad Acumulada</th>
                             </tr>
@@ -472,12 +696,34 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     </div>
                 </div>
             </section>
+            {modeSwitchOpen && pendingMode && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-950/40" onClick={() => { setModeSwitchOpen(false); setPendingMode(null); }} />
+                    <div className="relative w-full max-w-md rounded-xl border bg-white p-5 shadow-2xl" style={{ borderColor: BRAND.border }}>
+                        <div className="mb-4 flex items-start gap-3">
+                            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg" style={{ background: `${BRAND.blue}14`, color: BRAND.blue }}>{pendingMode === 'dinamico' ? <FiZap /> : <FiClipboard />}</span>
+                            <div>
+                                <h3 className="font-semibold" style={{ color: BRAND.ink }}>Cambiar a {MODE_LABEL[pendingMode]}</h3>
+                                <p className="mt-1 text-sm text-slate-500">
+                                    {pendingMode === 'dinamico'
+                                        ? 'El modelo se cargará con la data real del sistema (ventas, pagos, lotización, presupuesto y egresos) y será de solo lectura: no podrás editar las celdas.'
+                                        : 'Podrás editar todas las celdas sobre la data del sistema. El flujo dinámico siempre se reconstruye desde el sistema.'}
+                                </p>
+                            </div>
+                        </div>
+                        <div className="mt-5 flex justify-end gap-2">
+                            <button className="btn-neutral" onClick={() => { setModeSwitchOpen(false); setPendingMode(null); }}>Cancelar</button>
+                            <button className="btn-primary" onClick={applyModeSwitch}><FiCheck /> Cambiar flujo</button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {assumptionsOpen && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-slate-950/40" onClick={() => setAssumptionsOpen(false)} />
                     <div className="relative w-full max-w-xl rounded-xl border bg-white shadow-2xl" style={{ borderColor: BRAND.border }}>
                         <div className="border-b px-5 py-4" style={{ borderColor: BRAND.border }}><p className="text-xs font-semibold uppercase tracking-wide" style={{ color: BRAND.blue }}>Supuestos del proyecto</p><h3 className="mt-1 text-lg font-semibold" style={{ color: BRAND.ink }}>Editar datos base</h3><p className="mt-1 text-sm text-slate-500">Estos valores afectan los cálculos de todo el modelo.</p></div>
-                        <div className="grid gap-3 p-5 sm:grid-cols-2">
+                        <div className="grid grid-cols-2 gap-3 p-5">
                             {[
                                 ['Área venta (m²)', 'landArea'],
                                 ['Área promedio lote (m²)', 'lotArea'],
@@ -491,6 +737,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 ['Gerencia de proyecto %', 'managementPercent'],
                                 ['Indemnización y titulación %', 'indemnityPercent'],
                                 ['Contingencia legal %', 'contingencyPercent'],
+                                ['Tasa de descuento VAN %', 'discountRate'],
                             ].map(([label, key]) => <label key={key} className="label">{label}<input className="input mt-1" min={key === 'years' ? 1 : 0} max={key === 'years' ? 10 : key === 'priceM2' ? undefined : 100} type="number" value={key === 'priceM2' ? displayNumber((draftManual as any)[key]) : (draftManual as any)[key]} onChange={(event) => setDraftManual((current) => ({ ...current, [key]: key === 'priceM2' ? baseNumber(event.target.value) : Number(event.target.value) }))} /></label>)}
                         </div>
                         <div className="flex justify-end gap-2 border-t px-5 py-4" style={{ borderColor: BRAND.border }}><button className="btn-neutral" onClick={() => setAssumptionsOpen(false)}>Cancelar</button><button className="btn-primary" onClick={applyAssumptions}><FiSave /> Aplicar supuestos</button></div>

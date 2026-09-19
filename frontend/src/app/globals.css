@@ -19,7 +19,12 @@ body {
   font-size: 14px;
 }
 
-h1, h2, h3 { font-weight: 600; color: #171717; }
+/* Regla base de titulos. Va en @layer base para que las utilidades de
+   Tailwind (p. ej. text-white) puedan sobrescribir el color sin pelear
+   por especificidad ni orden de emision. */
+@layer base {
+  h1, h2, h3 { font-weight: 600; color: #171717; }
+}
 
 @layer components {
   .card {
