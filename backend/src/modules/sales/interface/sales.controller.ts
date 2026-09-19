@@ -16,7 +16,7 @@ import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard'
 import { RolesGuard } from '../../../shared/application/guards/roles.guard';
 import { Roles } from '../../../shared/application/decorators/roles.decorator';
 import { UserRole } from '../../../shared/domain/enums';
-import { CurrentUser } from '../../../shared/application/decorators/current-user.decorator';
+import { CurrentUser, AuthUser } from '../../../shared/application/decorators/current-user.decorator';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('sales')
@@ -99,7 +99,7 @@ export class SalesController {
   }
 
   @Post()
-  create(@Body() dto: CreateSaleDto, @CurrentUser('id') actorId: number) {
-    return this.salesService.create(dto, actorId);
+  create(@Body() dto: CreateSaleDto, @CurrentUser() user: AuthUser) {
+    return this.salesService.create(dto, user.id, user.role);
   }
 }

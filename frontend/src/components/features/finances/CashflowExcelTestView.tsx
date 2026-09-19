@@ -298,10 +298,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         <h2 className="mt-3 text-2xl font-bold" style={{ color: BRAND.ink }}>{project?.name || 'Proyecto'} · FLUJO DE CAJA</h2>
                         <p className="mt-1 text-sm text-slate-500">Moneda de visualización: {currency === 'USD' ? 'dólares' : 'soles'}</p>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                        <CurrencyToggle currency={currency} setCurrency={setCurrency} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} />
-                        <button className="btn-neutral" onClick={() => window.location.reload()}><FiRefreshCw /> Actualizar base</button>
-                        <button className="btn-primary" onClick={openAssumptions}><FiEdit3 /> Ajustar supuestos</button>
+                    <div className="grid w-full grid-cols-2 gap-2 lg:flex lg:w-auto lg:flex-wrap lg:items-center">
+                        <div className="col-span-2 lg:col-span-1">
+                            <CurrencyToggle currency={currency} setCurrency={setCurrency} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} />
+                        </div>
+                        <button className="btn-neutral min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" onClick={() => window.location.reload()}><FiRefreshCw /> Actualizar base</button>
+                        <button className="btn-primary min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" onClick={openAssumptions}><FiEdit3 /> Ajustar supuestos</button>
                     </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3 border-b bg-[#F8FAFC] p-4 lg:grid-cols-5" style={{ borderColor: BRAND.border }}>

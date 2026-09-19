@@ -155,7 +155,7 @@ function Pagination({ page, total, size, onPage }: { page: number; total: number
   );
 }
 
-export function SectionShell({ title, subtitle, children, className = '' }: { title: string; subtitle?: string; children: ReactNode; className?: string }) {
+export function SectionShell({ title, subtitle, children, className = '', control }: { title: string; subtitle?: string; children: ReactNode; className?: string; control?: ReactNode }) {
   return (
     <section className={`border bg-white p-4 ${className}`} style={{ borderColor: BRAND.border, borderRadius: 6, boxShadow: '0 1px 2px rgba(16,24,40,.035)' }}>
       <div className="mb-4 flex items-start justify-between gap-3">
@@ -163,7 +163,10 @@ export function SectionShell({ title, subtitle, children, className = '' }: { ti
           <h3 className="text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: BRAND.ink }}>{title}</h3>
           {subtitle && <p className="mt-1 text-xs text-slate-500">{subtitle}</p>}
         </div>
-        <span className="mt-1 h-5 w-1" style={{ background: BRAND.blue }} />
+        <div className="flex shrink-0 items-center gap-2">
+          {control}
+          <span className="h-5 w-1" style={{ background: BRAND.blue }} />
+        </div>
       </div>
       {children}
     </section>
@@ -305,6 +308,7 @@ export function ProjectBars({
   className = 'h-full',
   sorted = true,
   minMax = 1,
+  control,
 }: {
   title: string;
   subtitle: string;
@@ -313,13 +317,14 @@ export function ProjectBars({
   className?: string;
   sorted?: boolean;
   minMax?: number;
+  control?: ReactNode;
 }) {
   const data = sorted ? [...rows].sort((a, b) => b.value - a.value) : rows;
   const max = data.reduce((largest, row) => Math.max(largest, row.value), minMax);
   const ticks = [max, max * 0.75, max * 0.5, max * 0.25, 0];
 
   return (
-    <SectionShell title={title} subtitle={subtitle} className={className}>
+    <SectionShell title={title} subtitle={subtitle} className={className} control={control}>
       {data.length ? (
         <div className="space-y-3">
           <div className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-3">
@@ -330,42 +335,42 @@ export function ProjectBars({
                 </span>
               ))}
             </div>
-            <div className="relative h-40 border-l border-b pl-3" style={{ borderColor: BRAND.border }}>
-              <div className="absolute inset-0 left-3 grid grid-rows-4">
-                {Array.from({ length: 5 }).map((_, index) => (
-                  <span key={index} className="border-t first:border-t-0" style={{ borderColor: BRAND.border }} />
-                ))}
-              </div>
-              <div className="relative flex h-full items-end gap-3 overflow-x-auto pb-0">
-                {data.map((row, index) => {
-                  const color = row.color || CHART_COLORS[index % CHART_COLORS.length];
-                  const height = proportion(row.value, max, row.value ? 5 : 0);
-                  return (
-                    <div key={row.name} className="flex h-full min-w-[3.6rem] flex-1 flex-col justify-end gap-2">
-                      <div className="flex h-full items-end">
+            <div>
+              <div className="relative h-40 border-l border-b" style={{ borderColor: BRAND.border }}>
+                <div className="absolute inset-0 grid grid-rows-4">
+                  {Array.from({ length: 5 }).map((_, index) => (
+                    <span key={index} className="border-t first:border-t-0" style={{ borderColor: BRAND.border }} />
+                  ))}
+                </div>
+                <div className="relative flex h-full items-end">
+                  {data.map((row, index) => {
+                    const color = row.color || CHART_COLORS[index % CHART_COLORS.length];
+                    const height = proportion(row.value, max, row.value ? 5 : 0);
+                    return (
+                      <div key={row.name} className="flex h-full min-w-0 flex-1 items-end justify-center">
                         <div
-                          className="mx-auto w-full max-w-[3.2rem] transition-all duration-300 hover:brightness-95"
-                          style={{ height: `${height}%`, minHeight: row.value ? 10 : 0, background: color, borderRadius: '4px 4px 0 0' }}
+                          className="w-full max-w-[3.2rem] transition-all duration-300 hover:brightness-95"
+                          style={{ height: `${height}%`, minHeight: row.value ? 8 : 0, background: color, borderRadius: '4px 4px 0 0' }}
                           title={`${row.name}: ${valueFormatter(row.value)}`}
                         />
                       </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="flex gap-1 pt-1.5">
+                {data.map((row, index) => {
+                  const color = row.color || CHART_COLORS[index % CHART_COLORS.length];
+                  return (
+                    <div key={row.name} className="flex min-w-0 flex-1 flex-col items-center gap-0.5 overflow-hidden px-1 text-center">
+                      <span className="h-2 w-2 shrink-0" style={{ background: color }} />
+                      <span className="w-full truncate text-[10px] leading-3 text-slate-600">{row.name}</span>
+                      <b className="w-full truncate tabular-nums text-[10px] leading-3" style={{ color: BRAND.blueDark }}>{valueFormatter(row.value)}</b>
                     </div>
                   );
                 })}
               </div>
             </div>
-          </div>
-          <div className="flex min-h-[3.25rem] flex-wrap gap-x-4 gap-y-2 overflow-visible border-t pt-3" style={{ borderColor: BRAND.border }}>
-            {data.map((row, index) => {
-              const color = row.color || CHART_COLORS[index % CHART_COLORS.length];
-              return (
-                <div key={row.name} className="flex min-w-0 items-center gap-1.5 text-[11px]">
-                  <span className="h-2 w-2 shrink-0" style={{ background: color }} />
-                  <span className="max-w-[8rem] truncate text-slate-600">{row.name}</span>
-                  <b className="tabular-nums" style={{ color: BRAND.blueDark }}>{valueFormatter(row.value)}</b>
-                </div>
-              );
-            })}
           </div>
         </div>
       ) : (

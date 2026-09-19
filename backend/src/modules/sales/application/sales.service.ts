@@ -79,7 +79,7 @@ export class SalesService {
     };
   }
 
-  async create(dto: CreateSaleDto, actorId: number) {
+  async create(dto: CreateSaleDto, actorId: number, actorRole?: string) {
     const lot = await this.lotRepo.findOne({ where: { id: dto.lotId } });
     if (!lot) throw new BadRequestException('Lote no encontrado');
     if (lot.status === 'vendido' || lot.sellingStage === 'vendido') {
@@ -89,7 +89,8 @@ export class SalesService {
       throw new BadRequestException('El lote ya tiene una separación pendiente de validación');
     }
 
-    const agent = await this.userRepo.findOne({ where: { id: dto.agentId } });
+    const assignedAgentId = actorRole === 'agent' ? actorId : dto.agentId;
+    const agent = await this.userRepo.findOne({ where: { id: assignedAgentId } });
     const appliesAgency = !!dto.appliesCommission;
     const commissionRate = dto.commissionRate ?? Number(agent?.commissionRate || 0);
     const commission = commissionRate ? (dto.salePrice * commissionRate) / 100 : 0;
@@ -116,7 +117,7 @@ export class SalesService {
         projectId: dto.projectId,
         lotId: dto.lotId,
         clientId: dto.clientId,
-        agentId: dto.agentId,
+        agentId: assignedAgentId,
         salePrice: String(dto.salePrice),
         saleDate: dto.saleDate || undefined,
         commission: String(commission),
@@ -137,7 +138,7 @@ export class SalesService {
       const claimed = await manager.update(
         LotEntity,
         { id: lot.id, sellingStage: 'disponible' },
-        { sellingStage: 'separado', agentId: dto.agentId, clientId: dto.clientId ?? lot.clientId ?? null },
+        { sellingStage: 'separado', agentId: assignedAgentId, clientId: dto.clientId ?? lot.clientId ?? null },
       );
       const won = claimed.affected == null || Number(claimed.affected) > 0;
       if (!won) {
@@ -145,7 +146,7 @@ export class SalesService {
       }
       lot.sellingStage = 'separado';
       lot.clientId = dto.clientId ?? lot.clientId;
-      lot.agentId = dto.agentId;
+      lot.agentId = assignedAgentId;
 
       await this.audit(actorId, 'CREAR_SEPARACION', 'sales', savedSale.id, manager);
       return savedSale;

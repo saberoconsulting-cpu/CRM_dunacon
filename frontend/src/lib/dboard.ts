@@ -20,7 +20,6 @@ export interface AgentDashboard {
     lotsSold: number; goalLots: number; goalAmount: number; progressLots: number;
   };
   leads: any[];
-  upcoming: any[];
-  salesByPeriod: { date: string; total: number; amount: number }[];
+  salesByPeriod: { date: string; total: number; amount: number; commission: number }[];
   salesByProject?: { projectId: number; name: string; total: number; amount: number; commission: number }[];
 }

@@ -1,6 +1,6 @@
 // modules/auth/application/dto/update-profile.dto.ts
 // Actualización del propio perfil (datos opcionales de contacto y presentación).
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsNumber, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class UpdateProfileDto {
   @IsOptional()
@@ -22,4 +22,12 @@ export class UpdateProfileDto {
   @IsString()
   @MaxLength(1000)
   bio?: string;
+
+  @IsOptional()
+  @IsNumber()
+  monthlyGoalLots?: number;
+
+  @IsOptional()
+  @IsNumber()
+  monthlyGoalAmount?: number;
 }

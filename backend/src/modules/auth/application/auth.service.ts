@@ -72,6 +72,8 @@ export class AuthService {
     if (dto.phone !== undefined) user.phone = (dto.phone || '').trim();
     if (dto.whatsapp !== undefined) user.whatsapp = (dto.whatsapp || '').trim();
     if (dto.bio !== undefined) user.bio = dto.bio || '';
+    if (dto.monthlyGoalLots !== undefined) user.monthlyGoalLots = Number(dto.monthlyGoalLots) || 0;
+    if (dto.monthlyGoalAmount !== undefined) user.monthlyGoalAmount = String(Number(dto.monthlyGoalAmount) || 0);
     await this.userRepo.save(user);
     return this.getProfile(userId);
   }

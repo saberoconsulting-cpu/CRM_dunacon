@@ -5,6 +5,7 @@ import { Toaster, toast } from '@/components/ui/ui';
 import AgentView from '@/components/features/dashboard/AgentView';
 import GeneralView from '@/components/features/dashboard/GeneralView';
 import { api, getSessionUser, saveSession, uploadFile } from '@/lib/api';
+import { getSocket, disconnectSocket } from '@/lib/socket';
 import { FiEdit2, FiPhone } from 'react-icons/fi';
 import { FaWhatsapp } from 'react-icons/fa';
 
@@ -44,10 +45,16 @@ export default function ProfilePage() {
   useEffect(() => {
     api.get<any>('/auth/profile').then((p) => {
       applyProfile(p);
-      if (p?.role === 'agent') {
-        api.get<any>('/dashboards/agent').then(setAgi).catch(() => setAgi(null));
-      } else {
-        api.get<any>('/dashboards/general').then(setGen).catch(() => setGen(null));
+      const reload = () => {
+        if (p?.role === 'agent') api.get<any>('/dashboards/agent').then(setAgi).catch(() => setAgi(null));
+        else api.get<any>('/dashboards/general').then(setGen).catch(() => setGen(null));
+      };
+      reload();
+      const tok = typeof window !== 'undefined' ? localStorage.getItem('crm_token') : '';
+      if (tok) {
+        const s = getSocket(tok);
+        ['lot.updated', 'payment.created', 'sale.created', 'expense.created'].forEach((ev) => s.on(ev, reload));
+        return () => { s.removeAllListeners(); disconnectSocket(); };
       }
     }).catch((e) => toast(e.message, 'err'));
     // eslint-disable-next-line react-hooks/exhaustive-deps

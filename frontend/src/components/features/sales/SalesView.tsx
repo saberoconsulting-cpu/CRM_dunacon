@@ -89,6 +89,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [projects, setProjects] = useState<any[]>([]);
   const [clients, setClients] = useState<any[]>([]);
   const [agents, setAgents] = useState<any[]>([]);
+  const [sessionUser, setSessionUser] = useState<any>(null);
   const [lots, setLots] = useState<any[]>([]);
   // Paginación server-side + filtros (buenas prácticas: page/limit en el API,
   // reset a página 1 cuando cambia un filtro, debounce en búsqueda).
@@ -198,10 +199,18 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     setStatusFilter(''); setAgentFilter(0); setFromDate(''); setToDate('');
   }
   useEffect(() => {
+    try {
+      const storedUser = JSON.parse(localStorage.getItem('crm_user') || 'null');
+      setSessionUser(storedUser);
+      if (storedUser?.role === 'agent' && storedUser?.id) setAgentId(Number(storedUser.id));
+    } catch { setSessionUser(null); }
+  }, []);
+
+  useEffect(() => {
     setIsAdmin(role === 'admin' || role === 'superadmin');
     api.get<any[]>('/projects').then(setProjects).catch(() => {});
     api.get<any[]>('/clients').then((d) => setClients(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
-    api.get<any[]>('/users/agents').then(setAgents).catch(() => {});
+    if (role === 'admin' || role === 'superadmin') api.get<any[]>('/users/agents').then(setAgents).catch(() => {});
     api.get<any[]>('/lots').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
     const q = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
     api.get<any[]>(`/quotes${q}`).then((d) => setQuotes(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
@@ -243,7 +252,10 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const selectedQuote = selectedQuoteId
     ? (quotes.find((q: any) => Number(q.id) === Number(selectedQuoteId)) || selectedQuoteSnapshot)
     : null;
-  const salePriceUsd = exchangeRate > 0 ? salePrice / exchangeRate : 0;
+  const round2 = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+  const salePriceDisplay = round2(salePrice);
+  const salePriceUsd = exchangeRate > 0 ? round2(salePrice / exchangeRate) : 0;
+  const exchangeRateDisplay = round2(exchangeRate);
   const quoteProjectId = lockedProjectId || projectId || Number(selectedLot?.projectId || 0);
 
   // Al elegir un lote, autocompletar el precio con su "Precio Venta" de
@@ -341,7 +353,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     if (!selectedQuoteId) return toast('Selecciona una cotizacion antes de registrar la venta. Si no existe, genera una primero.', 'err');
     if (!lotId) return toast('Selecciona un lote', 'err');
     if (!clientName.trim() && !clientId) return toast('Ingresa el nombre del cliente real.', 'err');
-    if (!agentId) return toast('Selecciona el agente', 'err');
+    if (!agentId) return toast('No se pudo identificar el agente logueado', 'err');
     if (!salePrice) return toast('Ingresa el precio de venta', 'err');
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
@@ -360,7 +372,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       toast('Separación registrada. Queda pendiente de validación.');
       setOpen(false); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setClientId(0); setClientName(''); setConditions(''); setSalePrice(0);
       setPaymentMethod('Contado'); setTotalCuotas(0); setCuotaInicial(0); setInterestType('sin_intereses'); setTea(0);
-      setSaleDate(todayInput()); setAgentId(0); setPreview(null);
+      setSaleDate(todayInput()); setAgentId(role === 'agent' ? Number(sessionUser?.id || 0) : 0); setPreview(null);
       setQuoteSearch(''); setQuoteFrom(''); setQuoteTo(''); setShowCotizaciones(false);
       load();
     } catch (e: any) { toast(e.message, 'err'); }
@@ -685,7 +697,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 </select>
               </Field>
               <div className="hidden"><Field label="Cliente"><select className="input" value={clientId} onChange={(e) => setClientId(Number(e.target.value))}><option value={0}>— Sin asignar —</option>{clients.map((c: any) => <option key={c.id} value={c.id}>{(c.fullName || c.full_name || '— Sin nombre —')}</option>)}</select></Field></div>
-              <Field label="Agente *"><select className="input" value={agentId} onChange={(e) => setAgentId(Number(e.target.value))}><option value={0}>Selecciona…</option>{agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+              {role === 'agent' ? (
+                <Field label="Agente asignado"><div className="input flex items-center bg-slate-50 text-slate-700">{sessionUser?.name || 'Agente logueado'}</div></Field>
+              ) : (
+                <Field label="Agente *"><select className="input" value={agentId} onChange={(e) => setAgentId(Number(e.target.value))}><option value={0}>Selecciona…</option>{agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+              )}
             </div>
             {lotId > 0 && salePrice > 0 && (
               <p className="text-xs mt-1" style={{ color: '#1259C4' }}>
@@ -732,8 +748,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   <input
                     type="number"
                     className="input"
-                    value={salePrice || ''}
-                    onChange={(e) => setSalePrice(Number(e.target.value))}
+                    value={salePriceDisplay || ''}
+                    onChange={(e) => setSalePrice(round2(Number(e.target.value || 0)))}
                   />
                 </Field>
                 <Field label="Precio de venta (US$)">
@@ -741,7 +757,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     type="number"
                     className="input"
                     value={salePriceUsd || ''}
-                    onChange={(e) => setSalePrice(Math.round(Number(e.target.value || 0) * exchangeRate))}
+                    onChange={(e) => setSalePrice(round2(Number(e.target.value || 0) * exchangeRate))}
                   />
                 </Field>
                 <Field label="T. cambio (S/ por US$)">
@@ -749,14 +765,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     type="number"
                     step="0.0001"
                     className="input"
-                    value={exchangeRate || ''}
-                    onChange={(e) => setExchangeRate(Number(e.target.value))}
+                    value={exchangeRateDisplay || ''}
+                    onChange={(e) => setExchangeRate(round2(Number(e.target.value || 0)))}
                   />
                 </Field>
                 <Field label="Fecha"><input type="date" className="input" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></Field>
               </div>
               <p className="mt-1 text-xs text-slate-500">
-                Ambos precios se calculan con el tipo de cambio: {formatMoney(salePrice)} = US$ {salePriceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                Ambos precios se calculan con el tipo de cambio: S/ {salePriceDisplay.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} = US$ {salePriceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
             </div>
 

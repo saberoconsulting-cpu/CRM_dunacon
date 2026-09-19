@@ -271,30 +271,24 @@ export class DashboardsService {
 
   async forAgent(agentId: number) {
     const monthKey = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString();
-    const monthStart = monthKey.slice(0, 10);
 
-    const [salesMonth, salesAmountRes, commissionRes, lotsSold, leads, upcoming, salesByPeriod, weekRes, salesByProject] =
+    const [salesMonth, salesAmountRes, commissionRes, lotsSold, leads, salesByPeriod, salesByProject] =
       await Promise.all([
-        this.saleRepo.createQueryBuilder('s').where('s.agent_id = :agentId', { agentId }).select('COUNT(*)', 'total').getRawOne(),
+        this.saleRepo.createQueryBuilder('s').where('s.agent_id = :agentId AND s.created_at >= :monthKey', { agentId, monthKey }).select('COUNT(*)', 'total').getRawOne(),
         this.saleRepo.createQueryBuilder('s').where('s.agent_id = :agentId', { agentId }).select('COALESCE(SUM(s.sale_price),0)', 'total').getRawOne(),
-        this.saleRepo.createQueryBuilder('s').where('s.agent_id = :agentId', { agentId }).select('COALESCE(SUM(s.commission),0)', 'total').getRawOne(),
+        this.saleRepo.createQueryBuilder('s').where('s.agent_id = :agentId AND s.created_at >= :monthKey', { agentId, monthKey }).select('COALESCE(SUM(s.commission),0)', 'total').getRawOne(),
         this.lotRepo.count({ where: { agentId, status: 'vendido' } }),
         this.clientRepo.find({ where: { agentId } }),
-        this.paymentRepo.find({ where: { agentId, status: 'pendiente' }, order: { dueDate: 'ASC' as 'ASC' } }),
         this.saleRepo
           .createQueryBuilder('s')
           .where('s.agent_id = :agentId', { agentId })
           .select('s.sale_date', 'date')
           .addSelect('COUNT(*)', 'total')
           .addSelect('COALESCE(SUM(s.sale_price),0)', 'amount')
+          .addSelect('COALESCE(SUM(s.commission),0)', 'commission')
           .andWhere("s.approval_status <> 'rechazada'")
           .groupBy('s.sale_date')
           .getRawMany(),
-        this.saleRepo
-          .createQueryBuilder('s')
-          .where('s.agent_id = :agentId AND s.created_at >= :monthKey', { agentId, monthKey })
-          .select('COUNT(*)', 'total')
-          .getRawOne(),
         this.saleRepo
           .createQueryBuilder('s')
           .leftJoin(ProjectEntity, 'p', 'p.id = s.project_id')
@@ -312,10 +306,10 @@ export class DashboardsService {
       ]);
 
     const agent = await this.userRepo.findOne({ where: { id: agentId } });
-    const monthSales = Number(weekRes?.total || 0);
+    const monthSales = Number(salesMonth?.total || 0);
     const goalLots = agent?.monthlyGoalLots || 0;
     const goalAmount = Number(agent?.monthlyGoalAmount || 0);
-    const period = salesByPeriod.map((r) => ({ date: r.date, total: Number(r.total), amount: Number(r.amount) }));
+    const period = salesByPeriod.map((r) => ({ date: r.date, total: Number(r.total), amount: Number(r.amount), commission: Number(r.commission || 0) }));
 
     return {
       cards: {
@@ -328,7 +322,6 @@ export class DashboardsService {
         progressLots: goalLots > 0 ? Math.round((monthSales / goalLots) * 100) : 0,
       },
       leads,
-      upcoming,
       salesByPeriod: period,
       salesByProject: (salesByProject || []).map((r) => ({
         projectId: Number(r.projectId),
