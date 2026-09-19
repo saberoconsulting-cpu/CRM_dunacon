@@ -1,4 +1,5 @@
 'use client';
+import { Cell, Pie, PieChart, ResponsiveContainer } from 'recharts';
 import { FiCreditCard, FiDollarSign, FiLayers, FiTag, FiUsers } from 'react-icons/fi';
 import { AgentDashboard } from '@/lib/dboard';
 import { ProjectBars, SectionShell } from './GeneralView';
@@ -97,12 +98,26 @@ export default function AgentView({ d }: { d: AgentDashboard | null }) {
         </div>
 
         <SectionShell title="Mi meta mensual" subtitle="Lotes vendidos este mes" className="h-full">
-          <p className="text-3xl font-bold tabular-nums" style={{ color: INK }}>
-            {goalLots > 0 ? `${Math.min(salesInMonth, goalLots)} / ${goalLots}` : `${salesInMonth} vendidos`}
-            {goalLots > 0 && <span className="ml-2 text-sm font-semibold" style={{ color: BLUE_DARK }}>{progress}%</span>}
-          </p>
-          <div className="mt-3 h-2 overflow-hidden bg-slate-100" style={{ borderRadius: 2 }}>
-            <div className="h-full" style={{ width: `${progress}%`, background: BLUE }} />
+          <div className="relative mx-auto h-[190px] w-[190px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={[{ v: progress }, { v: Math.max(0, 100 - progress) }]}
+                  dataKey="v" startAngle={90} endAngle={-270} innerRadius={66} outerRadius={88} stroke="none" isAnimationActive={false}
+                >
+                  <Cell fill={BLUE} />
+                  <Cell fill="#E8EDF3" />
+                </Pie>
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
+              <div>
+                <p className="text-3xl font-bold tabular-nums" style={{ color: INK }}>
+                  {goalLots > 0 ? `${Math.min(salesInMonth, goalLots)} / ${goalLots}` : salesInMonth}
+                </p>
+                <p className="text-[11px] font-semibold" style={{ color: BLUE_DARK }}>{goalLots > 0 ? `${progress}% de la meta` : 'vendidos'}</p>
+              </div>
+            </div>
           </div>
           <div className="mt-4 flex flex-col gap-2 border-t pt-3 text-[11px]" style={{ borderColor: BORDER }}>
             <div className="flex items-center justify-between">
