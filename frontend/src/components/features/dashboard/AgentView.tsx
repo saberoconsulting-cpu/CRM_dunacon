@@ -1,7 +1,7 @@
 'use client';
-import { Bar, BarChart, CartesianGrid, Cell, LabelList, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { FiCreditCard, FiDollarSign, FiLayers, FiTag, FiUsers } from 'react-icons/fi';
 import { AgentDashboard } from '@/lib/dboard';
+import { ProjectBars, SectionShell } from './GeneralView';
 import { formatMoney, formatDate } from '@/lib/types';
 
 const BLUE = '#1877F2';
@@ -49,21 +49,6 @@ function KpiTile({ label, value, helper, icon, accent }: { label: string; value:
   );
 }
 
-function SectionCard({ title, subtitle, right, children }: { title: string; subtitle?: string; right?: string; children: React.ReactNode }) {
-  return (
-    <div className="card overflow-hidden p-0">
-      <div className="flex items-start justify-between gap-3 border-b px-4 py-3" style={{ borderColor: BORDER }}>
-        <div className="min-w-0">
-          <h3 className="truncate text-sm font-semibold" style={{ color: INK }}>{title}</h3>
-          {subtitle && <p className="mt-0.5 text-xs" style={{ color: MUTED }}>{subtitle}</p>}
-        </div>
-        {right && <span className="shrink-0 rounded-md bg-softblue px-2 py-1 text-xs font-semibold" style={{ color: BLUE_DARK }}>{right}</span>}
-      </div>
-      {children}
-    </div>
-  );
-}
-
 export default function AgentView({ d }: { d: AgentDashboard | null }) {
   if (!d) return <p className="text-slate-400">Sin datos</p>;
 
@@ -101,86 +86,45 @@ export default function AgentView({ d }: { d: AgentDashboard | null }) {
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <div className="xl:col-span-2">
-          <SectionCard title="Mi actividad" subtitle="Ingresos por mes (ultimos 6 meses)">
-            {hasActivity ? (
-              <div className="h-[300px] w-full px-3 pt-5 sm:px-5">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={activity} margin={{ left: 0, right: 8, top: 24, bottom: 8 }} barCategoryGap="28%">
-                    <defs>
-                      <linearGradient id="agentBar" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#4C9AFF" />
-                        <stop offset="100%" stopColor={BLUE_DARK} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid stroke="#EEF1F5" vertical={false} />
-                    <XAxis dataKey="month" tickFormatter={monthLabel} tick={{ fontSize: 12, fill: MUTED }} axisLine={false} tickLine={false} />
-                    <YAxis tickFormatter={shortMoney} tick={{ fontSize: 11, fill: '#94A3B8' }} axisLine={false} tickLine={false} width={56} tickCount={5} />
-                    <Tooltip
-                      cursor={{ fill: 'rgba(24,119,242,0.06)', radius: 6 }}
-                      contentStyle={{ borderRadius: 10, border: `1px solid ${BORDER}`, boxShadow: '0 8px 24px rgba(15,23,42,.08)', fontSize: 12 }}
-                      formatter={(value: number, _n: string, item: any) => [`${formatMoney(value)} · ${item?.payload?.ventas || 0} venta/s`, 'Ingresos']}
-                      labelFormatter={(label: string) => monthLabel(label)}
-                    />
-                    <Bar dataKey="monto" radius={[8, 8, 0, 0]} maxBarSize={56} minPointSize={3}>
-                      {activity.map((row) => (
-                        <Cell key={row.month} fill={row.monto > 0 ? 'url(#agentBar)' : '#E8EDF3'} />
-                      ))}
-                      <LabelList dataKey="monto" position="top" formatter={(v: number) => (v > 0 ? shortMoney(v) : '')} style={{ fontSize: 11, fontWeight: 600, fill: INK }} />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <div className="grid h-[260px] place-items-center px-4 text-center text-sm text-slate-400">Aun no tienes ventas registradas.</div>
-            )}
-          </SectionCard>
+          <ProjectBars
+            title="Mi actividad"
+            subtitle="Grafico de barras - ingresos por mes (ultimos 6 meses)"
+            rows={activity.map((row) => ({ name: monthLabel(row.month), value: row.monto, color: row.current ? BLUE : '#7FB2F7' }))}
+            valueFormatter={formatMoney}
+            className="h-full min-h-[320px]"
+            sorted={false}
+          />
         </div>
 
-        <SectionCard title="Mi meta mensual" subtitle="Lotes vendidos este mes" right={goalLots > 0 ? `${progress}%` : undefined}>
-          <div className="flex flex-col items-center px-4 py-5">
-            <div className="relative h-[190px] w-[190px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={[{ v: progress }, { v: Math.max(0, 100 - progress) }]}
-                    dataKey="v" startAngle={90} endAngle={-270} innerRadius={68} outerRadius={88} stroke="none" cornerRadius={10} isAnimationActive={false}
-                  >
-                    <Cell fill={BLUE} />
-                    <Cell fill="#E8EDF3" />
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="pointer-events-none absolute inset-0 grid place-items-center text-center">
-                <div>
-                  <p className="text-3xl font-bold tabular-nums" style={{ color: INK }}>
-                    {goalLots > 0 ? `${Math.min(salesInMonth, goalLots)}/${goalLots}` : salesInMonth}
-                  </p>
-                  <p className="text-[11px]" style={{ color: MUTED }}>{goalLots > 0 ? 'lotes del mes' : 'vendidos'}</p>
-                </div>
-              </div>
+        <SectionShell title="Mi meta mensual" subtitle="Lotes vendidos este mes" className="h-full">
+          <p className="text-3xl font-bold tabular-nums" style={{ color: INK }}>
+            {goalLots > 0 ? `${Math.min(salesInMonth, goalLots)} / ${goalLots}` : `${salesInMonth} vendidos`}
+            {goalLots > 0 && <span className="ml-2 text-sm font-semibold" style={{ color: BLUE_DARK }}>{progress}%</span>}
+          </p>
+          <div className="mt-3 h-2 overflow-hidden bg-slate-100" style={{ borderRadius: 2 }}>
+            <div className="h-full" style={{ width: `${progress}%`, background: BLUE }} />
+          </div>
+          <div className="mt-4 flex flex-col gap-2 border-t pt-3 text-[11px]" style={{ borderColor: BORDER }}>
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-1.5 text-slate-600"><span className="h-2 w-2" style={{ background: BLUE }} />Meta en monto</span>
+              <b className="tabular-nums" style={{ color: BLUE_DARK }}>{formatMoney(d.cards.goalAmount)}</b>
             </div>
-            <div className="mt-4 grid w-full grid-cols-2 gap-2">
-              <div className="rounded-md border px-3 py-2" style={{ borderColor: BORDER }}>
-                <p className="text-[11px] font-medium" style={{ color: MUTED }}>Meta en monto</p>
-                <p className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: INK }}>{formatMoney(d.cards.goalAmount)}</p>
-              </div>
-              <div className="rounded-md border px-3 py-2" style={{ borderColor: BORDER }}>
-                <p className="text-[11px] font-medium" style={{ color: MUTED }}>Comisiones</p>
-                <p className="mt-0.5 text-sm font-bold tabular-nums" style={{ color: GREEN }}>{formatMoney(d.cards.commissionMonth)}</p>
-              </div>
+            <div className="flex items-center justify-between">
+              <span className="inline-flex items-center gap-1.5 text-slate-600"><span className="h-2 w-2" style={{ background: GREEN }} />Comisiones</span>
+              <b className="tabular-nums" style={{ color: BLUE_DARK }}>{formatMoney(d.cards.commissionMonth)}</b>
             </div>
           </div>
-        </SectionCard>
+        </SectionShell>
       </div>
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-        <SectionCard title="Mis leads" right={String(d.leads.length)}>
+        <SectionShell title={`Mis leads (${d.leads.length})`}>
           <ul className="divide-y text-sm" style={{ borderColor: BORDER }}>
             {d.leads.map((c: any) => {
               const status = c.pipelineStatus || c.pipeline_status || 'nuevo';
               const [label, bg, color] = PIPELINE[status] || [status, '#EEF2F6', '#475569'];
               return (
-                <li key={c.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+                <li key={c.id} className="flex items-center justify-between gap-3 py-2.5">
                   <span className="inline-flex min-w-0 items-center gap-2" style={{ color: INK }}>
                     <FiUsers className="shrink-0" style={{ color: MUTED }} />
                     <span className="truncate">{c.fullName || c.full_name || '—'}</span>
@@ -189,14 +133,14 @@ export default function AgentView({ d }: { d: AgentDashboard | null }) {
                 </li>
               );
             })}
-            {!d.leads.length && <li className="px-4 py-6 text-center text-slate-400">Sin leads asignados</li>}
+            {!d.leads.length && <li className="py-6 text-center text-slate-400">Sin leads asignados</li>}
           </ul>
-        </SectionCard>
+        </SectionShell>
 
-        <SectionCard title="Proximas cuotas" right={String(d.upcoming.length)}>
+        <SectionShell title={`Proximas cuotas (${d.upcoming.length})`}>
           <ul className="divide-y text-sm" style={{ borderColor: BORDER }}>
             {d.upcoming.map((p: any) => (
-              <li key={p.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+              <li key={p.id} className="flex items-center justify-between gap-3 py-2.5">
                 <span style={{ color: INK }}>{PAYMENT_TYPE[p.type] || p.type}</span>
                 <span className="shrink-0 text-right">
                   <b className="tabular-nums" style={{ color: INK }}>{formatMoney(p.amount)}</b>
@@ -204,9 +148,9 @@ export default function AgentView({ d }: { d: AgentDashboard | null }) {
                 </span>
               </li>
             ))}
-            {!d.upcoming.length && <li className="px-4 py-6 text-center text-slate-400">Sin cuotas pendientes</li>}
+            {!d.upcoming.length && <li className="py-6 text-center text-slate-400">Sin cuotas pendientes</li>}
           </ul>
-        </SectionCard>
+        </SectionShell>
       </div>
     </div>
   );

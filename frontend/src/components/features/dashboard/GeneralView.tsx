@@ -155,7 +155,7 @@ function Pagination({ page, total, size, onPage }: { page: number; total: number
   );
 }
 
-function SectionShell({ title, subtitle, children, className = '' }: { title: string; subtitle?: string; children: ReactNode; className?: string }) {
+export function SectionShell({ title, subtitle, children, className = '' }: { title: string; subtitle?: string; children: ReactNode; className?: string }) {
   return (
     <section className={`border bg-white p-4 ${className}`} style={{ borderColor: BRAND.border, borderRadius: 6, boxShadow: '0 1px 2px rgba(16,24,40,.035)' }}>
       <div className="mb-4 flex items-start justify-between gap-3">
@@ -297,20 +297,22 @@ function ProjectSales({ rows }: { rows: { name: string; value: number; color?: s
   );
 }
 
-function ProjectBars({
+export function ProjectBars({
   title,
   subtitle,
   rows,
   valueFormatter = money,
   className = 'h-full',
+  sorted = true,
 }: {
   title: string;
   subtitle: string;
   rows: { name: string; value: number; color?: string }[];
   valueFormatter?: (value: number) => string;
   className?: string;
+  sorted?: boolean;
 }) {
-  const data = [...rows].sort((a, b) => b.value - a.value);
+  const data = sorted ? [...rows].sort((a, b) => b.value - a.value) : rows;
   const max = data.reduce((largest, row) => Math.max(largest, row.value), 1);
   const ticks = [max, max * 0.75, max * 0.5, max * 0.25, 0];
 
