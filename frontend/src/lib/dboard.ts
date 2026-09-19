@@ -22,4 +22,5 @@ export interface AgentDashboard {
   leads: any[];
   upcoming: any[];
   salesByPeriod: { date: string; total: number; amount: number }[];
+  salesByProject?: { projectId: number; name: string; total: number; amount: number; commission: number }[];
 }

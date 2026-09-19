@@ -73,7 +73,7 @@ export default function AgentView({ d }: { d: AgentDashboard | null }) {
     const month = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
     return { month, monto: byMonth.get(month)?.monto || 0, ventas: byMonth.get(month)?.ventas || 0, current: i === 5 };
   });
-  const hasActivity = activity.some((row) => row.monto > 0);
+  const projectRows = (d.salesByProject || []).map((row) => ({ name: row.name, value: n(row.amount) }));
 
   return (
     <div className="space-y-5">
@@ -115,6 +115,25 @@ export default function AgentView({ d }: { d: AgentDashboard | null }) {
             </div>
           </div>
         </SectionShell>
+      </div>
+
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
+        <ProjectBars
+          title="Lotes vendidos por mes"
+          subtitle="Grafico de barras - ventas cerradas (ultimos 6 meses)"
+          rows={activity.map((row) => ({ name: monthLabel(row.month), value: row.ventas, color: row.current ? BLUE : '#7FB2F7' }))}
+          valueFormatter={(v) => String(v)}
+          sorted={false}
+          minMax={4}
+          className="min-h-[320px]"
+        />
+        <ProjectBars
+          title="Proyectos mas rentables"
+          subtitle="Grafico de barras - ingresos por proyecto"
+          rows={projectRows}
+          valueFormatter={formatMoney}
+          className="min-h-[320px]"
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2">

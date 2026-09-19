@@ -304,6 +304,7 @@ export function ProjectBars({
   valueFormatter = money,
   className = 'h-full',
   sorted = true,
+  minMax = 1,
 }: {
   title: string;
   subtitle: string;
@@ -311,9 +312,10 @@ export function ProjectBars({
   valueFormatter?: (value: number) => string;
   className?: string;
   sorted?: boolean;
+  minMax?: number;
 }) {
   const data = sorted ? [...rows].sort((a, b) => b.value - a.value) : rows;
-  const max = data.reduce((largest, row) => Math.max(largest, row.value), 1);
+  const max = data.reduce((largest, row) => Math.max(largest, row.value), minMax);
   const ticks = [max, max * 0.75, max * 0.5, max * 0.25, 0];
 
   return (
