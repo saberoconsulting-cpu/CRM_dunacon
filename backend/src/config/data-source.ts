@@ -25,6 +25,7 @@ import { BankAccountMovementEntity } from '../shared/infrastructure/entities/ban
 import { BankAccountBalanceEntity } from '../shared/infrastructure/entities/bank-account-balance.entity';
 import { BankAccountEntity } from '../shared/infrastructure/entities/bank-account.entity';
 import { BankCategoryMappingEntity } from '../shared/infrastructure/entities/bank-category-mapping.entity';
+import { CashflowModelEntity } from '../shared/infrastructure/entities/cashflow-model.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -60,6 +61,7 @@ export const AppDataSource = new DataSource({
     BankAccountBalanceEntity,
     BankAccountEntity,
     BankCategoryMappingEntity,
+    CashflowModelEntity,
   ],
   migrations:
     process.env.NODE_ENV === 'production'

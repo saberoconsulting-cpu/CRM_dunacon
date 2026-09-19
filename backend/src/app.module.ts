@@ -28,6 +28,7 @@ import { BankAccountMovementEntity } from './shared/infrastructure/entities/bank
 import { BankAccountBalanceEntity } from './shared/infrastructure/entities/bank-account-balance.entity';
 import { BankAccountEntity } from './shared/infrastructure/entities/bank-account.entity';
 import { BankCategoryMappingEntity } from './shared/infrastructure/entities/bank-category-mapping.entity';
+import { CashflowModelEntity } from './shared/infrastructure/entities/cashflow-model.entity';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ProjectsModule } from './modules/projects/projects.module';
@@ -78,6 +79,7 @@ import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module
         BankAccountBalanceEntity,
         BankAccountEntity,
         BankCategoryMappingEntity,
+        CashflowModelEntity,
       ],
       synchronize: false,
       logging: false,
