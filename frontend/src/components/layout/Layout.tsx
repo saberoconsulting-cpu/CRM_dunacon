@@ -63,7 +63,6 @@ function projectNav(projectId: number): NavItem[] {
     { key: 'construction-budget', number: 11, href: `/projects/${projectId}/construction-budget`, label: 'Presupuesto de obra', icon: <FiLayers />, roles: ['superadmin', 'admin'] },
     { key: 'income-statement', number: 12, href: `/projects/${projectId}/income-statement`, label: 'Estado de resultados', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
     { key: 'cashflow', number: 13, href: `/projects/${projectId}/cashflow`, label: 'Flujo de caja', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
-    { key: 'financial-model', number: 14, href: `/projects/${projectId}/financial-model`, label: 'Modelo financiero', icon: <FiFileText />, roles: ['superadmin', 'admin'] },
   ];
 }
 
@@ -174,7 +173,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const projectAllowedModules = activeProjectId ? moduleAccess[activeProjectId] : null;
   const visiblePrimary = (isProjectContext ? projectNav(activeProjectId) : GLOBAL_NAV)
     .filter((item) => item.roles.includes(user.role))
-    .filter((item) => item.key === 'financial-model' || !isProjectContext || user.role === 'superadmin' || !Array.isArray(projectAllowedModules) || projectAllowedModules.includes(item.key || ''));
+    .filter((item) => !isProjectContext || user.role === 'superadmin' || !Array.isArray(projectAllowedModules) || projectAllowedModules.includes(item.key || ''));
   const visibleEnd = isProjectContext ? [] : GLOBAL_END_NAV.filter((item) => item.roles.includes(user.role));
   const showLabels = drawerOpen || !collapsed;
   const sidebarWidth = collapsed ? 76 : 248;

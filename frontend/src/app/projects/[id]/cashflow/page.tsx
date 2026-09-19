@@ -1,9 +1,9 @@
 'use client';
 import { useParams } from 'next/navigation';
 import Layout from '@/components/layout/Layout';
-import FinancesView from '@/components/features/finances/FinancesView';
+import CashflowExcelTestView from '@/components/features/finances/CashflowExcelTestView';
 
 export default function ProjectCashflowPage() {
   const { id } = useParams<{ id: string }>();
-  return <Layout title="Flujo de caja"><FinancesView lockedProjectId={Number(id)} /></Layout>;
+  return <Layout title="Flujo de caja"><CashflowExcelTestView projectId={Number(id)} /></Layout>;
 }

@@ -1,10 +1,15 @@
-import Layout from '@/components/layout/Layout';
-import CashflowExcelTestView from '@/components/features/finances/CashflowExcelTestView';
+'use client';
 
-export default function CashflowExcelTestPage({ params }: { params: { id: string } }) {
-  return (
-    <Layout title="Modelo financiero">
-      <CashflowExcelTestView projectId={Number(params.id)} />
-    </Layout>
-  );
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect } from 'react';
+
+export default function LegacyFinancialModelPage() {
+  const router = useRouter();
+  const { id } = useParams<{ id: string }>();
+
+  useEffect(() => {
+    if (id) router.replace(`/projects/${id}/cashflow`);
+  }, [id, router]);
+
+  return null;
 }
