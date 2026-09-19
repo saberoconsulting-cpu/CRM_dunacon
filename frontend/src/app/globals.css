@@ -28,39 +28,60 @@ h1, h2, h3 { font-weight: 600; color: #171717; }
   }
   /* Botón principal: azul marca */
   .btn-primary {
-    @apply inline-flex items-center justify-center gap-2 bg-[#1877F2] hover:bg-[#166FE0] text-white font-semibold rounded-md px-4 text-sm transition-colors disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 bg-[#1877F2] hover:bg-[#166FE0] text-white font-semibold rounded-xl px-4 text-sm transition-all duration-200 disabled:opacity-50;
     height: 40px;
+    box-shadow: 0 8px 18px rgba(24, 119, 242, 0.18);
   }
+  .btn-primary:hover { transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
   /* Botón secundario: blanco + borde azul */
   .btn-outline {
-    @apply inline-flex items-center justify-center gap-2 bg-white hover:bg-softblue text-[#1877F2] font-medium rounded-md px-4 text-sm transition-colors disabled:opacity-50 border;
+    @apply inline-flex items-center justify-center gap-2 bg-white hover:bg-[#F2F8FF] text-[#1877F2] font-medium rounded-xl px-4 text-sm transition-all duration-200 disabled:opacity-50 border;
     height: 40px;
     border-color: #1877F2;
+    box-shadow: 0 2px 8px rgba(24, 119, 242, 0.08);
   }
   /* Botón neutro */
   .btn-neutral {
-    @apply inline-flex items-center justify-center gap-2 bg-[#F3F4F6] hover:bg-[#E5E7EB] text-[#374151] font-medium rounded-md px-4 text-sm transition-colors disabled:opacity-50 border border-[#E5E7EB];
+    @apply inline-flex items-center justify-center gap-2 bg-[#F3F4F6] hover:bg-[#E5E7EB] text-[#374151] font-medium rounded-xl px-4 text-sm transition-all duration-200 disabled:opacity-50 border border-[#E5E7EB];
     height: 40px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   }
+  .btn-neutral:hover { transform: translateY(-1px); }
   /* Botón de peligro */
   .btn-danger {
-    @apply inline-flex items-center justify-center gap-2 bg-[#0E46A0] hover:bg-[#0B3A85] text-white font-medium rounded-md px-4 text-sm transition-colors disabled:opacity-50;
+    @apply inline-flex items-center justify-center gap-2 bg-[#0E46A0] hover:bg-[#0B3A85] text-white font-medium rounded-xl px-4 text-sm transition-all duration-200 disabled:opacity-50;
     height: 40px;
+    box-shadow: 0 8px 18px rgba(14, 70, 160, 0.18);
   }
   /* Deprecado aliase de secundario antiguo */
   .btn-secondary { @apply btn-neutral; }
   .input {
-    @apply w-full border border-[#D1D5DB] rounded-md px-3 text-sm focus:outline-none focus:ring-2 transition-colors;
+    @apply w-full border border-[#D1D5DB] rounded-xl px-3 text-sm focus:outline-none focus:ring-2 transition-all duration-200;
     height: 40px;
-    background: #fff;
+    background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
     color: #171717;
+    box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.02), 0 1px 2px rgba(15, 23, 42, 0.02);
   }
-  .input:focus { @apply ring-[#1877F2]/20; border-color: #1877F2; }
+  .input:hover { border-color: #BFDBFE; }
+  .input:focus { @apply ring-[#1877F2]/15; border-color: #1877F2; box-shadow: 0 0 0 4px rgba(24, 119, 242, 0.08), inset 0 1px 2px rgba(15, 23, 42, 0.02); }
+  select.input {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%236B7280' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.8rem center;
+    background-size: 12px 12px;
+    padding-right: 2.2rem;
+  }
+  input[type='date'].input {
+    color-scheme: light;
+  }
   textarea.input { height: auto; }
   .label {
     @apply block font-medium mb-1;
     font-size: 12px;
     color: #4b5563;
+    letter-spacing: 0.01em;
   }
   .badge {
     @apply inline-flex items-center px-2 py-0.5 rounded-full font-medium;

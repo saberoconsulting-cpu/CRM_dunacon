@@ -9,7 +9,7 @@ import { formatMoney, formatDate } from '@/lib/types';
 import { useDisplayCurrency } from '@/lib/currency';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { printHtml } from '@/lib/print';
-import { FiDownload, FiHome, FiCheckCircle, FiDollarSign, FiTrendingUp, FiPercent, FiBookmark, FiArrowDownCircle } from 'react-icons/fi';
+import { FiDownload, FiHome, FiCheckCircle, FiDollarSign, FiTrendingUp, FiPercent, FiBookmark, FiArrowDownCircle, FiCalendar, FiFilter, FiSearch, FiSliders, FiX } from 'react-icons/fi';
 
 // Tarjeta de estadística al estilo del dashboard (MetricTile): icono, acento
 // superior de color y tipografía compacta del proyecto.
@@ -462,33 +462,80 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
           <SalesMetric label="Separaciones" value={pending.length} icon={<FiBookmark />} tone="#0E7490" />
           <SalesMetric label="Pago Inicial" value={show(initialPaymentTotal)} icon={<FiArrowDownCircle />} tone="#1259C4" />
         </div>
-        <div className="card">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <input className="input !w-64" placeholder="Buscar lote, cliente o agente..." value={search} onChange={(e) => setSearch(e.target.value)} />
-              {search && (<button className="btn-neutral !h-9 text-xs" onClick={() => { setSearch(''); setDebouncedSearch(''); }}>Limpiar</button>)}
+        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-[#F2F7FF] shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+          <div className="flex flex-col gap-3 border-b border-slate-200/80 bg-white/60 px-4 py-3 backdrop-blur-sm">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <div className="relative w-full max-w-md flex-1">
+                  <FiSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    className="input !h-10 !w-full !pl-9 !rounded-xl border-slate-200 bg-white shadow-sm transition-all focus:border-[#1877F2]/40 focus:ring-2 focus:ring-[#1877F2]/10"
+                    placeholder="Buscar lote, cliente o agente..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </div>
+                {search && (
+                  <button className="btn-neutral !h-10 !px-3 text-xs" onClick={() => { setSearch(''); setDebouncedSearch(''); }}>
+                    <FiX className="mr-1" /> Limpiar
+                  </button>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2 self-end xl:self-auto">
+                <span className="inline-flex items-center gap-1 rounded-full border border-[#D8E6FF] bg-[#EEF5FF] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#1355C4]">
+                  <FiSliders />
+                  {hasFilters ? `${Object.values({ statusFilter, agentFilter, fromDate, toDate, search: search ? 'search' : '' }).filter(Boolean).length} activos` : 'Sin filtros'}
+                </span>
+                <button className="btn-primary !h-10" onClick={() => setOpen(true)}>Registrar venta</button>
+              </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto">
-                <select className="input !h-9 !w-full !text-xs sm:!w-auto" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} title="Estado de aprobación">
-                  <option value="">Estado: Todas</option>
+          </div>
+
+          <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
+            <Field label="Estado">
+              <div className="relative">
+                <FiFilter className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <select className="input !h-10 !pl-9 !rounded-xl border-slate-200 bg-white shadow-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} title="Estado de aprobación">
+                  <option value="">Todos</option>
                   <option value="aprobada">Aprobadas</option>
                   <option value="pendiente">Pendientes</option>
                 </select>
-                <select className="input !h-9 !w-full !text-xs sm:!w-auto" value={agentFilter} onChange={(e) => setAgentFilter(Number(e.target.value))} title="Asesor">
-                  <option value={0}>Asesor: Todos</option>
-                  {agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
-                </select>
               </div>
-              <label className="flex items-center gap-1 text-xs text-slate-500">
-                Desde <input className="input !w-36 !h-9 !text-xs" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
-              </label>
-              <label className="flex items-center gap-1 text-xs text-slate-500">
-                Hasta <input className="input !w-36 !h-9 !text-xs" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
-              </label>
-              {hasFilters && (<button className="btn-neutral !h-9 text-xs" onClick={limpiarFiltros}>Limpiar filtros</button>)}
+            </Field>
+
+            <Field label="Asesor">
+              <select className="input !h-10 !rounded-xl border-slate-200 bg-white shadow-sm" value={agentFilter} onChange={(e) => setAgentFilter(Number(e.target.value))} title="Asesor">
+                <option value={0}>Todos</option>
+                {agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </Field>
+
+            <Field label="Desde">
+              <div className="relative">
+                <FiCalendar className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input className="input !h-10 !pl-9 !rounded-xl border-slate-200 bg-white shadow-sm" type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+              </div>
+            </Field>
+
+            <Field label="Hasta">
+              <div className="relative">
+                <FiCalendar className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input className="input !h-10 !pl-9 !rounded-xl border-slate-200 bg-white shadow-sm" type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+              </div>
+            </Field>
+
+            <div className="flex items-end">
+              {hasFilters ? (
+                <button className="btn-neutral !h-10 w-full !rounded-xl text-xs font-semibold" onClick={limpiarFiltros}>
+                  <FiX className="mr-1" /> Limpiar filtros
+                </button>
+              ) : (
+                <div className="flex h-10 w-full items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-400">
+                  Filtros activos
+                </div>
+              )}
             </div>
-            <button className="btn-primary" onClick={() => setOpen(true)}>Registrar venta</button>
           </div>
         </div>
 
@@ -593,28 +640,28 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               <p className="mt-0.5 text-xs text-slate-500">Filtra la cotizacion por cliente o fecha y asignala para autocompletar la ficha.</p>
             </div>
 
-            <div className="rounded-xl border p-3 mb-4" style={{ borderColor: '#A9C9FB', background: '#F8FBFF' }}>
+            <div className="mb-4 rounded-2xl border border-[#D7E8FF] bg-gradient-to-br from-[#F7FBFF] via-white to-[#F1F6FF] p-3 shadow-[0_12px_28px_rgba(18,89,196,0.06)]">
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
                 <label className="block">
-                  <span className="label">Cliente o lote</span>
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Cliente o lote</span>
                   <input
-                    className="input !h-9 text-sm"
+                    className="input !h-11 text-sm !rounded-xl border-[#D9E7FF] bg-white shadow-sm transition-all focus:border-[#1259C4] focus:ring-2 focus:ring-[#1259C4]/10"
                     placeholder="Nombre, telefono o codigo"
                     value={quoteSearch}
                     onChange={(e) => { setQuoteSearch(e.target.value); setShowCotizaciones(true); }}
                   />
                 </label>
                 <label className="block">
-                  <span className="label">Desde</span>
-                  <input type="date" className="input !h-9 text-sm" value={quoteFrom} onChange={(e) => setQuoteFrom(e.target.value)} />
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Desde</span>
+                  <input type="date" className="input !h-11 text-sm !rounded-xl border-[#D9E7FF] bg-white shadow-sm transition-all focus:border-[#1259C4] focus:ring-2 focus:ring-[#1259C4]/10" value={quoteFrom} onChange={(e) => setQuoteFrom(e.target.value)} />
                 </label>
                 <label className="block">
-                  <span className="label">Hasta</span>
-                  <input type="date" className="input !h-9 text-sm" value={quoteTo} onChange={(e) => setQuoteTo(e.target.value)} />
+                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Hasta</span>
+                  <input type="date" className="input !h-11 text-sm !rounded-xl border-[#D9E7FF] bg-white shadow-sm transition-all focus:border-[#1259C4] focus:ring-2 focus:ring-[#1259C4]/10" value={quoteTo} onChange={(e) => setQuoteTo(e.target.value)} />
                 </label>
                 <button
                   type="button"
-                  className="btn-primary h-9 whitespace-nowrap"
+                  className="btn-primary h-11 whitespace-nowrap !rounded-xl !px-4 text-sm font-semibold shadow-[0_10px_18px_rgba(18,89,196,0.22)]"
                   onClick={() => setShowCotizaciones((v) => !v)}
                 >
                   {showCotizaciones ? 'Ocultar lista' : 'Asignar cotizacion'}
@@ -622,32 +669,38 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               </div>
 
               <div className="mt-2 flex items-center justify-between gap-2 text-xs text-slate-500">
-                <span>{availableQuotes.length} cotizacion{availableQuotes.length === 1 ? '' : 'es'} disponible{availableQuotes.length === 1 ? '' : 's'}</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#DDEBFF] bg-white px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-[#1259C4]">
+                  {availableQuotes.length} disponible{availableQuotes.length === 1 ? '' : 's'}
+                </span>
                 {(quoteSearch || quoteFrom || quoteTo) && (
-                  <button type="button" className="font-semibold" style={{ color: '#1259C4' }} onClick={() => { setQuoteSearch(''); setQuoteFrom(''); setQuoteTo(''); }}>
+                  <button type="button" className="font-semibold transition-colors hover:text-[#0D4AAD]" style={{ color: '#1259C4' }} onClick={() => { setQuoteSearch(''); setQuoteFrom(''); setQuoteTo(''); }}>
                     Limpiar filtros
                   </button>
                 )}
               </div>
 
               {showCotizaciones && (
-                <div className="mt-2 rounded-lg border bg-white overflow-hidden" style={{ borderColor: '#D6E4FB' }}>
-                  <div className="flex items-center justify-between gap-2 border-b px-3 py-2" style={{ borderColor: '#F0F1F3' }}>
-                    <span className="text-xs font-semibold" style={{ color: '#1259C4' }}>Elige una cotizacion</span>
-                    <button type="button" className="text-xs text-slate-400 hover:text-slate-600" onClick={() => setShowCotizaciones(false)}>Cerrar</button>
+                <div className="mt-3 overflow-hidden rounded-xl border border-[#D9E7FF] bg-white shadow-[0_10px_24px_rgba(15,23,42,0.08)]">
+                  <div className="flex items-center justify-between gap-2 border-b border-[#EAF1FF] bg-[#F4F9FF] px-3 py-2.5">
+                    <span className="text-[11px] font-semibold uppercase tracking-[0.08em]" style={{ color: '#1259C4' }}>Elige una cotizacion</span>
+                    <button type="button" className="text-xs text-slate-400 transition-colors hover:text-slate-600" onClick={() => setShowCotizaciones(false)}>Cerrar</button>
                   </div>
-                  <div className="max-h-56 overflow-y-auto divide-y" style={{ borderColor: '#F0F1F3' }}>
+                  <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 bg-white">
                     {availableQuotes.map((q: any) => (
-                      <button key={q.id} className="w-full flex items-center justify-between px-3 py-2 text-sm hover:bg-slate-50 text-left"
-                        onClick={() => selectQuote(q)}>
-                        <span>
-                          <span className="font-semibold">Q{q.id}</span> · Lote {q.lotCode || q.lotId} · {q.clientName || 'Sin cliente'}
-                          <span className="block text-xs text-slate-500">
-                            {q.paymentMethod === 'credito' ? `Al crédito · ${Number(q.totalCuotas || 0)} cuotas` : 'Contado'}
-                            {q.createdAt ? ` · ${new Date(q.createdAt).toLocaleDateString('es-PE')}` : ''}
+                      <button
+                        key={q.id}
+                        className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[#F3F8FF] focus:bg-[#EAF3FF] focus:outline-none"
+                        onClick={() => selectQuote(q)}
+                      >
+                        <span className="min-w-0">
+                          <span className="block font-semibold text-slate-800">Lote {q.lotCode || q.lotId}</span>
+                          <span className="mt-0.5 block truncate text-xs text-slate-500">
+                            {q.clientName || 'Sin cliente'} · {q.paymentMethod === 'credito' ? `Al crédito · ${Number(q.totalCuotas || 0)} cuotas` : 'Contado'}
                           </span>
                         </span>
-                        <b>{formatMoney(Math.round(Number(q.finalPriceUsd || 0) * Number(q.exchangeRate || 1)))}</b>
+                        <span className="shrink-0 rounded-md bg-[#EEF5FF] px-2 py-1 text-xs font-semibold text-[#1259C4]">
+                          {formatMoney(Math.round(Number(q.finalPriceUsd || 0) * Number(q.exchangeRate || 1)))}
+                        </span>
                       </button>
                     ))}
                     {availableQuotes.length === 0 && (
