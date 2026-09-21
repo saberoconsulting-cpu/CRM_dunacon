@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FocusEvent, type KeyboardEvent } from 'react';
 import { FiEdit3, FiRefreshCw, FiSave, FiTrendingUp, FiZap, FiClipboard, FiCheck } from 'react-icons/fi';
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '@/lib/api';
@@ -89,6 +89,13 @@ const SECTIONS: Array<{ id: string; label: string; tone: string; computed?: bool
 
 function row(id: string, label: string, values: number[] = empty(), computed = false): Row { return { id, label, values, computed }; }
 
+// Filas cuyo valor es una formula: nunca se editan a mano.
+const FORMULA_ROWS = new Set([
+    'income', 'cost-sales', 'land', 'direct', 'indirect', 'selling',
+    'gross', 'operating', 'pre-tax', 'net', 'adjusted',
+    'accumulated-title', 'pre-tax-accumulated', 'adjusted-accumulated',
+]);
+
 function sectionSurface(id: string, computed?: boolean) {
     if (computed) return { background: '#EAF7EE', color: '#125A3B' };
     if (id === 'income') return { background: '#E7F0FE', color: BRAND.blueDark };
@@ -134,6 +141,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         tax: true,
     });
     const editSnapshot = useRef<{ id: string; year: number; value: number } | null>(null);
+    const lastTap = useRef<{ key: string; time: number } | null>(null);
+    const [activeCell, setActiveCell] = useState<{ id: string; year: number } | null>(null);
     const [pendingEdit, setPendingEdit] = useState<{ id: string; year: number; value: number; original: number } | null>(null);
     const [mode, setMode] = useState<CashflowMode>('estatico');
     const [modeSwitchOpen, setModeSwitchOpen] = useState(false);
@@ -276,28 +285,28 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         const get = (id: string) => next.find((item) => item.id === id)?.values || empty();
         const set = (id: string, values: number[]) => { const item = next.find((candidate) => candidate.id === id); if (item) item.values = values; };
         const revenue = get('initial-fee').map((_, year) => get('initial-fee')[year] + get('financing-fee')[year]);
-        const gross = revenue.map((value, year) => value
-            - get('cost-sales')[year]
-            - get('land-cost')[year]
-            - get('alcabala')[year]
-            - get('legal')[year]
-            - get('construction')[year]
-            - get('supervision')[year]
-            - get('services')[year]
-            - get('design')[year]
-            - get('management')[year]
-            - get('indemnity')[year]
-            - get('legal-contingency')[year]);
-        const operating = gross.map((value, year) => value - get('sales-plan')[year] - get('marketing')[year] - get('commission')[year] - get('post-sale')[year] - get('discounts')[year]);
+        const sumRows = (ids: string[]) => revenue.map((_, year) => ids.reduce((total, id) => total + get(id)[year], 0));
+        const landTotal = sumRows(['land-cost', 'alcabala', 'legal']);
+        const directTotal = sumRows(['construction', 'supervision', 'services']);
+        const indirectTotal = sumRows(['design', 'management', 'indemnity', 'legal-contingency']);
+        const costSales = revenue.map((_, year) => landTotal[year] + directTotal[year] + indirectTotal[year]);
+        const sellingTotal = sumRows(['sales-plan', 'marketing', 'commission', 'post-sale', 'discounts']);
+        const gross = revenue.map((value, year) => value - costSales[year]);
+        const operating = gross.map((value, year) => value - sellingTotal[year]);
         const preTax = operating.map((value, year) => value - get('financial')[year]);
         const net = preTax.map((value, year) => value - get('tax')[year]);
-        const adjusted = net.slice();
+        const adjusted = net.map((value, year) => value - get('igv')[year]);
         const accumulate = (values: number[]) => values.reduce<number[]>((totals, value, year) => {
             totals.push((totals[year - 1] || 0) + value);
             return totals;
         }, []);
         const computedValues: Record<string, number[]> = {
             income: revenue,
+            'cost-sales': costSales,
+            land: landTotal,
+            direct: directTotal,
+            indirect: indirectTotal,
+            selling: sellingTotal,
             gross,
             operating,
             'pre-tax': preTax,
@@ -311,6 +320,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     }, [rows, overrides]);
 
     const displayNumber = (value: number) => Math.round(toDisplay(value));
+    const sumYears = (values: number[]) => values.slice(0, visibleYears.length).reduce((total, value) => total + value, 0);
     const displayPerSquareMeter = (value: number, area: number) => value === 0 || area <= 0 ? '-' : money(displayNumber(value) / area);
     const baseNumber = (value: string) => {
         const numeric = Number(value || 0);
@@ -322,11 +332,55 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         setHasSavedModel(false);
         const numeric = baseNumber(value);
         const item = rows.find((candidate) => candidate.id === id);
-        if (item?.computed) return;
+        if (item?.computed || FORMULA_ROWS.has(id)) return;
         setRows((current) => current.map((candidate) => candidate.id !== id ? candidate : { ...candidate, values: candidate.values.map((cell, index) => index === year ? numeric : cell) }));
     }
 
     function beginCellEdit(id: string, year: number, value: number) { editSnapshot.current = { id, year, value }; }
+
+    // La celda solo se edita con doble toque/clic para que deslizar con el dedo no la active.
+    function handleCellTap(id: string, year: number, value: number, editable: boolean) {
+        if (!editable) return;
+        if (activeCell && activeCell.id === id && activeCell.year === year) return;
+        const key = `${id}:${year}`;
+        const now = Date.now();
+        if (lastTap.current && lastTap.current.key === key && now - lastTap.current.time < 450) {
+            lastTap.current = null;
+            beginCellEdit(id, year, value);
+            setActiveCell({ id, year });
+        } else {
+            lastTap.current = { key, time: now };
+        }
+    }
+
+    useEffect(() => {
+        if (!activeCell) return;
+        const input = document.querySelector<HTMLInputElement>(`[data-cell="${activeCell.id}:${activeCell.year}"]`);
+        input?.focus();
+        input?.select();
+    }, [activeCell]);
+
+    const cellInputProps = (id: string, label: string, year: number, value: number, baseClass: string, editingClass: string) => {
+        const editable = mode === 'estatico' && !FORMULA_ROWS.has(id);
+        const editing = editable && activeCell?.id === id && activeCell.year === year;
+        return {
+            'aria-label': `${label} ${YEARS[year]}`,
+            'data-cell': `${id}:${year}`,
+            className: `${baseClass} touch-manipulation ${editing ? editingClass : editable ? 'cursor-pointer' : 'cursor-default'}`,
+            value: value ? displayNumber(value) : '',
+            readOnly: !editing,
+            inputMode: 'decimal' as const,
+            title: editable && !editing ? 'Doble toque para editar' : undefined,
+            onClick: () => handleCellTap(id, year, value, editable),
+            onChange: (event: ChangeEvent<HTMLInputElement>) => { if (editing) editCell(id, year, event.target.value); },
+            onBlur: (event: FocusEvent<HTMLInputElement>) => {
+                if (!editing) return;
+                finishCellEdit(id, year, Number(event.target.value || 0));
+                setActiveCell(null);
+            },
+            onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => { if (event.key === 'Enter') event.currentTarget.blur(); },
+        };
+    };
 
     function finishCellEdit(id: string, year: number, value: number) {
         const snapshot = editSnapshot.current;
@@ -569,18 +623,10 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                         {sectionRow && (
                                             <tr onClick={() => section.rows.length > 0 && toggleSection(section.id)} className="cursor-pointer">
                                                 <td className="border border-slate-200 px-3 py-2.5 font-bold md:sticky md:left-0 md:z-[1] md:px-4" style={{ background: surface.background, color: surface.color }}>{section.label}</td>
-                                                <td className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[330px] md:z-[1]">{displayPerSquareMeter(sectionRow.values[0], manual.landArea)}</td>
+                                                <td className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[330px] md:z-[1]">{displayPerSquareMeter(sumYears(sectionRow.values), manual.landArea)}</td>
                                                 {sectionRow.values.slice(0, visibleYears.length).map((value, year) => (
                                                     <td key={year} className="border border-slate-200 px-1 py-1" style={{ background: surface.background }}>
-                                                        <input
-                                                            aria-label={`${section.label} ${YEARS[year]}`}
-                                                            className={`w-full min-w-[78px] border border-transparent bg-transparent px-1 py-1.5 text-right font-bold tabular-nums outline-none transition ${mode === 'dinamico' ? 'cursor-default' : 'focus:border-[#1877F2] focus:bg-white'}`}
-                                                            value={value ? displayNumber(value) : ''}
-                                                            readOnly={mode === 'dinamico' || Boolean(sectionRow.computed)}
-                                                            onFocus={() => mode === 'estatico' && beginCellEdit(section.id, year, value)}
-                                                            onChange={(event) => mode === 'estatico' && editCell(section.id, year, event.target.value)}
-                                                            onBlur={(event) => mode === 'estatico' && finishCellEdit(section.id, year, Number(event.target.value || 0))}
-                                                        />
+                                                        <input {...cellInputProps(section.id, section.label, year, value, 'w-full min-w-[78px] border border-transparent bg-transparent px-1 py-1.5 text-right font-bold tabular-nums outline-none transition', 'border-[#1877F2] bg-white')} />
                                                     </td>
                                                 ))}
                                             </tr>
@@ -592,18 +638,10 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                             return (
                                                 <tr key={definition.id} className="hover:bg-slate-50">
                                                     <td className="border border-slate-200 bg-white px-6 py-2 text-slate-700 md:sticky md:left-0 md:z-[1] md:px-8">{definition.label}</td>
-                                                    <td className="border border-[#B9D2F4] bg-[#F4F8FE] px-2 py-2 text-right tabular-nums text-[#5277A8] md:sticky md:left-[330px] md:z-[1]">{displayPerSquareMeter(item.values[0], manual.landArea)}</td>
+                                                    <td className="border border-[#B9D2F4] bg-[#F4F8FE] px-2 py-2 text-right tabular-nums text-[#5277A8] md:sticky md:left-[330px] md:z-[1]">{displayPerSquareMeter(sumYears(item.values), manual.landArea)}</td>
                                                     {item.values.slice(0, visibleYears.length).map((value, year) => (
                                                         <td key={`${definition.id}-${year}`} className="border border-slate-200 bg-white px-1 py-1">
-                                                            <input
-                                                                aria-label={`${definition.label} ${YEARS[year]}`}
-                                                                className={`w-full min-w-[78px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${mode === 'dinamico' ? 'cursor-default' : 'focus:border-[#1877F2] focus:bg-[#F5F9FF]'}`}
-                                                                value={value ? displayNumber(value) : ''}
-                                                                readOnly={mode === 'dinamico'}
-                                                                onFocus={() => mode === 'estatico' && beginCellEdit(definition.id, year, value)}
-                                                                onChange={(event) => mode === 'estatico' && editCell(definition.id, year, event.target.value)}
-                                                                onBlur={(event) => mode === 'estatico' && finishCellEdit(definition.id, year, Number(event.target.value || 0))}
-                                                            />
+                                                            <input {...cellInputProps(definition.id, definition.label, year, value, 'w-full min-w-[78px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition', 'border-[#1877F2] bg-[#F5F9FF]')} />
                                                         </td>
                                                     ))}
                                                 </tr>
