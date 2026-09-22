@@ -956,8 +956,9 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="font-semibold">Dashboard general</h3>
+      {/* El titulo "Dashboard general" ahora vive en el header del Layout
+          (misma altura que la campanita), asi que aqui solo queda el toggle. */}
+      <div className="flex items-center justify-end gap-3">
         <CurrencyToggle
           currency={currency}
           setCurrency={setCurrency}

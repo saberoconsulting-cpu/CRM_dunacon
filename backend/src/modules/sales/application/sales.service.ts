@@ -10,14 +10,16 @@ import { UserEntity } from '../../../shared/infrastructure/entities/user.entity'
 import { FinancialTransactionEntity } from '../../../shared/infrastructure/entities/financial-transaction.entity';
 import { PaymentEntity } from '../../../shared/infrastructure/entities/payment.entity';
 import { ProjectEntity } from '../../../shared/infrastructure/entities/project.entity';
+import { QuoteEntity } from '../../../shared/infrastructure/entities/quote.entity';
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
-import { calcValorCuota } from '../../../shared/domain/finance.util';import { CreateSaleDto } from './dto/sale.dto';
+import { buildGraceSchedule, calcValorCuota } from '../../../shared/domain/finance.util';import { CreateSaleDto } from './dto/sale.dto';
 import { ListSalesDto } from './dto/list-sales.dto';
 import {
   buildPaginatedResult,
   normalizePagination,
 } from '../../../shared/application/dto/pagination.dto';
+import { paymentConcept, paymentConceptLabel, paymentConceptRank } from '../../payments/domain/payment-order';
 
 @Injectable()
 export class SalesService {
@@ -48,11 +50,13 @@ export class SalesService {
     const salePrice = Number(dto.salePrice || 0);
     const totalCuotas = Math.max(0, Number(dto.totalCuotas || 0));
     const cuotaInicial = Math.max(0, Number(dto.cuotaInicial || 0));
+    const graceMonths = Math.min(totalCuotas, Math.max(0, Math.floor(Number(dto.graceMonths || 0))));
     const commissionRate = dto.appliesCommission ? Math.max(0, Number(dto.commissionRate || 0)) : 0;
     const commissionAmount = commissionRate > 0 ? (salePrice * commissionRate) / 100 : 0;
     const financingBase = salePrice;
     const saldoFinanciar = Math.max(0, financingBase - cuotaInicial);
-    const valorCuota = calcValorCuota(saldoFinanciar, totalCuotas, dto.interestType, dto.tea);
+    const gracePlan = buildGraceSchedule({ principal: saldoFinanciar, totalCuotas, graceMonths, interestType: dto.interestType, teaPct: dto.tea });
+    const valorCuota = dto.paymentMethod === 'Contado' ? 0 : gracePlan.interestCuota;
 
     const firstTranche = Math.min(totalCuotas, 12);
     const secondTranche = Math.max(0, totalCuotas - firstTranche);
@@ -66,6 +70,9 @@ export class SalesService {
       cuotaInicial,
       saldoFinanciar,
       totalCuotas,
+      graceMonths: gracePlan.graceMonths,
+      interestMonths: gracePlan.interestMonths,
+      graceCuota: gracePlan.graceCuota,
       valorCuota,
       // Cuota fija (sistema francés): ambos tramos comparten el mismo monto.
       installments: [
@@ -96,11 +103,29 @@ export class SalesService {
     const commission = commissionRate ? (dto.salePrice * commissionRate) / 100 : 0;
     const totalCuotas = dto.totalCuotas || 0;
     const cuotaInicial = Math.max(0, Number(dto.cuotaInicial || 0));
+    const graceMonths = Math.min(totalCuotas, Math.max(0, Math.floor(Number(dto.graceMonths || 0))));
+    const initialPaymentMode = dto.initialPaymentMode === 'partes' ? 'partes' : 'contado';
+    const requestedInitialParts = Number(dto.initialParts || 0);
+    const initialParts = initialPaymentMode === 'partes' ? requestedInitialParts : 1;
+    if (!dto.projectId) throw new BadRequestException('Proyecto requerido');
+    if (!dto.clientId) throw new BadRequestException('Cliente requerido');
+    if (!assignedAgentId) throw new BadRequestException('Agente requerido');
+    if (!(Number(dto.salePrice) > 0)) throw new BadRequestException('Precio de venta requerido');
+    if (!dto.saleDate) throw new BadRequestException('Fecha de venta requerida');
+    if (dto.paymentMethod !== 'Contado') {
+      if (!(totalCuotas > 0)) throw new BadRequestException('Numero de cuotas requerido');
+      if (!(cuotaInicial > 0)) throw new BadRequestException('Cuota inicial requerida');
+      if (cuotaInicial >= Number(dto.salePrice)) throw new BadRequestException('La cuota inicial debe ser menor al precio de venta');
+      if (initialPaymentMode === 'partes' && !(requestedInitialParts >= 2 && requestedInitialParts <= 24)) throw new BadRequestException('Numero de partes de la inicial invalido');
+      if (dto.interestType === 'tea' && !(Number(dto.tea) > 0)) throw new BadRequestException('TEA requerida para cuotas con interes');
+      if (Number(dto.graceMonths || 0) > totalCuotas) throw new BadRequestException('Las cuotas sin interes no pueden superar el total de cuotas');
+    }
     const saldoFinanciar = Math.max(0, dto.salePrice - cuotaInicial);
     // En inmobiliaria la financiación arranca del neto (se descuenta la comisión del lote)
     const financingBase = dto.salePrice;
     // Se calcula siempre en el servidor (nunca se confía en un valorCuota que mande el cliente).
-    const valorCuota = calcValorCuota(saldoFinanciar, totalCuotas, dto.interestType, dto.tea);
+    const gracePlan = buildGraceSchedule({ principal: saldoFinanciar, totalCuotas, graceMonths, interestType: dto.interestType, teaPct: dto.tea });
+    const valorCuota = totalCuotas > 0 ? gracePlan.interestCuota : 0;
 
     // La venta, el "claim" atómico del lote y la auditoría deben quedar juntos:
     // antes eran saves() independientes y un fallo a mitad dejaba la separación
@@ -109,7 +134,9 @@ export class SalesService {
       const paymentDetails = [
         dto.paymentMethod ? `Forma de pago: ${dto.paymentMethod}` : null,
         dto.interestType === 'tea' && dto.tea ? `TEA: ${dto.tea}%` : null,
+        dto.interestType === 'tea' ? `Cuotas sin interes: ${graceMonths}` : null,
         dto.cuotaInicial != null ? `Cuota inicial: ${dto.cuotaInicial}` : null,
+        cuotaInicial > 0 ? `Pago inicial: ${initialPaymentMode === 'partes' ? `${initialParts} partes sin interes` : 'contado'}` : null,
         dto.saldoFinanciar != null ? `Saldo a financiar: ${dto.saldoFinanciar}` : null,
       ].filter(Boolean).join(' | ');
 
@@ -127,6 +154,8 @@ export class SalesService {
         approvalStatus: 'pendiente',
         totalCuotas,
         valorCuota: String(valorCuota),
+        cuotaInicial: String(cuotaInicial),
+        reservaAmount: String(Math.max(0, Number(dto.reservaAmount || 0))),
         planStatus: 'pendiente',
         interestType: dto.interestType || 'sin_intereses',
         tea: String(dto.interestType === 'tea' ? Number(dto.tea || 0) : 0),
@@ -147,6 +176,10 @@ export class SalesService {
       lot.sellingStage = 'separado';
       lot.clientId = dto.clientId ?? lot.clientId;
       lot.agentId = assignedAgentId;
+
+      if (dto.quoteId) {
+        await manager.update(QuoteEntity, { id: dto.quoteId }, { status: 'convertida' });
+      }
 
       await this.audit(actorId, 'CREAR_SEPARACION', 'sales', savedSale.id, manager);
       return savedSale;
@@ -197,7 +230,7 @@ export class SalesService {
 
       // Cronograma si hay plan
       if (sale.totalCuotas > 0) {
-        await this.buildSchedule(sale.id, sale.totalCuotas, Number(sale.valorCuota) || 0, sale.approvedAt, manager);
+        await this.buildSchedule(sale, sale.approvedAt, manager);
       }
 
       await this.audit(actorId, 'APROBAR_SEPARACION', 'sales', id, manager);
@@ -238,16 +271,32 @@ export class SalesService {
     return { kept, note };
   }
 
-  private async buildSchedule(saleId: number, n: number, amount: number, start?: Date | null, manager?: EntityManager) {
+  private saleGraceMonths(sale: SaleEntity) {
+    const match = String(sale.conditions || '').match(/Cuotas sin interes:\s*(\d+)/i);
+    const total = Math.max(0, Number(sale.totalCuotas || 0));
+    return Math.min(total, Math.max(0, Number(match?.[1] || 0)));
+  }
+
+  private async buildSchedule(sale: SaleEntity, start?: Date | null, manager?: EntityManager) {
     const repo = manager ? manager.getRepository(SaleInstallmentEntity) : this.instRepo;
     const begin = start ? new Date(start) : new Date();
+    const totalCuotas = Math.max(0, Number(sale.totalCuotas || 0));
+    const cuotaInicial = Math.max(0, Number((sale as any).cuotaInicial || 0));
+    const principal = Math.max(0, Number(sale.salePrice || 0) - cuotaInicial);
+    const plan = buildGraceSchedule({
+      principal,
+      totalCuotas,
+      graceMonths: this.saleGraceMonths(sale),
+      interestType: sale.interestType,
+      teaPct: Number(sale.tea || 0),
+    });
     const rows: Partial<SaleInstallmentEntity>[] = [];
-    for (let i = 1; i <= n; i++) {
-      const d = new Date(begin.getFullYear(), begin.getMonth() + i, begin.getDate());
+    for (const row of plan.rows) {
+      const d = new Date(begin.getFullYear(), begin.getMonth() + row.month, begin.getDate());
       rows.push({
-        saleId,
-        installmentNo: i,
-        amount: String(amount || 0),
+        saleId: sale.id,
+        installmentNo: row.month,
+        amount: String(row.cuota || 0),
         dueDate: d.toISOString().slice(0, 10),
         status: 'pendiente',
       });
@@ -407,6 +456,8 @@ export class SalesService {
         's.salePrice', 's.saleDate', 's.totalCuotas', 's.valorCuota',
         's.interestType', 's.tea', 's.conditions',
       ])
+      .addSelect('s.cuota_inicial AS "s_cuota_inicial"')
+      .addSelect('s.reserva_amount AS "s_reserva_amount"')
       .addSelect('s.approval_status AS "approvalStatus"')
       .addSelect('s.plan_status AS "planStatus"')
       .addSelect('c.full_name AS "clientName"')
@@ -545,6 +596,8 @@ export class SalesService {
       s_client_id: sale.clientId,
       s_agent_id: sale.agentId,
       s_sale_price: sale.salePrice,
+      s_cuota_inicial: (sale as any).cuotaInicial,
+      s_reserva_amount: (sale as any).reservaAmount,
       totalCuotas: sale.totalCuotas,
       s_valor_cuota: sale.valorCuota,
       s_interest_type: sale.interestType,
@@ -558,6 +611,12 @@ export class SalesService {
     };
 
     return this.buildPaymentContextRow(row, { lot, client, agent, installments, payments });
+  }
+
+  async paymentHistory(paymentId: number) {
+    const payment = await this.dataSource.getRepository(PaymentEntity).findOne({ where: { id: paymentId } });
+    if (!payment?.lotId) return null;
+    return this.lotPaymentHistory(Number(payment.lotId));
   }
 
   /**
@@ -750,6 +809,8 @@ export class SalesService {
       s_client_id: sale.clientId,
       s_agent_id: sale.agentId,
       s_sale_price: sale.salePrice,
+      s_cuota_inicial: (sale as any).cuotaInicial,
+      s_reserva_amount: (sale as any).reservaAmount,
       totalCuotas: sale.totalCuotas,
       s_valor_cuota: sale.valorCuota,
       s_interest_type: sale.interestType,
@@ -769,37 +830,189 @@ export class SalesService {
     related: { lot: any; client: any; agent: any; installments: SaleInstallmentEntity[]; payments?: PaymentEntity[] },
   ) {
     const today = new Date().toISOString().slice(0, 10);
-    // Los pagos del lote se asignan a las cuotas ya pagadas en orden (1:1) para
-    // poder mostrar la fecha de pago, TC, monto en US$ y N° de operacion
-    // bancaria de cada cuota. Si la cuota trae `payment_id` se respeta ese match.
-    const pool = [...(related.payments || [])];
+    const allPayments = related.payments || [];
+    const paidPayments = allPayments.filter((p) => String(p.status) === 'pagado');
+
+    const usedPaymentIds = new Set<number>();
+    const expectedReserva = Number(r.s_reserva_amount || 0);
+    const expectedCuotaInicial = Number(r.s_cuota_inicial || 0);
+    const initialPartsMatch = String(r.s_conditions || '').match(/Pago inicial:\s*(\d+)\s*partes/i);
+    const initialParts = expectedCuotaInicial > 0
+      ? Math.max(1, initialPartsMatch ? Number(initialPartsMatch[1] || 1) : 1)
+      : 0;
+    const initialRows: any[] = [];
+    const reservaPayments = [...paidPayments, ...allPayments.filter((p) => String(p.status) !== 'pagado')]
+      .filter((p) => paymentConcept(p.type) === 'reserva');
+    const cuotaInicialPayments = [...paidPayments, ...allPayments.filter((p) => String(p.status) !== 'pagado')]
+      .filter((p) => paymentConcept(p.type) === 'cuota_inicial');
+
+    for (const p of reservaPayments) {
+      usedPaymentIds.add(Number(p.id));
+      initialRows.push({
+        id: `payment-${p.id}`,
+        paymentId: Number(p.id),
+        installmentNo: null,
+        kind: 'reserva',
+        conceptLabel: 'Reserva',
+        amount: Number(p.amount || 0),
+        dueDate: p.dueDate || null,
+        status: p.status,
+        paid: String(p.status) === 'pagado',
+        overdue: String(p.status) !== 'pagado' && !!p.dueDate && String(p.dueDate).slice(0, 10) < today,
+        isCurrent: false,
+        payment: this.paymentDetails(p),
+      });
+    }
+
+    if (expectedReserva > 0 && !reservaPayments.length) {
+      initialRows.push({
+        id: `expected-reserva-${r.s_id}`,
+        paymentId: 0,
+        installmentNo: null,
+        kind: 'reserva',
+        conceptLabel: 'Reserva',
+        amount: expectedReserva,
+        dueDate: r.s_sale_date || null,
+        status: 'pendiente',
+        paid: false,
+        overdue: !!r.s_sale_date && String(r.s_sale_date).slice(0, 10) < today,
+        isCurrent: false,
+        payment: null,
+      });
+    }
+
+    if (expectedCuotaInicial > 0) {
+      const partAmount = expectedCuotaInicial / Math.max(1, initialParts);
+      for (let i = 0; i < Math.max(1, initialParts); i++) {
+        const p = cuotaInicialPayments[i] || null;
+        if (p) usedPaymentIds.add(Number(p.id));
+        initialRows.push({
+          id: p ? `payment-${p.id}` : `expected-cuota-inicial-${r.s_id}-${i + 1}`,
+          paymentId: p ? Number(p.id) : 0,
+          installmentNo: null,
+          kind: 'cuota_inicial',
+          conceptLabel: initialParts > 1 ? `Cuota inicial ${i + 1}/${initialParts}` : 'Cuota inicial',
+          amount: p ? Number(p.amount || 0) : partAmount,
+          dueDate: p?.dueDate || r.s_sale_date || null,
+          status: p?.status || 'pendiente',
+          paid: p ? String(p.status) === 'pagado' : false,
+          overdue: p ? (String(p.status) !== 'pagado' && !!p.dueDate && String(p.dueDate).slice(0, 10) < today) : (!!r.s_sale_date && String(r.s_sale_date).slice(0, 10) < today),
+          isCurrent: false,
+          payment: this.paymentDetails(p),
+        });
+      }
+      for (const p of cuotaInicialPayments.slice(initialParts)) {
+        usedPaymentIds.add(Number(p.id));
+        initialRows.push({
+          id: `payment-${p.id}`,
+          paymentId: Number(p.id),
+          installmentNo: null,
+          kind: 'cuota_inicial',
+          conceptLabel: 'Abono cuota inicial',
+          amount: Number(p.amount || 0),
+          dueDate: p.dueDate || null,
+          status: p.status,
+          paid: String(p.status) === 'pagado',
+          overdue: String(p.status) !== 'pagado' && !!p.dueDate && String(p.dueDate).slice(0, 10) < today,
+          isCurrent: false,
+          payment: this.paymentDetails(p),
+        });
+      }
+    } else {
+      for (const p of cuotaInicialPayments) {
+        usedPaymentIds.add(Number(p.id));
+        initialRows.push({
+          id: `payment-${p.id}`,
+          paymentId: Number(p.id),
+          installmentNo: null,
+          kind: 'cuota_inicial',
+          conceptLabel: 'Cuota inicial',
+          amount: Number(p.amount || 0),
+          dueDate: p.dueDate || null,
+          status: p.status,
+          paid: String(p.status) === 'pagado',
+          overdue: String(p.status) !== 'pagado' && !!p.dueDate && String(p.dueDate).slice(0, 10) < today,
+          isCurrent: false,
+          payment: this.paymentDetails(p),
+        });
+      }
+    }
+
+    const initialPaidAmount = initialRows.filter((row) => row.paid).reduce((sum, row) => sum + row.amount, 0);
+    const initialPendingAmount = initialRows.filter((row) => !row.paid).reduce((sum, row) => sum + row.amount, 0);
+    const reservaPaid = expectedReserva > 0
+      ? initialRows.filter((row) => row.kind === 'reserva' && row.paid).reduce((sum, row) => sum + row.amount, 0) + 0.01 >= expectedReserva
+      : initialRows.some((row) => row.kind === 'reserva' && row.paid);
+    const cuotaInicialPaid = expectedCuotaInicial > 0
+      ? initialRows.filter((row) => row.kind === 'cuota_inicial' && row.paid).reduce((sum, row) => sum + row.amount, 0) + 0.01 >= expectedCuotaInicial
+      : initialRows.some((row) => row.kind === 'cuota_inicial' && row.paid);
+
+    const pool = allPayments.filter((p) => !usedPaymentIds.has(Number(p.id)));
     const takeByPaymentId = (paymentId?: number | null) => {
       if (!paymentId) return null;
       const idx = pool.findIndex((p) => Number(p.id) === Number(paymentId));
       if (idx < 0) return null;
       return pool.splice(idx, 1)[0];
     };
+    const takeNextPaid = () => {
+      const idx = pool.findIndex((p) => String(p.status) === 'pagado');
+      return idx < 0 ? null : pool.splice(idx, 1)[0];
+    };
 
     const rows = related.installments.map((inst) => {
       const paid = inst.status === 'pagado';
       const overdue = !paid && !!inst.dueDate && String(inst.dueDate).slice(0, 10) < today;
-      const payment = paid ? (takeByPaymentId((inst as any).paymentId) || pool.shift() || null) : null;
+      const payment = paid ? (takeByPaymentId((inst as any).paymentId) || takeNextPaid() || null) : null;
       return {
         id: inst.id,
         installmentNo: inst.installmentNo,
+        kind: 'cuota' as const,
+        conceptLabel: `Cuota ${inst.installmentNo}`,
         amount: Number(inst.amount || 0),
         dueDate: inst.dueDate,
         status: inst.status,
         paid,
         overdue,
         isCurrent: !paid && !overdue && !!inst.dueDate,
+        coveredByInitial: false,
         payment: this.paymentDetails(payment),
       };
     });
 
-    const nextDue = rows.find((x) => x.overdue) || rows.find((x) => x.isCurrent) || rows.find((x) => !x.paid) || null;
+    const pendingInitial = initialRows.filter((row) => !row.paid);
+    const nextDueRow =
+      rows.find((x) => x.overdue) || rows.find((x) => x.isCurrent) || rows.find((x) => !x.paid) || null;
+    const nextConcept = pendingInitial.length
+      ? {
+          installmentNo: null,
+          conceptLabel: pendingInitial[0].conceptLabel || (pendingInitial[0].kind === 'reserva' ? 'Reserva' : 'Cuota inicial'),
+          amount: pendingInitial[0].amount || initialPendingAmount,
+          dueDate: pendingInitial[0].dueDate,
+          overdue: pendingInitial.some((row) => row.overdue),
+          isInitial: true,
+        }
+      : nextDueRow
+        ? {
+            installmentNo: nextDueRow.installmentNo,
+            conceptLabel: `Cuota ${nextDueRow.installmentNo}`,
+            amount: nextDueRow.amount,
+            dueDate: nextDueRow.dueDate,
+            overdue: nextDueRow.overdue,
+            isInitial: false,
+          }
+        : null;
+
     const paidCount = rows.filter((x) => x.paid).length;
     const { lot, client, agent } = related;
+
+    const salePrice = Number(r.s_sale_price || 0);
+    const installmentsPaidAmount = rows
+      .filter((x) => x.paid && !(x as any).coveredByInitial)
+      .reduce((sum, x) => sum + x.amount, 0);
+    const collectedAmount = initialPaidAmount + installmentsPaidAmount;
+    const cuotaInicial = Number(r.s_cuota_inicial || 0)
+      || Math.max(0, salePrice - Number(r.s_valor_cuota || 0) * Number(r.totalCuotas || 0));
+
 
     return {
       sale: {
@@ -808,8 +1021,9 @@ export class SalesService {
         lotId: Number(r.s_lot_id),
         clientId: r.s_client_id ? Number(r.s_client_id) : null,
         agentId: r.s_agent_id ? Number(r.s_agent_id) : null,
-        salePrice: Number(r.s_sale_price || 0),
-        cuotaInicial: Math.max(0, Number(r.s_sale_price || 0) - Number(r.s_valor_cuota || 0) * Number(r.totalCuotas || 0)),
+        salePrice,
+        cuotaInicial,
+        reservaAmount: Number(r.s_reserva_amount || 0),
         totalCuotas: Number(r.totalCuotas || rows.length),
         valorCuota: Number(r.s_valor_cuota || 0),
         interestType: r.s_interest_type || 'sin_intereses',
@@ -824,16 +1038,17 @@ export class SalesService {
       agent: agent ? { id: agent.id, name: agent.name } : null,
       clientName: r.clientName || (client as any)?.fullName || null,
       lotCode: r.lotCode || lot?.code || null,
+      plan: [...initialRows, ...rows],
       installments: rows,
-      // Pagos que no corresponden a una cuota del cronograma (reserva,
-      // cuota inicial, adelantos). Alimentan la ficha de venta de esos pagos.
       otherPayments: pool.map((p) => ({
         ...this.paymentDetails(p),
+        conceptLabel: paymentConceptLabel(p.type),
         amount: Number(p.amount || 0),
         dueDate: p.dueDate || null,
       })),
-      allPayments: (related.payments || []).map((p) => ({
+      allPayments: allPayments.map((p) => ({
         ...this.paymentDetails(p),
+        conceptLabel: paymentConceptLabel(p.type),
         amount: Number(p.amount || 0),
         dueDate: p.dueDate || null,
       })),
@@ -841,10 +1056,18 @@ export class SalesService {
         totalCuotas: rows.length,
         paidCount,
         pendingCount: rows.length - paidCount,
-        nextInstallmentNo: nextDue?.installmentNo || null,
-        nextAmount: nextDue?.amount || 0,
-        nextDueDate: nextDue?.dueDate || null,
-        nextIsOverdue: !!nextDue?.overdue,
+        nextInstallmentNo: nextConcept?.isInitial ? null : (nextConcept?.installmentNo || null),
+        nextConceptLabel: nextConcept?.conceptLabel || null,
+        nextIsInitial: !!nextConcept?.isInitial,
+        nextAmount: nextConcept?.amount || 0,
+        nextDueDate: nextConcept?.dueDate || null,
+        nextIsOverdue: !!nextConcept?.overdue,
+        reservaAmount: Number(r.s_reserva_amount || 0),
+        reservaPaid,
+        cuotaInicial,
+        cuotaInicialPaid,
+        collectedAmount,
+        balanceAmount: Math.max(0, salePrice - collectedAmount),
       },
     };
   }

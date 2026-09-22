@@ -12,6 +12,7 @@ import { SaleEntity } from '../../../shared/infrastructure/entities/sale.entity'
 import { SaleInstallmentEntity } from '../../../shared/infrastructure/entities/sale-installment.entity';
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
 import { ApprovePaymentDto, CreatePaymentDto } from './dto/payment.dto';
+import { comparePaymentsForDisplay, paymentConcept, paymentConceptLabel, paymentConceptRank } from '../domain/payment-order';
 
 // Estado comercial al que conduce cada tipo de pago
 const TYPE_STATUS: Record<string, string> = {
@@ -53,6 +54,38 @@ export class PaymentsService {
     // dejar el pago registrado sin su movimiento contable o sin actualizar el lote.
     let lotStatusChanged = false;
     const saved = await this.dataSource.transaction(async (manager) => {
+      const concept = paymentConcept(dto.type);
+      if (concept === 'reserva') {
+        const existingReserva = await manager.getRepository(PaymentEntity).count({
+          where: { lotId: dto.lotId, type: 'reserva' },
+        });
+        if (existingReserva > 0) {
+          throw new BadRequestException('La reserva de este lote ya fue registrada. El siguiente pago debe ser cuota inicial o cuota, segun el cronograma.');
+        }
+      }
+      if (concept === 'cuota_inicial') {
+        const sale = await manager.getRepository(SaleEntity).findOne({ where: { lotId: dto.lotId }, order: { id: 'DESC' } });
+        const cuotaInicialTotal = Math.max(0, Number((sale as any)?.cuotaInicial || 0));
+        const partsMatch = String(sale?.conditions || '').match(/Pago inicial:\s*(\d+)\s*partes/i);
+        const initialParts = cuotaInicialTotal > 0 ? Math.max(1, partsMatch ? Number(partsMatch[1] || 1) : 1) : 1;
+        const existingInitials = await manager.getRepository(PaymentEntity).find({
+          where: [
+            { lotId: dto.lotId, type: 'adelanto' },
+            { lotId: dto.lotId, type: 'cuota_inicial' },
+          ],
+        });
+        const alreadyRegistered = existingInitials.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+        const pendingInitial = Math.max(0, cuotaInicialTotal - alreadyRegistered);
+        if (existingInitials.length >= initialParts) {
+          throw new BadRequestException(initialParts === 1
+            ? 'La cuota inicial ya fue registrada. El siguiente pago debe ser una cuota del cronograma.'
+            : `La cuota inicial ya tiene sus ${initialParts} partes registradas. El siguiente pago debe ser una cuota del cronograma.`);
+        }
+        if (cuotaInicialTotal > 0 && alreadyRegistered + Number(dto.amount || 0) > cuotaInicialTotal + 0.01) {
+          throw new BadRequestException(`Este monto supera la cuota inicial pendiente. Falta registrar como maximo S/ ${pendingInitial.toFixed(2)} de cuota inicial.`);
+        }
+      }
+
       const payment = manager.create(PaymentEntity, {
         projectId: dto.projectId,
         lotId: dto.lotId,
@@ -173,7 +206,16 @@ export class PaymentsService {
         .addSelect('u.name AS "receivedByName"')
         .addSelect('au.name AS "approvedByName"'),
     );
-    qb.orderBy('p.created_at', 'DESC');
+    qb.orderBy(
+      `CASE WHEN p.status = 'pagado' THEN 0 ELSE 1 END`,
+      'ASC',
+    )
+      .addOrderBy(
+        `CASE p.type WHEN 'reserva' THEN 0 WHEN 'adelanto' THEN 1 WHEN 'cuota_inicial' THEN 1 WHEN 'primera_cuota' THEN 2 WHEN 'cuota' THEN 2 ELSE 3 END`,
+        'ASC',
+      )
+      .addOrderBy('COALESCE(p.paid_at, p.due_date, p.created_at)', 'ASC')
+      .addOrderBy('p.id', 'ASC');
     const total = await qb.clone().getCount();
 
     // Conteos sobre TODO el filtro (no solo la página actual), para que las
@@ -193,6 +235,10 @@ export class PaymentsService {
       clientId: r.p_client_id ? Number(r.p_client_id) : null,
       agentId: r.p_agent_id ? Number(r.p_agent_id) : null,
       type: r.p_type, amount: Number(r.p_amount),
+      concept: paymentConcept(r.p_type),
+      conceptLabel: paymentConceptLabel(r.p_type),
+      conceptRank: paymentConceptRank(r.p_type),
+      stage: String(r.p_status) === 'pagado' ? 'pagado' : 'pendiente',
       dueDate: r.p_due_date, paymentMethod: r.p_payment_method,
       reference: r.p_reference, voucherUrl: r.p_voucher_url,
       paidAt: r.p_paid_at, status: r.p_status, createdAt: r.p_created_at,

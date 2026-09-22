@@ -80,6 +80,8 @@ export class QuotesService {
       .addSelect([
         'l.code AS "lotCode"',
         'l.area_m2 AS "lotAreaM2"',
+        'l.status AS "lotStatus"',
+        'l.selling_stage AS "lotSellingStage"',
       ]);
 
     if (filters.projectId) qb.andWhere('q.project_id = :projectId', { projectId: filters.projectId });
@@ -121,6 +123,8 @@ export class QuotesService {
       status: r.q_status || 'enviada',
       createdAt: r.q_created_at,
       lotCode: r.lotCode || null,
+      lotStatus: r.lotStatus || null,
+      lotSellingStage: r.lotSellingStage || null,
       areaM2: Number(r.lotAreaM2 || 0),
       lotAreaM2: Number(r.lotAreaM2 || 0),
     }));

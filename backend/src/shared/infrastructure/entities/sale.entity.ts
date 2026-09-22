@@ -50,6 +50,12 @@ export class SaleEntity {
   @Column({ name: 'total_cuotas', type: 'int', default: 0 })
   totalCuotas: number;
 
+  @Column({ name: 'cuota_inicial', type: 'numeric', precision: 14, scale: 2, default: 0 })
+  cuotaInicial: string;
+
+  @Column({ name: 'reserva_amount', type: 'numeric', precision: 14, scale: 2, default: 0 })
+  reservaAmount: string;
+
   @Column({ name: 'valor_cuota', type: 'numeric', precision: 14, scale: 2, default: 0 })
   valorCuota: string;
 

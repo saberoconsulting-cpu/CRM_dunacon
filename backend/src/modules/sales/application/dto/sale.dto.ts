@@ -38,6 +38,10 @@ export class CreateSaleDto {
   @IsString()
   paymentMethod?: string;
 
+  @IsOptional()
+  @IsNumber()
+  quoteId?: number;
+
   // Fraccionamiento opcional
   @IsOptional()
   @IsNumber()
@@ -45,7 +49,23 @@ export class CreateSaleDto {
 
   @IsOptional()
   @IsNumber()
+  graceMonths?: number;
+
+  @IsOptional()
+  @IsNumber()
   cuotaInicial?: number;
+
+  @IsOptional()
+  @IsString()
+  initialPaymentMode?: 'contado' | 'partes';
+
+  @IsOptional()
+  @IsNumber()
+  initialParts?: number;
+
+  @IsOptional()
+  @IsNumber()
+  reservaAmount?: number;
 
   @IsOptional()
   @IsNumber()

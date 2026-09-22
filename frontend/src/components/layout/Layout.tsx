@@ -30,6 +30,8 @@ import ProjectDocuments from '@/components/features/projects/ProjectDocuments';
 interface NavItem {
   href: string;
   label: string;
+  /** Etiqueta corta para el sidebar colapsado y el header en móvil. */
+  shortLabel?: string;
   icon: JSX.Element;
   roles: UserRole[];
   key?: string;
@@ -38,7 +40,7 @@ interface NavItem {
 }
 
 const GLOBAL_NAV: NavItem[] = [
-  { href: '/dashboard', label: 'Inicio', icon: <FiHome />, roles: ['superadmin', 'admin', 'agent'] },
+  { href: '/dashboard', label: 'Dashboard general', shortLabel: 'Dashboard', icon: <FiHome />, roles: ['superadmin', 'admin', 'agent'] },
   { href: '/projects', label: 'Proyectos', icon: <FiMap />, roles: ['superadmin', 'admin', 'agent'] },
 ];
 
@@ -179,6 +181,13 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const sidebarWidth = collapsed ? 76 : 248;
   const userInitial = user.name?.trim()?.charAt(0)?.toUpperCase() || user.email?.charAt(0)?.toUpperCase() || 'U';
   const activeProjectSection = visiblePrimary.find((item) => isActive(item.href))?.label || title || 'Proyecto';
+  // Como en el menu de proyecto: el titulo del header es el mismo nombre que
+  // tiene el item activo del menu (antes solo para /projects/[id], ahora
+  // tambien para el menu general: Dashboard general, Proyectos, Agentes...).
+  const activeNavItem = visiblePrimary.find((item) => isActive(item.href)) || visibleEnd.find((item) => isActive(item.href));
+  const headerTitle = activeNavItem?.label || title || (isProjectContext ? 'Proyecto' : 'Dashboard general');
+  const headerTitleMobile = activeNavItem?.shortLabel || activeNavItem?.label || title || 'Dashboard general';
+  const headerTitleLogo = isProjectContext && activeProject?.logoImageUrl ? activeProject.logoImageUrl : titleLogoUrl;
 
   function isActive(href: string) {
     if (href.startsWith('#')) return false;
@@ -410,55 +419,25 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           <button type="button" className="text-[#374151] md:hidden" onClick={() => setDrawerOpen(true)} aria-label="Abrir menu">
             <FiMenu style={{ fontSize: 22 }} />
           </button>
-          <div className="order-1 min-w-0 flex-1 md:order-none">
-            {(() => {
-              if (isProjectContext) {
-                return (
-                  <>
-                    <h1 className="truncate text-base font-semibold text-[#171717] md:hidden">
-                      {activeProjectSection}
-                    </h1>
-                    <div className="hidden min-w-0 items-center gap-3 md:flex">
-                      <span className="truncate text-base font-semibold text-[#171717]">
-                        {activeProjectSection}
-                      </span>
-                      {activeProject?.logoImageUrl && (
-                        <img
-                          src={activeProject.logoImageUrl}
-                          alt={activeProject.name || 'Proyecto'}
-                          className="h-10 w-auto max-w-52 object-contain"
-                        />
-                      )}
-                    </div>
-                  </>
-                );
-              }
-              <>
-                <h1 className="truncate text-base font-semibold text-[#171717] md:hidden">
-                  {title || 'Inicio'}
-                </h1>
-                <div className="hidden md:block">
-                  {titleLogoUrl ? (
-                    <img src={titleLogoUrl} alt={title || 'Proyecto'} className="h-10 max-w-52 object-contain" />
-                  ) : (
-                    title ? <h1 className="truncate" style={{ fontSize: 17 }}>{title}</h1> : null
-                  )}
-                </div>
-              </>
-            })()}
+          <div className="order-1 flex min-w-0 flex-1 items-center gap-3 md:order-none">
+            {/* Titulo a la misma altura y centrado vertical que la campanita y
+                las demas acciones del header (h-8 = 32px). */}
+            <h1 className="flex h-8 min-w-0 items-center truncate text-base font-semibold text-[#171717]">
+              {headerTitleMobile}
+            </h1>
+            {headerTitleLogo && (
+              <img
+                src={headerTitleLogo}
+                alt={headerTitle}
+                className="h-8 w-auto max-w-32 shrink-0 object-contain md:max-w-52"
+              />
+            )}
           </div>
-          {isProjectContext && activeProject?.logoImageUrl && (
-            <img
-              src={activeProject.logoImageUrl}
-              alt={activeProject.name || 'Proyecto'}
-              className="order-3 h-9 w-auto max-w-24 shrink-0 object-contain md:order-none md:hidden"
-            />
-          )}
           {!isProjectContext && (
             <img
               src="/logo/dunacon.png"
               alt="Dunacon"
-              className="order-3 h-9 w-auto max-w-24 shrink-0 object-contain md:order-none md:hidden"
+              className="order-3 h-9 w-auto max-w-24 shrink-0 object-contain md:hidden"
             />
           )}
           {isProjectContext && activeProjectId && (

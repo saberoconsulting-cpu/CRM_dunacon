@@ -5,8 +5,9 @@ import { Toaster, toast, Field, EmptyState } from '@/components/ui/ui';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { api } from '@/lib/api';
 import { normalizePaginated, buildQuery } from '@/lib/pagination';
+import { buildQuoteAssignedValues, findLotById, formatAmountIn, loadAllSalesQuotes, lotReferencePrice, type SaleCurrency } from './salesQuotes';
 import { formatMoney, formatDate } from '@/lib/types';
-import { useDisplayCurrency } from '@/lib/currency';
+import { DEFAULT_EXCHANGE_RATE, useDisplayCurrency } from '@/lib/currency';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { printHtml } from '@/lib/print';
 import { FiDownload, FiHome, FiCheckCircle, FiDollarSign, FiTrendingUp, FiPercent, FiBookmark, FiArrowDownCircle, FiCalendar, FiFilter, FiSearch, FiSliders, FiX } from 'react-icons/fi';
@@ -54,6 +55,13 @@ function todayInput() {
   const date = new Date();
   date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
   return date.toISOString().slice(0, 10);
+}
+
+const SALE_CURRENCY_KEY = 'crm_sale_entry_currency';
+
+function readSaleCurrency(): SaleCurrency {
+  if (typeof window === 'undefined') return 'PEN';
+  try { return window.localStorage.getItem(SALE_CURRENCY_KEY) === 'USD' ? 'USD' : 'PEN'; } catch { return 'PEN'; }
 }
 
 function initialPaymentOf(sale: S) {
@@ -127,11 +135,16 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [paymentMethod, setPaymentMethod] = useState('Contado');
   const [totalCuotas, setTotalCuotas] = useState(0);
   const [cuotaInicial, setCuotaInicial] = useState(0);
+  const [initialPaymentMode, setInitialPaymentMode] = useState<'contado' | 'partes'>('contado');
+  const [initialParts, setInitialParts] = useState(3);
+  const [graceMonths, setGraceMonths] = useState(0);
+  const [applyInterest, setApplyInterest] = useState(false);
   const [interestType, setInterestType] = useState<'sin_intereses' | 'tea'>('sin_intereses');
   const [tea, setTea] = useState(0);
   const [saleDate, setSaleDate] = useState(todayInput());
   const [conditions, setConditions] = useState('');
   const [preview, setPreview] = useState<any>(null);
+  const [saleCurrency, setSaleCurrencyState] = useState<SaleCurrency>('PEN');
   const queryLotId = Number(searchParams?.get('lotId') || 0);
   const shouldOpenSale = searchParams?.get('openSale') === '1';
   // Moneda unica de la pantalla: `show()` convierte los montos a la moneda activa.
@@ -212,8 +225,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     api.get<any[]>('/clients').then((d) => setClients(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
     if (role === 'admin' || role === 'superadmin') api.get<any[]>('/users/agents').then(setAgents).catch(() => {});
     api.get<any[]>('/lots').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
-    const q = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
-    api.get<any[]>(`/quotes${q}`).then((d) => setQuotes(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
+    loadAllSalesQuotes(api, lockedProjectId).then(setQuotes).catch(() => {});
   }, [load, role, lockedProjectId]);
 
   useEffect(() => {
@@ -237,6 +249,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
 
   const availableQuotes = quotes.filter((q: any) => {
     if (projectId && Number(q.projectId) !== Number(projectId)) return false;
+    const quoteStatus = String(q.status || 'enviada');
+    if (!['enviada', 'actualizada'].includes(quoteStatus)) return false;
+    const lotStage = String(q.lotSellingStage || '').toLowerCase();
+    const lotStatus = String(q.lotStatus || '').toLowerCase();
+    if (lotStage && lotStage !== 'disponible') return false;
+    if (lotStatus && lotStatus === 'vendido') return false;
     if (quoteSearch.trim()) {
       const term = quoteSearch.trim().toLowerCase();
       const haystack = `${q.id} ${q.clientName || ''} ${q.lotCode || ''} ${q.clientEmail || ''} ${q.clientPhone || ''}`.toLowerCase();
@@ -258,6 +276,46 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const exchangeRateDisplay = round2(exchangeRate);
   const quoteProjectId = lockedProjectId || projectId || Number(selectedLot?.projectId || 0);
 
+  useEffect(() => {
+    if (!open) return;
+    const stored = readSaleCurrency();
+    setSaleCurrencyState(stored);
+    if (!(exchangeRate > 0)) setExchangeRate(displayRate > 0 ? displayRate : DEFAULT_EXCHANGE_RATE);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const toPen = useCallback(
+    (amountInEntryCurrency: number) => (saleCurrency === 'USD' ? round2(Number(amountInEntryCurrency || 0) * exchangeRate) : round2(Number(amountInEntryCurrency || 0))),
+    [saleCurrency, exchangeRate],
+  );
+  const fromPen = useCallback(
+    (amountInPen: number) => (saleCurrency === 'USD' ? round2(Number(amountInPen || 0) / (exchangeRate || DEFAULT_EXCHANGE_RATE)) : round2(Number(amountInPen || 0))),
+    [saleCurrency, exchangeRate],
+  );
+
+  function setSaleCurrency(next: SaleCurrency) {
+    if (next === saleCurrency) return;
+    setSalePrice((current) => (next === 'USD' ? round2(current / (exchangeRate || DEFAULT_EXCHANGE_RATE)) : round2(current * (exchangeRate || DEFAULT_EXCHANGE_RATE))));
+    setCuotaInicial((current) => (next === 'USD' ? round2(current / (exchangeRate || DEFAULT_EXCHANGE_RATE)) : round2(current * (exchangeRate || DEFAULT_EXCHANGE_RATE))));
+    setSaleCurrencyState(next);
+    try { window.localStorage.setItem(SALE_CURRENCY_KEY, next); } catch { /* noop */ }
+  }
+
+
+  const lotOptionLabel = (lot: any, fromQuote = false) =>
+    `Lote ${lot?.code || lot?.id} — ${formatMoney(lotReferencePrice(lot))}${fromQuote ? ' (de la cotización)' : ''}`;
+  const lotOptions = (() => {
+    const list = lots.filter((l: any) =>
+      l.status !== 'vendido' && l.sellingStage !== 'vendido' && l.sellingStage !== 'separado'
+      && (!projectId || Number(l.projectId) === Number(projectId)));
+    const inList = list.some((l: any) => Number(l.id) === Number(lotId));
+    if (lotId && !inList) {
+      const extra = selectedLot || { id: lotId, code: selectedQuote?.lotCode, price: 0 };
+      return [extra, ...list];
+    }
+    return list;
+  })();
+
   // Al elegir un lote, autocompletar el precio con su "Precio Venta" de
   // Lotización (si no viene de una cotización real seleccionada abajo).
   function selectLot(id: number) {
@@ -275,33 +333,52 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     }
   }
 
-  // Cotización real del módulo Cotizaciones Lotes: precarga el lote y el
-  // precio (convertido a soles con el tipo de cambio de esa cotización).
-  function selectQuote(q: any) {
-    const rate = Number(q.exchangeRate || 0) > 0 ? Number(q.exchangeRate) : 3.75;
-    const isCredit = q.paymentMethod === 'credito';
-    setExchangeRate(rate);
-    setSelectedQuoteId(Number(q.id));
+  async function selectQuote(q: any) {
+    const values = buildQuoteAssignedValues(q, { today: todayInput(), lockedProjectId, currentProjectId: projectId });
+
+    setExchangeRate(values.exchangeRate);
+    setSelectedQuoteId(values.quoteId);
     setSelectedQuoteSnapshot(q);
-    setProjectId(Number(q.projectId || lockedProjectId || projectId || 0));
-    setLotId(Number(q.lotId));
-    setClientName(q.clientName || '');
-    setSalePrice(Math.round(Number(q.finalPriceUsd || 0) * rate));
-    setPaymentMethod(isCredit ? 'Al crédito' : 'Contado');
-    setCuotaInicial(isCredit ? Math.round(Number(q.cuotaInicialUsd || 0) * rate) : 0);
-    setTotalCuotas(isCredit ? Number(q.totalCuotas || 0) : 0);
-    setInterestType(q.interestType === 'tea' ? 'tea' : 'sin_intereses');
-    setTea(q.interestType === 'tea' ? Number(q.tea || 0) : 0);
-    setSaleDate(q.createdAt ? String(q.createdAt).slice(0, 10) : todayInput());
-    setConditions((current) => current || `Cotizacion Q${q.id}`);
+    setProjectId(values.projectId);
+    setLotId(values.lotId);
+    setClientName(values.clientName);
+    setSalePrice(values.salePricePen);
+    setPaymentMethod(values.paymentMethod);
+    setCuotaInicial(values.cuotaInicialPen);
+    setTotalCuotas(values.totalCuotas);
+    setInitialPaymentMode(values.initialPaymentMode);
+    setInitialParts(values.initialParts);
+    setGraceMonths(values.graceMonths);
+    setApplyInterest(values.interestType === 'tea');
+    setInterestType(values.interestType);
+    setTea(values.tea);
+    setSaleDate(values.saleDate);
+    setConditions((current) => (current ? current : values.cotizacionNote));
     setShowCotizaciones(false);
     setPreview(null);
+
     // El cliente de la cotizacion se reutiliza si ya existe en la cartera.
     const match = clients.find((c: any) => {
       const fullName = String(c.fullName || c.full_name || '').trim().toLowerCase();
-      return fullName && fullName === String(q.clientName || '').trim().toLowerCase();
+      return fullName && fullName === values.clientName.trim().toLowerCase();
     });
     setClientId(match ? Number(match.id) : 0);
+
+    if (!values.lotId) {
+      toast('La cotización no tiene lote asignado. Selecciona el lote manualmente.', 'err');
+      return;
+    }
+
+    const known = lots.find((l: any) => Number(l.id) === Number(values.lotId));
+    if (!known) {
+      try {
+        const lot = await findLotById(api, values.lotId, []);
+        if (lot) setLots((current) => (current.some((l: any) => Number(l.id) === Number(lot.id)) ? current : [lot, ...current]));
+      } catch { /* si falla, el usuario puede elegir el lote a mano */ }
+    } else if (Number(known.projectId) !== Number(values.projectId)) {
+      setProjectId(Number(known.projectId || values.projectId));
+    }
+
     toast('Datos de la cotizacion cargados');
   }
 
@@ -342,12 +419,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       api.post('/sales/preview', {
         projectId: projectId || 1, lotId: lotId || 1, agentId: agentId || 1,
         salePrice, appliesCommission: false,
-        totalCuotas, cuotaInicial, interestType, tea: interestType === 'tea' ? tea : undefined,
+        totalCuotas, cuotaInicial, graceMonths: applyInterest ? graceMonths : 0, interestType: applyInterest ? 'tea' : 'sin_intereses', tea: applyInterest ? tea : undefined,
         paymentMethod,
       }).then(setPreview).catch(() => setPreview(null));
     }, 300);
     return () => clearTimeout(t);
-  }, [open, salePrice, totalCuotas, cuotaInicial, interestType, tea, paymentMethod, projectId, lotId, agentId]);
+  }, [open, salePrice, totalCuotas, cuotaInicial, graceMonths, applyInterest, tea, paymentMethod, projectId, lotId, agentId]);
 
   async function registrar() {
     if (!selectedQuoteId) return toast('Selecciona una cotizacion antes de registrar la venta. Si no existe, genera una primero.', 'err');
@@ -355,23 +432,42 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     if (!clientName.trim() && !clientId) return toast('Ingresa el nombre del cliente real.', 'err');
     if (!agentId) return toast('No se pudo identificar el agente logueado', 'err');
     if (!salePrice) return toast('Ingresa el precio de venta', 'err');
+    if (!saleDate) return toast('Selecciona la fecha de venta', 'err');
+    if (!(Number(exchangeRate) > 0)) return toast('Ingresa un tipo de cambio valido', 'err');
+    if (paymentMethod !== 'Contado') {
+      if (!(Number(totalCuotas) > 0)) return toast('Ingresa el numero de cuotas del financiamiento', 'err');
+      if (!(Number(cuotaInicial) > 0)) return toast('Ingresa la cuota inicial', 'err');
+      if (Number(cuotaInicial) >= Number(salePrice)) return toast('La cuota inicial debe ser menor al precio de venta', 'err');
+      if (initialPaymentMode === 'partes' && !(Number(initialParts) >= 2 && Number(initialParts) <= 24)) return toast('Ingresa un numero de partes valido para la inicial', 'err');
+      if (applyInterest && !(Number(tea) > 0)) return toast('Ingresa la TEA para las cuotas con interes', 'err');
+      if (applyInterest && Number(graceMonths) > Number(totalCuotas)) return toast('Las cuotas sin interes no pueden superar el total de cuotas', 'err');
+    }
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
       const resolvedClientId = clientId || await assignClientByName(false);
       if (!resolvedClientId) return;
+      const sale = selectedQuote || null;
       await api.post('/sales', {
         projectId: lockedProjectId || projectId || lot?.projectId || 1, lotId: Number(lotId),
         clientId: resolvedClientId, agentId: Number(agentId), salePrice,
+        exchangeRate: Number(exchangeRate) > 0 ? Number(exchangeRate) : undefined,
         paymentMethod,
         totalCuotas: paymentMethod === 'Contado' ? undefined : (totalCuotas || undefined),
         cuotaInicial: paymentMethod === 'Contado' ? undefined : (cuotaInicial || undefined),
-        interestType: paymentMethod === 'Contado' ? undefined : interestType,
-        tea: paymentMethod !== 'Contado' && interestType === 'tea' ? tea : undefined,
-        saleDate: saleDate || undefined, conditions: conditions || undefined,
+        initialPaymentMode: paymentMethod === 'Contado' ? undefined : initialPaymentMode,
+        initialParts: paymentMethod !== 'Contado' && initialPaymentMode === 'partes' ? initialParts : undefined,
+        graceMonths: paymentMethod !== 'Contado' && applyInterest ? graceMonths : undefined,
+        interestType: paymentMethod === 'Contado' ? undefined : (applyInterest ? 'tea' : 'sin_intereses'),
+        tea: paymentMethod !== 'Contado' && applyInterest ? tea : undefined,
+        quoteId: sale?.id ? Number(sale.id) : (selectedQuoteId || undefined),
+        saleDate: saleDate || undefined,
+        conditions: (selectedQuoteId && !/cotizacion\s*q\d+/i.test(conditions))
+          ? [conditions.trim(), `Cotizacion Q${selectedQuoteId}`].filter(Boolean).join(' | ')
+          : (conditions || undefined),
       });
       toast('Separación registrada. Queda pendiente de validación.');
       setOpen(false); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setClientId(0); setClientName(''); setConditions(''); setSalePrice(0);
-      setPaymentMethod('Contado'); setTotalCuotas(0); setCuotaInicial(0); setInterestType('sin_intereses'); setTea(0);
+      setPaymentMethod('Contado'); setTotalCuotas(0); setCuotaInicial(0); setInitialPaymentMode('contado'); setInitialParts(3); setGraceMonths(0); setApplyInterest(false); setInterestType('sin_intereses'); setTea(0);
       setSaleDate(todayInput()); setAgentId(role === 'agent' ? Number(sessionUser?.id || 0) : 0); setPreview(null);
       setQuoteSearch(''); setQuoteFrom(''); setQuoteTo(''); setShowCotizaciones(false);
       load();
@@ -638,6 +734,30 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             <div className="mb-4">
               <h3 className="font-semibold" style={{ fontSize: 17 }}>Registrar venta</h3>
               <p className="mt-0.5 text-xs text-slate-500">Filtra la cotizacion por cliente o fecha y asignala para autocompletar la ficha.</p>
+              {/* Moneda de trabajo: los campos de monto se capturan en esta moneda
+                  y se registran siempre en soles (S/). El tipo de cambio se
+                  conserva al alternar, así el monto real no cambia. */}
+              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                <div className="inline-flex overflow-hidden rounded-lg border border-[#D9E7FF] bg-white p-0.5" role="group" aria-label="Moneda de la ficha">
+                  {(['PEN', 'USD'] as SaleCurrency[]).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      aria-pressed={saleCurrency === option}
+                      className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${saleCurrency === option ? 'text-white' : 'text-slate-600 hover:bg-[#F3F8FF]'}`}
+                      style={saleCurrency === option ? { background: '#1259C4' } : undefined}
+                      onClick={() => setSaleCurrency(option)}
+                    >
+                      {option === 'PEN' ? 'Soles (S/)' : 'Dólares (US$)'}
+                    </button>
+                  ))}
+                </div>
+                <span className="text-[11px] text-slate-500">
+                  {saleCurrency === 'USD'
+                    ? `Captura en US$ · se registra en S/ al tipo de cambio ${exchangeRateDisplay ? exchangeRateDisplay.toLocaleString('es-PE', { maximumFractionDigits: 4 }) : '-'}`
+                    : 'Captura y registro en soles (S/)'}
+                </span>
+              </div>
             </div>
 
             <div className="mb-4 rounded-2xl border border-[#D7E8FF] bg-gradient-to-br from-[#F7FBFF] via-white to-[#F1F6FF] p-3 shadow-[0_12px_28px_rgba(18,89,196,0.06)]">
@@ -699,7 +819,10 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                           </span>
                         </span>
                         <span className="shrink-0 rounded-md bg-[#EEF5FF] px-2 py-1 text-xs font-semibold text-[#1259C4]">
-                          {formatMoney(Math.round(Number(q.finalPriceUsd || 0) * Number(q.exchangeRate || 1)))}
+                          {formatMoney(Math.round(Number(q.finalPriceUsd || 0) * Number(q.exchangeRate || 0)))}
+                          <span className="ml-1 font-normal text-[#1259C4]/80">
+                            (US$ {Number(q.finalPriceUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                          </span>
                         </span>
                       </button>
                     ))}
@@ -711,12 +834,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               )}
             </div>
 
-            <div className="rounded-lg border p-3 mb-4 text-sm" style={{ borderColor: selectedQuote ? '#BBF7D0' : '#BFDBFE', background: selectedQuote ? '#F0FDF4' : '#EFF6FF' }}>
-              {selectedQuote ? (
-                <p className="font-semibold" style={{ color: '#166534' }}>
-                  Cotización Q{selectedQuote.id} cargada: precio final, cliente y forma de pago vienen de la cotización.
-                </p>
-              ) : showQuoteHint ? (
+            {!selectedQuote && showQuoteHint && (
+            <div className="rounded-lg border p-3 mb-4 text-sm" style={{ borderColor: '#BFDBFE', background: '#EFF6FF' }}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <p style={{ color: '#1259C4' }}>Para registrar una venta primero selecciona una cotización. Si no existe, genera una y vuelve a cargarla aquí.</p>
                   <a
@@ -726,8 +845,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     Generar cotización
                   </a>
                 </div>
-              ) : null}
             </div>
+            )}
 
             {/* Lote y responsable */}
             <div className="grid grid-cols-2 gap-3">
@@ -744,8 +863,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               <Field label="Lote *">
                 <select className="input" value={lotId} onChange={(e) => selectLot(Number(e.target.value))}>
                   <option value={0}>Selecciona…</option>
-                  {lots.filter((l: any) => l.status !== 'vendido' && l.sellingStage !== 'vendido' && l.sellingStage !== 'separado' && (!projectId || Number(l.projectId) === Number(projectId))).map((l: any) => (
-                    <option key={l.id} value={l.id}>Lote {l.code} — {formatMoney(l.salePrice || l.price)}</option>
+                  {lotOptions.map((l: any) => (
+                    <option key={l.id} value={l.id}>{lotOptionLabel(l, Boolean(selectedQuote) && Number(l.id) === Number(lotId))}</option>
                   ))}
                 </select>
               </Field>
@@ -759,6 +878,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             {lotId > 0 && salePrice > 0 && (
               <p className="text-xs mt-1" style={{ color: '#1259C4' }}>
                 {selectedQuote ? 'Precio final cargado desde la cotizacion seleccionada.' : 'Precio referencial autocompletado desde el Precio Venta de Lotizacion de este lote.'}
+                {' '}Se registra en S/ {round2(salePrice).toLocaleString('es-PE', { maximumFractionDigits: 2 })} (US$ {round2(salePriceUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}).
               </p>
             )}
 
@@ -775,45 +895,30 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <button type="button" className="btn-neutral" onClick={() => assignClientByName(true)}>Asignar</button>
               </div>
               {clientId > 0 && <p className="mt-2 text-xs text-emerald-600">Cliente asignado a la venta.</p>}
-              <div className="mt-3">
-                <Field label="Buscar cliente existente (opcional)">
-                  <select
-                    className="input"
-                    value={clientId}
-                    onChange={(e) => {
-                      const id = Number(e.target.value);
-                      setClientId(id);
-                      const client = clients.find((c: any) => Number(c.id) === id);
-                      setClientName(client ? (client.fullName || client.full_name || '') : '');
-                    }}
-                  >
-                    <option value={0}>Nuevo cliente o sin seleccionar</option>
-                    {clients.map((c: any) => <option key={c.id} value={c.id}>{(c.fullName || c.full_name || 'Sin nombre')}</option>)}
-                  </select>
-                </Field>
-              </div>
             </div>
 
             {/* Monto y fecha */}
             <div className="border-t mt-4 pt-3">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                <Field label="Precio de venta (S/)*">
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-[minmax(0,1.15fr)_minmax(0,1.15fr)_minmax(0,.85fr)_minmax(0,.9fr)]">
+                <Field label={`Precio de venta (${saleCurrency === 'USD' ? 'US$' : 'S/'})*`}>
                   <input
                     type="number"
                     className="input"
-                    value={salePriceDisplay || ''}
-                    onChange={(e) => setSalePrice(round2(Number(e.target.value || 0)))}
+                    value={fromPen(salePrice) || ''}
+                    onChange={(e) => setSalePrice(toPen(Number(e.target.value || 0)))}
                   />
                 </Field>
-                <Field label="Precio de venta (US$)">
+                <Field label={`Precio de venta equiv. (${saleCurrency === 'USD' ? 'S/' : 'US$'})`}>
                   <input
                     type="number"
                     className="input"
-                    value={salePriceUsd || ''}
-                    onChange={(e) => setSalePrice(round2(Number(e.target.value || 0) * exchangeRate))}
+                    value={saleCurrency === 'USD' ? round2(salePrice) || '' : round2(salePriceUsd) || ''}
+                    onChange={(e) => setSalePrice(saleCurrency === 'USD'
+                      ? round2(Number(e.target.value || 0))
+                      : round2(Number(e.target.value || 0) * exchangeRate))}
                   />
                 </Field>
-                <Field label="T. cambio (S/ por US$)">
+                <Field label="TC">
                   <input
                     type="number"
                     step="0.0001"
@@ -825,7 +930,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <Field label="Fecha"><input type="date" className="input" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></Field>
               </div>
               <p className="mt-1 text-xs text-slate-500">
-                Ambos precios se calculan con el tipo de cambio: S/ {salePriceDisplay.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} = US$ {salePriceUsd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                Se registra siempre en soles: S/ {round2(salePrice).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} = US$ {round2(salePriceUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
             </div>
 
@@ -841,28 +946,83 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             {paymentMethod !== 'Contado' && (
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                  <Field label="Cuota inicial (S/)"><input type="number" className="input" value={cuotaInicial || ''} onChange={(e) => setCuotaInicial(Number(e.target.value))} /></Field>
-                  <Field label="Nº de cuotas"><input type="number" min={0} max={120} className="input" value={totalCuotas} onChange={(e) => setTotalCuotas(Number(e.target.value))} /></Field>
+                  <Field label={`Cuota inicial (${saleCurrency === 'USD' ? 'US$' : 'S/'})`}>
+                    <input type="number" className="input" value={fromPen(cuotaInicial) || ''} onChange={(e) => setCuotaInicial(toPen(Number(e.target.value)))} />
+                  </Field>
+                  <Field label="Nro. de cuotas"><input type="number" min={0} max={120} className="input" value={totalCuotas} onChange={(e) => setTotalCuotas(Number(e.target.value))} /></Field>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                  <Field label="Interés">
-                    <select className="input" value={interestType} onChange={(e) => setInterestType(e.target.value as any)}>
-                      <option value="sin_intereses">Sin intereses</option>
-                      <option value="tea">Con TEA</option>
+                <div className="rounded-lg border p-3 mt-3" style={{ borderColor: '#E5E7EB' }}>
+                  <p className="text-xs font-semibold text-slate-600 mb-2">Cuota inicial sin interes</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <Field label="Forma de pago de la inicial">
+                      <select className="input" value={initialPaymentMode} onChange={(e) => setInitialPaymentMode(e.target.value as any)}>
+                        <option value="contado">Pago de contado (1 sola vez)</option>
+                        <option value="partes">En partes iguales</option>
+                      </select>
+                    </Field>
+                    {initialPaymentMode === 'partes' && (
+                      <Field label="Numero de partes">
+                        <input type="number" min={2} max={24} className="input" value={initialParts} onChange={(e) => setInitialParts(Number(e.target.value))} />
+                      </Field>
+                    )}
+                  </div>
+                  {initialPaymentMode === 'partes' && cuotaInicial > 0 && (
+                    <p className="mt-2 text-xs text-slate-500">
+                      La inicial se paga en <b>{Math.max(2, initialParts)} partes</b> de <b>{formatAmountIn(fromPen(cuotaInicial) / Math.max(2, initialParts), saleCurrency)}</b> cada una, sin interes.
+                    </p>
+                  )}
+                </div>
+
+                <div className="rounded-lg border p-3 mt-3" style={{ borderColor: '#E5E7EB' }}>
+                  <p className="text-xs font-semibold text-slate-600 mb-2">Financiamiento del saldo</p>
+                  <Field label="Las primeras cuotas, sin interes?">
+                    <select
+                      className="input"
+                      value={applyInterest ? 'con' : 'sin'}
+                      onChange={(e) => {
+                        const enabled = e.target.value === 'con';
+                        setApplyInterest(enabled);
+                        setInterestType(enabled ? 'tea' : 'sin_intereses');
+                        if (!enabled) setGraceMonths(0);
+                      }}
+                    >
+                      <option value="sin">Todas las cuotas sin interes</option>
+                      <option value="con">Si, las primeras N sin interes y el resto con interes</option>
                     </select>
                   </Field>
-                  {interestType === 'tea' && (
-                    <Field label="TEA (%)"><input type="number" className="input" value={tea || ''} onChange={(e) => setTea(Number(e.target.value))} /></Field>
+                  {applyInterest && (
+                    <div className="mt-3 space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <Field label="Cuantas cuotas sin interes">
+                          <input type="number" min={0} max={totalCuotas} className="input" value={graceMonths} onChange={(e) => setGraceMonths(Number(e.target.value))} />
+                        </Field>
+                        <Field label="Interes de las siguientes cuotas (TEA %)">
+                          <input type="number" step="0.01" className="input" value={tea || ''} onChange={(e) => setTea(Number(e.target.value))} />
+                        </Field>
+                      </div>
+                      <p className="text-[11px] text-slate-500">Las {totalCuotas} cuotas incluyen esas {graceMonths} sin interes.</p>
+                    </div>
                   )}
                 </div>
 
                 {preview && preview.totalCuotas > 0 && (
                   <div className="rounded-xl bg-canvas p-4 mt-3 space-y-2 text-sm">
-                    <div className="flex justify-between"><span className="text-slate-600">Saldo a financiar:</span><b>{formatMoney(preview.saldoFinanciar)}</b></div>
-                    {preview.installments?.filter((t: any) => t.count > 0).map((t: any, i: number) => (
-                      <div key={i} className="flex justify-between"><span className="text-slate-600">{t.count} cuotas de:</span><b>{formatMoney(t.amount)}</b></div>
-                    ))}
+                    <div className="flex justify-between"><span className="text-slate-600">Saldo a financiar:</span><b>{formatAmountIn(fromPen(preview.saldoFinanciar), saleCurrency)}</b></div>
+                    {preview.graceMonths > 0 && (
+                      <div className="flex justify-between"><span className="text-slate-600">{preview.graceMonths} cuotas sin interes:</span><b>{formatAmountIn(fromPen(preview.graceCuota), saleCurrency)}</b></div>
+                    )}
+                    {preview.interestMonths > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-slate-600">{preview.interestMonths} cuotas {applyInterest ? 'con interes' : 'sin interes'}:</span>
+                        <b>{formatAmountIn(fromPen(preview.valorCuota), saleCurrency)}</b>
+                      </div>
+                    )}
+                    {saleCurrency === 'USD' && (
+                      <p className="text-[11px] text-slate-500">
+                        Valores convertidos; se registran en soles: {formatMoney(preview.saldoFinanciar)} de saldo.
+                      </p>
+                    )}
                   </div>
                 )}
               </>

@@ -67,6 +67,11 @@ export class SalesController {
     return this.salesService.lotPaymentHistory(lotId);
   }
 
+  @Get('payment/:paymentId/history')
+  paymentHistory(@Param('paymentId', ParseIntPipe) paymentId: number) {
+    return this.salesService.paymentHistory(paymentId);
+  }
+
   @Get(':id/schedule')
   schedule(@Param('id', ParseIntPipe) id: number) {
     return this.salesService.schedule(id);
