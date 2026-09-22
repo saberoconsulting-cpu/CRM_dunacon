@@ -23,9 +23,11 @@ import {
   FiVolume2,
 } from 'react-icons/fi';
 import { api, clearSession, getSessionUser, getToken } from '@/lib/api';
+import { useCurrencyStoreSync } from '@/lib/currency';
 import { getSocket } from '@/lib/socket';
 import { BRAND, User, UserRole } from '@/lib/types';
 import ProjectDocuments from '@/components/features/projects/ProjectDocuments';
+import CurrencyToggle from '@/components/ui/CurrencyToggle';
 
 interface NavItem {
   href: string;
@@ -93,6 +95,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const [activeProject, setActiveProject] = useState<{ id: number; name: string; logoImageUrl?: string | null } | null>(null);
   const [projectDocumentsOpen, setProjectDocumentsOpen] = useState(false);
   const [moduleAccess, setModuleAccess] = useState<Record<number, string[] | null>>({});
+  const { currency, setCurrency, exchangeRate, setExchangeRate } = useCurrencyStoreSync();
 
   const activeProjectId = useMemo(() => {
     const match = pathname.match(/^\/projects\/(\d+)/);
@@ -188,6 +191,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const headerTitle = activeNavItem?.label || title || (isProjectContext ? 'Proyecto' : 'Dashboard general');
   const headerTitleMobile = activeNavItem?.shortLabel || activeNavItem?.label || title || 'Dashboard general';
   const headerTitleLogo = isProjectContext && activeProject?.logoImageUrl ? activeProject.logoImageUrl : titleLogoUrl;
+  const showHeaderCurrency = pathname === '/dashboard';
 
   function isActive(href: string) {
     if (href.startsWith('#')) return false;
@@ -454,6 +458,15 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
             <span className="hidden items-center gap-1.5 rounded-md bg-softblue px-3 sm:inline-flex" style={{ height: 28, fontSize: 12, color: BRAND.blue }}>
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: BRAND.blue }} /> Acceso de administracion
             </span>
+          )}
+          {showHeaderCurrency && (
+            <CurrencyToggle
+              className="order-2 ml-auto shrink-0 md:order-none md:ml-0"
+              currency={currency}
+              setCurrency={setCurrency}
+              exchangeRate={exchangeRate}
+              setExchangeRate={setExchangeRate}
+            />
           )}
           <div className="relative order-2 md:order-none">
             <button className="relative p-1 text-[#6B7280] hover:text-[#171717]" aria-label="Notificaciones" onClick={() => setBellOpen((value) => !value)}>

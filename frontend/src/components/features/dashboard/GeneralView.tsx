@@ -5,7 +5,6 @@ import { api } from '@/lib/api';
 import { FormattedDashboard } from '@/lib/dboard';
 import { BRAND, LOT_STATUS_COLOR } from '@/lib/types';
 import { moneyGlobal, useCurrencyStoreSync } from '@/lib/currency';
-import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { printHtml } from '@/lib/print';
 import { Modal } from '@/components/ui/ui';
 
@@ -913,7 +912,7 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
   const [projects, setProjects] = useState<any[]>([]);
   // Sincroniza el almacen global de moneda para que todos los sub-componentes
   // (que llaman a `money()`) se repinten al cambiar S/ <-> US$.
-  const { currency, setCurrency, exchangeRate, setExchangeRate } = useCurrencyStoreSync();
+  useCurrencyStoreSync();
 
   useEffect(() => {
     api.get<any[]>('/projects')
@@ -956,17 +955,6 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
 
   return (
     <div className="space-y-5">
-      {/* El titulo "Dashboard general" ahora vive en el header del Layout
-          (misma altura que la campanita), asi que aqui solo queda el toggle. */}
-      <div className="flex items-center justify-end gap-3">
-        <CurrencyToggle
-          currency={currency}
-          setCurrency={setCurrency}
-          exchangeRate={exchangeRate}
-          setExchangeRate={setExchangeRate}
-        />
-      </div>
-
       <CommercialSummary d={d} />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]">
