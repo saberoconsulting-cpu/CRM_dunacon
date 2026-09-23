@@ -11,7 +11,7 @@ import { formatMoney, formatDate } from '@/lib/types';
 import { DEFAULT_EXCHANGE_RATE, useDisplayCurrency } from '@/lib/currency';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { printHtml } from '@/lib/print';
-import { FiDownload, FiHome, FiCheckCircle, FiDollarSign, FiTrendingUp, FiPercent, FiBookmark, FiArrowDownCircle, FiCalendar, FiFilter, FiSearch, FiSliders, FiX } from 'react-icons/fi';
+import { FiDownload, FiHome, FiCheckCircle, FiDollarSign, FiTrendingUp, FiPercent, FiBookmark, FiArrowDownCircle, FiCalendar, FiChevronDown, FiFilter, FiSearch, FiSliders, FiX } from 'react-icons/fi';
 
 function SalesMetric({ label, value, icon, tone = '#1877F2' }: { label: string; value: ReactNode; icon: ReactNode; tone?: string }) {
   const text = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
@@ -26,6 +26,69 @@ function SalesMetric({ label, value, icon, tone = '#1877F2' }: { label: string; 
       tone={tone}
       truncateLabel
     />
+  );
+}
+
+type FilterOption = { value: string | number; label: string };
+
+function FilterSelect({
+  value,
+  onChange,
+  options,
+  allValue = '',
+  placeholder = 'Todos',
+  icon,
+}: {
+  value: string | number;
+  onChange: (value: string | number) => void;
+  options: FilterOption[];
+  allValue?: string | number;
+  placeholder?: string;
+  icon?: ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = options.find((o) => String(o.value) === String(value));
+  return (
+    <div className={open ? 'relative z-30' : 'relative'}>
+      {icon && (
+        <span className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2 text-slate-400">{icon}</span>
+      )}
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`input !h-10 w-full max-w-full truncate cursor-pointer ${icon ? '!pl-9' : ''} !rounded-xl border-slate-200 bg-white text-left shadow-sm`}
+      >
+        <span className="flex min-w-0 items-center justify-between gap-2">
+          <span className="min-w-0 flex-1 truncate text-slate-700">{selected ? selected.label : placeholder}</span>
+          <FiChevronDown className={`shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+        </span>
+      </button>
+      {open && (
+        <>
+          <button type="button" aria-hidden className="fixed inset-0 z-30 cursor-default" onClick={() => setOpen(false)} />
+          <div className="absolute left-0 right-0 top-full z-40 mt-1 max-h-64 overflow-y-auto overflow-x-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-[0_16px_32px_rgba(15,23,42,0.14)]">
+            <button
+              type="button"
+              onClick={() => { onChange(allValue); setOpen(false); }}
+              className={`block w-full truncate px-4 py-2.5 text-left text-sm transition-colors hover:bg-[#F3F8FF] ${String(allValue) === String(value) ? 'font-semibold text-[#1259C4]' : 'text-slate-500'}`}
+            >
+              {placeholder}
+            </button>
+            {options.map((o) => (
+              <button
+                key={String(o.value)}
+                type="button"
+                title={o.label}
+                onClick={() => { onChange(o.value); setOpen(false); }}
+                className={`block w-full truncate px-4 py-2.5 text-left text-sm transition-colors hover:bg-[#F3F8FF] ${String(o.value) === String(value) ? 'font-semibold text-[#1259C4]' : 'text-slate-700'}`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -545,8 +608,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
           <SalesMetric label="Separaciones" value={pending.length} icon={<FiBookmark />} tone="#0E7490" />
           <SalesMetric label="Pago Inicial" value={show(initialPaymentTotal)} icon={<FiArrowDownCircle />} tone="#1259C4" />
         </div>
-        <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-[#F2F7FF] shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
-          <div className="flex flex-col gap-3 border-b border-slate-200/80 bg-white/60 px-4 py-3 backdrop-blur-sm">
+        <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-[#F2F7FF] shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
+          <div className="flex flex-col gap-3 rounded-t-2xl border-b border-slate-200/80 bg-white/60 px-4 py-3 backdrop-blur-sm">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
               <div className="flex min-w-0 flex-1 items-center gap-2">
                 <div className="relative w-full max-w-md flex-1">
@@ -575,23 +638,29 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             </div>
           </div>
 
-          <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
             <Field label="Estado">
-              <div className="relative">
-                <FiFilter className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <select className="input !h-10 !pl-9 !rounded-xl border-slate-200 bg-white shadow-sm" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} title="Estado de aprobación">
-                  <option value="">Todos</option>
-                  <option value="aprobada">Aprobadas</option>
-                  <option value="pendiente">Pendientes</option>
-                </select>
-              </div>
+              <FilterSelect
+                value={statusFilter}
+                onChange={(v) => setStatusFilter(String(v))}
+                allValue=""
+                options={[
+                  { value: 'aprobada', label: 'Aprobadas' },
+                  { value: 'pendiente', label: 'Pendientes' },
+                ]}
+                placeholder="Todos"
+                icon={<FiFilter />}
+              />
             </Field>
 
             <Field label="Asesor">
-              <select className="input !h-10 !rounded-xl border-slate-200 bg-white shadow-sm" value={agentFilter} onChange={(e) => setAgentFilter(Number(e.target.value))} title="Asesor">
-                <option value={0}>Todos</option>
-                {agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
+              <FilterSelect
+                value={agentFilter}
+                onChange={(v) => setAgentFilter(Number(v))}
+                allValue={0}
+                options={agents.map((a: any) => ({ value: Number(a.id), label: String(a.name || '') }))}
+                placeholder="Todos"
+              />
             </Field>
 
             <Field label="Desde">
