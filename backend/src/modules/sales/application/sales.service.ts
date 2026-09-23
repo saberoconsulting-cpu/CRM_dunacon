@@ -389,11 +389,12 @@ export class SalesService {
   }
 
   /** Financiación / venta vigente de un lote + cronograma de sus cuotas. */
-  async getByLot(lotId: number) {
+  async getByLot(lotId: number, agentId?: number) {
     const sale = await this.saleRepo.findOne({
       where: { lotId },
       order: { createdAt: 'DESC' } as any,
     });
+    if (agentId && sale && Number(sale.agentId) !== Number(agentId)) return { sale: null, installments: [] };
     const installments = sale
       ? await this.instRepo.find({
           where: { saleId: sale.id },
@@ -412,7 +413,11 @@ export class SalesService {
   }
 
   /** Cronograma de una venta aprobada. */
-  async schedule(saleId: number) {
+  async schedule(saleId: number, agentId?: number) {
+    if (agentId) {
+      const sale = await this.saleRepo.findOne({ where: { id: saleId } });
+      if (!sale || Number(sale.agentId) !== Number(agentId)) return [];
+    }
     return this.instRepo.find({ where: { saleId }, order: { installmentNo: 'ASC' } });
   }
 
@@ -421,7 +426,7 @@ export class SalesService {
    * o del lote, y devuelve los datos comerciales + el cronograma con el estado
    * de cada cuota y cual le toca pagar ahora.
    */
-  async paymentContext(filters: { clientId?: number; lotId?: number; projectId?: number; search?: string }) {
+  async paymentContext(filters: { clientId?: number; lotId?: number; projectId?: number; search?: string; agentId?: number }) {
     // Resuelve el texto buscado a IDs reales antes de filtrar las ventas:
     // asi no dependemos del JOIN por nombre de columna (Postgres pliega los
     // alias sin comillas a minusculas) ni de que exista una venta previa.
@@ -468,6 +473,7 @@ export class SalesService {
     if (filters.clientId) qb.andWhere('s.client_id = :clientId', { clientId: filters.clientId });
     if (filters.lotId) qb.andWhere('s.lot_id = :lotId', { lotId: filters.lotId });
     if (filters.projectId) qb.andWhere('s.project_id = :projectId', { projectId: filters.projectId });
+    if (filters.agentId) qb.andWhere('s.agent_id = :agentId', { agentId: filters.agentId });
     if (term && !filters.clientId && !filters.lotId) {
       // Coincidencias por codigo de lote o nombre de cliente, resueltas arriba.
       if (!searchLotIds.length && !searchClientIds.length) {
@@ -549,8 +555,9 @@ export class SalesService {
    * puede estar pagando una separacion pendiente) y devuelve el cronograma
    * con los datos del pago de cada cuota (fecha, TC, US$, N° op. bancaria).
    */
-  async lotPaymentHistory(lotId: number) {
+  async lotPaymentHistory(lotId: number, agentId?: number) {
     const sale = await this.saleRepo.findOne({ where: { lotId }, order: { id: 'DESC' } });
+    if (agentId && (!sale || Number(sale.agentId) !== Number(agentId))) return null;
     const [lot, payments] = await Promise.all([
       this.lotRepo.findOne({ where: { id: lotId } }),
       this.dataSource.getRepository(PaymentEntity).find({
@@ -613,10 +620,10 @@ export class SalesService {
     return this.buildPaymentContextRow(row, { lot, client, agent, installments, payments });
   }
 
-  async paymentHistory(paymentId: number) {
+  async paymentHistory(paymentId: number, agentId?: number) {
     const payment = await this.dataSource.getRepository(PaymentEntity).findOne({ where: { id: paymentId } });
     if (!payment?.lotId) return null;
-    return this.lotPaymentHistory(Number(payment.lotId));
+    return this.lotPaymentHistory(Number(payment.lotId), agentId);
   }
 
   /**
@@ -626,7 +633,7 @@ export class SalesService {
    * Si el lote/cliente tiene venta, se adjunta su cronograma y la cuota que le
    * toca pagar para autocompletar el formulario.
    */
-  async paymentSearch(q?: string, projectId?: number) {
+  async paymentSearch(q?: string, projectId?: number, agentId?: number) {
     const term = (q || '').trim();
     if (term.length < 2) return { results: [] };
     const like = `%${term}%`;
@@ -646,6 +653,7 @@ export class SalesService {
       .leftJoin(ClientEntity, 'c', 'c.id = l.client_id')
       .where('l.code ILIKE :like', { like });
     if (projectId) lotQb.andWhere('l.project_id = :projectId', { projectId });
+    if (agentId) lotQb.andWhere('l.agent_id = :agentId', { agentId });
     const lots = await lotQb.limit(25).getRawMany();
 
     // 2) Clientes que coinciden por nombre (dentro del proyecto si aplica).
@@ -657,6 +665,7 @@ export class SalesService {
       .groupBy('c.id')
       .addGroupBy('c.full_name');
     if (projectId) clientQb.andWhere('l.project_id = :projectId', { projectId });
+    if (agentId) clientQb.andWhere('c.agent_id = :agentId', { agentId });
     const clients = await clientQb.limit(25).getRawMany();
 
     const lotIds = lots.map((l) => Number(l.id));

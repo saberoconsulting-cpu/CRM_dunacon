@@ -16,7 +16,8 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { uploadToCloudinary } from '../../../shared/infrastructure/upload/cloudinary.util';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
-import { CurrentUser } from '../../../shared/application/decorators/current-user.decorator';
+import { CurrentUser, AuthUser } from '../../../shared/application/decorators/current-user.decorator';
+import { UserRole } from '../../../shared/domain/enums';
 
 @UseGuards(JwtAuthGuard)
 @Controller('payments')
@@ -32,11 +33,12 @@ export class PaymentsController {
     @Query('type') type?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @CurrentUser() user?: AuthUser,
   ) {
     return this.paymentsService.list({
       projectId: projectId ? Number(projectId) : undefined,
       lotId: lotId ? Number(lotId) : undefined,
-      agentId: agentId ? Number(agentId) : undefined,
+      agentId: user?.role === UserRole.AGENT ? user.id : (agentId ? Number(agentId) : undefined),
       status,
       type,
       page: page ? Number(page) : undefined,
@@ -45,8 +47,8 @@ export class PaymentsController {
   }
 
   @Get('caja')
-  summary(@Query('projectId') projectId?: string) {
-    return this.paymentsService.summary(projectId ? Number(projectId) : undefined);
+  summary(@Query('projectId') projectId?: string, @CurrentUser() user?: AuthUser) {
+    return this.paymentsService.summary(projectId ? Number(projectId) : undefined, user?.role === UserRole.AGENT ? user.id : undefined);
   }
 
   @Get('alerts')

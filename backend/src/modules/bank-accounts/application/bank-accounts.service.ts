@@ -727,6 +727,19 @@ export class BankAccountsService {
     const columns = headerRowIndex >= 0 ? mapColumns(grid[headerRowIndex] || []) : {};
     const usingNamedHeader = Object.keys(columns).length >= 4;
 
+    // Sin encabezado reconocible se intenta lectura por posicion; si tampoco hay
+    // datos utiles, se avisa con las columnas esperadas en vez de fallar en silencio.
+    if (!usingNamedHeader && headerRowIndex < 0) {
+      const primeraFila = (grid[0] || []).map((cell) => cleanCell(cell)).filter(Boolean).slice(0, 8);
+      const tieneContenido = primeraFila.length >= 3;
+      if (!tieneContenido) {
+        throw new BadRequestException(
+          `No se reconocieron las columnas del archivo. Se esperaba un encabezado con: ${BANK_EXPECTED_COLUMNS.join(', ')}. ` +
+          'Columnas encontradas: ' + (primeraFila.map((c) => `"${c}"`).join(', ') || 'ninguna') + '.',
+        );
+      }
+    }
+
     const rows: BankMovementImportRow[] = [];
     let saldoInicial: number | null = null;
     let saldoFinal: number | null = null;

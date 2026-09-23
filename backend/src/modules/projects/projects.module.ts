@@ -7,12 +7,13 @@ import { BlockEntity } from '../../shared/infrastructure/entities/block.entity';
 import { PlanEntity } from '../../shared/infrastructure/entities/plan.entity';
 import { AuditLogEntity } from '../../shared/infrastructure/entities/audit-log.entity';
 import { ProjectDocumentEntity } from '../../shared/infrastructure/entities/project-document.entity';
+import { UserProjectEntity } from '../../shared/infrastructure/entities/user-project.entity';
 import { ProjectsController } from './interface/projects.controller';
 import { ProjectsService } from './application/projects.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ProjectEntity, LotEntity, BlockEntity, PlanEntity, AuditLogEntity, ProjectDocumentEntity]),
+    TypeOrmModule.forFeature([ProjectEntity, LotEntity, BlockEntity, PlanEntity, AuditLogEntity, ProjectDocumentEntity, UserProjectEntity]),
   ],
   controllers: [ProjectsController],
   providers: [ProjectsService],

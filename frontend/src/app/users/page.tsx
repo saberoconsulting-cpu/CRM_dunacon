@@ -17,7 +17,7 @@ const PROJECT_MODULES = [
   { key: 'payments', label: 'Pagos', roles: ['admin', 'agent'] },
   { key: 'clients', label: 'Clientes y leads', roles: ['admin', 'agent'] },
   { key: 'finances', label: 'Finanzas', roles: ['admin'] },
-  { key: 'campaigns', label: 'Campanas', roles: ['admin'] },
+  { key: 'campaigns', label: 'Campanas', roles: ['admin', 'agent'] },
   { key: 'construction-budget', label: 'Presupuesto de obra', roles: ['admin'] },
   { key: 'banking', label: 'Cuentas y bancos', roles: ['admin'] },
   { key: 'income-statement', label: 'Estado de resultados', roles: ['admin'] },
@@ -33,6 +33,19 @@ export default function UsersPage() {
   const [formAd, setFormAd] = useState<any>({});
   const fA = (k: string, v: any) => setFormA((p: any) => ({ ...p, [k]: v }));
   const fD = (k: string, v: any) => setFormAd((p: any) => ({ ...p, [k]: v }));
+
+  function numericText(value: unknown) {
+    return String(value ?? '').replace(/[^\d.]/g, '');
+  }
+
+  function formatThousands(value: unknown) {
+    const raw = String(value ?? '').replace(/\D/g, '');
+    return raw ? Number(raw).toLocaleString('es-PE') : '';
+  }
+
+  function setAgentMoney(key: string, value: string) {
+    fA(key, value.replace(/\D/g, ''));
+  }
 
   function defaultModules(userRole: 'admin' | 'agent') {
     return PROJECT_MODULES.filter((item) => item.roles.includes(userRole)).map((item) => item.key);
@@ -91,7 +104,7 @@ export default function UsersPage() {
       await api.post('/users/agent', {
         name: formA.name, email: formA.email, phone: formA.phone || undefined, password: formA.password,
         projectIds: (formA.projectIds || []).map(Number), commissionRate: Number(formA.commissionRate || 0),
-        monthlyGoalLots: Number(formA.monthlyGoalLots || 0), monthlyGoalAmount: Number(formA.monthlyGoalAmount || 0),
+        monthlyGoalLots: Number(formA.monthlyGoalLots || 0), monthlyGoalAmount: Number(String(formA.monthlyGoalAmount || '').replace(/\D/g, '') || 0),
         projectAccess: projectAccessPayload(formA, 'agent'),
       });
       toast('Agente creado'); setOpenAgent(false); setFormA({}); load();
@@ -175,12 +188,12 @@ export default function UsersPage() {
           <div className="relative max-h-[92vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-6">
             <h3 className="font-semibold mb-1" style={{ fontSize: 17 }}>Crear agente</h3>
             <p className="text-sm mb-5" style={{ color: '#6B7280' }}>Define acceso, comisión, meta y proyectos.</p>
-            <Field label="Nombre completo *"><input className="input" value={formA.name || ''} onChange={(e) => fA('name', e.target.value)} /></Field>
             <div className="grid grid-cols-2 gap-3">
+              <Field label="Nombre completo *"><input className="input" value={formA.name || ''} onChange={(e) => fA('name', e.target.value)} /></Field>
               <Field label="Correo *"><input className="input" value={formA.email || ''} onChange={(e) => fA('email', e.target.value)} /></Field>
               <Field label="Teléfono"><input className="input" value={formA.phone || ''} onChange={(e) => fA('phone', e.target.value)} /></Field>
+              <Field label="Contraseña temporal *"><input type="password" className="input" value={formA.password || ''} onChange={(e) => fA('password', e.target.value)} /></Field>
             </div>
-            <Field label="Contraseña temporal *"><input type="password" className="input" value={formA.password || ''} onChange={(e) => fA('password', e.target.value)} /></Field>
             <Field label="Proyectos asignados y modulos visibles">
               <div className="space-y-2">{projects.map((p: any) => {
                 const selected = (formA.projectIds || []).includes(p.id);
@@ -206,9 +219,9 @@ export default function UsersPage() {
               </div>
             </Field>
             <div className="grid grid-cols-3 gap-3">
-              <Field label="Comisión %"><input type="number" className="input" value={formA.commissionRate || 0} onChange={(e) => fA('commissionRate', e.target.value)} /></Field>
-              <Field label="Meta lotes"><input type="number" className="input" value={formA.monthlyGoalLots || 0} onChange={(e) => fA('monthlyGoalLots', e.target.value)} /></Field>
-              <Field label="Meta S/"><input type="number" className="input" value={formA.monthlyGoalAmount || 0} onChange={(e) => fA('monthlyGoalAmount', e.target.value)} /></Field>
+              <Field label="Comisión %"><input type="number" className="input" value={formA.commissionRate ?? ''} onChange={(e) => fA('commissionRate', numericText(e.target.value))} placeholder="%" /></Field>
+              <Field label="Meta lotes"><input type="number" className="input" value={formA.monthlyGoalLots ?? ''} onChange={(e) => fA('monthlyGoalLots', numericText(e.target.value))} placeholder="Lotes" /></Field>
+              <Field label="Meta S/"><input inputMode="numeric" className="input tabular-nums" value={formatThousands(formA.monthlyGoalAmount)} onChange={(e) => setAgentMoney('monthlyGoalAmount', e.target.value)} placeholder="S/" /></Field>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-neutral" onClick={() => setOpenAgent(false)}>Cancelar</button>

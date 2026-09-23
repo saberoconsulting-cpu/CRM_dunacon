@@ -6,10 +6,19 @@ import { api } from '@/lib/api';
 import { formatDate } from '@/lib/types';
 import { useDisplayCurrency } from '@/lib/currency';
 import { PaginationBar } from '@/components/ui/PaginationBar';
+import { FiSearch } from 'react-icons/fi';
 
-type T = { id: number; type: string; category: string; concept: string; amount: string; txnDate: string; projectId?: number | null };
+type T = {
+  id: number; type: string; category: string; concept: string; amount: string; txnDate: string; projectId?: number | null;
+  lotId?: number | null; clientId?: number | null; lotCode?: string | null; clientName?: string | null; paymentMethod?: string | null;
+};
 
 const CATS = ['marketing', 'mantenimiento', 'obra', 'administracion', 'comisiones', 'otros'];
+const PAYMENT_LABEL: Record<string, string> = {
+  efectivo: 'Efectivo', yape: 'Yape', plin: 'Plin', transferencia: 'Transferencia',
+  deposito: 'Depósito', cheque_gerencia: 'Cheque gerencia', tarjeta: 'Tarjeta', otro: 'Otro',
+};
+const paymentLabel = (v?: string | null) => (v ? (PAYMENT_LABEL[v] || v) : '—');
 
 export default function FinancesView({ lockedProjectId }: { lockedProjectId?: number }) {
   const [summary, setSummary] = useState<any>(null);
@@ -18,6 +27,10 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [cat, setCat] = useState('');
+  const [typeFilter, setTypeFilter] = useState<'' | 'ingreso' | 'egreso'>('');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [totalAmount, setTotalAmount] = useState(0);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
@@ -34,7 +47,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const load = useCallback(async () => {
     try {
       const pq = lockedProjectId ? `projectId=${lockedProjectId}` : '';
-      const txnQ = [cat ? `category=${cat}` : '', pq, `page=${page}`, `limit=${limit}`].filter(Boolean).join('&');
+      const txnQ = [typeFilter ? `type=${typeFilter}` : '', cat ? `category=${cat}` : '', debouncedSearch ? `search=${encodeURIComponent(debouncedSearch)}` : '', pq, `page=${page}`, `limit=${limit}`].filter(Boolean).join('&');
       const [s, t, st] = await Promise.all([
         api.get<any>(`/finances/summary?period=monthly${pq ? `&${pq}` : ''}`),
         api.get<any>(`/finances/transactions${txnQ ? `?${txnQ}` : ''}`),
@@ -47,12 +60,17 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         total: Number(Array.isArray(t) ? t.length : (t?.total ?? items.length)),
         totalPages: Number(Array.isArray(t) ? 1 : (t?.totalPages ?? 1)),
       });
+      setTotalAmount(Number(Array.isArray(t) ? (t as T[]).reduce((sum, r) => sum + Number(r.amount || 0), 0) : (t?.totalAmount ?? 0)));
       setStatement(st);
     } catch (e: any) { toast(e.message, 'err'); } finally { setLoading(false); }
-  }, [cat, lockedProjectId, page, limit]);
+  }, [cat, typeFilter, debouncedSearch, lockedProjectId, page, limit]);
 
   useEffect(() => { load(); api.get<any[]>('/projects').then(setProjects).catch(() => {}); }, [load]);
-  useEffect(() => { setPage(1); }, [cat, lockedProjectId]);
+  useEffect(() => { setPage(1); }, [cat, typeFilter, debouncedSearch, lockedProjectId]);
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 400);
+    return () => clearTimeout(t);
+  }, [search]);
 
   async function addEgreso() {
     if (!eForm.concept || !eForm.amount) return toast('Completa concepto y monto', 'err');
@@ -124,10 +142,46 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
           <div className="mt-3 flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: '#E5E7EB' }}>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="badge whitespace-nowrap" style={{ background: '#EAF7EE', color: '#125A3B' }}>Ingreso</span>
-              <span className="badge whitespace-nowrap" style={{ background: '#E7F0FE', color: '#1259C4' }}>Egreso</span>
+              {([
+                { key: '' as const, label: 'Todos', bg: '#F3F4F6', color: '#374151', activeBg: '#171717', activeColor: '#FFFFFF' },
+                { key: 'ingreso' as const, label: 'Ingreso', bg: '#EAF7EE', color: '#125A3B', activeBg: '#16A36A', activeColor: '#FFFFFF' },
+                { key: 'egreso' as const, label: 'Egreso', bg: '#E7F0FE', color: '#1259C4', activeBg: '#1259C4', activeColor: '#FFFFFF' },
+              ]).map((option) => {
+                const active = typeFilter === option.key;
+                return (
+                  <button
+                    key={option.key || 'todos'}
+                    type="button"
+                    onClick={() => setTypeFilter(option.key)}
+                    aria-pressed={active}
+                    className="rounded-full px-3 py-1 text-xs font-semibold transition-all"
+                    style={{
+                      background: active ? option.activeBg : option.bg,
+                      color: active ? option.activeColor : option.color,
+                      boxShadow: active ? '0 4px 10px rgba(15,23,42,.16)' : 'none',
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+              <div className="relative ml-1 w-full sm:w-72">
+                <FiSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  className="input !h-9 !pl-9"
+                  placeholder="Buscar lote, cliente, medio pago o concepto…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+              <select className="input !h-9 !w-auto" value={cat} onChange={(e) => setCat(e.target.value)}>
+                <option value="">Todas las categorías</option>
+                {CATS.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
-            <button className="btn-neutral !h-8 w-full text-xs sm:w-auto" onClick={() => setCat('')}>Limpiar filtro</button>
+            {(cat || search || typeFilter) && (
+              <button className="btn-neutral !h-8 w-full text-xs sm:w-auto" onClick={() => { setCat(''); setSearch(''); setDebouncedSearch(''); setTypeFilter(''); }}>Limpiar filtros</button>
+            )}
           </div>
         </div>
         <div className="card p-0 overflow-hidden">
@@ -138,6 +192,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
               <table className="table-base">
                 <thead><tr>
                   <th className="th-base">Tipo</th><th className="th-base">Categoría</th><th className="th-base">Concepto</th>
+                  <th className="th-base">Lote</th><th className="th-base">Cliente</th><th className="th-base">Medio de pago</th>
                   <th className="th-base">Monto</th><th className="th-base">Fecha</th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
@@ -146,11 +201,21 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                       <td className="td-base"><span className="badge" style={{ background: t.type === 'ingreso' ? '#EAF7EE' : '#E7F0FE', color: t.type === 'ingreso' ? '#125A3B' : '#1259C4' }}>{t.type}</span></td>
                       <td className="td-base capitalize">{t.category}</td>
                       <td className="td-base">{t.concept}</td>
-                      <td className="td-base font-medium">{show(t.amount)}</td>
+                      <td className="td-base">{t.lotCode || (t.lotId ? `#${t.lotId}` : '—')}</td>
+                      <td className="td-base">{t.clientName || (t.clientId ? `#${t.clientId}` : '—')}</td>
+                      <td className="td-base">{paymentLabel(t.paymentMethod)}</td>
+                      <td className="td-base font-medium tabular-nums">{show(t.amount)}</td>
                       <td className="td-base">{formatDate(t.txnDate)}</td>
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr style={{ background: '#0B2F6E' }}>
+                    <td className="td-base font-bold text-white" colSpan={6}>Totales ({meta.total})</td>
+                    <td className="td-base font-bold text-white tabular-nums">{show(totalAmount)}</td>
+                    <td className="td-base" />
+                  </tr>
+                </tfoot>
               </table>
               )}
           </div>

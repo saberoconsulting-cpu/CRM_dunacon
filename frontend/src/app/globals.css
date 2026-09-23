@@ -2,6 +2,8 @@
 @tailwind components;
 @tailwind utilities;
 
+@import './metrics.css';
+
 :root {
   --brand: #1877f2;
   --ink: #171717;
@@ -140,6 +142,10 @@ body {
   }
   /* Acento superior azul en tarjetas KPI */
   .card-kpi { border-top: 3px solid #1877F2; }
+  .card-card-kpi {
+    @apply bg-white rounded-md border border-[#E5E7EB];
+    box-shadow: 0 1px 2px rgba(16, 24, 40, 0.035);
+  }
 }
 
 /* Scrollbar discret */

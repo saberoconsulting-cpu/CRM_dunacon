@@ -1,13 +1,14 @@
 // modules/projects/application/projects.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DeepPartial } from 'typeorm';
+import { Repository, DeepPartial, IsNull, Not, In } from 'typeorm';
 import { ProjectEntity } from '../../../shared/infrastructure/entities/project.entity';
 import { BlockEntity } from '../../../shared/infrastructure/entities/block.entity';
 import { LotEntity } from '../../../shared/infrastructure/entities/lot.entity';
 import { PlanEntity } from '../../../shared/infrastructure/entities/plan.entity';
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
 import { ProjectDocumentEntity } from '../../../shared/infrastructure/entities/project-document.entity';
+import { UserProjectEntity } from '../../../shared/infrastructure/entities/user-project.entity';
 import { uploadToCloudinary } from '../../../shared/infrastructure/upload/cloudinary.util';
 import { CreateProjectDto } from './dto/create-project.dto';
 
@@ -26,6 +27,8 @@ export class ProjectsService {
     private readonly auditRepo: Repository<AuditLogEntity>,
     @InjectRepository(ProjectDocumentEntity)
     private readonly projectDocumentRepo: Repository<ProjectDocumentEntity>,
+    @InjectRepository(UserProjectEntity)
+    private readonly userProjectRepo: Repository<UserProjectEntity>,
   ) {}
 
   async audit(userId: number, action: string, entity?: string, entityId?: number) {
@@ -73,8 +76,15 @@ export class ProjectsService {
     return saved;
   }
 
-  async list() {
-    const projects = await this.projectRepo.find({ order: { createdAt: 'DESC' } });
+  async list(user?: { id: number; role: string }) {
+    const where: any = { deletedAt: IsNull() };
+    if (user && user.role === 'agent') {
+      const rows = await this.userProjectRepo.find({ where: { userId: user.id } });
+      const allowed = rows.map((row) => Number(row.projectId)).filter(Boolean);
+      if (!allowed.length) return [];
+      where.id = In(allowed);
+    }
+    const projects = await this.projectRepo.find({ where, order: { createdAt: 'DESC' } });
     const withStats = await Promise.all(
       projects.map(async (p) => {
         const [total, disponibles, reservados, adelantos, primeras, vendidos] =
@@ -153,10 +163,48 @@ export class ProjectsService {
   async deleteProject(id: number, actorId: number) {
     const project = await this.projectRepo.findOne({ where: { id } });
     if (!project) throw new NotFoundException('Proyecto no encontrado');
-    // Las tablas de dominio (plan, bloques, lotes, ventas/pagos, user_projects)
-    // están ligadas con ON DELETE CASCADE definido en el esquema.
-    await this.projectRepo.remove(project);
+    project.deletedAt = new Date();
+    await this.projectRepo.save(project);
     await this.audit(actorId, 'ELIMINAR_PROYECTO', 'projects', id).catch(() => {});
+    return { ok: true };
+  }
+
+  async history() {
+    const projects = await this.projectRepo.find({
+      where: { deletedAt: Not(IsNull()) },
+      order: { deletedAt: 'DESC' },
+    });
+    const withStats = await Promise.all(
+      projects.map(async (p) => {
+        const [total, disponibles, reservados, adelantos, primeras, vendidos] =
+          await Promise.all([
+            this.lotRepo.count({ where: { projectId: p.id } }),
+            this.lotRepo.count({ where: { projectId: p.id, status: 'disponible' } }),
+            this.lotRepo.count({ where: { projectId: p.id, status: 'reservado' } }),
+            this.lotRepo.count({ where: { projectId: p.id, status: 'adelanto' } }),
+            this.lotRepo.count({ where: { projectId: p.id, status: 'primera_cuota' } }),
+            this.lotRepo.count({ where: { projectId: p.id, status: 'vendido' } }),
+          ]);
+        return { ...p, stats: { total, disponibles, reservados, adelantos, primeras, vendidos } };
+      }),
+    );
+    return withStats;
+  }
+
+  async restore(id: number, actorId: number) {
+    const project = await this.projectRepo.findOne({ where: { id } });
+    if (!project) throw new NotFoundException('Proyecto no encontrado');
+    project.deletedAt = null;
+    await this.projectRepo.save(project);
+    await this.audit(actorId, 'RESTAURAR_PROYECTO', 'projects', id).catch(() => {});
+    return project;
+  }
+
+  async purge(id: number, actorId: number) {
+    const project = await this.projectRepo.findOne({ where: { id } });
+    if (!project) throw new NotFoundException('Proyecto no encontrado');
+    await this.projectRepo.remove(project);
+    await this.audit(actorId, 'ELIMINAR_DEFINITIVO_PROYECTO', 'projects', id).catch(() => {});
     return { ok: true };
   }
 

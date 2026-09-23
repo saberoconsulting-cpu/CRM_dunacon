@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { FiDownload, FiEye, FiFileText, FiCreditCard, FiDollarSign, FiTrendingUp, FiCheckCircle } from 'react-icons/fi';
 import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
+import { KpiCard, KPI_GRID_6 } from '@/components/ui/Metrics';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
@@ -397,19 +398,8 @@ function QuoteDocumentModal({ doc, onClose }: { doc: { id: number; type: 'cotiza
   );
 }
 
-// Tarjeta KPI compacta, con el mismo lenguaje visual del proyecto
-// (etiqueta pequena + icono de acento + valor + helper).
 function QuoteKpi({ label, value, helper, icon, accent }: { label: string; value: string; helper: string; icon: React.ReactNode; accent: string }) {
-  return (
-    <div className="rounded-md border bg-white px-3 py-2.5 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
-      <div className="flex items-center justify-between gap-2">
-        <p className="min-w-0 truncate text-[11px] font-semibold uppercase" style={{ color: '#6B7280' }}>{label}</p>
-        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-xs" style={{ background: `${accent}12`, color: accent }}>{icon}</span>
-      </div>
-      <p className="mt-1.5 truncate text-sm font-bold tabular-nums leading-tight sm:text-base" style={{ color: '#111827' }}>{value}</p>
-      <p className="mt-0.5 truncate text-[11px]" style={{ color: '#6B7280' }}>{helper}</p>
-    </div>
-  );
+  return <KpiCard label={label} value={value} helper={helper} icon={icon} tone={accent} truncateLabel />;
 }
 
 export default function QuotesView({ lockedProjectId }: { lockedProjectId?: number }) {
@@ -596,8 +586,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             setExchangeRate={setDisplayExchangeRate}
           />
         </div>
-        {/* Panel de resumen de estadisticas (tarjetas compactas) */}
-        <div className="mb-4 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-6">
+        <div className={`mb-4 ${KPI_GRID_6}`}>
           <QuoteKpi
             label="Nro. Cotizaciones"
             value={String(stats?.total ?? 0)}

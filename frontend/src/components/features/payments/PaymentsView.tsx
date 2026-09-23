@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { Toaster, toast, Field, EmptyState } from '@/components/ui/ui';
+import { KpiCard } from '@/components/ui/Metrics';
 import { api, uploadFile } from '@/lib/api';
 import {
   Area,
@@ -161,18 +162,7 @@ function KpiTile({ label, value, helper, icon, accent }: {
   icon: JSX.Element;
   accent: string;
 }) {
-  return (
-    <div className="rounded-md border bg-white px-2.5 py-2.5 shadow-sm sm:px-4 sm:py-3" style={{ borderColor: BORDER }}>
-      <div className="flex items-start justify-between gap-1.5 sm:items-center sm:gap-3">
-        <p className="min-w-0 truncate text-[10px] font-semibold uppercase leading-tight sm:text-[11px]" style={{ color: MUTED }}>{label}</p>
-        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-[13px] sm:h-7 sm:w-7 sm:text-base" style={{ background: `${accent}12`, color: accent }}>
-          {icon}
-        </span>
-      </div>
-      <p className="mt-1.5 truncate text-base font-bold tabular-nums sm:mt-2 sm:text-xl" style={{ color: INK }}>{value}</p>
-      <p className="mt-0.5 truncate text-[10px] sm:text-[11px]" style={{ color: MUTED }}>{helper}</p>
-    </div>
-  );
+  return <KpiCard label={label} value={value} helper={helper} icon={icon} tone={accent} truncateLabel />;
 }
 
 function EmptyChart({ text }: { text: string }) {
@@ -677,7 +667,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [showHistory, setShowHistory] = useState(false);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
-  const [limit, setLimit] = useState(20);
+  const limit = 10;
   const [meta, setMeta] = useState({ total: 0, totalPages: 1, distinctLots: 0, pendingCount: 0 });
   const [cash, setCash] = useState<any>({ methods: [], byMonth: [], overdueByMonth: [], salesByMonth: [] });
   const [lots, setLots] = useState<any[]>([]);
@@ -1204,7 +1194,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
         )}
         <div className="relative">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-7">
+          <div className="kpi-grid-7">
             <KpiTile label="Cuotas Pendientes" value={String(metrics.pendingCuotas || 0)} helper={show(metrics.pendingAmount || 0)} icon={<FiCreditCard />} accent={BLUE} />
             <KpiTile label="Cuotas Pendientes US$" value={show(metrics.pendingAmount || 0)} helper="Saldo pendiente" icon={<FiDollarSign />} accent={BLUE} />
             <KpiTile label="Pagos en Mora" value={String(metrics.overduePayments || 0)} helper={show(metrics.overdueAmount || 0)} icon={<FiAlertTriangle />} accent={RED} />
@@ -1229,7 +1219,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
         </div>
 
         {showMoreKpis && (
-          <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-2 lg:grid-cols-7">
+          <div className="kpi-grid-7 mt-3">
             <KpiTile label="Total venta (lotes)" value={String(metrics.totalSaleLots || 0)} helper={show(metrics.totalSaleAmount || 0)} icon={<FiTrendingUp />} accent={BLUE} />
             <KpiTile label="Total Venta" value={show(metrics.totalSaleAmount || 0)} helper="Ventas y separaciones" icon={<FiDollarSign />} accent={BLUE} />
             <KpiTile label="Pago Inicial US$" value={show(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} />
@@ -1521,7 +1511,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             </>
             )}
             <div className="bg-white p-3 border-t" style={{ borderColor: '#F0F1F3' }}>
-              <PaginationBar label="Pagos" page={page} totalPages={meta.totalPages} total={meta.total} limit={limit} setPage={setPage} setLimit={setLimit} />
+              <PaginationBar compact label="Pagos" page={page} totalPages={meta.totalPages} total={meta.total} limit={limit} setPage={setPage} />
             </div>
         </div>
       </div>

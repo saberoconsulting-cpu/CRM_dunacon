@@ -4,7 +4,7 @@ import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from 'recha
 import { FiCreditCard, FiDollarSign, FiLayers, FiTag, FiUsers } from 'react-icons/fi';
 import { AgentDashboard } from '@/lib/dboard';
 import { ProjectBars, SectionShell } from './GeneralView';
-import { formatMoney } from '@/lib/types';
+import { moneyGlobal, useCurrencyStoreSync } from '@/lib/currency';
 import { api } from '@/lib/api';
 import { toast } from '@/components/ui/ui';
 
@@ -41,6 +41,10 @@ function monthLabel(month: string) {
   return date.toLocaleDateString('es-PE', { month: 'short', year: '2-digit' }).replace('.', '');
 }
 
+function money(value: unknown): string {
+  return moneyGlobal(value);
+}
+
 function KpiTile({ label, value, helper, icon, accent }: { label: string; value: string; helper: string; icon: JSX.Element; accent: string }) {
   return (
     <div className="rounded-md border bg-white px-4 py-3 shadow-sm" style={{ borderColor: BORDER }}>
@@ -55,6 +59,7 @@ function KpiTile({ label, value, helper, icon, accent }: { label: string; value:
 }
 
 export default function AgentView({ d }: { d: AgentDashboard | null }) {
+  useCurrencyStoreSync();
   if (!d) return <p className="text-slate-400">Sin datos</p>;
 
   const n = (v: unknown) => Number(v || 0);
@@ -110,8 +115,8 @@ export default function AgentView({ d }: { d: AgentDashboard | null }) {
     <div className="space-y-5">
       <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <KpiTile label="Ventas del mes" value={String(salesInMonth)} helper="Separaciones y ventas" icon={<FiTag />} accent={BLUE} />
-        <KpiTile label="Ventas totales" value={formatMoney(d.cards.salesAmount)} helper="Total de este agente" icon={<FiDollarSign />} accent={GREEN} />
-        <KpiTile label="Comisiones" value={formatMoney(d.cards.commissionMonth)} helper="Total acumulado" icon={<FiCreditCard />} accent={AMBER} />
+        <KpiTile label="Ventas totales" value={money(d.cards.salesAmount)} helper="Total de este agente" icon={<FiDollarSign />} accent={GREEN} />
+        <KpiTile label="Comisiones" value={money(d.cards.commissionMonth)} helper="Total acumulado" icon={<FiCreditCard />} accent={AMBER} />
         <KpiTile label="Lotes vendidos" value={String(n(d.cards.lotsSold))} helper="Aprobados" icon={<FiLayers />} accent={BLUE_DARK} />
       </div>
 
@@ -121,7 +126,7 @@ export default function AgentView({ d }: { d: AgentDashboard | null }) {
             title="Mi actividad"
             subtitle="Comisiones del agente por mes (ultimos 6 meses)"
             rows={activity.map((row, i) => ({ name: monthLabel(row.month), value: row.comision, color: ACTIVITY_COLORS[i % ACTIVITY_COLORS.length] }))}
-            valueFormatter={formatMoney}
+            valueFormatter={money}
             className="h-full min-h-[320px]"
             sorted={false}
           />
@@ -190,11 +195,11 @@ export default function AgentView({ d }: { d: AgentDashboard | null }) {
               <div className="mt-4 flex flex-col gap-2 border-t pt-3 text-[11px]" style={{ borderColor: BORDER }}>
                 <div className="flex items-center justify-between">
                   <span className="inline-flex items-center gap-1.5 text-slate-600"><span className="h-2 w-2" style={{ background: BLUE }} />Meta en monto</span>
-                  <b className="tabular-nums" style={{ color: BLUE_DARK }}>{formatMoney(goalAmount)}</b>
+                  <b className="tabular-nums" style={{ color: BLUE_DARK }}>{money(goalAmount)}</b>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="inline-flex items-center gap-1.5 text-slate-600"><span className="h-2 w-2" style={{ background: GREEN }} />Comisiones</span>
-                  <b className="tabular-nums" style={{ color: BLUE_DARK }}>{formatMoney(d.cards.commissionMonth)}</b>
+                  <b className="tabular-nums" style={{ color: BLUE_DARK }}>{money(d.cards.commissionMonth)}</b>
                 </div>
               </div>
             </>
@@ -238,7 +243,7 @@ export default function AgentView({ d }: { d: AgentDashboard | null }) {
                   <Pie data={projects} dataKey="amount" nameKey="name" cx="50%" cy="46%" outerRadius="68%" label={false}>
                     {projects.map((project, index) => <Cell key={project.projectId} fill={['#1769D1', '#1C7C54', '#F59E0B', '#B6253C', '#6A4C93', '#0EA5A9'][index % 6]} />)}
                   </Pie>
-                  <Tooltip formatter={(value: number | string) => [formatMoney(Number(value)), 'Ventas']} />
+                  <Tooltip formatter={(value: number | string) => [money(Number(value)), 'Ventas']} />
                   <Legend />
                 </PieChart>
               </ResponsiveContainer>

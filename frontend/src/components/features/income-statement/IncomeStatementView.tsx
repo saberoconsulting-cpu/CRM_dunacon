@@ -25,6 +25,7 @@ import {
   FiTrendingUp,
 } from 'react-icons/fi';
 import { Toaster, toast } from '@/components/ui/ui';
+import { KpiCard as SharedKpiCard } from '@/components/ui/Metrics';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
 import { BRAND, Lot, Project } from '@/lib/types';
@@ -114,22 +115,7 @@ function rowTone(row: StatementRow) {
 }
 
 function KpiCard({ label, value, helper, icon, color = BLUE }: { label: string; value: string; helper: string; icon: JSX.Element; color?: string }) {
-  return (
-    <div className="min-w-0 rounded-md border bg-white p-3 shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-lg sm:p-4" style={{ borderColor: BORDER }}>
-      {/* En movil el icono va a la izquierda y los textos a la derecha, para que la
-          tarjeta quede ancha y baja. Desde sm vuelve al layout vertical original. */}
-      <div className="flex min-w-0 items-start gap-2.5 sm:block">
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-[15px] sm:h-10 sm:w-10 sm:text-lg" style={{ background: `${color}15`, color }}>
-          {icon}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:mt-4 sm:text-xs" style={{ color: MUTED }}>{label}</p>
-          <p className="mt-0.5 whitespace-nowrap text-sm font-bold leading-tight tabular-nums sm:mt-1 sm:text-2xl" style={{ color: INK }}>{value}</p>
-        </div>
-      </div>
-      <p className="mt-1 min-h-[1.25rem] break-words text-[9px] leading-tight sm:mt-1 sm:text-xs" style={{ color: MUTED }}>{helper}</p>
-    </div>
-  );
+  return <SharedKpiCard label={label} value={value} helper={helper} icon={icon} tone={color} />;
 }
 
 function MetricPill({ label, value, color = BLUE }: { label: string; value: string; color?: string }) {
@@ -344,7 +330,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
           </div>
         </section>
 
-        <div className="grid grid-cols-2 gap-2 sm:gap-4 xl:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard label="Ingreso real" value={show(report.realRevenue)} helper="Ingresos registrados en finanzas" icon={<FiDollarSign />} color={GREEN} />
           <KpiCard label="Utilidad neta" value={show(report.netProfit)} helper={`Margen neto ${pct(report.margin)}`} icon={<FiTrendingUp />} color={report.netProfit >= 0 ? BLUE : RED} />
           <KpiCard label="Lotes vendidos" value={`${report.soldLots}/${lots.length}`} helper="Conteo desde lotizacion" icon={<FiGrid />} color={BLUE_DARK} />
@@ -362,42 +348,49 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar
               </button>
             </div>
-            <div className="overflow-auto">
-              <table className="min-w-[820px] w-full">
+            <div className="overflow-x-auto">
+              <table className="w-full table-fixed">
+                <colgroup>
+                  <col className="w-[34%]" />
+                  <col className="w-[17%]" />
+                  <col className="w-[17%]" />
+                  <col className="w-[15%]" />
+                  <col className="w-[17%]" />
+                </colgroup>
                 <thead>
                   <tr className="border-b text-left text-xs font-bold uppercase tracking-wide" style={{ borderColor: BORDER, color: MUTED, background: '#F8FAFC' }}>
-                    <th className="px-5 py-3">Concepto</th>
-                    <th className="px-4 py-3 text-right">Proyectado S/</th>
-                    <th className="px-4 py-3 text-right">Real S/</th>
-                    <th className="px-4 py-3 text-right">% del Ingreso</th>
-                    <th className="px-5 py-3 text-right">Desviacion</th>
+                    <th className="px-4 py-3">Concepto</th>
+                    <th className="px-3 py-3 text-right">Proyectado S/</th>
+                    <th className="px-3 py-3 text-right">Real S/</th>
+                    <th className="px-3 py-3 text-right">% del Ingreso</th>
+                    <th className="px-4 py-3 text-right">Desviacion</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y" style={{ borderColor: BORDER }}>
                   {loading ? (
-                    <tr><td className="px-5 py-10 text-center text-sm text-slate-400" colSpan={5}>Cargando estado de resultados...</td></tr>
+                    <tr><td className="px-4 py-10 text-center text-sm text-slate-400" colSpan={5}>Cargando estado de resultados...</td></tr>
                   ) : report.rows.map((row) => {
                     const tone = rowTone(row);
                     const diff = deviation(row.real, row.projected);
                     const share = incomeShare(row.real, report.realRevenue);
                     return (
                       <tr key={row.label} className="transition-colors hover:bg-slate-50">
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-3">
-                            <span className="grid h-8 w-8 place-items-center rounded-md" style={{ background: tone.bg, color: tone.color, border: `1px solid ${tone.border}` }}>
+                        <td className="px-4 py-3">
+                          <div className="flex min-w-0 items-center gap-3">
+                            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md" style={{ background: tone.bg, color: tone.color, border: `1px solid ${tone.border}` }}>
                               {row.accent === 'income' ? <FiDollarSign /> : row.accent === 'tax' ? <FiPercent /> : row.accent === 'final' ? <FiActivity /> : <FiBriefcase />}
                             </span>
-                            <div>
-                              <p className="text-sm font-semibold" style={{ color: tone.color }}>{row.label}</p>
-                              {row.note && <p className="text-xs" style={{ color: MUTED }}>{row.note}</p>}
+                            <div className="min-w-0">
+                              <p className="truncate text-sm font-semibold" style={{ color: tone.color }} title={row.label}>{row.label}</p>
+                              {row.note && <p className="truncate text-[11px] leading-tight" style={{ color: MUTED }} title={row.note}>{row.note}</p>}
                             </div>
                           </div>
                         </td>
-                        <td className="px-4 py-3 text-right text-sm font-semibold tabular-nums" style={{ color: INK }}>{show(row.projected)}</td>
-                        <td className="px-4 py-3 text-right text-sm font-bold tabular-nums" style={{ color: row.real < 0 ? RED : INK }}>{show(row.real)}</td>
-                        <td className="px-4 py-3 text-right text-sm tabular-nums" style={{ color: row.real < 0 ? RED : row.accent === 'income' ? GREEN : MUTED, fontWeight: row.accent === 'income' || row.accent === 'final' || row.accent === 'subtotal' ? 700 : 500 }}>{pct(share)}</td>
-                        <td className="px-5 py-3 text-right">
-                          <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
+                        <td className="px-3 py-3 text-right text-sm font-semibold tabular-nums" style={{ color: INK }}>{show(row.projected)}</td>
+                        <td className="px-3 py-3 text-right text-sm font-bold tabular-nums" style={{ color: row.real < 0 ? RED : INK }}>{show(row.real)}</td>
+                        <td className="px-3 py-3 text-right text-sm tabular-nums" style={{ color: row.real < 0 ? RED : row.accent === 'income' ? GREEN : MUTED, fontWeight: row.accent === 'income' || row.accent === 'final' || row.accent === 'subtotal' ? 700 : 500 }}>{pct(share)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <span className="inline-block rounded-full px-2.5 py-1 text-xs font-bold tabular-nums" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
                             {diff >= 0 ? '+' : ''}{pct(diff)}
                           </span>
                         </td>

@@ -79,6 +79,7 @@ type Preview = {
   saldoInicial: number | null;
   saldoFinal: number | null;
   totals: { abonos: number; cargos: number };
+  expectedColumns?: string[];
   sourceFile: string;
 };
 
@@ -306,7 +307,13 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     try {
       const data = await uploadFile('/bank-accounts/import/preview', file);
       setPreview(data);
-      if (!data?.rows?.length) toast('El Excel no tiene movimientos reconocibles', 'err');
+      if (!data?.rows?.length) {
+        toast('El Excel no tiene movimientos reconocibles con el formato esperado', 'err');
+      } else if (!data?.validRows) {
+        toast(`Ninguna de las ${data.totalRows} filas es valida. Revisa las columnas del archivo.`, 'err');
+      } else if (data?.errors?.length) {
+        toast(`${data.validRows} filas listas para importar, ${data.errors.length} con avisos.`);
+      }
     } catch (error: any) {
       toast(error?.message || 'No se pudo leer el Excel', 'err');
     } finally {
@@ -695,7 +702,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                       <th className="th-base text-right">Abono</th>
                       <th className="th-base text-right">Cargo</th>
                       <th className="th-base text-right">Saldo contable</th>
-                      <th className="th-base">Tipo</th>
                       <th className="th-base">Clasif. EERR</th>
                       <th className="th-base">Nro. Factura</th>
                       <th className="th-base">Observacion</th>
@@ -706,7 +712,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                     {pageItems.map((item) => {
                       const deposit = num(item.depositAmount);
                       const charge = num(item.chargeAmount);
-                      const isIncome = deposit > 0 || item.movementType === 'INGRESO';
                       const isEditing = editing?.id === item.id;
                       return (
                         <tr
@@ -730,11 +735,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                           <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: INK }}>
                             {item.bookBalance === null ? '-' : show(num(item.bookBalance))}
                           </td>
-                          <td className="td-base">
-                            <span className="badge whitespace-nowrap" style={{ background: isIncome ? '#E7F6EE' : '#FDECEC', color: isIncome ? '#16A36A' : '#DC2626' }}>
-                              {isIncome ? 'Ingreso' : 'Gasto'}
-                            </span>
-                          </td>
                           <td className="td-base max-w-[180px] truncate" style={{ color: MUTED }} title={item.eerrClassification || ''}>{item.eerrClassification || '-'}</td>
                           <td className="td-base whitespace-nowrap" style={{ color: MUTED }}>{item.invoiceNumber || '-'}</td>
                           <td className="td-base max-w-[180px] truncate" style={{ color: MUTED }} title={item.observation || ''}>{item.observation || '-'}</td>
@@ -750,11 +750,11 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   </tbody>
                   <tfoot>
                     <tr className="border-t bg-[#F8FAFC] font-bold" style={{ borderColor: BORDER }}>
-                      <td className="td-base text-xs" colSpan={5} style={{ color: INK }}>Totales</td>
+                      <td className="td-base text-xs" colSpan={4} style={{ color: INK }}>Totales</td>
                       <td className="td-base whitespace-nowrap text-right text-xs tabular-nums" style={{ color: '#16A36A' }}>{show(movementTotals.deposits)}</td>
                       <td className="td-base whitespace-nowrap text-right text-xs tabular-nums" style={{ color: '#DC2626' }}>{show(movementTotals.charges)}</td>
                       <td className="td-base whitespace-nowrap text-right text-xs tabular-nums" style={{ color: INK }}>{show(num(summary?.saldoFinal))}</td>
-                      <td className="td-base" colSpan={5} />
+                      <td className="td-base" colSpan={4} />
                     </tr>
                   </tfoot>
                 </table>
@@ -821,6 +821,27 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                     <li key={`${error.rowNumber}-${index}`} className="text-xs text-amber-700">Fila {error.rowNumber}: {error.message}</li>
                   ))}
                 </ul>
+              </div>
+            )}
+
+            {preview.validRows === 0 && (
+              <div className="border-b bg-red-50 px-5 py-3" style={{ borderColor: BORDER }}>
+                <p className="flex items-center gap-1.5 text-xs font-semibold text-red-800">
+                  <FiAlertCircle /> Ninguna fila es valida: el archivo no coincide con el formato esperado
+                </p>
+                <p className="mt-1 text-xs leading-relaxed text-red-700">
+                  Verifica que tu Excel tenga estas columnas (los nombres son flexibles, se detectan solos):
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {(preview.expectedColumns || []).map((column) => (
+                    <span key={column} className="rounded-md border border-red-200 bg-white px-2 py-0.5 text-[11px] font-medium text-red-800">
+                      {column.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                    </span>
+                  ))}
+                </div>
+                <p className="mt-2 text-xs text-red-700">
+                  Como minimo debe existir <b>Descripcion</b> (o Concepto) y <b>Abono</b> o <b>Cargo</b>.
+                </p>
               </div>
             )}
 
@@ -973,8 +994,8 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Nro. Factura / Boleta">
-                <input className="input" readOnly={!!editing} value={form.invoiceNumber || ''} onChange={(event) => setForm((p: any) => ({ ...p, invoiceNumber: event.target.value }))} />
+              <Field label="Nro. Factura / Boleta (opcional)">
+                <input className="input" placeholder="Dejar vacio si no aplica" readOnly={!!editing} value={form.invoiceNumber || ''} onChange={(event) => setForm((p: any) => ({ ...p, invoiceNumber: event.target.value }))} />
               </Field>
               <Field label="Observacion">
                 <input

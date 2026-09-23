@@ -7,6 +7,7 @@ import {
   FiCheckCircle,
   FiChevronLeft,
   FiChevronRight,
+  FiClock,
   FiCreditCard,
   FiFileText,
   FiHome,
@@ -15,14 +16,18 @@ import {
   FiMap,
   FiMenu,
   FiPieChart,
+  FiRefreshCw,
+  FiRotateCcw,
   FiSettings,
   FiTag,
+  FiTrash2,
   FiUser,
   FiUserCheck,
   FiUsers,
   FiVolume2,
 } from 'react-icons/fi';
 import { api, clearSession, getSessionUser, getToken } from '@/lib/api';
+import { toast } from '@/components/ui/ui';
 import { useCurrencyStoreSync } from '@/lib/currency';
 import { getSocket } from '@/lib/socket';
 import { BRAND, User, UserRole } from '@/lib/types';
@@ -61,7 +66,7 @@ function projectNav(projectId: number): NavItem[] {
     { key: 'sales', number: 5, href: `/projects/${projectId}/sales`, label: 'Ventas', icon: <FiTag />, roles: ['superadmin', 'admin', 'agent'] },
     { key: 'payments', number: 6, href: `/projects/${projectId}/payments`, label: 'Pagos de lotes', icon: <FiCreditCard />, roles: ['superadmin', 'admin', 'agent'] },
     { key: 'finances', number: 7, href: `/projects/${projectId}/finances`, label: 'Finanzas', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
-    { key: 'campaigns', number: 8, href: `/projects/${projectId}/campaigns`, label: 'Campanas', icon: <FiVolume2 />, roles: ['superadmin', 'admin'] },
+    { key: 'campaigns', number: 8, href: `/projects/${projectId}/campaigns`, label: 'Campanas', icon: <FiVolume2 />, roles: ['superadmin', 'admin', 'agent'] },
     { key: 'clients', number: 9, href: `/projects/${projectId}/clients`, label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
     { key: 'banking', number: 10, href: `/projects/${projectId}/bank-accounts`, label: 'Cuentas y bancos', icon: <FiCreditCard />, roles: ['superadmin', 'admin'] },
     { key: 'construction-budget', number: 11, href: `/projects/${projectId}/construction-budget`, label: 'Presupuesto de obra', icon: <FiLayers />, roles: ['superadmin', 'admin'] },
@@ -92,6 +97,11 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const [collapsed, setCollapsed] = useState(false);
   const [pendingApp, setPendingApp] = useState<{ count: number; rows: any[] }>({ count: 0, rows: [] });
   const [bellOpen, setBellOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [deletedProjects, setDeletedProjects] = useState<any[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [purgeTarget, setPurgeTarget] = useState<any | null>(null);
+  const [purging, setPurging] = useState(false);
   const [activeProject, setActiveProject] = useState<{ id: number; name: string; logoImageUrl?: string | null } | null>(null);
   const [projectDocumentsOpen, setProjectDocumentsOpen] = useState(false);
   const [moduleAccess, setModuleAccess] = useState<Record<number, string[] | null>>({});
@@ -221,6 +231,42 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   function goToPendingSale(sale: any) {
     setBellOpen(false);
     navigate(sale?.projectId ? `/projects/${sale.projectId}/sales` : '/projects');
+  }
+
+  async function loadDeletedProjects() {
+    setHistoryLoading(true);
+    try {
+      const data: any = await api.get<any>('/projects/history');
+      setDeletedProjects(Array.isArray(data) ? data : (data?.items || []));
+    } catch {
+      setDeletedProjects([]);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  async function restaurarProyecto(id: number) {
+    try {
+      await api.post(`/projects/restore/${id}`);
+      setDeletedProjects((prev) => prev.filter((p) => Number(p.id) !== Number(id)));
+      toast('Proyecto restaurado');
+    } catch (e: any) {
+      toast(e.message, 'err');
+    }
+  }
+
+  async function eliminarDefinitivo(id: number) {
+    setPurging(true);
+    try {
+      await api.post(`/projects/purge/${id}`);
+      setDeletedProjects((prev) => prev.filter((p) => Number(p.id) !== Number(id)));
+      setPurgeTarget(null);
+      toast('Proyecto eliminado definitivamente');
+    } catch (e: any) {
+      toast(e.message, 'err');
+    } finally {
+      setPurging(false);
+    }
   }
 
   function GlobalNavButton({ item }: { item: NavItem }) {
@@ -468,6 +514,72 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
               setExchangeRate={setExchangeRate}
             />
           )}
+<div className="relative order-2 md:order-none">
+            {canManage && (
+              <>
+                <button className="relative p-1 text-[#6B7280] hover:text-[#171717]" aria-label="Historial de proyectos" title="Historial de proyectos" onClick={() => { setBellOpen(false); setHistoryOpen((value) => !value); if (!historyOpen) loadDeletedProjects(); }}>
+                  <FiClock style={{ fontSize: 17 }} />
+                </button>
+                {historyOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setHistoryOpen(false)} />
+                <div className="absolute right-0 top-11 z-50 max-h-[70vh] w-[min(24rem,calc(100vw-2rem))] overflow-auto rounded-lg border bg-white shadow-2xl" style={{ borderColor: BRAND.border }}>
+                  <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: BRAND.border }}>
+                    <span className="text-sm font-semibold">Historial de proyectos</span>
+                    <span className="flex items-center gap-2">
+                      <span className="badge bg-softblue" style={{ color: BRAND.blue }}>{deletedProjects.length}</span>
+                      <button
+                        type="button"
+                        onClick={loadDeletedProjects}
+                        disabled={historyLoading}
+                        className="grid h-7 w-7 place-items-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-50"
+                        aria-label="Actualizar historial"
+                        title="Actualizar"
+                      >
+                        <FiRefreshCw className={historyLoading ? 'animate-spin' : ''} style={{ fontSize: 14 }} />
+                      </button>
+                    </span>
+                  </div>
+                  {historyLoading ? (
+                    <p className="px-4 py-6 text-center text-sm text-slate-400">Cargando…</p>
+                  ) : deletedProjects.length === 0 ? (
+                    <p className="flex flex-col items-center gap-1.5 px-4 py-8 text-center text-sm text-slate-400">
+                      <FiCheckCircle style={{ fontSize: 20 }} /> Sin proyectos eliminados
+                    </p>
+                  ) : (
+                    <div className="divide-y">
+                      {deletedProjects.slice(0, 30).map((p) => (
+                        <div key={p.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium">{p.name}</p>
+                            <p className="truncate text-[11px]" style={{ color: BRAND.muted }}>
+                              {p.location || 'Sin ubicacion'}
+                              {p.deletedAt ? ` · ${new Date(p.deletedAt).toLocaleDateString('es-PE')}` : ''}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <button className="btn-neutral !h-8 !px-2.5 text-xs whitespace-nowrap" onClick={() => restaurarProyecto(Number(p.id))}>
+                              <FiRotateCcw /> Restaurar
+                            </button>
+                            <button
+                              className="grid h-8 w-8 place-items-center rounded-md border border-[#FECDD3] bg-[#FFF5F5] text-[#B42318] transition-colors hover:bg-[#FEE4E2]"
+                              onClick={() => setPurgeTarget(p)}
+                              title="Eliminar definitivamente"
+                              aria-label={`Eliminar definitivamente ${p.name}`}
+                            >
+                              <FiTrash2 style={{ fontSize: 14 }} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
+              </>
+            )}
+          </div>
           <div className="relative order-2 md:order-none">
             <button className="relative p-1 text-[#6B7280] hover:text-[#171717]" aria-label="Notificaciones" onClick={() => setBellOpen((value) => !value)}>
               <FiBell style={{ fontSize: 17 }} />
@@ -521,6 +633,55 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
               <button className="btn-neutral !h-8 text-sm" onClick={() => setProjectDocumentsOpen(false)}>Cerrar</button>
             </div>
             <ProjectDocuments projectId={activeProjectId} />
+          </div>
+        </div>
+      )}
+      {purgeTarget && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center p-4 sm:items-center">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !purging && setPurgeTarget(null)} />
+          <div className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-[0_24px_64px_rgba(15,23,42,0.28)]">
+            <div className="h-1.5 w-full" style={{ background: 'linear-gradient(90deg,#7F1D1D,#B42318)' }} />
+            <div className="px-6 pb-6 pt-7">
+              <div className="flex items-start gap-4">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#FEF3F2] text-xl text-[#B42318] ring-1 ring-[#FEE4E2]">
+                  <FiTrash2 />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-[17px] font-semibold leading-snug text-slate-900">Eliminar definitivamente</h3>
+                  <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                    Vas a borrar <span className="font-semibold text-slate-700">{purgeTarget.name}</span> de forma permanente. No se puede deshacer.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-[#FEF3F2] px-3.5 py-3 ring-1 ring-[#FEE4E2]">
+                <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#B42318] text-[11px] font-bold text-white">!</span>
+                <p className="text-xs leading-relaxed text-[#B42318]">
+                  Se borrarán también sus planos, calles, lotes, ventas y pagos. Esta acción no se puede revertir.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50/70 px-6 py-4 sm:flex-row sm:justify-end">
+              <button type="button" className="btn-neutral !h-10 !rounded-xl" onClick={() => setPurgeTarget(null)} disabled={purging}>
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => eliminarDefinitivo(Number(purgeTarget.id))}
+                disabled={purging}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#B42318] px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(180,35,24,0.24)] transition-all hover:bg-[#9A1E14] disabled:opacity-60"
+              >
+                {purging ? (
+                  <>
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    Eliminando…
+                  </>
+                ) : (
+                  <>
+                    <FiTrash2 /> Eliminar definitivamente
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

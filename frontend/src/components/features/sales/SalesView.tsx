@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Toaster, toast, Field, EmptyState } from '@/components/ui/ui';
+import { MetricTile } from '@/components/ui/Metrics';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { api } from '@/lib/api';
 import { normalizePaginated, buildQuery } from '@/lib/pagination';
@@ -12,33 +13,19 @@ import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { printHtml } from '@/lib/print';
 import { FiDownload, FiHome, FiCheckCircle, FiDollarSign, FiTrendingUp, FiPercent, FiBookmark, FiArrowDownCircle, FiCalendar, FiFilter, FiSearch, FiSliders, FiX } from 'react-icons/fi';
 
-// Tarjeta de estadística al estilo del dashboard (MetricTile): icono, acento
-// superior de color y tipografía compacta del proyecto.
-// El numero se auto-escala segun su largo para que SIEMPRE se vea completo
-// (sin truncar con "…"), porque en pantallas angostas una cifra como
-// "S/ 1,234,567" no cabe con el tamaño original.
 function SalesMetric({ label, value, icon, tone = '#1877F2' }: { label: string; value: ReactNode; icon: ReactNode; tone?: string }) {
   const text = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
-  // Longitud total del texto (incluye simbolo y separadores), que es lo que
-  // realmente determina si cabe en el ancho de la tarjeta.
   const len = text.length;
-  const sizeClass = len > 13
-    ? 'text-[10px] sm:text-[11px] lg:text-[12px] xl:text-sm'
-    : len > 10
-      ? 'text-[11px] sm:text-[13px] lg:text-sm xl:text-base'
-      : 'text-[13px] sm:text-base lg:text-[15px] xl:text-lg';
+  const valueSize = len > 13 ? 'sm:text-[13px] lg:text-sm' : len > 10 ? 'sm:text-sm lg:text-base' : 'sm:text-base lg:text-[18px]';
 
   return (
-    <div className="relative min-w-0 overflow-hidden rounded-lg border bg-white px-3 py-3.5 sm:px-3 sm:py-3" style={{ borderColor: '#E5E7EB', boxShadow: '0 1px 2px rgba(16,24,40,.04)' }}>
-      <div className="absolute inset-x-0 top-0 h-0.5" style={{ background: tone }} />
-      <div className="flex min-w-0 items-start justify-between gap-1.5 sm:gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-medium leading-tight sm:text-[11px]" style={{ color: '#6B7280' }} title={label}>{label}</p>
-          <p className={`mt-1 whitespace-nowrap font-semibold leading-tight tabular-nums ${sizeClass}`} style={{ color: '#111827' }} title={text || undefined}>{value}</p>
-        </div>
-        <span className="hidden h-7 w-7 shrink-0 place-items-center rounded-md text-sm md:grid" style={{ background: `${tone}12`, color: tone }}>{icon}</span>
-      </div>
-    </div>
+    <MetricTile
+      label={label}
+      value={<span className={valueSize}>{value}</span>}
+      icon={icon}
+      tone={tone}
+      truncateLabel
+    />
   );
 }
 
@@ -549,7 +536,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             setExchangeRate={setDisplayRate}
           />
         </div>
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-4">
+        <div className="kpi-grid-7">
           <SalesMetric label="Area Vendida m2" value={soldArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} icon={<FiHome />} tone="#1259C4" />
           <SalesMetric label="Lotes vendidos" value={String(totalSales)} icon={<FiCheckCircle />} tone="#0F8B5F" />
           <SalesMetric label="Monto total vendido" value={show(total)} icon={<FiDollarSign />} tone="#171717" />

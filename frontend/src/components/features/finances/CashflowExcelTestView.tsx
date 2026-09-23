@@ -125,13 +125,13 @@ function SectionTitle({ section, color }: { section: { id: string; label: string
 
     return (
         <div className="flex min-w-0 items-center gap-2">
-            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md border bg-white/80" style={{ borderColor: `${color}40`, color }}>
+            <span className="hidden h-7 w-7 shrink-0 place-items-center rounded-md border bg-white/80 md:grid" style={{ borderColor: `${color}40`, color }}>
                 <Icon size={15} aria-hidden="true" />
             </span>
             <div className="min-w-0">
-                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <div className="flex min-w-0 flex-nowrap items-center gap-2 md:flex-wrap">
                     {isCostDetail && (
-                        <span className="rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ borderColor: '#0EA5A94D', color: '#0F766E', background: '#ECFEFF' }}>
+                        <span className="hidden rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide md:inline" style={{ borderColor: '#0EA5A94D', color: '#0F766E', background: '#ECFEFF' }}>
                             Costo
                         </span>
                     )}
@@ -594,15 +594,15 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     <table className="w-max border-collapse text-xs">
                         <thead className="sticky top-0 z-[15]">
                             <tr>
-                                <th className="min-w-[150px] border border-slate-200 bg-[#F8FAFC] px-3 py-3 text-left text-slate-500 md:sticky md:left-0 md:z-20 md:min-w-[240px] md:px-4">Concepto</th>
+                                <th className="w-[70px] min-w-[70px] max-w-[70px] border border-slate-200 bg-[#F8FAFC] px-2 py-3 text-left text-slate-500 md:sticky md:left-0 md:z-20 md:w-[240px] md:min-w-[240px] md:max-w-none md:px-4">Concepto</th>
                                 <th className="min-w-[78px] border border-[#0F4C9A] bg-[#1259C4] px-2 py-3 text-right text-sm font-extrabold text-white shadow-sm md:sticky md:left-[240px] md:z-20 md:min-w-[100px]">Total</th>
                                 {visibleYears.map((year) => (
                                     <th key={year} className="w-[104px] min-w-[104px] border border-slate-200 px-2 py-3 text-center font-semibold" style={{ background: BRAND.blue, color: '#fff' }}>{year}</th>
                                 ))}
                             </tr>
                             <tr>
-                                <th className="border border-slate-200 bg-[#F8FAFC] px-3 py-2 text-left text-[11px] font-semibold md:sticky md:left-0 md:z-20 md:px-4" style={{ color: BRAND.muted }}>Proyección anual</th>
-                                <th className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2 text-right text-[11px] font-bold text-[#1259C4] md:sticky md:left-[240px] md:z-20">Suma</th>
+                                <th className="w-[70px] min-w-[70px] max-w-[70px] border border-slate-200 bg-[#F8FAFC] px-2 py-2 text-left text-[11px] font-semibold md:sticky md:left-0 md:z-20 md:w-[240px] md:min-w-[240px] md:max-w-none md:px-4" style={{ color: BRAND.muted }}><span className="block truncate md:whitespace-normal">Proyección anual</span></th>
+                                <th className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2 text-right text-[11px] font-bold text-[#1259C4] md:sticky md:left-[240px] md:z-20"></th>
                                 {visibleYears.map((_, year) => (
                                     <th key={year} className="w-[104px] min-w-[104px] border border-slate-200 px-2 py-2 text-center text-[11px] font-medium" style={{ background: year === 0 ? '#D3E4FD' : '#EAF7EE', color: year === 0 ? BRAND.blueDark : '#125A3B' }}>{baseYear + year}</th>
                                 ))}
@@ -610,12 +610,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         </thead>
                         <tbody>
                             <tr className="hover:bg-slate-50">
-                                <td className="border border-slate-200 bg-[#F8FAFC] px-3 py-2.5 font-semibold text-slate-700 md:sticky md:left-0 md:z-[1] md:px-4">
+                                <td className="w-[70px] min-w-[70px] max-w-[70px] border border-slate-200 bg-[#F8FAFC] px-2 py-2.5 font-semibold text-slate-700 md:sticky md:left-0 md:z-[1] md:w-[240px] md:min-w-[240px] md:max-w-none md:px-4">
                                     <div className="flex items-center gap-2">
-                                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md border bg-white text-[#1259C4]" style={{ borderColor: '#B9D2F4' }}>
+                                        <span className="hidden h-7 w-7 shrink-0 place-items-center rounded-md border bg-white text-[#1259C4] md:grid" style={{ borderColor: '#B9D2F4' }}>
                                             <FiHome size={15} aria-hidden="true" />
                                         </span>
-                                        <span>Venta de lotes por año</span>
+                                        <span className="block truncate md:whitespace-normal">Venta de lotes por año</span>
                                     </div>
                                 </td>
                                 <td className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[240px] md:z-[1]">{displayPlainRowTotal(lotsSoldRow.values)}</td>
@@ -642,7 +642,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     <Fragment key={section.id}>
                                         {sectionRow && (
                                             <tr onClick={() => section.rows.length > 0 && toggleSection(section.id)} className="cursor-pointer">
-                                                <td className="border border-slate-200 px-3 py-2.5 font-bold md:sticky md:left-0 md:z-[1] md:px-4" style={{ background: surface.background, color: surface.color }}>
+                                                <td className="w-[70px] min-w-[70px] max-w-[70px] border border-slate-200 px-2 py-2.5 font-bold md:sticky md:left-0 md:z-[1] md:w-[240px] md:min-w-[240px] md:max-w-none md:px-4" style={{ background: surface.background, color: surface.color }}>
                                                     <SectionTitle section={section} color={COST_DETAIL_SECTIONS.has(section.id) ? '#0EA5A9' : surface.color} />
                                                 </td>
                                                 <td className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[240px] md:z-[1]">{displayRowTotal(sectionRow.values)}</td>
@@ -667,7 +667,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
 
                                             return (
                                                 <tr key={definition.id} className="hover:bg-slate-50">
-                                                    <td className="border border-slate-200 bg-white px-6 py-2 text-slate-700 md:sticky md:left-0 md:z-[1] md:px-8">{definition.label}</td>
+                                                    <td className="w-[70px] min-w-[70px] max-w-[70px] border border-slate-200 bg-white px-2 py-2 text-slate-700 md:sticky md:left-0 md:z-[1] md:w-[240px] md:min-w-[240px] md:max-w-none md:px-8"><span className="block truncate md:whitespace-normal">{definition.label}</span></td>
                                                     <td className="border border-[#B9D2F4] bg-[#F4F8FE] px-2 py-2 text-right tabular-nums text-[#5277A8] md:sticky md:left-[240px] md:z-[1]">{displayRowTotal(item.values)}</td>
                                                     {item.values.slice(0, visibleYears.length).map((value, year) => (
                                                         <td key={`${definition.id}-${year}`} className="border border-slate-200 bg-white px-1 py-1">
@@ -701,7 +701,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 <th colSpan={visibleYears.length + 2} className="border border-slate-300 bg-white px-4 py-2 text-left text-base font-bold" style={{ color: BRAND.blue }}>Utilidad Acumulada</th>
                             </tr>
                             <tr>
-                        <th className="w-[240px] min-w-[240px] border border-slate-300 bg-[#F8FAFC] px-4 py-2 text-left text-[11px] font-semibold text-slate-500">Concepto</th>
+                        <th className="w-[70px] min-w-[70px] max-w-[70px] border border-slate-300 bg-[#F8FAFC] px-2 py-2 text-left text-[11px] font-semibold text-slate-500 md:w-[240px] md:min-w-[240px] md:max-w-none md:px-4">Concepto</th>
                         <th className="w-[78px] min-w-[78px] border border-[#0F4C9A] bg-[#1259C4] px-2 py-2 text-right text-sm font-extrabold text-white shadow-sm">Total</th>
                                 {visibleYears.map((year) => <th key={year} className="w-[104px] min-w-[104px] border border-slate-300 bg-[#F8FAFC] px-2 py-2 text-center text-[11px] font-semibold text-slate-500">{year}</th>)}
                             </tr>
@@ -712,7 +712,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 { label: 'Utilidad Ajustada Referencial Acumulada Neta', values: accumulatedProfit, tone: BRAND.blue },
                             ].map((item) => (
                                 <tr key={item.label}>
-                                    <td className="w-[240px] min-w-[240px] border border-slate-300 px-4 py-2.5 font-bold" style={{ background: '#D3E4FD', color: item.tone }}>{item.label}</td>
+                                    <td className="w-[70px] min-w-[70px] max-w-[70px] border border-slate-300 px-2 py-2.5 font-bold md:w-[240px] md:min-w-[240px] md:max-w-none md:px-4" style={{ background: '#D3E4FD', color: item.tone }}><span className="block truncate md:whitespace-normal">{item.label}</span></td>
                                     <td className="w-[78px] min-w-[78px] border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4]">{displayRowTotal(item.values)}</td>
                                     {item.values.slice(0, visibleYears.length).map((value, year) => (
                                         <td key={`${item.label}-${year}`} className="w-[104px] min-w-[104px] border border-slate-300 px-2 py-2.5 text-right font-bold tabular-nums" style={{ background: '#D3E4FD', color: BRAND.ink }}>{formatInteger(value)}</td>

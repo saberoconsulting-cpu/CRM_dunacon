@@ -30,6 +30,9 @@ export class CampaignEntity {
   @Column({ length: 20, default: 'active' })
   status: string;
 
+  @Column({ name: 'created_by', nullable: true })
+  createdBy: number;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

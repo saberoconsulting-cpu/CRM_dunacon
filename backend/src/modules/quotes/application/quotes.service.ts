@@ -1,5 +1,5 @@
 // modules/quotes/application/quotes.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { QuoteEntity } from '../../../shared/infrastructure/entities/quote.entity';
@@ -19,6 +19,12 @@ export class QuotesService {
     @InjectRepository(BlockEntity) private readonly blockRepo: Repository<BlockEntity>,
     @InjectRepository(ProjectEntity) private readonly projectRepo: Repository<ProjectEntity>,
   ) {}
+
+  private assertOwner(quote: QuoteEntity, actorId?: number) {
+    if (actorId && Number(quote.createdBy) !== Number(actorId)) {
+      throw new ForbiddenException('No tienes acceso a esta cotizacion');
+    }
+  }
 
   async create(dto: CreateQuoteDto, actorId: number) {
     const bonoDescuento = Number(dto.bonoDescuentoUsd || 0);
@@ -65,7 +71,7 @@ export class QuotesService {
     return this.quoteRepo.save(quote);
   }
 
-  async list(filters: ListQuotesDto) {
+  async list(filters: ListQuotesDto, actorId?: number) {
     const { page, limit, skip } = normalizePagination(filters.page, filters.limit, 10);
 
     const qb = this.quoteRepo
@@ -75,7 +81,7 @@ export class QuotesService {
         'q.id', 'q.projectId', 'q.lotId', 'q.clientName', 'q.clientEmail', 'q.clientPhone',
         'q.finalPriceUsd', 'q.cuotaInicialUsd', 'q.totalCuotas', 'q.paymentMethod',
         'q.interestType', 'q.tea', 'q.valorCuotaUsd', 'q.exchangeRate', 'q.status', 'q.createdAt',
-        'q.graceMonths', 'q.initialPaymentMode', 'q.initialParts',
+        'q.graceMonths', 'q.initialPaymentMode', 'q.initialParts', 'q.createdBy',
       ])
       .addSelect([
         'l.code AS "lotCode"',
@@ -85,6 +91,7 @@ export class QuotesService {
       ]);
 
     if (filters.projectId) qb.andWhere('q.project_id = :projectId', { projectId: filters.projectId });
+    if (actorId) qb.andWhere('q.created_by = :actorId', { actorId });
     if (filters.lotId) qb.andWhere('q.lot_id = :lotId', { lotId: filters.lotId });
     if (filters.status) qb.andWhere('q.status = :status', { status: filters.status });
     if (filters.paymentMethod) qb.andWhere('q.payment_method = :paymentMethod', { paymentMethod: filters.paymentMethod });
@@ -131,16 +138,18 @@ export class QuotesService {
     return buildPaginatedResult(items, total, page, limit);
   }
 
-  async updateStatus(id: number, status: 'enviada' | 'desestimada' | 'actualizada') {
+  async updateStatus(id: number, status: 'enviada' | 'desestimada' | 'actualizada', actorId?: number) {
     const quote = await this.quoteRepo.findOne({ where: { id } });
     if (!quote) throw new NotFoundException('Cotizacion no encontrada');
+    this.assertOwner(quote, actorId);
     quote.status = status;
     return this.quoteRepo.save(quote);
   }
 
-  async recalculate(id: number, dto: RecalculateQuoteDto) {
+  async recalculate(id: number, dto: RecalculateQuoteDto, actorId?: number) {
     const quote = await this.quoteRepo.findOne({ where: { id } });
     if (!quote) throw new NotFoundException('Cotizacion no encontrada');
+    this.assertOwner(quote, actorId);
 
     if (dto.exchangeRate != null && dto.exchangeRate > 0) quote.exchangeRate = String(dto.exchangeRate);
 
@@ -174,9 +183,10 @@ export class QuotesService {
     return this.quoteRepo.save(quote);
   }
 
-  async getOne(id: number) {
+  async getOne(id: number, actorId?: number) {
     const quote = await this.quoteRepo.findOne({ where: { id } });
     if (!quote) throw new NotFoundException('Cotizacion no encontrada');
+    this.assertOwner(quote, actorId);
 
     const [lot, project] = await Promise.all([
       this.lotRepo.findOne({ where: { id: quote.lotId } }),
@@ -186,9 +196,10 @@ export class QuotesService {
     return { quote, lot: lot ? { ...lot, blockId: lot.streetId } : lot, street, block: street, project };
   }
 
-  async schedule(id: number) {
+  async schedule(id: number, actorId?: number) {
     const quote = await this.quoteRepo.findOne({ where: { id } });
     if (!quote) return { rows: [], graceMonths: 0, interestMonths: 0, graceCuota: 0, interestCuota: 0, totalInteres: 0, totalPagar: 0, saldoAlFinGracia: 0, initialPlan: null, saldoAFinanciar: 0 };
+    this.assertOwner(quote, actorId);
     const finalPrice = Math.max(0, Number(quote.finalPriceUsd));
     const cuotaInicial = Math.max(0, Number(quote.cuotaInicialUsd));
     const saldoAFinanciar = Math.max(0, finalPrice - cuotaInicial);
@@ -210,7 +221,7 @@ export class QuotesService {
     }
   }
 
-  async summary(projectId?: number) {
+  async summary(projectId?: number, actorId?: number) {
     const qb = this.quoteRepo
       .createQueryBuilder('q')
       .select([
@@ -224,6 +235,7 @@ export class QuotesService {
       .setParameters({ credito: 'credito', contado: 'contado' });
 
     if (projectId) qb.andWhere('q.project_id = :projectId', { projectId });
+    if (actorId) qb.andWhere('q.created_by = :actorId', { actorId });
 
     const row = await qb.getRawOne();
     return {

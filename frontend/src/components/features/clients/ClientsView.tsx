@@ -16,6 +16,9 @@ export default function ClientsView({ lockedProjectId }: { lockedProjectId?: num
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [agents, setAgents] = useState<any[]>([]);
+  const [role, setRole] = useState('');
+const [currentUserId, setCurrentUserId] = useState<number | null>(null);
+  const [currentAgentName, setCurrentAgentName] = useState('');
   const [fSource, setFSource] = useState('');
   const [fPipeline, setFPipeline] = useState('');
   const [form, setForm] = useState<any>({});
@@ -46,7 +49,23 @@ export default function ClientsView({ lockedProjectId }: { lockedProjectId?: num
 
   useEffect(() => { setPage(1); }, [fSource, fPipeline, lockedProjectId]);
 
-  useEffect(() => { load(); api.get<any[]>('/users/agents').then(setAgents).catch(() => {}); }, [load]);
+  useEffect(() => {
+    let currentRole = '';
+    let currentId: number | null = null;
+    let currentName = '';
+    try {
+      const u = JSON.parse(localStorage.getItem('crm_user') || '{}');
+      currentRole = u.role || '';
+      currentId = u.id || null;
+      currentName = u.name || '';
+    } catch {}
+    setRole(currentRole);
+    setCurrentUserId(currentId);
+    setCurrentAgentName(currentName);
+    load();
+    if (currentRole === 'admin' || currentRole === 'superadmin') api.get<any[]>('/users/agents').then(setAgents).catch(() => {});
+    if (currentRole === 'agent' && currentId) set('agent_id', currentId);
+  }, [load]);
 
   async function crear() {
     if (!form.full_name) return toast('Ingresa el nombre', 'err');
@@ -183,7 +202,13 @@ export default function ClientsView({ lockedProjectId }: { lockedProjectId?: num
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Canal"><select className="input !rounded-xl border-slate-200" value={form.source || 'web'} onChange={(e) => set('source', e.target.value)}>{SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}</select></Field>
-              <Field label="Agente"><select className="input !rounded-xl border-slate-200" value={form.agent_id || 0} onChange={(e) => set('agent_id', Number(e.target.value))}><option value={0}>Sin asignar</option>{agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+              <Field label="Agente">
+                  {role === 'agent' ? (
+                    <input className="input !rounded-xl border-slate-200" value={currentAgentName} readOnly />
+                  ) : (
+                    <select className="input !rounded-xl border-slate-200" value={form.agent_id || 0} onChange={(e) => set('agent_id', Number(e.target.value))}><option value={0}>Sin asignar</option>{agents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+                  )}
+                </Field>
             </div>
             <Field label="Notas"><textarea className="input !h-auto !rounded-xl border-slate-200 py-2" value={form.notes || ''} onChange={(e) => set('notes', e.target.value)} /></Field>
             <div className="flex justify-end gap-2 pt-2">

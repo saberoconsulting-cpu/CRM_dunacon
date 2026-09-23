@@ -24,13 +24,16 @@ export class SalesController {
   constructor(private readonly salesService: SalesService) {}
 
   @Get()
-  list(@Query() query: ListSalesDto) {
-    return this.salesService.list(query);
+  list(@Query() query: ListSalesDto, @CurrentUser() user: AuthUser) {
+    return this.salesService.list({
+      ...query,
+      agentId: user.role === UserRole.AGENT ? user.id : query.agentId,
+    });
   }
 
   @Get('by-lot/:lotId')
-  byLot(@Param('lotId', ParseIntPipe) lotId: number) {
-    return this.salesService.getByLot(lotId);
+  byLot(@Param('lotId', ParseIntPipe) lotId: number, @CurrentUser() user: AuthUser) {
+    return this.salesService.getByLot(lotId, user.role === UserRole.AGENT ? user.id : undefined);
   }
 
   @Get('pending')
@@ -45,12 +48,14 @@ export class SalesController {
     @Query('lotId') lotId?: string,
     @Query('projectId') projectId?: string,
     @Query('search') search?: string,
+    @CurrentUser() user?: AuthUser,
   ) {
     return this.salesService.paymentContext({
       clientId: clientId ? Number(clientId) : undefined,
       lotId: lotId ? Number(lotId) : undefined,
       projectId: projectId ? Number(projectId) : undefined,
       search,
+      agentId: user?.role === UserRole.AGENT ? user.id : undefined,
     });
   }
 
@@ -58,23 +63,24 @@ export class SalesController {
   paymentSearch(
     @Query('q') q?: string,
     @Query('projectId') projectId?: string,
+    @CurrentUser() user?: AuthUser,
   ) {
-    return this.salesService.paymentSearch(q, projectId ? Number(projectId) : undefined);
+    return this.salesService.paymentSearch(q, projectId ? Number(projectId) : undefined, user?.role === UserRole.AGENT ? user.id : undefined);
   }
 
   @Get('lot/:lotId/history')
-  lotPaymentHistory(@Param('lotId', ParseIntPipe) lotId: number) {
-    return this.salesService.lotPaymentHistory(lotId);
+  lotPaymentHistory(@Param('lotId', ParseIntPipe) lotId: number, @CurrentUser() user: AuthUser) {
+    return this.salesService.lotPaymentHistory(lotId, user.role === UserRole.AGENT ? user.id : undefined);
   }
 
   @Get('payment/:paymentId/history')
-  paymentHistory(@Param('paymentId', ParseIntPipe) paymentId: number) {
-    return this.salesService.paymentHistory(paymentId);
+  paymentHistory(@Param('paymentId', ParseIntPipe) paymentId: number, @CurrentUser() user: AuthUser) {
+    return this.salesService.paymentHistory(paymentId, user.role === UserRole.AGENT ? user.id : undefined);
   }
 
   @Get(':id/schedule')
-  schedule(@Param('id', ParseIntPipe) id: number) {
-    return this.salesService.schedule(id);
+  schedule(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.salesService.schedule(id, user.role === UserRole.AGENT ? user.id : undefined);
   }
 
   @Post('approve/:id')

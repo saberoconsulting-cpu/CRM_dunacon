@@ -1,5 +1,5 @@
 // modules/clients/application/clients.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { ClientEntity } from '../../../shared/infrastructure/entities/client.entity';
@@ -66,9 +66,10 @@ export class ClientsService {
     return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
   }
 
-  async getOne(id: number) {
+  async getOne(id: number, agentId?: number) {
     const client = await this.clientRepo.findOne({ where: { id } });
     if (!client) throw new NotFoundException('Cliente no encontrado');
+    if (agentId && Number(client.agentId) !== Number(agentId)) throw new ForbiddenException('No tienes acceso a este cliente');
     const [contacts, lots, payments, sales] = await Promise.all([
       this.contactRepo.find({ where: { clientId: id }, order: { createdAt: 'DESC' } }),
       this.lotRepo.find({ where: { clientId: id } }),
@@ -78,33 +79,41 @@ export class ClientsService {
     return { ...client, contacts, lots, payments, sales };
   }
 
-  async update(id: number, dto: CreateClientDto, actorId: number) {
+  async update(id: number, dto: CreateClientDto, actorId: number, agentId?: number) {
     const client = await this.clientRepo.findOne({ where: { id } });
     if (!client) throw new NotFoundException('Cliente no encontrado');
+    if (agentId && Number(client.agentId) !== Number(agentId)) throw new ForbiddenException('No tienes acceso a este cliente');
     Object.assign(client, dto);
     const saved = await this.clientRepo.save(client);
     await this.audit(actorId, 'EDITAR_CLIENTE', 'clients', id);
     return saved;
   }
 
-  async setPipeline(id: number, pipelineStatus: string) {
+  async setPipeline(id: number, pipelineStatus: string, agentId?: number) {
     const client = await this.clientRepo.findOne({ where: { id } });
     if (!client) throw new NotFoundException('Cliente no encontrado');
+    if (agentId && Number(client.agentId) !== Number(agentId)) throw new ForbiddenException('No tienes acceso a este cliente');
     client.pipelineStatus = pipelineStatus;
     return this.clientRepo.save(client);
   }
 
-  async addContact(id: number, dto: AddContactDto, userId: number) {
+  async addContact(id: number, dto: AddContactDto, userId: number, agentId?: number) {
+    if (agentId) {
+      const client = await this.clientRepo.findOne({ where: { id } });
+      if (!client) throw new NotFoundException('Cliente no encontrado');
+      if (Number(client.agentId) !== Number(agentId)) throw new ForbiddenException('No tienes acceso a este cliente');
+    }
     return this.contactRepo.save({ clientId: id, note: dto.note, userId });
   }
 
-  async metricsByChannel(projectId?: number) {
+  async metricsByChannel(projectId?: number, agentId?: number) {
     const qb = this.clientRepo
       .createQueryBuilder('c')
       .select('c.source', 'channel')
       .addSelect('COUNT(*)', 'total')
       .groupBy('c.source');
     if (projectId) qb.where('c.project_interest_id = :projectId', { projectId });
+    if (agentId) qb.andWhere('c.agent_id = :agentId', { agentId });
     const rows = await qb.getRawMany();
     return rows.map((r) => ({ channel: r.channel, total: Number(r.total) }));
   }

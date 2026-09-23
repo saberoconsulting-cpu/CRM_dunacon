@@ -4,7 +4,7 @@ import Layout from '@/components/layout/Layout';
 import { Toaster, toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api, uploadFile } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { FiCamera, FiEdit3, FiMap, FiMapPin, FiMoreVertical, FiTrash2 } from 'react-icons/fi';
+import { FiAlertTriangle, FiCamera, FiEdit3, FiMap, FiMapPin, FiMoreVertical, FiTrash2, FiX } from 'react-icons/fi';
 import { BRAND, Project, formatMoney } from '@/lib/types';
 import ProjectsMap from '@/components/features/projects/ProjectsMap';
 
@@ -18,6 +18,8 @@ export default function ProjectsPage() {
   const [openMap, setOpenMap] = useState(false);
   const [mapProjectId, setMapProjectId] = useState<number | null>(null);
   const [actionsProjectId, setActionsProjectId] = useState<number | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<Project | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [form, setForm] = useState<any>({});
   const [cover, setCover] = useState<File | null>(null);
   const [logo, setLogo] = useState<File | null>(null);
@@ -85,18 +87,18 @@ export default function ProjectsPage() {
   }
 
   async function eliminarProyecto(id: number) {
-    const proyecto = projects.find((p) => p.id === id);
-    if (!confirm(`¿Eliminar el proyecto "${proyecto?.name || 'Proyecto'}"?\nSe quitarán también planos, calles, lotes, ventas y pagos de ese proyecto. Esta acción no se puede deshacer.`)) return;
+    setDeleting(true);
     try {
       await api.post(`/projects/delete/${id}`);
       toast('Proyecto eliminado');
       setProjects((prev) => prev.filter((x) => x.id !== id));
-    } catch (e: any) { toast(e.message, 'err'); }
+      setConfirmDelete(null);
+    } catch (e: any) { toast(e.message, 'err'); } finally { setDeleting(false); }
   }
 
   useEffect(() => {
     const role = JSON.parse(localStorage.getItem('crm_user') || '{}').role;
-    setCanEdit(role === 'superadmin' || role === 'admin');
+    setCanEdit(role === 'superadmin');
     api.get<any>('/projects').then(setProjects).catch((e) => toast(e.message, 'err')).finally(() => setLoading(false));
   }, []);
 
@@ -160,7 +162,7 @@ export default function ProjectsPage() {
                           <button
                             type="button"
                             className="flex h-9 w-full items-center gap-2 rounded px-2 text-left text-sm text-[#B42318] hover:bg-red-50"
-                            onClick={() => { setActionsProjectId(null); eliminarProyecto(p.id); }}
+                            onClick={() => { setActionsProjectId(null); setConfirmDelete(p); }}
                           >
                             <FiTrash2 className="shrink-0" />
                             <span className="truncate">Eliminar</span>
@@ -254,6 +256,96 @@ export default function ProjectsPage() {
           </div>
         </div>
       )}
+      {confirmDelete && (
+        <div className="fixed inset-0 z-[60] flex items-end justify-center p-4 sm:items-center">
+          <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm" onClick={() => !deleting && setConfirmDelete(null)} />
+          <div className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-[0_24px_64px_rgba(15,23,42,0.28)]">
+            <div className="h-1.5 w-full" style={{ background: 'linear-gradient(90deg,#B42318,#E11D48)' }} />
+
+            <button
+              type="button"
+              onClick={() => !deleting && setConfirmDelete(null)}
+              disabled={deleting}
+              className="absolute right-3 top-4 grid h-8 w-8 place-items-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 disabled:opacity-40"
+              aria-label="Cerrar"
+            >
+              <FiX />
+            </button>
+
+            <div className="px-6 pb-6 pt-7">
+              <div className="flex items-start gap-4">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-[#FEF3F2] text-xl text-[#B42318] ring-1 ring-[#FEE4E2]">
+                  <FiAlertTriangle />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-[17px] font-semibold leading-snug text-slate-900">Eliminar proyecto</h3>
+                  <p className="mt-1 text-sm leading-relaxed text-slate-500">
+                    Vas a eliminar <span className="font-semibold text-slate-700">{confirmDelete.name}</span>. Los lotes, ventas y pagos quedarán guardados.
+                  </p>
+                </div>
+              </div>
+
+              {confirmDelete.stats && (
+                <div className="mt-5 grid grid-cols-4 gap-2 rounded-xl border border-slate-200 bg-slate-50/70 p-3 text-center">
+                  <div>
+                    <div className="text-base font-bold tabular-nums text-slate-800">{confirmDelete.stats.total}</div>
+                    <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Lotes</div>
+                  </div>
+                  <div>
+                    <div className="text-base font-bold tabular-nums text-emerald-600">{confirmDelete.stats.disponibles}</div>
+                    <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Disp.</div>
+                  </div>
+                  <div>
+                    <div className="text-base font-bold tabular-nums text-amber-600">{confirmDelete.stats.reservados + confirmDelete.stats.adelantos + confirmDelete.stats.primeras}</div>
+                    <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400">En curso</div>
+                  </div>
+                  <div>
+                    <div className="text-base font-bold tabular-nums text-[#1877F2]">{confirmDelete.stats.vendidos}</div>
+                    <div className="text-[10px] font-medium uppercase tracking-wide text-slate-400">Vend.</div>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 flex items-start gap-2.5 rounded-xl bg-[#EAF3FF] px-3.5 py-3">
+                <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#1877F2] text-[11px] font-bold text-white">i</span>
+                <p className="text-xs leading-relaxed text-[#1355C4]">
+                  Puedes recuperarlo cuando quieras desde <span className="font-semibold">Historial de proyectos</span>, en la barra superior.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-col-reverse gap-2 border-t border-slate-100 bg-slate-50/70 px-6 py-4 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                className="btn-neutral !h-10 !rounded-xl"
+                onClick={() => setConfirmDelete(null)}
+                disabled={deleting}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => eliminarProyecto(confirmDelete.id)}
+                disabled={deleting}
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-[#B42318] px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(180,35,24,0.24)] transition-all hover:bg-[#9A1E14] disabled:opacity-60"
+              >
+                {deleting ? (
+                  <>
+                    <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                    Eliminando…
+                  </>
+                ) : (
+                  <>
+                    <FiTrash2 /> Eliminar proyecto
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
       {openMap && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-3">
           <div className="absolute inset-0 bg-black/60" onClick={() => setOpenMap(false)} />

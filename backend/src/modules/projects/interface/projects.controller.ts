@@ -20,7 +20,7 @@ import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard'
 import { RolesGuard } from '../../../shared/application/guards/roles.guard';
 import { Roles } from '../../../shared/application/decorators/roles.decorator';
 import { UserRole } from '../../../shared/domain/enums';
-import { CurrentUser } from '../../../shared/application/decorators/current-user.decorator';
+import { CurrentUser, AuthUser } from '../../../shared/application/decorators/current-user.decorator';
 
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('projects')
@@ -28,8 +28,8 @@ export class ProjectsController {
   constructor(private readonly projectsService: ProjectsService) {}
 
   @Get()
-  list() {
-    return this.projectsService.list();
+  list(@CurrentUser() user: AuthUser) {
+    return this.projectsService.list(user);
   }
 
   @Get('dashboard/:id')
@@ -37,6 +37,11 @@ export class ProjectsController {
     return this.projectsService.dashboard(id);
   }
 
+  @Get('history')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  history() {
+    return this.projectsService.history();
+  }
   @Get(':id/documents')
   listDocuments(@Param('id', ParseIntPipe) id: number) {
     return this.projectsService.listDocuments(id);
@@ -80,6 +85,24 @@ export class ProjectsController {
     @CurrentUser('id') actorId: number,
   ) {
     return this.projectsService.setStatus(id, status, actorId);
+  }
+
+  @Post('restore/:id')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  restore(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser('id') actorId: number,
+  ) {
+    return this.projectsService.restore(id, actorId);
+  }
+
+  @Post('purge/:id')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  purge(
+    @Param('id', ParseIntPipe) id: number,
+    @CurrentUser('id') actorId: number,
+  ) {
+    return this.projectsService.purge(id, actorId);
   }
 
   @Post('cover/:id')

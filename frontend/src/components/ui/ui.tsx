@@ -3,6 +3,7 @@
 // Componentes UI reutilizables: estados, tarjetas, modales, toast
 import { ReactNode, useState as useReactState } from 'react';
 import { LotStatus, LOT_STATUS_LABEL, LOT_STATUS_COLOR } from '@/lib/types';
+import { KpiCardShell, KpiCardValue } from '@/components/ui/Metrics';
 
 // Badge de estado de lote con color
 export function StatusBadge({ status }: { status: string }) {
@@ -31,22 +32,24 @@ export function LegendChips() {
   );
 }
 
-// Tarjeta de estadística con acento superior de marca
+// Tarjeta de estadística con acento superior de marca.
+// Reutiliza el diseno base de las tarjetas KPI del sistema (Metrics.tsx), para
+// que TODAS las pantallas muestren tarjetas del mismo tamano y alto.
 export function StatCard({ label, value, color = '#171717', delta, deltaUp, date }: {
   label: string; value: ReactNode; color?: string; delta?: string; deltaUp?: boolean; date?: string;
 }) {
   const isText = typeof value === 'string' || typeof value === 'number';
   return (
-    <div className="card card-kpi min-w-0 !p-3 sm:!p-5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 truncate font-medium" style={{ fontSize: 12, color: '#6B7280' }}>{label}</span>
+    <KpiCardShell tone="#1877F2" ring="#1877F21F" className="justify-between">
+      <div className="relative flex items-center justify-between gap-2">
+        <span className="min-w-0 truncate text-[11px] font-semibold uppercase tracking-wide" style={{ color: '#6B7280' }}>{label}</span>
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#1877F2]" />
       </div>
-      <div className="mt-1.5 truncate font-bold tabular-nums text-lg sm:text-2xl" style={{ color }}>
-        {isText ? <span className="block truncate">{value}</span> : value}
+      <div className="relative mt-1.5">
+        {isText ? <KpiCardValue tone={color}>{value}</KpiCardValue> : value}
       </div>
       {(delta || date) && (
-        <div className="mt-1 flex items-center gap-2">
+        <div className="relative mt-1 flex items-center gap-2">
           {delta && (
             <span className="inline-flex items-center gap-1 text-xs font-semibold" style={{ color: deltaUp ? '#257849' : '#6B7280' }}>
               {deltaUp ? '▲' : '●'} {delta}
@@ -55,7 +58,7 @@ export function StatCard({ label, value, color = '#171717', delta, deltaUp, date
           {date && <span className="text-[11px]" style={{ color: '#9AA1AB' }}>{date}</span>}
         </div>
       )}
-    </div>
+    </KpiCardShell>
   );
 }
 

@@ -39,6 +39,9 @@ export class ProjectEntity {
   @Column({ name: 'reference_price', type: 'numeric', precision: 14, scale: 2, nullable: true })
   referencePrice: string;
 
+  @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

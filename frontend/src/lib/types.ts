@@ -93,6 +93,7 @@ export interface Project {
   logoImageUrl?: string;
   status: 'active' | 'inactive';
   referencePrice?: number;
+  deletedAt?: string | null;
   stats?: { total: number; disponibles: number; reservados: number; adelantos: number; primeras: number; vendidos: number };
 }
 

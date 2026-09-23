@@ -1,5 +1,5 @@
 // modules/finances/application/finances.service.ts
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { FinancialTransactionEntity } from '../../../shared/infrastructure/entities/financial-transaction.entity';
@@ -69,11 +69,19 @@ export class FinancesService {
   }
 
   async importSpreadsheet(buffer: Buffer, actorId: number, projectId?: number) {
-    const workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
-    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    if (!firstSheet) throw new Error('El archivo no contiene hojas');
+    let workbook: XLSX.WorkBook;
+    try {
+      workbook = XLSX.read(buffer, { type: 'buffer', cellDates: true });
+    } catch {
+      throw new BadRequestException('No se pudo leer el archivo. Verifica que sea un Excel o CSV valido.');
+    }
+
+    const sheetName = workbook.SheetNames?.[0];
+    const firstSheet = sheetName ? workbook.Sheets[sheetName] : null;
+    if (!firstSheet) throw new BadRequestException('El archivo no contiene hojas con datos');
+
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: null, raw: true });
-    if (!rows.length) throw new Error('La primera hoja no contiene filas de datos');
+    if (!rows.length) throw new BadRequestException('La primera hoja no contiene filas de datos');
 
     const normalized = (value: unknown) => String(value ?? '')
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -92,6 +100,19 @@ export class FinancesService {
       const date = new Date(String(value ?? ''));
       return Number.isNaN(date.getTime()) ? undefined : date;
     };
+
+    const headers = Object.keys(rows[0] || {});
+    const hasConcept = headers.some((h) => ['concepto', 'descripcion', 'detalle', 'description', 'concept'].includes(normalized(h)));
+    const hasAmount = headers.some((h) => ['monto', 'importe', 'amount', 'valor', 'total', 'ingreso', 'ingresos', 'entrada', 'egreso', 'egresos', 'salida', 'income', 'expense'].includes(normalized(h)));
+    if (!hasConcept || !hasAmount) {
+      const faltantes = [!hasConcept ? 'CONCEPTO' : null, !hasAmount ? 'MONTO (o Ingreso/Egreso)' : null].filter(Boolean).join(' y ');
+      throw new BadRequestException(
+        `El archivo no coincide con el formato esperado: falta la columna ${faltantes}. ` +
+        `Columnas encontradas: ${headers.slice(0, 8).map((h) => `"${h}"`).join(', ') || 'ninguna'}. ` +
+        'Se aceptan encabezados como Concepto, Monto, Fecha, Tipo, Categoria.',
+      );
+    }
+
     const imported: FinancialTransactionEntity[] = [];
     const rejected: { row: number; reason: string }[] = [];
 
@@ -107,18 +128,24 @@ export class FinancesService {
       const amounts = rawIncome !== undefined || rawExpense !== undefined
         ? [{ type: 'ingreso', amount: Math.abs(numberValue(rawIncome)) }, { type: 'egreso', amount: Math.abs(numberValue(rawExpense)) }]
         : [{ type: defaultType, amount: Math.abs(numberValue(rawAmount)) }];
-      const validAmounts = amounts.filter((item) => item.amount > 0);
+      const validAmounts = amounts.filter((item) => item.amount > 0 && Number.isFinite(item.amount));
       if (!concept || !validAmounts.length) {
-        rejected.push({ row: index + 2, reason: 'Falta concepto o monto válido' });
+        rejected.push({ row: index + 2, reason: !concept ? 'Sin concepto' : 'Monto vacio o no numerico' });
         continue;
       }
       const txnDate = dateValue(field(row, ['fecha', 'date', 'fechamovimiento', 'periodo'])) || new Date();
-      const category = String(field(row, ['categoria', 'category', 'rubro', 'cuenta']) ?? 'importado').trim().slice(0, 80);
+      const category = String(field(row, ['categoria', 'category', 'rubro', 'cuenta']) ?? 'importado').trim().slice(0, 80) || 'importado';
       for (const item of validAmounts) {
         imported.push(this.txnRepo.create({ projectId, createdBy: actorId, type: item.type, category, concept: concept.slice(0, 255), amount: item.amount.toFixed(2), txnDate }));
       }
     }
-    if (!imported.length) throw new Error('No se encontraron movimientos válidos en la primera hoja');
+
+    if (!imported.length) {
+      const detalle = rejected.slice(0, 5).map((r) => `Fila ${r.row}: ${r.reason}`).join(' · ');
+      throw new BadRequestException(
+        `Ninguna fila pudo importarse (${rejected.length} con problemas). ${detalle}`,
+      );
+    }
 
     const saved = await this.txnRepo.save(imported);
     for (const transaction of saved.filter((item) => item.type === 'egreso')) {
@@ -134,7 +161,7 @@ export class FinancesService {
     }
     await this.audit(actorId, 'IMPORTAR_FLUJO_CAJA', 'financial_transactions', saved[0]?.id);
     this.gateway.emitToAll('financial.imported', { count: saved.length, projectId });
-    return { imported: saved.length, rejected, sheet: workbook.SheetNames[0] };
+    return { imported: saved.length, rejected, sheet: sheetName };
   }
 
   async transactions(filters: {
@@ -143,26 +170,101 @@ export class FinancesService {
     category?: string;
     from?: string;
     to?: string;
+    search?: string;
     page?: number;
     limit?: number;
   }) {
-    const qb = this.txnRepo.createQueryBuilder('t')
-      .orderBy('t.txn_date', 'DESC');
-    if (filters.projectId) qb.where('t.project_id = :projectId', { projectId: filters.projectId });
-    if (filters.type) qb.andWhere('t.type = :type', { type: filters.type });
-    if (filters.category) qb.andWhere('t.category = :category', { category: filters.category });
-    if (filters.from) qb.andWhere('t.txn_date >= :from', { from: filters.from });
-    if (filters.to) qb.andWhere('t.txn_date <= :to', { to: filters.to });
+    const applyFilters = (qb: any) => {
+      if (filters.projectId) qb.andWhere('t.project_id = :projectId', { projectId: filters.projectId });
+      if (filters.type) qb.andWhere('t.type = :type', { type: filters.type });
+      if (filters.category) qb.andWhere('t.category = :category', { category: filters.category });
+      if (filters.from) qb.andWhere('t.txn_date >= :from', { from: filters.from });
+      if (filters.to) qb.andWhere('t.txn_date <= :to', { to: filters.to });
+      if (filters.search) {
+        qb.andWhere(
+          `(LOWER(t.concept) LIKE :term
+            OR LOWER(t.category) LIKE :term
+            OR LOWER(COALESCE(l.code, '')) LIKE :term
+            OR LOWER(COALESCE(c.full_name, '')) LIKE :term
+            OR LOWER(COALESCE(p.payment_method, '')) LIKE :term)`,
+          { term: `%${filters.search.toLowerCase()}%` },
+        );
+      }
+      return qb;
+    };
+
+    const buildPageQuery = () =>
+      applyFilters(
+        this.txnRepo.createQueryBuilder('t')
+          .leftJoin('lots', 'l', 'l.id = t.lot_id')
+          .leftJoin('clients', 'c', 'c.id = t.client_id')
+          .leftJoin('payments', 'p', 'p.id = t.payment_id')
+          .select('t.id', 'id')
+          .addSelect('t.project_id', 'projectId')
+          .addSelect('t.lot_id', 'lotId')
+          .addSelect('t.client_id', 'clientId')
+          .addSelect('t.type', 'type')
+          .addSelect('t.category', 'category')
+          .addSelect('t.concept', 'concept')
+          .addSelect('t.amount', 'amount')
+          .addSelect('t.txn_date', 'txnDate')
+          .addSelect('l.code', 'lotCode')
+          .addSelect('c.full_name', 'clientName')
+          .addSelect('p.payment_method', 'paymentMethod'),
+      );
+
+    const buildTotalsQuery = () =>
+      applyFilters(
+        this.txnRepo.createQueryBuilder('t')
+          .leftJoin('lots', 'l', 'l.id = t.lot_id')
+          .leftJoin('clients', 'c', 'c.id = t.client_id')
+          .leftJoin('payments', 'p', 'p.id = t.payment_id'),
+      );
+
+    const totals = await buildTotalsQuery()
+      .select('COUNT(*)', 'count')
+      .addSelect('COALESCE(SUM(t.amount), 0)', 'sum')
+      .getRawOne();
+
     if (filters.page || filters.limit) {
       const page = Math.max(1, filters.page ?? 1);
       const limit = Math.min(200, Math.max(1, filters.limit ?? 20));
-      const [items, total] = await qb
-        .skip((page - 1) * limit)
-        .take(limit)
-        .getManyAndCount();
-      return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
+      const rows = await buildPageQuery()
+        .orderBy('t.txn_date', 'DESC')
+        .addOrderBy('t.id', 'DESC')
+        .limit(limit)
+        .offset((page - 1) * limit)
+        .getRawMany();
+      const total = Number(totals?.count || 0);
+      return {
+        items: rows.map((r) => this.mapTransactionRow(r)),
+        total,
+        totalAmount: Number(totals?.sum || 0),
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      };
     }
-    return qb.getMany();
+
+    const rows = await buildPageQuery().orderBy('t.txn_date', 'DESC').addOrderBy('t.id', 'DESC').getRawMany();
+    return rows.map((r) => this.mapTransactionRow(r));
+  }
+
+  private mapTransactionRow(r: any) {
+    return {
+      id: Number(r.id),
+      projectId: r.projectId != null ? Number(r.projectId) : null,
+      lotId: r.lotId != null ? Number(r.lotId) : null,
+      clientId: r.clientId != null ? Number(r.clientId) : null,
+      lotCode: r.lotCode || null,
+      clientName: r.clientName || null,
+      paymentMethod: r.paymentMethod || null,
+      type: r.type,
+      category: r.category,
+      concept: r.concept,
+      amount: r.amount,
+      txnDate: r.txnDate,
+    };
   }
 
   async summary(period: 'daily' | 'weekly' | 'monthly' | 'annual' = 'monthly', projectId?: number) {

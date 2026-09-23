@@ -12,7 +12,8 @@ import {
 import { ClientsService } from '../application/clients.service';
 import { CreateClientDto, AddContactDto } from '../application/dto/client.dto';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
-import { CurrentUser } from '../../../shared/application/decorators/current-user.decorator';
+import { CurrentUser, AuthUser } from '../../../shared/application/decorators/current-user.decorator';
+import { UserRole } from '../../../shared/domain/enums';
 
 @UseGuards(JwtAuthGuard)
 @Controller('clients')
@@ -29,10 +30,11 @@ export class ClientsController {
     @Query('search') search?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @CurrentUser() user?: AuthUser,
   ) {
     return this.clientsService.list({
       projectId: projectId ? Number(projectId) : undefined,
-      agentId: agentId ? Number(agentId) : undefined,
+      agentId: user?.role === UserRole.AGENT ? user.id : (agentId ? Number(agentId) : undefined),
       channel,
       campaignId: campaignId ? Number(campaignId) : undefined,
       pipelineStatus,
@@ -43,40 +45,40 @@ export class ClientsController {
   }
 
   @Get('metrics/channels')
-  metrics(@Query('projectId') projectId?: string) {
-    return this.clientsService.metricsByChannel(projectId ? Number(projectId) : undefined);
+  metrics(@Query('projectId') projectId?: string, @CurrentUser() user?: AuthUser) {
+    return this.clientsService.metricsByChannel(projectId ? Number(projectId) : undefined, user?.role === UserRole.AGENT ? user.id : undefined);
   }
 
   @Get(':id')
-  getOne(@Param('id', ParseIntPipe) id: number) {
-    return this.clientsService.getOne(id);
+  getOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.clientsService.getOne(id, user.role === UserRole.AGENT ? user.id : undefined);
   }
 
   @Post()
-  create(@Body() dto: CreateClientDto, @CurrentUser('id') actorId: number) {
-    return this.clientsService.create(dto, actorId);
+  create(@Body() dto: CreateClientDto, @CurrentUser() user: AuthUser) {
+    return this.clientsService.create(user.role === UserRole.AGENT ? { ...dto, agentId: user.id } : dto, user.id);
   }
 
   @Post('update/:id')
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CreateClientDto,
-    @CurrentUser('id') actorId: number,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.clientsService.update(id, dto, actorId);
+    return this.clientsService.update(id, user.role === UserRole.AGENT ? { ...dto, agentId: user.id } : dto, user.id, user.role === UserRole.AGENT ? user.id : undefined);
   }
 
   @Post('pipeline/:id')
-  setPipeline(@Param('id', ParseIntPipe) id: number, @Body('pipelineStatus') pipelineStatus: string) {
-    return this.clientsService.setPipeline(id, pipelineStatus);
+  setPipeline(@Param('id', ParseIntPipe) id: number, @Body('pipelineStatus') pipelineStatus: string, @CurrentUser() user: AuthUser) {
+    return this.clientsService.setPipeline(id, pipelineStatus, user.role === UserRole.AGENT ? user.id : undefined);
   }
 
   @Post('contact/:id')
   addContact(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: AddContactDto,
-    @CurrentUser('id') userId: number,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.clientsService.addContact(id, dto, userId);
+    return this.clientsService.addContact(id, dto, user.id, user.role === UserRole.AGENT ? user.id : undefined);
   }
 }

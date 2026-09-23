@@ -1,10 +1,13 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { Toaster, toast, EmptyState } from '@/components/ui/ui';
+import { KpiCard, KPI_GRID_6 } from '@/components/ui/Metrics';
 import { api, uploadFile } from '@/lib/api';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
-import { Lot, formatMoney, LOT_STATUS_LABEL, LOT_STATUS_COLOR } from '@/lib/types';
+import { Lot, LOT_STATUS_LABEL, LOT_STATUS_COLOR } from '@/lib/types';
 import { printHtml } from '@/lib/print';
+import CurrencyToggle from '@/components/ui/CurrencyToggle';
+import { CURRENCY_SYMBOL, useDisplayCurrency } from '@/lib/currency';
 import { FiDownload, FiLayers, FiCheckCircle, FiBookmark, FiTrendingUp, FiTag, FiFlag } from 'react-icons/fi';
 
 const PAGE_SIZE = 15;
@@ -23,6 +26,8 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
   const [stats, setStats] = useState({ total: 0, vendidos: 0, separados: 0, disponibles: 0, promocion: 0, segundaEtapa: 0 });
   const [viewMode, setViewMode] = useState<'general' | 'blocks'>('general');
+  const { currency, setCurrency, exchangeRate, setExchangeRate, format: fmt } = useDisplayCurrency();
+  const moneyLabel = CURRENCY_SYMBOL[currency];
 
   useEffect(() => {
     const q = new URLSearchParams();
@@ -104,9 +109,9 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
         <td>${escapeHtml(l.streetAddress || l.blockAddress || '—')}</td>
         <td>${escapeHtml(l.type || '—')}</td>
         <td class="num">${escapeHtml(`${l.areaM2 || 0} m²`)}</td>
-        <td class="num">${escapeHtml(l.price ? formatMoney(l.price) : '—')}</td>
-        <td class="num">${escapeHtml(l.salePrice ? formatMoney(l.salePrice) : '—')}</td>
-        <td class="num">${escapeHtml(l.finalPrice ? formatMoney(l.finalPrice) : '—')}</td>
+        <td class="num">${escapeHtml(l.price ? fmt(l.price) : '—')}</td>
+        <td class="num">${escapeHtml(l.salePrice ? fmt(l.salePrice) : '—')}</td>
+        <td class="num">${escapeHtml(l.finalPrice ? fmt(l.finalPrice) : '—')}</td>
         <td>${escapeHtml(LOT_STATUS_LABEL[l.status])}</td>
         <td>${escapeHtml(l.clientName || '—')}</td>
       </tr>
@@ -119,10 +124,10 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
       <tr class="total">
         <td>${items.length}</td>
         <td colspan="2">Totales</td>
-        <td class="num">${t.pricePerM2 ? `${formatMoney(t.pricePerM2)}/m²` : '—'}</td>
-        <td class="num">${formatMoney(t.totalPrice)}</td>
-        <td class="num">${formatMoney(t.totalVenta)}</td>
-        <td class="num">${formatMoney(t.totalFinal)}</td>
+        <td class="num">${t.pricePerM2 ? `${fmt(t.pricePerM2)}/m²` : '—'}</td>
+        <td class="num">${fmt(t.totalPrice)}</td>
+        <td class="num">${fmt(t.totalVenta)}</td>
+        <td class="num">${fmt(t.totalFinal)}</td>
         <td colspan="2"></td>
       </tr>
     `;
@@ -136,7 +141,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
           <thead>
             <tr>
               <th>Nro. Lote</th><th>Dirección</th><th>Tipo</th><th>Dimensión</th>
-              <th>Precio US$/m2</th><th>Precio Venta US$</th><th>Precio Final US$</th><th>Estado</th><th>Cliente</th>
+              <th>Precio ${moneyLabel}/m2</th><th>Precio Venta ${moneyLabel}</th><th>Precio Final ${moneyLabel}</th><th>Estado</th><th>Cliente</th>
             </tr>
           </thead>
           <tbody>${printRows(items)}${printTotalRow(items)}</tbody>
@@ -195,8 +200,8 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
           <div class="summary">
             <div><span>Lotes</span><strong>${lots.length}</strong></div>
             <div><span>Area total</span><strong>${escapeHtml(`${t.totalArea.toLocaleString('es-PE')} m2`)}</strong></div>
-            <div><span>Precio lista</span><strong>${escapeHtml(formatMoney(t.totalPrice))}</strong></div>
-            <div><span>Precio final</span><strong>${escapeHtml(formatMoney(t.totalFinal))}</strong></div>
+            <div><span>Precio lista</span><strong>${escapeHtml(fmt(t.totalPrice))}</strong></div>
+            <div><span>Precio final</span><strong>${escapeHtml(fmt(t.totalFinal))}</strong></div>
           </div>
           ${content}
           <div class="footer">Dunacon - CRM Inmobiliario</div>
@@ -230,59 +235,56 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                 ) : (
                   <p className="font-bold leading-tight">Calle {header.blockName}</p>
                 )}
-                <p className="text-xs text-slate-500 mt-0.5">{items.length} lotes · {formatMoney(t.totalArea)} m²</p>
+                <p className="text-xs text-slate-500 mt-0.5">{items.length} lotes · {t.totalArea.toLocaleString('es-PE')} m²</p>
               </div>
             </div>
           </div>
         )}
 
         <div className="overflow-x-auto">
-          <table className="table-base" style={{ width: '100%', minWidth: 1260, tableLayout: 'fixed' }}>
+          <table className="table-base text-[12px]" style={{ width: '100%', minWidth: 1060, tableLayout: 'fixed' }}>
             <colgroup>
-              <col style={{ width: '100px' }} />
-              <col style={{ width: '190px' }} />
-              <col style={{ width: '120px' }} />
-              <col style={{ width: '110px' }} />
-              <col style={{ width: '130px' }} />
-              <col style={{ width: '130px' }} />
-              <col style={{ width: '130px' }} />
-              <col style={{ width: '120px' }} />
+              <col style={{ width: '78px' }} />
               <col style={{ width: '150px' }} />
-              <col style={{ width: '220px' }} />
+              <col style={{ width: '86px' }} />
+              <col style={{ width: '84px' }} />
+              <col style={{ width: '108px' }} />
+              <col style={{ width: '118px' }} />
+              <col style={{ width: '118px' }} />
+              <col style={{ width: '104px' }} />
+              <col style={{ width: '116px' }} />
+              <col style={{ width: '98px' }} />
             </colgroup>
             <thead><tr>
-              <th className="th-base" style={{ textAlign: 'left' }}>Nro. Lote</th>
-              <th className="th-base" style={{ textAlign: 'left' }}>Dirección</th>
-              <th className="th-base" style={{ textAlign: 'left' }}>Tipo</th>
-              <th className="th-base" style={{ textAlign: 'left' }}>Dimensión</th>
-              <th className="th-base" style={{ textAlign: 'right' }}>Precio US$/m2</th>
-              <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta US$</th>
-              <th className="th-base" style={{ textAlign: 'right' }}>Precio Final US$</th>
-              <th className="th-base" style={{ textAlign: 'center' }}>Estado</th>
-              <th className="th-base" style={{ textAlign: 'left' }}>Cliente</th>
-              <th className="th-base" style={{ textAlign: 'right' }}></th>
+              <th className="th-base !px-2" style={{ textAlign: 'left' }}>Lote</th>
+              <th className="th-base !px-2" style={{ textAlign: 'left' }}>Dirección</th>
+              <th className="th-base !px-2" style={{ textAlign: 'left' }}>Tipo</th>
+              <th className="th-base !px-2" style={{ textAlign: 'left' }}>Dim.</th>
+              <th className="th-base !px-2" style={{ textAlign: 'right' }}>{moneyLabel}/m2</th>
+              <th className="th-base !px-2" style={{ textAlign: 'right' }}>Venta {moneyLabel}</th>
+              <th className="th-base !px-2" style={{ textAlign: 'right' }}>Final {moneyLabel}</th>
+              <th className="th-base !px-2" style={{ textAlign: 'center' }}>Estado</th>
+              <th className="th-base !px-2" style={{ textAlign: 'left' }}>Cliente</th>
+              <th className="th-base !px-2" style={{ textAlign: 'right' }}></th>
             </tr></thead>
             <tbody className="divide-y divide-slate-100">
               {items.map((l) => (
                 <tr key={l.id} onClick={() => setSelected({ id: l.id })} className="cursor-pointer hover:bg-slate-50">
-                  <td className="td-base font-semibold" style={{ textAlign: 'left' }}>{l.code}</td>
-                  <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.streetAddress || l.blockAddress || '—'}>{l.streetAddress || l.blockAddress || '—'}</td>
-                  <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.type || '—'}>{l.type || '—'}</td>
-                  <td className="td-base" style={{ textAlign: 'left' }}>{l.areaM2} m²</td>
-                  <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.price ? formatMoney(l.price) : '—'}</td>
-                  <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.salePrice ? formatMoney(l.salePrice) : '—'}</td>
-                  <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.finalPrice ? formatMoney(l.finalPrice) : '—'}</td>
-                  <td className="td-base" style={{ textAlign: 'center' }}>
+                  <td className="td-base !px-2 font-semibold" style={{ textAlign: 'left' }}>{l.code}</td>
+                  <td className="td-base !px-2 truncate text-slate-500" style={{ textAlign: 'left' }} title={l.streetAddress || l.blockAddress || '—'}>{l.streetAddress || l.blockAddress || '—'}</td>
+                  <td className="td-base !px-2 truncate text-slate-500" style={{ textAlign: 'left' }} title={l.type || '—'}>{l.type || '—'}</td>
+                  <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'left' }}>{l.areaM2} m²</td>
+                  <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'right' }}>{l.price ? fmt(l.price) : '—'}</td>
+                  <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'right' }}>{l.salePrice ? fmt(l.salePrice) : '—'}</td>
+                  <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'right' }}>{l.finalPrice ? fmt(l.finalPrice) : '—'}</td>
+                  <td className="td-base !px-2" style={{ textAlign: 'center' }}>
                     <span className="badge whitespace-nowrap" style={{ backgroundColor: LOT_STATUS_COLOR[l.status] + '22', color: LOT_STATUS_COLOR[l.status] }}>{LOT_STATUS_LABEL[l.status]}</span>
                   </td>
-                  <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.clientName || '—'}>{l.clientName || '—'}</td>
-                  <td className="td-base" style={{ textAlign: 'right' }}>
+                  <td className="td-base !px-2 truncate text-slate-500" style={{ textAlign: 'left' }} title={l.clientName || '—'}>{l.clientName || '—'}</td>
+                  <td className="td-base !px-2" style={{ textAlign: 'right' }}>
                     <div className="flex justify-end gap-1">
-                      <button className="btn-secondary !h-8 !px-2 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id }); }}>Ver ficha</button>
-                      {l.planVoucherUrl && (
-                        <a className="btn-secondary !h-8 !px-2 text-xs whitespace-nowrap" href={l.planVoucherUrl} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()}>Ver</a>
-                      )}
-                      <label className="btn-primary !h-8 !px-2 text-xs whitespace-nowrap cursor-pointer" onClick={(e) => e.stopPropagation()} title={l.planVoucherUrl ? 'Reemplazar plano/voucher' : 'Subir plano/voucher'}>
+                      <button className="btn-secondary !h-7 !px-2 text-[11px] whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id }); }}>Ficha</button>
+                      <label className="btn-primary !h-7 !px-2 text-[11px] whitespace-nowrap cursor-pointer" onClick={(e) => e.stopPropagation()} title={l.planVoucherUrl ? 'Reemplazar plano/voucher' : 'Subir plano/voucher'}>
                         Plano
                         <input
                           type="file"
@@ -295,7 +297,6 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                           }}
                         />
                       </label>
-                      <button className="btn-danger !h-8 !px-2 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id, focus: 'edit' }); }}>Editar</button>
                     </div>
                   </td>
                 </tr>
@@ -303,12 +304,12 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
             </tbody>
             <tfoot>
               <tr style={{ background: '#0B2F6E' }}>
-                <td className="td-base font-bold text-white" style={{ textAlign: 'left' }}>{items.length}</td>
-                <td className="td-base font-bold text-white" colSpan={2} style={{ textAlign: 'left' }}>Totales</td>
-                <td className="td-base font-bold text-white tabular-nums">{t.pricePerM2 ? `${formatMoney(t.pricePerM2)}/m²` : '—'}</td>
-                <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatMoney(t.totalPrice)}</td>
-                <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatMoney(t.totalVenta)}</td>
-                <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatMoney(t.totalFinal)}</td>
+                <td className="td-base !px-2 font-bold text-white" style={{ textAlign: 'left' }}>{items.length}</td>
+                <td className="td-base !px-2 font-bold text-white" colSpan={2} style={{ textAlign: 'left' }}>Totales</td>
+                <td className="td-base !px-2 font-bold text-white tabular-nums">{t.pricePerM2 ? `${fmt(t.pricePerM2)}/m²` : '—'}</td>
+                <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{fmt(t.totalPrice)}</td>
+                <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{fmt(t.totalVenta)}</td>
+                <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{fmt(t.totalFinal)}</td>
                 <td className="td-base" colSpan={3}></td>
               </tr>
             </tfoot>
@@ -323,38 +324,26 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
       <Toaster />
       <LotDetailModal lotId={selected?.id || null} initialFocus={selected?.focus} onClose={() => setSelected(null)} onChanged={load} />
 
-      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-6">
+      <div className={`mb-4 ${KPI_GRID_6}`}>
         {([
-          { label: 'Lotes Totales', value: stats.total, color: '#1259C4', ring: '#E7F0FE', icon: <FiLayers /> },
-          { label: 'Lotes Vendidos', value: stats.vendidos, color: '#B91C1C', ring: '#FEE2E2', icon: <FiCheckCircle /> },
-          { label: 'Lotes Separados', value: stats.separados, color: '#B45309', ring: '#FEF3C7', icon: <FiBookmark /> },
-          { label: 'Lotes Disponibles', value: stats.disponibles, color: '#047857', ring: '#D1FAE5', icon: <FiTrendingUp /> },
-          { label: 'Lotes Promoción', value: stats.promocion, color: '#7C3AED', ring: '#EDE9FE', icon: <FiTag /> },
-          { label: 'Lotes 2da Etapa', value: stats.segundaEtapa, color: '#0E7490', ring: '#CFFAFE', icon: <FiFlag /> },
-        ] as const).map((k: any) => (
-          <div
-            key={k.label}
-            className="card card-kpi relative min-w-0 overflow-hidden !p-3 transition-all hover:-translate-y-0.5 hover:shadow-lg sm:!p-5"
-            style={{ borderTop: `3px solid ${k.color}` }}
-          >
-            <div
-              className="absolute -right-4 -top-4 h-12 w-12 rounded-full opacity-30 sm:h-16 sm:w-16"
-              style={{ background: k.ring }}
-            />
-            <div className="relative flex items-center gap-2">
-              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md" style={{ background: k.ring, color: k.color }}>
-                {k.icon}
-              </span>
-              <span className="min-w-0 truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-[11px]" style={{ color: '#6B7280' }} title={k.label}>{k.label}</span>
-            </div>
-            <div className="relative mt-1.5 text-2xl font-extrabold tabular-nums sm:mt-2 sm:text-[30px]" style={{ color: k.color, lineHeight: 1 }}>
-              {k.value}
-            </div>
-          </div>
+          { label: 'Lotes Totales', value: stats.total, color: '#1259C4', icon: <FiLayers /> },
+          { label: 'Lotes Vendidos', value: stats.vendidos, color: '#B91C1C', icon: <FiCheckCircle /> },
+          { label: 'Lotes Separados', value: stats.separados, color: '#B45309', icon: <FiBookmark /> },
+          { label: 'Lotes Disponibles', value: stats.disponibles, color: '#047857', icon: <FiTrendingUp /> },
+          { label: 'Lotes Promoción', value: stats.promocion, color: '#7C3AED', icon: <FiTag /> },
+          { label: 'Lotes 2da Etapa', value: stats.segundaEtapa, color: '#0E7490', icon: <FiFlag /> },
+        ] as const).map((k) => (
+          <KpiCard key={k.label} label={k.label} value={k.value} icon={k.icon} tone={k.color} />
         ))}
       </div>
 
       <div className="card mb-4 flex flex-wrap gap-3 items-end">
+        <CurrencyToggle
+          currency={currency}
+          setCurrency={setCurrency}
+          exchangeRate={exchangeRate}
+          setExchangeRate={setExchangeRate}
+        />
         <div className="flex-1 min-w-48"><label className="label">Buscar por código</label>
           <input className="input" value={buscar} onChange={(e)=>setBuscar(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter') setSearch(buscar); }} placeholder="Ej: A-01" />
         </div>
@@ -423,7 +412,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                       ) : (
                         <p className="font-bold leading-tight">Calle {g.blockName}</p>
                       )}
-                      <p className="text-xs text-slate-500 mt-0.5">{g.items.length} lotes · {formatMoney(totalArea)} m²</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{g.items.length} lotes · {totalArea.toLocaleString('es-PE')} m²</p>
                     </div>
                   </div>
                 </div>
@@ -435,9 +424,9 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                       <th className="th-base" style={{ textAlign: 'left' }}>Dirección</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Tipo</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Dimensión</th>
-                      <th className="th-base" style={{ textAlign: 'right' }}>Precio US$/m2</th>
-                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta US$</th>
-                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Final US$</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio {moneyLabel}/m2</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta {moneyLabel}</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Final {moneyLabel}</th>
                       <th className="th-base" style={{ textAlign: 'center' }}>Estado</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Cliente</th>
                       <th className="th-base"></th>
@@ -449,9 +438,9 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                           <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{g.blockAddress || '—'}</td>
                           <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{l.type || '—'}</td>
                           <td className="td-base" style={{ textAlign: 'left' }}>{l.areaM2} m²</td>
-                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.price ? formatMoney(l.price) : '—'}</td>
-                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.salePrice ? formatMoney(l.salePrice) : '—'}</td>
-                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.finalPrice ? formatMoney(l.finalPrice) : '—'}</td>
+                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.price ? fmt(l.price) : '—'}</td>
+                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.salePrice ? fmt(l.salePrice) : '—'}</td>
+                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.finalPrice ? fmt(l.finalPrice) : '—'}</td>
                           <td className="td-base" style={{ textAlign: 'center' }}>
                             <span className="badge whitespace-nowrap" style={{ backgroundColor: LOT_STATUS_COLOR[l.status] + '22', color: LOT_STATUS_COLOR[l.status] }}>{LOT_STATUS_LABEL[l.status]}</span>
                           </td>
@@ -466,10 +455,10 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                       <tr style={{ background: '#0B2F6E' }}>
                         <td className="td-base font-bold text-white" style={{ textAlign: 'left' }}>{g.items.length}</td>
                         <td className="td-base font-bold text-white" colSpan={2} style={{ textAlign: 'left' }}>Totales</td>
-                        <td className="td-base font-bold text-white tabular-nums">{pricePerM2 ? `${formatMoney(pricePerM2)}/m²` : '—'}</td>
-                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatMoney(totalPrice)}</td>
-                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatMoney(totalVenta)}</td>
-                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatMoney(totalFinal)}</td>
+                        <td className="td-base font-bold text-white tabular-nums">{pricePerM2 ? `${fmt(pricePerM2)}/m²` : '—'}</td>
+                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{fmt(totalPrice)}</td>
+                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{fmt(totalVenta)}</td>
+                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{fmt(totalFinal)}</td>
                         <td className="td-base" colSpan={3}></td>
                       </tr>
                     </tfoot>

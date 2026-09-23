@@ -1,11 +1,12 @@
 'use client';
 import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams } from 'next/navigation';
 import { FiCamera, FiUsers, FiTag, FiDollarSign, FiArrowDownCircle, FiTrendingUp, FiPieChart } from 'react-icons/fi';
 import { IoLocationSharp } from 'react-icons/io5';
 import Layout from '@/components/layout/Layout';
 import { Toaster, toast } from '@/components/ui/ui';
+import { MetricTile, KPI_GRID_6 } from '@/components/ui/Metrics';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import ProjectReports from '@/components/features/projects/ProjectReports';
@@ -43,24 +44,8 @@ function sumBy<T>(items: T[], selector: (item: T) => unknown): number {
   return items.reduce((total, item) => total + asNumber(selector(item)), 0);
 }
 
-function MetricTile({ label, value, icon, tone = '#1877F2' }: { label: string; value: ReactNode; icon: ReactNode; tone?: string }) {
-  return (
-    <div className="relative overflow-hidden rounded-lg border bg-white px-4 py-3" style={{ borderColor: '#E5E7EB', boxShadow: '0 1px 2px rgba(16,24,40,.04)' }}>
-      <div className="absolute inset-x-0 top-0 h-0.5" style={{ background: tone }} />
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-[11px] font-medium" style={{ color: '#6B7280' }}>{label}</p>
-          <p className="mt-1 truncate text-xl font-semibold tabular-nums" style={{ color: '#111827' }}>{value}</p>
-        </div>
-        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md" style={{ background: `${tone}12`, color: tone }}>{icon}</span>
-      </div>
-    </div>
-  );
-}
-
 export default function ProjectPage() {
   const params = useParams<{ id: string }>();
-  const router = useRouter();
   const projectId = Number(params.id);
   const [project, setProject] = useState<any>(null);
   const [lots, setLots] = useState<Lot[]>([]);
@@ -107,17 +92,6 @@ export default function ProjectPage() {
       // Avisa al Layout para que el sidebar y el header refresquen el logo.
       window.dispatchEvent(new CustomEvent('project-logo-updated'));
       toast('Logo del proyecto actualizado');
-    } catch (e: any) {
-      toast(e.message, 'err');
-    }
-  }
-
-  async function borrarProyecto() {
-    if (!confirm(`Eliminar "${project?.name || 'este proyecto'}"?\nSe quitaran plano, calles, lotes, ventas y pagos asociados. Esta accion es irreversible.`)) return;
-    try {
-      await api.post(`/projects/delete/${projectId}`);
-      toast('Proyecto eliminado');
-      router.replace('/projects');
     } catch (e: any) {
       toast(e.message, 'err');
     }
@@ -255,13 +229,12 @@ export default function ProjectPage() {
                   <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; reemplazarPortada(file); }} />
                   Actualizar imagen
                 </label>
-                <button className="btn-danger !h-8 text-xs" onClick={borrarProyecto}>Eliminar proyecto</button>
               </div>
             )}
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:col-span-3 xl:grid-cols-6">
+        <div className={`xl:col-span-3 ${KPI_GRID_6}`}>
           <MetricTile label="Leads del proyecto" value={totalLeads} icon={<FiUsers />} />
           <MetricTile label="Ventas registradas" value={salesCount} icon={<FiTag />} tone="#111827" />
           <MetricTile label="Ingresos" value={fmt(income)} icon={<FiDollarSign />} tone="#0F8B5F" />
