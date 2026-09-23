@@ -318,6 +318,65 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
     );
   }
 
+  function NotificationMenu({ inline = false }: { inline?: boolean }) {
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setBellOpen((value) => !value)}
+          aria-label="Notificaciones"
+          title="Notificaciones"
+          className={inline
+            ? 'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-[#374151] transition-colors hover:bg-[#F3F4F6]'
+            : 'relative p-1 text-[#6B7280] hover:text-[#171717]'}
+        >
+          <span className="relative grid w-5 shrink-0 place-items-center" style={{ fontSize: 16 }}>
+            <FiBell />
+            {canManage && pendingApp.count > 0 && (
+              <span className="absolute -right-2 -top-1 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] font-bold text-white" style={{ background: BRAND.blue }}>{pendingApp.count}</span>
+            )}
+          </span>
+          {inline && <span className="min-w-0 truncate">Notificaciones</span>}
+        </button>
+        {bellOpen && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setBellOpen(false)} />
+            <div
+              className={inline
+                ? 'relative z-50 mt-1 overflow-auto rounded-lg border bg-white shadow-2xl'
+                : 'absolute right-0 top-11 z-50 max-h-[70vh] w-[min(20rem,calc(100vw-2rem))] overflow-auto rounded-lg border bg-white shadow-2xl'}
+              style={{ borderColor: BRAND.border }}
+            >
+              <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: BRAND.border }}>
+                <span className="text-sm font-semibold">Separaciones por aprobar</span>
+                <span className="badge bg-softblue" style={{ color: BRAND.blue }}>{pendingApp.count}</span>
+              </div>
+              <div className="divide-y">
+                {pendingApp.rows.slice(0, 15).map((sale) => (
+                  <button key={sale.id} onClick={() => goToPendingSale(sale)}
+                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50">
+                    <span className="truncate text-sm">Lote {sale.lotCode ? sale.lotCode : `#${sale.lotId ?? '-'}`}</span>
+                    <span className="badge bg-softblue text-[11px]" style={{ color: BRAND.blueDark }}>Pendiente</span>
+                  </button>
+                ))}
+              </div>
+              {pendingApp.rows.length === 0 && (
+                <p className="flex flex-col items-center gap-1.5 px-4 py-8 text-center text-sm text-slate-400">
+                  <FiCheckCircle style={{ fontSize: 20 }} /> Sin separaciones pendientes
+                </p>
+              )}
+              {pendingApp.rows.length > 0 && (
+                <div className="border-t px-3 py-2.5" style={{ borderColor: BRAND.border }}>
+                  <button className="btn-primary w-full justify-center" onClick={() => goToPendingSale(pendingApp.rows[0])}>Ir a revisar y aprobar</button>
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    );
+  }
+
   const sidebar = (
     <aside
       className={`${drawerOpen ? 'translate-x-0' : '-translate-x-full'} fixed inset-y-0 left-0 z-30 flex w-[min(70vw,240px)] flex-col border-r bg-white shadow-2xl transition-[transform,width] duration-200 md:static md:translate-x-0 md:shadow-none`}
@@ -404,6 +463,15 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           </>
         )}
 
+        <div className="md:hidden">
+          <div className={`mb-1.5 mt-4 border-t pt-3 ${showLabels ? 'px-3' : 'px-1'}`} style={{ borderColor: BRAND.border }}>
+            {showLabels && <p className="text-[11px] font-semibold tracking-wide" style={{ color: BRAND.muted }}>NOTIFICACIONES</p>}
+          </div>
+          <ul className="space-y-0.5">
+            <li><NotificationMenu inline /></li>
+          </ul>
+        </div>
+
         {!isProjectContext && (
           <>
             <div className={`mb-1.5 mt-4 border-t pt-3 ${showLabels ? 'px-3' : 'px-1'}`} style={{ borderColor: BRAND.border }}>
@@ -483,13 +551,6 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
               />
             )}
           </div>
-          {!isProjectContext && (
-            <img
-              src="/logo/dunacon.png"
-              alt="Dunacon"
-              className="order-3 h-9 w-auto max-w-24 shrink-0 object-contain md:hidden"
-            />
-          )}
           {isProjectContext && activeProjectId && (
             <button
               type="button"
@@ -580,43 +641,8 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
               </>
             )}
           </div>
-          <div className="relative order-2 md:order-none">
-            <button className="relative p-1 text-[#6B7280] hover:text-[#171717]" aria-label="Notificaciones" onClick={() => setBellOpen((value) => !value)}>
-              <FiBell style={{ fontSize: 17 }} />
-              {canManage && pendingApp.count > 0 && (
-                <span className="absolute -right-0.5 -top-0.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] font-bold text-white" style={{ background: BRAND.blue }}>{pendingApp.count}</span>
-              )}
-            </button>
-            {bellOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setBellOpen(false)} />
-                <div className="absolute right-0 top-11 z-50 max-h-[70vh] w-[min(20rem,calc(100vw-2rem))] overflow-auto rounded-lg border bg-white shadow-2xl" style={{ borderColor: BRAND.border }}>
-                  <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: BRAND.border }}>
-                    <span className="text-sm font-semibold">Separaciones por aprobar</span>
-                    <span className="badge bg-softblue" style={{ color: BRAND.blue }}>{pendingApp.count}</span>
-                  </div>
-                  <div className="divide-y">
-                    {pendingApp.rows.slice(0, 15).map((sale) => (
-                      <button key={sale.id} onClick={() => goToPendingSale(sale)}
-                        className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50">
-                        <span className="truncate text-sm">Lote {sale.lotCode ? sale.lotCode : `#${sale.lotId ?? '-'}`}</span>
-                        <span className="badge bg-softblue text-[11px]" style={{ color: BRAND.blueDark }}>Pendiente</span>
-                      </button>
-                    ))}
-                  </div>
-                  {pendingApp.rows.length === 0 && (
-                    <p className="flex flex-col items-center gap-1.5 px-4 py-8 text-center text-sm text-slate-400">
-                      <FiCheckCircle style={{ fontSize: 20 }} /> Sin separaciones pendientes
-                    </p>
-                  )}
-                  {pendingApp.rows.length > 0 && (
-                    <div className="border-t px-3 py-2.5" style={{ borderColor: BRAND.border }}>
-                      <button className="btn-primary w-full justify-center" onClick={() => goToPendingSale(pendingApp.rows[0])}>Ir a revisar y aprobar</button>
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
+          <div className="order-2 hidden md:block">
+            <NotificationMenu />
           </div>
         </header>
         <main className={`flex-1 overflow-y-auto bg-canvas ${title === 'Modelo financiero' ? 'p-2 sm:p-3 md:p-4' : 'p-4 sm:p-5 md:p-6'}`}>{children}</main>
