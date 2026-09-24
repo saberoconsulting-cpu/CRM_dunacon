@@ -12,6 +12,7 @@ import {
   FiPlus,
   FiRefreshCw,
   FiTrash2,
+  FiX,
 } from 'react-icons/fi';
 import { Toaster, toast, Field } from '@/components/ui/ui';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
@@ -167,20 +168,26 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
 
   function renderItem(item: BudgetItem & { children?: BudgetItem[] }, level = 0) {
     return (
-      <div key={item.id} className="border-t" style={{ borderColor: '#EEF2F7' }}>
-        <div className="grid min-h-14 grid-cols-[minmax(0,1fr)_150px_88px] items-center gap-3 px-4 py-2 hover:bg-slate-50">
-          <div className="flex min-w-0 items-center gap-3" style={{ paddingLeft: level * 22 }}>
-            <span className="rounded-md px-2 py-1 text-xs font-bold" style={{ background: '#EAF3FF', color: BRAND.blue }}>{item.code}</span>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold" style={{ color: INK }}>{item.name}</p>
-              {item.description && <p className="truncate text-xs" style={{ color: MUTED }}>{item.description}</p>}
+      <div key={item.id} className="min-w-0 border-t" style={{ borderColor: '#EEF2F7' }}>
+        {/* Fila del presupuesto. En movil la fila mide "ancho visible + 104px":
+            asi se ve codigo + nombre (con "...") + monto y apenas asoma el boton
+            "+", y las acciones se alcanzan deslizando. El nombre se ajusta solo
+            al espacio disponible. En escritorio todo queda como antes. */}
+        <div className="flex min-h-14 items-center gap-3 px-4 py-2 hover:bg-slate-50 sm:gap-4">
+          <div className="flex min-w-0 flex-1 items-center gap-3" style={{ paddingLeft: level * 22 }}>
+            <span className="shrink-0 rounded-md px-2 py-1 text-xs font-bold" style={{ background: '#EAF3FF', color: BRAND.blue }}>{item.code}</span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold" style={{ color: INK }} title={item.name}>{item.name}</p>
+              {item.description && <p className="truncate text-xs" style={{ color: MUTED }} title={item.description}>{item.description}</p>}
             </div>
           </div>
-          <div className="text-right text-sm font-bold tabular-nums" style={{ color: INK }}>{show(item.amount)}</div>
-          <div className="flex justify-end gap-1">
-            <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Agregar subpartida" onClick={() => openCreate(item.category, item.id)}><FiPlus /></button>
-            <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Editar" onClick={() => openEdit(item)}><FiEdit3 /></button>
-            <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-red-50 hover:text-red-600" title="Eliminar" onClick={() => setDeleting(item)}><FiTrash2 /></button>
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <div className="min-w-[104px] text-right text-sm font-bold tabular-nums sm:min-w-[132px]" style={{ color: INK }}>{show(item.amount)}</div>
+            <div className="flex shrink-0 justify-end gap-1">
+              <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Agregar subpartida" onClick={() => openCreate(item.category, item.id)}><FiPlus /></button>
+              <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Editar" onClick={() => openEdit(item)}><FiEdit3 /></button>
+              <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-red-50 hover:text-red-600" title="Eliminar" onClick={() => setDeleting(item)}><FiTrash2 /></button>
+            </div>
           </div>
         </div>
         {(item.children || []).map((child) => renderItem(child, level + 1))}
@@ -241,77 +248,113 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
               <p className="mt-1 max-w-md text-sm" style={{ color: MUTED }}>Carga la estructura base o crea una partida global para empezar.</p>
               <button className="btn-primary mt-4" onClick={seedBase}>Cargar estructura base</button>
             </div>
-          ) : itemTree.map((cat) => (
-            <div key={cat.key} className="border-b last:border-b-0" style={{ borderColor: BORDER }}>
-              <button
-                className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left hover:bg-slate-50"
-                onClick={() => setOpenCats((current) => ({ ...current, [cat.key]: !current[cat.key] }))}
-              >
-                <span className="flex min-w-0 items-center gap-3">
-                  <span className="grid h-9 w-9 place-items-center rounded-md text-sm font-bold text-white" style={{ background: cat.color }}>{cat.letter}</span>
-                  <span className="min-w-0">
-                    <span className="block font-semibold" style={{ color: INK }}>{cat.label}</span>
-                    <span className="block text-xs" style={{ color: MUTED }}>{cat.helper}</span>
-                  </span>
-                </span>
-                <span className="flex items-center gap-4">
-                  <b className="text-sm tabular-nums" style={{ color: cat.color }}>{show(summary?.categories?.[cat.key])}</b>
-                  {openCats[cat.key] ? <FiChevronDown /> : <FiChevronRight />}
-                </span>
-              </button>
-              {openCats[cat.key] && (
-                <div>
-                  {cat.roots.map((item) => renderItem(item))}
-                  <div className="border-t px-4 py-3" style={{ borderColor: '#EEF2F7' }}>
-                    <button className="btn-neutral !h-8 text-xs" onClick={() => openCreate(cat.key)}><FiPlus /> Agregar partida en {cat.letter}</button>
+          ) : (
+            <>
+              <p className="px-4 py-2 text-xs text-slate-400 sm:hidden">Desliza hacia la derecha para editar o eliminar.</p>
+              {/* [container-type:inline-size] permite usar `cqw` (= ancho visible del
+                  contenedor) para que en movil cada categoria mida ancho visible + 104px. */}
+              <div className="overflow-x-auto [container-type:inline-size]">
+                {itemTree.map((cat) => (
+                  <div key={cat.key} className="w-[calc(100cqw_+_104px)] border-b last:border-b-0 sm:w-full" style={{ borderColor: BORDER }}>
+                    {/* Cabecera pegada a la izquierda: no se desplaza, su monto y flecha siempre se ven. */}
+                    <button
+                      className="sticky left-0 flex w-[100cqw] items-center justify-between gap-3 px-5 py-4 text-left hover:bg-slate-50 sm:w-full"
+                      onClick={() => setOpenCats((current) => ({ ...current, [cat.key]: !current[cat.key] }))}
+                    >
+                      <span className="flex min-w-0 items-center gap-3">
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md text-sm font-bold text-white" style={{ background: cat.color }}>{cat.letter}</span>
+                        <span className="min-w-0">
+                          <span className="block font-semibold" style={{ color: INK }}>{cat.label}</span>
+                          <span className="block text-xs" style={{ color: MUTED }}>{cat.helper}</span>
+                        </span>
+                      </span>
+                      <span className="flex shrink-0 items-center gap-4">
+                        <b className="text-sm tabular-nums" style={{ color: cat.color }}>{show(summary?.categories?.[cat.key])}</b>
+                        {openCats[cat.key] ? <FiChevronDown /> : <FiChevronRight />}
+                      </span>
+                    </button>
+                    {openCats[cat.key] && (
+                      <div>
+                        {cat.roots.map((item) => renderItem(item))}
+                        <div className="border-t" style={{ borderColor: '#EEF2F7' }}>
+                          <div className="sticky left-0 w-[100cqw] px-4 py-3 sm:w-full">
+                            <button className="btn-neutral !h-8 text-xs" onClick={() => openCreate(cat.key)}><FiPlus /> Agregar partida en {cat.letter}</button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
-            </div>
-          ))}
+                ))}
+              </div>
+            </>
+          )}
         </section>
       </div>
 
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setModalOpen(false)} />
-          <div className="relative w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl">
-            <h3 className="mb-5 font-semibold" style={{ fontSize: 18 }}>{editing ? 'Editar partida' : 'Nueva partida'}</h3>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Categoria">
-                <select className="input" value={form.category || 'costo_directo'} onChange={(event) => setForm((p: any) => ({ ...p, category: event.target.value, parentId: null, code: nextCode(items, event.target.value as BudgetCategory) }))}>
-                  {CATEGORIES.map((cat) => <option key={cat.key} value={cat.key}>{cat.letter}. {cat.label}</option>)}
-                </select>
-              </Field>
-              <Field label="Partida padre opcional">
-                <select className="input" value={form.parentId || ''} onChange={(event) => setForm((p: any) => ({ ...p, parentId: event.target.value ? Number(event.target.value) : null }))}>
-                  <option value="">Sin padre</option>
-                  {parentOptions(items, form.category || 'costo_directo', editing?.id).map((item) => <option key={item.id} value={item.id}>{item.code} - {item.name}</option>)}
-                </select>
-              </Field>
+          <div className="relative flex max-h-[80dvh] w-full max-w-[360px] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[92vh] sm:max-w-xl">
+            {/* Cabecera compacta: el subtitulo se oculta en movil para ganar altura. */}
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2.5 sm:items-start sm:px-5 sm:py-4" style={{ borderColor: BORDER }}>
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold sm:text-lg" style={{ color: INK }}>{editing ? 'Editar partida' : 'Nueva partida'}</h3>
+                <p className="mt-0.5 hidden text-xs sm:block" style={{ color: MUTED }}>Define la partida y su monto dentro del presupuesto.</p>
+              </div>
+              <button type="button" className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-500 hover:bg-slate-100" onClick={() => setModalOpen(false)} aria-label="Cerrar">
+                <FiX />
+              </button>
             </div>
-            <div className="grid gap-3 sm:grid-cols-[130px_minmax(0,1fr)]">
-              <Field label="Codigo"><input className="input" value={form.code || ''} onChange={(event) => setForm((p: any) => ({ ...p, code: event.target.value }))} /></Field>
-              <Field label="Nombre"><input className="input" value={form.name || ''} onChange={(event) => setForm((p: any) => ({ ...p, name: event.target.value }))} /></Field>
+
+            {/* Cuerpo con scroll propio. En movil los inputs son mas bajos (h-9) y
+                los campos se agrupan en filas; en sm+ vuelven al tamano normal. */}
+            <div className="flex-1 space-y-2.5 overflow-y-auto px-4 py-3 sm:space-y-3 sm:px-5 sm:py-4 [&_.input]:!h-9 [&_.input]:!py-1 [&_.input]:!text-sm sm:[&_.input]:!h-10 sm:[&_.input]:!py-2">
+              <div className="grid gap-2.5 sm:grid-cols-2 sm:gap-3">
+                <Field label="Categoria">
+                  <select className="input" value={form.category || 'costo_directo'} onChange={(event) => setForm((p: any) => ({ ...p, category: event.target.value, parentId: null, code: nextCode(items, event.target.value as BudgetCategory) }))}>
+                    {CATEGORIES.map((cat) => <option key={cat.key} value={cat.key}>{cat.letter}. {cat.label}</option>)}
+                  </select>
+                </Field>
+                <Field label="Partida padre opcional">
+                  <select className="input" value={form.parentId || ''} onChange={(event) => setForm((p: any) => ({ ...p, parentId: event.target.value ? Number(event.target.value) : null }))}>
+                    <option value="">Sin padre</option>
+                    {parentOptions(items, form.category || 'costo_directo', editing?.id).map((item) => <option key={item.id} value={item.id}>{item.code} - {item.name}</option>)}
+                  </select>
+                </Field>
+              </div>
+
+              <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-2.5 sm:grid-cols-[130px_minmax(0,1fr)] sm:gap-3">
+                <Field label="Codigo"><input className="input" value={form.code || ''} onChange={(event) => setForm((p: any) => ({ ...p, code: event.target.value }))} /></Field>
+                <Field label="Nombre"><input className="input" value={form.name || ''} onChange={(event) => setForm((p: any) => ({ ...p, name: event.target.value }))} /></Field>
+              </div>
+
+              <Field label="Descripcion opcional"><input className="input" value={form.description || ''} onChange={(event) => setForm((p: any) => ({ ...p, description: event.target.value }))} /></Field>
+
+              <div className="grid grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.7fr)] gap-2.5 sm:grid-cols-3 sm:gap-3">
+                <Field label="Monto proyectado"><input type="number" inputMode="decimal" className="input" value={form.amount || ''} onChange={(event) => setForm((p: any) => ({ ...p, amount: event.target.value }))} /></Field>
+                <Field label="Moneda">
+                  <select className="input" value={form.currency || 'PEN'} onChange={(event) => setForm((p: any) => ({ ...p, currency: event.target.value }))}>
+                    <option value="PEN">S/ PEN</option>
+                    <option value="USD">US$ USD</option>
+                  </select>
+                </Field>
+                <Field label="Orden"><input type="number" inputMode="numeric" className="input" value={form.sortOrder || 0} onChange={(event) => setForm((p: any) => ({ ...p, sortOrder: event.target.value }))} /></Field>
+              </div>
             </div>
-            <Field label="Descripcion opcional"><input className="input" value={form.description || ''} onChange={(event) => setForm((p: any) => ({ ...p, description: event.target.value }))} /></Field>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <Field label="Monto proyectado"><input type="number" className="input" value={form.amount || ''} onChange={(event) => setForm((p: any) => ({ ...p, amount: event.target.value }))} /></Field>
-              <Field label="Moneda"><select className="input" value={form.currency || 'PEN'} onChange={(event) => setForm((p: any) => ({ ...p, currency: event.target.value }))}><option value="PEN">S/ PEN</option><option value="USD">US$ USD</option></select></Field>
-              <Field label="Orden"><input type="number" className="input" value={form.sortOrder || 0} onChange={(event) => setForm((p: any) => ({ ...p, sortOrder: event.target.value }))} /></Field>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <button className="btn-neutral" onClick={() => setModalOpen(false)}>Cancelar</button>
-              <button className="btn-primary" onClick={save}><FiDollarSign /> Guardar presupuesto</button>
+
+            {/* Pie: en movil los dos botones van en una sola fila. */}
+            <div className="grid shrink-0 grid-cols-[1fr_1.7fr] gap-2 border-t px-4 py-2.5 sm:flex sm:justify-end sm:px-5 sm:py-3" style={{ borderColor: BORDER }}>
+              <button className="btn-neutral justify-center !h-10 text-sm sm:!h-auto" onClick={() => setModalOpen(false)}>Cancelar</button>
+              <button className="btn-primary justify-center !h-10 text-sm sm:!h-auto" onClick={save}><FiDollarSign /> Guardar presupuesto</button>
             </div>
           </div>
         </div>
       )}
 
       {deleting && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-slate-900/50" onClick={() => setDeleting(null)} />
-          <div className="relative w-full max-w-md rounded-lg bg-white p-5 shadow-2xl">
+          <div className="relative max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-2xl sm:max-w-md sm:rounded-lg">
             <div className="flex items-start gap-3">
               <div className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-red-50 text-red-600">
                 <FiTrash2 />

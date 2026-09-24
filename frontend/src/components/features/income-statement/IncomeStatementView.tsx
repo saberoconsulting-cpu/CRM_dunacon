@@ -13,16 +13,23 @@ import {
 } from 'recharts';
 import {
   FiActivity,
+  FiAward,
   FiBarChart2,
-  FiBriefcase,
+  FiCheckCircle,
+  FiClipboard,
+  FiCreditCard,
   FiDollarSign,
   FiEdit3,
   FiFileText,
   FiGrid,
   FiMapPin,
+  FiPackage,
   FiPercent,
+  FiPieChart,
   FiRefreshCw,
+  FiTool,
   FiTrendingUp,
+  FiUsers,
 } from 'react-icons/fi';
 import { Toaster, toast } from '@/components/ui/ui';
 import { KpiCard as SharedKpiCard } from '@/components/ui/Metrics';
@@ -61,7 +68,12 @@ type StatementRow = {
   label: string;
   projected: number;
   real: number;
+  icon: JSX.Element;
   accent?: 'income' | 'subtotal' | 'tax' | 'final';
+  /** 'cost' agrupa "Costo de venta de lotes" y sus tres componentes con un mismo color. */
+  group?: 'cost';
+  /** Componente que pertenece al total de su grupo (se pinta con sangria y barra lateral). */
+  child?: boolean;
   note?: string;
 };
 
@@ -74,6 +86,10 @@ const BORDER = '#E2E8F0';
 const GREEN = '#16A36A';
 const AMBER = '#D97706';
 const RED = '#DC2626';
+// Color del grupo "Costo de venta de lotes" y sus componentes.
+const COST = '#4F46E5';
+const COST_SOFT = '#EEF2FF';
+const COST_BORDER = '#C7D2FE';
 const RUC_KEY_PREFIX = 'crm_income_statement_ruc_';
 const DEFAULT_RUC = '20601820049';
 const INCOME_TAX_RATE = 0.295;
@@ -107,6 +123,7 @@ function lotRevenue(lot: Lot) {
 }
 
 function rowTone(row: StatementRow) {
+  if (row.group === 'cost') return { bg: COST_SOFT, color: COST, border: COST_BORDER };
   if (row.accent === 'income') return { bg: '#F0FDF4', color: GREEN, border: '#BBF7D0' };
   if (row.accent === 'final') return { bg: BLUE_SOFT, color: BLUE_DARK, border: '#BFDBFE' };
   if (row.accent === 'tax') return { bg: '#FFF7ED', color: AMBER, border: '#FED7AA' };
@@ -166,6 +183,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   const [ruc, setRuc] = useState(DEFAULT_RUC);
   // Moneda unica de la pantalla: `show()` convierte los montos a la moneda activa.
   const { currency, setCurrency, exchangeRate, setExchangeRate, format: show, formatShort: short } = useDisplayCurrency();
+  // Simbolo para los encabezados de la tabla segun la moneda activa.
+  const symbol = String(currency).toUpperCase() === 'USD' ? 'US$' : 'S/';
 
   useEffect(() => {
     try {
@@ -236,20 +255,20 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const projectedNetProfit = projectedPreTaxProfit - projectedIncomeTax;
 
     const rows: StatementRow[] = [
-      { label: 'Ingreso por venta de lotes', projected: projectedRevenue, real: realRevenue, accent: 'income', note: 'Proyectado por lista de lotes registrados' },
-      { label: 'Costo de venta de lotes', projected: projectedCostOfSales, real: costOfSales, accent: 'subtotal', note: 'Terreno + costos directos + costos indirectos del presupuesto' },
-      { label: 'Costo de terreno', projected: projectedLand, real: landCost },
-      { label: 'Costo directo / inversion', projected: projectedDirect, real: directCost },
-      { label: 'Costo indirecto', projected: projectedIndirect, real: indirectCost },
-      { label: 'Utilidad bruta', projected: projectedGrossProfit, real: grossProfit, accent: 'subtotal' },
-      { label: 'Gastos de ventas y administrativos', projected: projectedSalesAdmin, real: salesAdminCost },
-      { label: 'Utilidad operativa', projected: projectedOperatingProfit, real: operatingProfit, accent: 'subtotal' },
-      { label: 'Gastos financieros', projected: projectedFinanceTax, real: financeCost },
-      { label: 'Utilidad antes de impuesto', projected: projectedPreTaxProfit, real: preTaxProfit, accent: 'subtotal' },
-      { label: 'Impuesto a la renta referencial', projected: projectedIncomeTax, real: Math.max(realTaxRegistered, incomeTax), accent: 'tax', note: 'Real toma impuestos registrados o referencia 29.5%' },
-      { label: 'Utilidad neta', projected: projectedNetProfit, real: netProfit, accent: 'final' },
-      { label: 'IGV referencial incluido en ingresos', projected: projectedRevenue > 0 ? projectedRevenue * 18 / 118 : 0, real: igvReference, accent: 'tax', note: 'Separacion referencial si los ingresos incluyen IGV' },
-      { label: 'Utilidad ajustada referencial', projected: projectedNetProfit - (projectedRevenue > 0 ? projectedRevenue * 18 / 118 : 0), real: adjustedProfit, accent: 'final' },
+      { label: 'Ingreso por venta de lotes', projected: projectedRevenue, real: realRevenue, accent: 'income', icon: <FiDollarSign />, note: 'Proyectado por lista de lotes registrados' },
+      { label: 'Costo de venta de lotes', projected: projectedCostOfSales, real: costOfSales, accent: 'subtotal', group: 'cost', icon: <FiPackage />, note: 'Terreno + costos directos + costos indirectos del presupuesto' },
+      { label: 'Costo de terreno', projected: projectedLand, real: landCost, group: 'cost', child: true, icon: <FiMapPin /> },
+      { label: 'Costo directo / inversion', projected: projectedDirect, real: directCost, group: 'cost', child: true, icon: <FiTool /> },
+      { label: 'Costo indirecto', projected: projectedIndirect, real: indirectCost, group: 'cost', child: true, icon: <FiClipboard /> },
+      { label: 'Utilidad bruta', projected: projectedGrossProfit, real: grossProfit, accent: 'subtotal', icon: <FiTrendingUp /> },
+      { label: 'Gastos de ventas y administrativos', projected: projectedSalesAdmin, real: salesAdminCost, icon: <FiUsers /> },
+      { label: 'Utilidad operativa', projected: projectedOperatingProfit, real: operatingProfit, accent: 'subtotal', icon: <FiActivity /> },
+      { label: 'Gastos financieros', projected: projectedFinanceTax, real: financeCost, icon: <FiCreditCard /> },
+      { label: 'Utilidad antes de impuesto', projected: projectedPreTaxProfit, real: preTaxProfit, accent: 'subtotal', icon: <FiPieChart /> },
+      { label: 'Impuesto a la renta referencial', projected: projectedIncomeTax, real: Math.max(realTaxRegistered, incomeTax), accent: 'tax', icon: <FiPercent />, note: 'Real toma impuestos registrados o referencia 29.5%' },
+      { label: 'Utilidad neta', projected: projectedNetProfit, real: netProfit, accent: 'final', icon: <FiAward /> },
+      { label: 'IGV referencial incluido en ingresos', projected: projectedRevenue > 0 ? projectedRevenue * 18 / 118 : 0, real: igvReference, accent: 'tax', icon: <FiFileText />, note: 'Separacion referencial si los ingresos incluyen IGV' },
+      { label: 'Utilidad ajustada referencial', projected: projectedNetProfit - (projectedRevenue > 0 ? projectedRevenue * 18 / 118 : 0), real: adjustedProfit, accent: 'final', icon: <FiCheckCircle /> },
     ];
 
     return {
@@ -331,7 +350,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
         </section>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <KpiCard label="Ingreso real" value={show(report.realRevenue)} helper="Ingresos registrados en finanzas" icon={<FiDollarSign />} color={GREEN} />
+          <KpiCard label="Ingreso real" value={show(report.realRevenue)} helper="Ingresos del flujo de caja estatico" icon={<FiDollarSign />} color={GREEN} />
           <KpiCard label="Utilidad neta" value={show(report.netProfit)} helper={`Margen neto ${pct(report.margin)}`} icon={<FiTrendingUp />} color={report.netProfit >= 0 ? BLUE : RED} />
           <KpiCard label="Lotes vendidos" value={`${report.soldLots}/${lots.length}`} helper="Conteo desde lotizacion" icon={<FiGrid />} color={BLUE_DARK} />
           <KpiCard label="Area vendible" value={`${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 0 })} m2`} helper={project?.location || 'Ubicacion del proyecto'} icon={<FiMapPin />} color="#7C3AED" />
@@ -348,38 +367,49 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar
               </button>
             </div>
-            <div className="overflow-x-auto">
-              <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
-              <table className="w-full table-fixed" style={{ minWidth: 780 }}>
+            <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
+            {/* [container-type:inline-size] permite usar `cqw` (= ancho visible del
+                contenedor). En movil la tabla mide "ancho visible + 340px": la primera
+                columna se ajusta (texto con "...") y deja ver completa la columna
+                Proyectado; el resto se alcanza deslizando. Desde md vuelve a porcentajes. */}
+            <div className="overflow-x-auto [container-type:inline-size]">
+              <table className="w-[calc(100cqw_+_340px)] table-fixed md:w-full md:min-w-[780px]">
                 <colgroup>
-                  <col className="w-[34%]" />
-                  <col className="w-[17%]" />
-                  <col className="w-[17%]" />
-                  <col className="w-[15%]" />
-                  <col className="w-[17%]" />
+                  <col className="w-[calc(100cqw_-_150px)] md:w-[34%]" />
+                  <col className="w-[150px] md:w-[17%]" />
+                  <col className="w-[145px] md:w-[17%]" />
+                  <col className="w-[95px] md:w-[15%]" />
+                  <col className="w-[100px] md:w-[17%]" />
                 </colgroup>
                 <thead>
                   <tr className="border-b text-left text-xs font-bold uppercase tracking-wide" style={{ borderColor: BORDER, color: MUTED, background: '#F8FAFC' }}>
                     <th className="px-4 py-3">Concepto</th>
-                    <th className="px-3 py-3 text-right">Proyectado S/</th>
-                    <th className="px-3 py-3 text-right">Real S/</th>
-                    <th className="px-3 py-3 text-right">% del Ingreso</th>
+                    <th className="px-2 py-3 text-right md:px-3">Proyectado {symbol}</th>
+                    <th className="px-2 py-3 text-right md:px-3">Real {symbol}</th>
+                    <th className="px-2 py-3 text-right md:px-3">% del Ingreso</th>
                     <th className="px-4 py-3 text-right">Desviacion</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y" style={{ borderColor: BORDER }}>
                   {loading ? (
-                    <tr><td className="px-4 py-10 text-center text-sm text-slate-400" colSpan={5}>Cargando estado de resultados...</td></tr>
+                    <tr>
+                      <td className="py-10" colSpan={5}>
+                        <div className="sticky left-0 w-[100cqw] text-center text-sm text-slate-400 md:w-full">Cargando estado de resultados...</div>
+                      </td>
+                    </tr>
                   ) : report.rows.map((row) => {
                     const tone = rowTone(row);
                     const diff = deviation(row.real, row.projected);
                     const share = incomeShare(row.real, report.realRevenue);
+                    const rowBg = row.group === 'cost'
+                      ? (row.child ? 'bg-[#F7F8FF] hover:bg-[#EEF1FF]' : 'bg-[#EEF2FF] hover:bg-[#E6EBFF]')
+                      : 'hover:bg-slate-50';
                     return (
-                      <tr key={row.label} className="transition-colors hover:bg-slate-50">
-                        <td className="px-4 py-3">
-                          <div className="flex min-w-0 items-center gap-3">
-                            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md" style={{ background: tone.bg, color: tone.color, border: `1px solid ${tone.border}` }}>
-                              {row.accent === 'income' ? <FiDollarSign /> : row.accent === 'tax' ? <FiPercent /> : row.accent === 'final' ? <FiActivity /> : <FiBriefcase />}
+                      <tr key={row.label} className={`transition-colors ${rowBg}`}>
+                        <td className="px-4 py-3" style={row.group === 'cost' ? { boxShadow: `inset ${row.child ? 3 : 4}px 0 0 ${COST}` } : undefined}>
+                          <div className={`flex min-w-0 items-center gap-3 ${row.child ? 'pl-3' : ''}`}>
+                            <span className={`grid shrink-0 place-items-center rounded-md ${row.child ? 'h-7 w-7' : 'h-8 w-8'}`} style={{ background: tone.bg, color: tone.color, border: `1px solid ${tone.border}` }}>
+                              {row.icon}
                             </span>
                             <div className="min-w-0">
                               <p className="truncate text-sm font-semibold" style={{ color: tone.color }} title={row.label}>{row.label}</p>
@@ -387,9 +417,9 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                             </div>
                           </div>
                         </td>
-                        <td className="px-3 py-3 text-right text-sm font-semibold tabular-nums" style={{ color: INK }}>{show(row.projected)}</td>
-                        <td className="px-3 py-3 text-right text-sm font-bold tabular-nums" style={{ color: row.real < 0 ? RED : INK }}>{show(row.real)}</td>
-                        <td className="px-3 py-3 text-right text-sm tabular-nums" style={{ color: row.real < 0 ? RED : row.accent === 'income' ? GREEN : MUTED, fontWeight: row.accent === 'income' || row.accent === 'final' || row.accent === 'subtotal' ? 700 : 500 }}>{pct(share)}</td>
+                        <td className="px-2 py-3 text-right text-sm font-semibold tabular-nums md:px-3" style={{ color: INK }}>{show(row.projected)}</td>
+                        <td className="px-2 py-3 text-right text-sm font-bold tabular-nums md:px-3" style={{ color: row.real < 0 ? RED : INK }}>{show(row.real)}</td>
+                        <td className="px-2 py-3 text-right text-sm tabular-nums md:px-3" style={{ color: row.real < 0 ? RED : row.accent === 'income' ? GREEN : MUTED, fontWeight: row.accent === 'income' || row.accent === 'final' || row.accent === 'subtotal' ? 700 : 500 }}>{pct(share)}</td>
                         <td className="px-4 py-3 text-right">
                           <span className="inline-block rounded-full px-2.5 py-1 text-xs font-bold tabular-nums" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
                             {diff >= 0 ? '+' : ''}{pct(diff)}
@@ -427,7 +457,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
             <section className="rounded-md border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
               <h3 className="font-semibold" style={{ color: INK }}>Criterio contable usado</h3>
               <div className="mt-3 space-y-3 text-sm" style={{ color: MUTED }}>
-                <p>Los ingresos reales salen de finanzas. El proyectado de ventas se calcula desde los precios registrados de los lotes.</p>
+                <p>Los ingresos reales salen del flujo de caja estatico. El proyectado de ventas se calcula desde los precios registrados de los lotes.</p>
                 <p>Cuando no existe un presupuesto separado en la base de datos, el proyectado de costos usa la misma base registrada para no inventar valores.</p>
                 <p>Impuesto a la renta e IGV se muestran como referencia gerencial, para facilitar lectura contable sin reemplazar cierre tributario.</p>
               </div>
