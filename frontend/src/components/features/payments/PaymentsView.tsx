@@ -1194,7 +1194,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
         )}
         <div className="relative">
-          <div className="kpi-grid-7">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-3">
             <KpiTile label="Cuotas Pendientes" value={String(metrics.pendingCuotas || 0)} helper={show(metrics.pendingAmount || 0)} icon={<FiCreditCard />} accent={BLUE} />
             <KpiTile label="Cuotas Pendientes US$" value={show(metrics.pendingAmount || 0)} helper="Saldo pendiente" icon={<FiDollarSign />} accent={BLUE} />
             <KpiTile label="Pagos en Mora" value={String(metrics.overduePayments || 0)} helper={show(metrics.overdueAmount || 0)} icon={<FiAlertTriangle />} accent={RED} />
@@ -1219,7 +1219,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
         </div>
 
         {showMoreKpis && (
-          <div className="kpi-grid-7 mt-3">
+          <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-3">
             <KpiTile label="Total venta (lotes)" value={String(metrics.totalSaleLots || 0)} helper={show(metrics.totalSaleAmount || 0)} icon={<FiTrendingUp />} accent={BLUE} />
             <KpiTile label="Total Venta" value={show(metrics.totalSaleAmount || 0)} helper="Ventas y separaciones" icon={<FiDollarSign />} accent={BLUE} />
             <KpiTile label="Pago Inicial US$" value={show(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} />

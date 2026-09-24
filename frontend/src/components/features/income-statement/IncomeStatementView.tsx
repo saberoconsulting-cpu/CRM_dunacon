@@ -349,7 +349,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
               </button>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full table-fixed">
+              <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
+              <table className="w-full table-fixed" style={{ minWidth: 780 }}>
                 <colgroup>
                   <col className="w-[34%]" />
                   <col className="w-[17%]" />
