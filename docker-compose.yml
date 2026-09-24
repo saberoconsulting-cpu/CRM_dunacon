@@ -1,7 +1,21 @@
-# docker-compose — backend + reverse proxy Nginx para Contabo.
+# docker-compose — frontend + backend + reverse proxy Nginx para Contabo.
 # El backend (Nest) usa Supabase y Cloudinary. Ningún secreto hardcodeado.
 
 services:
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API: ${NEXT_PUBLIC_API:-}
+    container_name: crm_frontend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      NEXT_PUBLIC_API: ${NEXT_PUBLIC_API:-}
+    depends_on:
+      - backend
+
   backend:
     build:
       context: ./backend
@@ -34,7 +48,7 @@ services:
       exec node dist/main.js"
 
   # Reverse proxy + TLS (Let's Encrypt) para crm.dunacon.pe.
-  # Sirve el FRONTEND (build estático en ./nginx/html) y proxye la API/WebSocket al backend.
+  # Proxye el FRONTEND (Next.js) y la API/WebSocket al backend.
   nginx:
     image: nginx:1.27-alpine
     container_name: crm_nginx
@@ -50,6 +64,7 @@ services:
       - ./letsencrypt/etc:/etc/letsencrypt:ro
       - ./letsencrypt/lib:/var/lib/letsencrypt:ro
     depends_on:
+      - frontend
       - backend
 
 

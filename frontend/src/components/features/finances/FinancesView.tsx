@@ -191,19 +191,19 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
               : (
               <table className="table-base">
                 <thead><tr>
-                  <th className="th-base">Tipo</th><th className="th-base">Categoría</th><th className="th-base">Concepto</th>
                   <th className="th-base">Lote</th><th className="th-base">Cliente</th><th className="th-base">Medio de pago</th>
+                  <th className="th-base">Tipo</th><th className="th-base">Categoría</th><th className="th-base">Concepto</th>
                   <th className="th-base">Monto</th><th className="th-base">Fecha</th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {txns.map((t) => (
                     <tr key={t.id}>
-                      <td className="td-base"><span className="badge" style={{ background: t.type === 'ingreso' ? '#EAF7EE' : '#E7F0FE', color: t.type === 'ingreso' ? '#125A3B' : '#1259C4' }}>{t.type}</span></td>
-                      <td className="td-base capitalize">{t.category}</td>
-                      <td className="td-base">{t.concept}</td>
                       <td className="td-base">{t.lotCode || (t.lotId ? `#${t.lotId}` : '—')}</td>
                       <td className="td-base">{t.clientName || (t.clientId ? `#${t.clientId}` : '—')}</td>
                       <td className="td-base">{paymentLabel(t.paymentMethod)}</td>
+                      <td className="td-base"><span className="badge" style={{ background: t.type === 'ingreso' ? '#EAF7EE' : '#E7F0FE', color: t.type === 'ingreso' ? '#125A3B' : '#1259C4' }}>{t.type}</span></td>
+                      <td className="td-base capitalize">{t.category}</td>
+                      <td className="td-base">{t.concept}</td>
                       <td className="td-base font-medium tabular-nums">{show(t.amount)}</td>
                       <td className="td-base">{formatDate(t.txnDate)}</td>
                     </tr>
