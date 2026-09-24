@@ -1,29 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from 'recharts';
-import {
-  FiActivity,
-  FiBarChart2,
-  FiBriefcase,
-  FiDollarSign,
-  FiEdit3,
-  FiFileText,
-  FiGrid,
-  FiMapPin,
-  FiPercent,
-  FiRefreshCw,
-  FiTrendingUp,
-} from 'react-icons/fi';
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { FiActivity, FiBarChart2, FiBriefcase, FiDollarSign, FiEdit3, FiFileText, FiGrid, FiMapPin, FiPercent, FiRefreshCw, FiTrendingUp } from 'react-icons/fi';
 import { Toaster, toast } from '@/components/ui/ui';
 import { KpiCard as SharedKpiCard } from '@/components/ui/Metrics';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
@@ -115,7 +94,13 @@ function rowTone(row: StatementRow) {
 }
 
 function KpiCard({ label, value, helper, icon, color = BLUE }: { label: string; value: string; helper: string; icon: JSX.Element; color?: string }) {
-  return <SharedKpiCard label={label} value={value} helper={helper} icon={icon} tone={color} />;
+  return (
+    <SharedKpiCard label={label} value={<span className="block w-full text-center">{value}</span>}
+      helper={helper}
+      icon={icon}
+      tone={color}
+    />
+  );
 }
 
 function MetricPill({ label, value, color = BLUE }: { label: string; value: string; color?: string }) {
@@ -179,7 +164,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   useEffect(() => {
     try {
       localStorage.setItem(`${RUC_KEY_PREFIX}${projectId}`, ruc);
-    } catch {}
+    } catch { }
   }, [projectId, ruc]);
 
   const load = useCallback(async () => {
@@ -427,7 +412,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
             <section className="rounded-md border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
               <h3 className="font-semibold" style={{ color: INK }}>Criterio contable usado</h3>
               <div className="mt-3 space-y-3 text-sm" style={{ color: MUTED }}>
-                <p>Los ingresos reales salen de finanzas. El proyectado de ventas se calcula desde los precios registrados de los lotes.</p>
+                <p>En el Estado de Resultados, el proyectado sale del Flujo de Caja Estático y los ingresos reales salen de la operación diaria.</p>
                 <p>Cuando no existe un presupuesto separado en la base de datos, el proyectado de costos usa la misma base registrada para no inventar valores.</p>
                 <p>Impuesto a la renta e IGV se muestran como referencia gerencial, para facilitar lectura contable sin reemplazar cierre tributario.</p>
               </div>
