@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { LOT_STATUS_COLOR, LOT_STATUS_LABEL, LotStatus, formatMoney, formatDate } from '@/lib/types';
+import { Select } from '@/components/ui/Select';
 import { printHtml } from '@/lib/print';
 import {
   FiArrowRight,
@@ -541,7 +542,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                     <div id="lot-edit-section" className="rounded-[16px] border bg-white p-4" style={{ borderColor: BORDER }}>
                       <h4 className="mb-3 text-sm font-bold" style={{ color: INK }}>Editar Lotizacion</h4>
                       <div className="flex flex-wrap items-end gap-2">
-                        <div className="min-w-36 flex-1"><Field label="Estado"><select className="input" value={lotizacion.status} onChange={(e) => setLotizacion({ ...lotizacion, status: e.target.value })}>{Object.entries(LOT_STATUS_LABEL).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></Field></div>
+                        <div className="min-w-36 flex-1"><Field label="Estado"><Select value={lotizacion.status} onChange={(v) => setLotizacion({ ...lotizacion, status: v })} options={Object.entries(LOT_STATUS_LABEL).map(([key, label]) => ({ value: key, label }))} /></Field></div>
                         <div className="min-w-36 flex-1"><Field label="Fecha de estado"><input type="date" className="input" value={lotizacion.statusDate} onChange={(e) => setLotizacion({ ...lotizacion, statusDate: e.target.value })} /></Field></div>
                         <div className="min-w-32 flex-1"><Field label="Precio venta (S/)"><input type="number" className="input" value={lotizacion.salePrice || ''} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: Number(e.target.value) })} /></Field></div>
                         <div className="min-w-32 flex-1"><Field label="Precio final (S/)"><input type="number" className="input" value={lotizacion.finalPrice || ''} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: Number(e.target.value) })} /></Field></div>

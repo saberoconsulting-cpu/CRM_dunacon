@@ -7,6 +7,7 @@ import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import { Lot, LOT_STATUS_LABEL, LOT_STATUS_COLOR } from '@/lib/types';
 import { printHtml } from '@/lib/print';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
+import { Select } from '@/components/ui/Select';
 import { CURRENCY_SYMBOL, useDisplayCurrency } from '@/lib/currency';
 import { FiDownload, FiLayers, FiCheckCircle, FiBookmark, FiTrendingUp, FiTag, FiFlag } from 'react-icons/fi';
 
@@ -349,17 +350,19 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
         </div>
         {!lockedProjectId && (
           <div className="min-w-40"><label className="label">Proyecto</label>
-            <select className="input" value={project} onChange={(e)=>setProject(e.target.value)}>
-              <option value="">Todos</option>
-              {proyectos.map((p:any)=>(<option key={p.id} value={p.id}>{p.name}</option>))}
-            </select>
+            <Select
+              value={project}
+              onChange={setProject}
+              options={[{ value: '', label: 'Todos' }, ...proyectos.map((p: any) => ({ value: String(p.id), label: p.name }))]}
+            />
           </div>
         )}
         <div className="min-w-44"><label className="label">Estado</label>
-          <select className="input" value={statusFilter} onChange={(e)=>setStatusFilter(e.target.value)}>
-            <option value="">Todos</option>
-            {Object.entries(LOT_STATUS_LABEL).map(([k,v])=>(<option key={k} value={k}>{v}</option>))}
-          </select>
+          <Select
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={[{ value: '', label: 'Todos' }, ...Object.entries(LOT_STATUS_LABEL).map(([k, v]) => ({ value: k, label: v }))]}
+          />
         </div>
         <button
           className={viewMode === 'blocks' ? 'btn-primary' : 'btn-secondary'}
@@ -480,7 +483,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
           <label className="flex items-center gap-2 text-xs text-slate-500">
             Por pagina
             <select
-              className="input-base !h-8 !w-20 !px-2 text-xs"
+              className="input !h-8 !w-20 text-xs"
               value={pageSize}
               onChange={(e) => setPageSize(Number(e.target.value))}
             >

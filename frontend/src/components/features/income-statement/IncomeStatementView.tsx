@@ -36,6 +36,10 @@ type IncomeStatement = {
   utilidad: number | string;
 };
 
+type CashflowModel = {
+  rows?: Array<{ id: string; label: string; values: number[] }>;
+};
+
 type StatementRow = {
   label: string;
   projected: number;
@@ -155,6 +159,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   const [project, setProject] = useState<Project | null>(null);
   const [statement, setStatement] = useState<IncomeStatement | null>(null);
   const [lots, setLots] = useState<Lot[]>([]);
+  // Modelo de Flujo de Caja Estático: fuente del Proyectado.
+  const [cashflow, setCashflow] = useState<CashflowModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [ruc, setRuc] = useState(DEFAULT_RUC);
   // Moneda unica de la pantalla: `show()` convierte los montos a la moneda activa.
@@ -180,14 +186,16 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [projectData, statementData, lotData] = await Promise.all([
+      const [projectData, statementData, lotData, cashflowData] = await Promise.all([
         api.get<Project>(`/projects/${projectId}`),
         api.get<IncomeStatement>(`/finances/income-statement?projectId=${projectId}`),
         loadAllLots(projectId),
+        api.get<CashflowModel | null>(`/cashflow/model?projectId=${projectId}&mode=estatico`).catch(() => null),
       ]);
       setProject(projectData);
       setStatement(statementData);
       setLots(lotData);
+      setCashflow(cashflowData && Array.isArray(cashflowData.rows) ? cashflowData : null);
     } catch (error: any) {
       toast(error?.message || 'No se pudo cargar el estado de resultados', 'err');
     } finally {
@@ -200,7 +208,15 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   const report = useMemo(() => {
     const classes = statement?.egresos_clasificados || {};
     const projected = statement?.proyectado || {};
-    const projectedRevenue = lots.reduce((sum, lot) => sum + lotRevenue(lot), 0);
+    // Proyectado: sale del Flujo de Caja Estático del proyecto (modo 'estatico').
+    // El total de cada fila es la suma de sus valores por año. Si aún no hay modelo
+    // guardado, se cae a la lógica anterior (lotes + presupuesto) como referencia.
+    const cfTotals = new Map<string, number>();
+    for (const row of cashflow?.rows || []) {
+      cfTotals.set(row.id, (row.values || []).reduce((sum, value) => sum + num(value), 0));
+    }
+    const cf = (id: string, fallback: number) => cfTotals.has(id) ? (cfTotals.get(id) ?? 0) : fallback;
+    const projectedRevenue = cf('income', lots.reduce((sum, lot) => sum + lotRevenue(lot), 0));
     const totalArea = lots.reduce((sum, lot) => sum + num(lot.areaM2), 0);
     const soldLots = lots.filter((lot) => lot.status === 'vendido').length;
     const realRevenue = num(statement?.ingresos);
@@ -210,11 +226,11 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const salesAdminCost = num(classes.ventas_admin) + num(classes.operacion);
     const financeCost = num(classes.financiamiento);
     const realTaxRegistered = num(classes.impuestos);
-    const projectedLand = num(projected.compra_terreno);
-    const projectedDirect = num(projected.inversion);
-    const projectedIndirect = num(projected.costo_indirecto);
-    const projectedSalesAdmin = num(projected.ventas_admin);
-    const projectedFinanceTax = num(projected.financiamiento);
+    const projectedLand = cf('land', num(projected.compra_terreno));
+    const projectedDirect = cf('direct', num(projected.inversion));
+    const projectedIndirect = cf('indirect', num(projected.costo_indirecto));
+    const projectedSalesAdmin = cf('selling', num(projected.ventas_admin));
+    const projectedFinanceTax = cf('financial', num(projected.financiamiento));
     const projectedCostOfSales = projectedLand + projectedDirect + projectedIndirect;
     const costOfSales = landCost + directCost + indirectCost;
     const grossProfit = realRevenue - costOfSales;
@@ -227,12 +243,12 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const projectedGrossProfit = projectedRevenue - projectedCostOfSales;
     const projectedOperatingProfit = projectedGrossProfit - projectedSalesAdmin;
     const projectedPreTaxProfit = projectedOperatingProfit - projectedFinanceTax;
-    const projectedIncomeTax = Math.max(0, projectedPreTaxProfit * INCOME_TAX_RATE);
+    const projectedIncomeTax = cf('tax', Math.max(0, projectedPreTaxProfit * INCOME_TAX_RATE));
     const projectedNetProfit = projectedPreTaxProfit - projectedIncomeTax;
 
     const rows: StatementRow[] = [
-      { label: 'Ingreso por venta de lotes', projected: projectedRevenue, real: realRevenue, accent: 'income', icon: <FiDollarSign />, note: 'Proyectado por lista de lotes registrados' },
-      { label: 'Costo de venta de lotes', projected: projectedCostOfSales, real: costOfSales, accent: 'subtotal', group: 'cost', icon: <FiPackage />, note: 'Terreno + costos directos + costos indirectos del presupuesto' },
+      { label: 'Ingreso por venta de lotes', projected: projectedRevenue, real: realRevenue, accent: 'income', icon: <FiDollarSign />, note: 'Proyectado del flujo de caja estático' },
+      { label: 'Costo de venta de lotes', projected: projectedCostOfSales, real: costOfSales, accent: 'subtotal', group: 'cost', icon: <FiPackage />, note: 'Terreno + costos directos + costos indirectos del flujo de caja estático' },
       { label: 'Costo de terreno', projected: projectedLand, real: landCost, group: 'cost', child: true, icon: <FiMapPin /> },
       { label: 'Costo directo / inversion', projected: projectedDirect, real: directCost, group: 'cost', child: true, icon: <FiTool /> },
       { label: 'Costo indirecto', projected: projectedIndirect, real: indirectCost, group: 'cost', child: true, icon: <FiClipboard /> },
@@ -269,7 +285,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
         { name: 'Utilidad neta', value: netProfit, color: netProfit >= 0 ? BLUE_DARK : RED },
       ],
     };
-  }, [lots, statement]);
+  }, [lots, statement, cashflow]);
 
   return (
     <>
@@ -326,7 +342,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
         </section>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <KpiCard label="Ingreso real" value={show(report.realRevenue)} helper="Ingresos del flujo de caja estatico" icon={<FiDollarSign />} color={GREEN} />
+          <KpiCard label="Ingreso real" value={show(report.realRevenue)} helper="Ingresos de la operación diaria (transacciones)" icon={<FiDollarSign />} color={GREEN} />
           <KpiCard label="Utilidad neta" value={show(report.netProfit)} helper={`Margen neto ${pct(report.margin)}`} icon={<FiTrendingUp />} color={report.netProfit >= 0 ? BLUE : RED} />
           <KpiCard label="Lotes vendidos" value={`${report.soldLots}/${lots.length}`} helper="Conteo desde lotizacion" icon={<FiGrid />} color={BLUE_DARK} />
           <KpiCard label="Area vendible" value={`${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 0 })} m2`} helper={project?.location || 'Ubicacion del proyecto'} icon={<FiMapPin />} color="#7C3AED" />
@@ -433,8 +449,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
             <section className="rounded-md border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
               <h3 className="font-semibold" style={{ color: INK }}>Criterio contable usado</h3>
               <div className="mt-3 space-y-3 text-sm" style={{ color: MUTED }}>
-                <p>Los ingresos reales salen del flujo de caja estatico. El proyectado de ventas se calcula desde los precios registrados de los lotes.</p>
-                <p>Cuando no existe un presupuesto separado en la base de datos, el proyectado de costos usa la misma base registrada para no inventar valores.</p>
+                <p>Los ingresos reales salen de la operación diaria (transacciones registradas). El proyectado de ingresos y costos sale del flujo de caja estático del proyecto.</p>
+                <p>Si el proyecto aún no tiene un flujo de caja estático guardado, el proyectado usa como referencia los lotes registrados y el presupuesto de obra.</p>
                 <p>Impuesto a la renta e IGV se muestran como referencia gerencial, para facilitar lectura contable sin reemplazar cierre tributario.</p>
               </div>
             </section>

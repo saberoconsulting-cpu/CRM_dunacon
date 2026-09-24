@@ -572,8 +572,7 @@ function AgentRanking({ rows, projects }: { rows: FormattedDashboard['agentRanki
         <select
           value={projectId}
           onChange={(event) => setProjectId(event.target.value)}
-          className="h-9 min-w-[220px] border bg-white px-3 text-sm outline-none"
-          style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.ink }}
+          className="input !h-9 min-w-[220px] !w-auto"
         >
           <option value="">Todos los proyectos</option>
           {projects.map((project) => (
@@ -867,8 +866,7 @@ function MovementsCenter({ sales, payments, projects, projectName }: {
                     <select
                       value={historyProjectId}
                       onChange={(event) => setHistoryProjectId(event.target.value)}
-                      className="h-8 min-w-[220px] border bg-white px-2 text-xs font-semibold outline-none"
-                      style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.ink }}
+                      className="input !h-8 min-w-[220px] !w-auto text-xs"
                     >
                       <option value="">Todos los proyectos</option>
                       {projects.map((project) => (
@@ -878,8 +876,7 @@ function MovementsCenter({ sales, payments, projects, projectName }: {
                     <select
                       value={historyType}
                       onChange={(event) => setHistoryType(event.target.value)}
-                      className="h-8 min-w-[130px] border bg-white px-2 text-xs font-semibold outline-none"
-                      style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.ink }}
+                      className="input !h-8 min-w-[130px] !w-auto text-xs"
                     >
                       <option value="">Ventas y pagos</option>
                       <option value="venta">Solo ventas</option>

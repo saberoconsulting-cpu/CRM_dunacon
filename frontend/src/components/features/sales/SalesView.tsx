@@ -10,6 +10,7 @@ import { buildQuoteAssignedValues, findLotById, formatAmountIn, loadAllSalesQuot
 import { formatMoney, formatDate } from '@/lib/types';
 import { DEFAULT_EXCHANGE_RATE, useDisplayCurrency } from '@/lib/currency';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
+import { Select } from '@/components/ui/Select';
 import { printHtml } from '@/lib/print';
 import { FiDownload, FiHome, FiCheckCircle, FiDollarSign, FiTrendingUp, FiPercent, FiBookmark, FiArrowDownCircle, FiCalendar, FiChevronDown, FiFilter, FiSearch, FiSliders, FiX } from 'react-icons/fi';
 
@@ -909,26 +910,26 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               {!lockedProjectId && (
                 <div className="col-span-2">
                   <Field label="Proyecto">
-                    <select className="input" value={projectId} onChange={(e) => { setProjectId(Number(e.target.value)); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setSalePrice(0); }}>
-                      <option value={0}>Auto / Todos</option>
-                      {projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                    </select>
+                    <Select
+                      value={projectId}
+                      onChange={(v) => { setProjectId(Number(v)); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setSalePrice(0); }}
+                      options={[{ value: 0, label: 'Auto / Todos' }, ...projects.map((p: any) => ({ value: p.id, label: p.name }))]}
+                    />
                   </Field>
                 </div>
               )}
               <Field label="Lote *">
-                <select className="input" value={lotId} onChange={(e) => selectLot(Number(e.target.value))}>
-                  <option value={0}>Selecciona…</option>
-                  {lotOptions.map((l: any) => (
-                    <option key={l.id} value={l.id}>{lotOptionLabel(l, Boolean(selectedQuote) && Number(l.id) === Number(lotId))}</option>
-                  ))}
-                </select>
+                <Select
+                  value={lotId}
+                  onChange={(v) => selectLot(Number(v))}
+                  options={[{ value: 0, label: 'Selecciona…' }, ...lotOptions.map((l: any) => ({ value: l.id, label: lotOptionLabel(l, Boolean(selectedQuote) && Number(l.id) === Number(lotId)) }))]}
+                />
               </Field>
-              <div className="hidden"><Field label="Cliente"><select className="input" value={clientId} onChange={(e) => setClientId(Number(e.target.value))}><option value={0}>— Sin asignar —</option>{clients.map((c: any) => <option key={c.id} value={c.id}>{(c.fullName || c.full_name || '— Sin nombre —')}</option>)}</select></Field></div>
+              <div className="hidden"><Field label="Cliente"><Select value={clientId} onChange={(v) => setClientId(Number(v))} options={[{ value: 0, label: '— Sin asignar —' }, ...clients.map((c: any) => ({ value: c.id, label: (c.fullName || c.full_name || '— Sin nombre —') }))]} /></Field></div>
               {role === 'agent' ? (
                 <Field label="Agente asignado"><div className="input flex items-center bg-slate-50 text-slate-700">{sessionUser?.name || 'Agente logueado'}</div></Field>
               ) : (
-                <Field label="Agente *"><select className="input" value={agentId} onChange={(e) => setAgentId(Number(e.target.value))}><option value={0}>Selecciona…</option>{agents.map((a: any) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+                <Field label="Agente *"><Select value={agentId} onChange={(v) => setAgentId(Number(v))} options={[{ value: 0, label: 'Selecciona…' }, ...agents.map((a: any) => ({ value: a.id, label: a.name }))]} /></Field>
               )}
             </div>
             {lotId > 0 && salePrice > 0 && (
@@ -964,7 +965,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     onChange={(e) => setSalePrice(toPen(Number(e.target.value || 0)))}
                   />
                 </Field>
-                <Field label={`Precio de venta equiv. (${saleCurrency === 'USD' ? 'S/' : 'US$'})`}>
+                <Field label={`Precio equiv. (${saleCurrency === 'USD' ? 'S/' : 'US$'})`}>
                   <input
                     type="number"
                     className="input"
@@ -993,9 +994,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             {/* Forma de pago */}
             <div className="border-t mt-4 pt-3">
               <Field label="Forma de pago">
-                <select className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)}>
-                  {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
-                </select>
+                <Select value={paymentMethod} onChange={setPaymentMethod} options={PAYMENT_METHODS.map((m) => ({ value: m, label: m }))} />
               </Field>
             </div>
 
@@ -1012,10 +1011,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   <p className="text-xs font-semibold text-slate-600 mb-2">Cuota inicial sin interes</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <Field label="Forma de pago de la inicial">
-                      <select className="input" value={initialPaymentMode} onChange={(e) => setInitialPaymentMode(e.target.value as any)}>
-                        <option value="contado">Pago de contado (1 sola vez)</option>
-                        <option value="partes">En partes iguales</option>
-                      </select>
+                      <Select value={initialPaymentMode} onChange={(v) => setInitialPaymentMode(v as any)} options={[{ value: 'contado', label: 'Pago de contado (1 sola vez)' }, { value: 'partes', label: 'En partes iguales' }]} />
                     </Field>
                     {initialPaymentMode === 'partes' && (
                       <Field label="Numero de partes">
@@ -1033,19 +1029,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <div className="rounded-lg border p-3 mt-3" style={{ borderColor: '#E5E7EB' }}>
                   <p className="text-xs font-semibold text-slate-600 mb-2">Financiamiento del saldo</p>
                   <Field label="Las primeras cuotas, sin interes?">
-                    <select
-                      className="input"
+                    <Select
                       value={applyInterest ? 'con' : 'sin'}
-                      onChange={(e) => {
-                        const enabled = e.target.value === 'con';
-                        setApplyInterest(enabled);
-                        setInterestType(enabled ? 'tea' : 'sin_intereses');
-                        if (!enabled) setGraceMonths(0);
-                      }}
-                    >
-                      <option value="sin">Todas las cuotas sin interes</option>
-                      <option value="con">Si, las primeras N sin interes y el resto con interes</option>
-                    </select>
+                      onChange={(v) => { const enabled = v === 'con'; setApplyInterest(enabled); setInterestType(enabled ? 'tea' : 'sin_intereses'); if (!enabled) setGraceMonths(0); }}
+                      options={[{ value: 'sin', label: 'Todas las cuotas sin interes' }, { value: 'con', label: 'Si, las primeras N sin interes y el resto con interes' }]}
+                    />
                   </Field>
                   {applyInterest && (
                     <div className="mt-3 space-y-3">

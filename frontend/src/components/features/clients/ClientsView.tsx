@@ -1,9 +1,10 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { FiFilter, FiPlus, FiSearch, FiUsers } from 'react-icons/fi';
+import { FiPlus, FiUsers } from 'react-icons/fi';
 import { Toaster, toast, Field, StatCard } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { PaginationBar } from '@/components/ui/PaginationBar';
+import { Select } from '@/components/ui/Select';
 import { formatDate } from '@/lib/types';
 
 type C = { id: number; full_name: string; phone?: string | null; email?: string | null; source?: string; pipeline_status: string; agent_id?: number | null; created_at: string };
@@ -117,21 +118,19 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
 
           <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-2">
             <Field label="Canal">
-              <div className="relative">
-                <FiFilter className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <select className="input !h-11 !rounded-xl !pl-9 border-slate-200 bg-white shadow-sm" value={fSource} onChange={(e) => setFSource(e.target.value)}>
-                  <option value="">Todos</option>{SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}
-                </select>
-              </div>
+              <Select
+                value={fSource}
+                onChange={setFSource}
+                options={[{ value: '', label: 'Todos' }, ...SOURCES.map((s) => ({ value: s, label: s }))]}
+              />
             </Field>
 
             <Field label="Estado">
-              <div className="relative">
-                <FiSearch className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <select className="input !h-11 !rounded-xl !pl-9 border-slate-200 bg-white shadow-sm" value={fPipeline} onChange={(e) => setFPipeline(e.target.value)}>
-                  <option value="">Todos</option>{Object.keys(PIPELINE).map((k) => <option key={k} value={k}>{PIPELINE[k]}</option>)}
-                </select>
-              </div>
+              <Select
+                value={fPipeline}
+                onChange={setFPipeline}
+                options={[{ value: '', label: 'Todos' }, ...Object.keys(PIPELINE).map((k) => ({ value: k, label: PIPELINE[k] }))]}
+              />
             </Field>
           </div>
         </div>

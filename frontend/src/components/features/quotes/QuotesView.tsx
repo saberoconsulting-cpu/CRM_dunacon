@@ -5,6 +5,7 @@ import { FiDownload, FiEye, FiFileText, FiCreditCard, FiDollarSign, FiTrendingUp
 import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
 import { KpiCard, KPI_GRID_6 } from '@/components/ui/Metrics';
 import { PaginationBar } from '@/components/ui/PaginationBar';
+import { Select } from '@/components/ui/Select';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/types';
@@ -646,11 +647,12 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <select className="input w-full sm:!w-auto" value={fPayment} onChange={(e) => setFPayment(e.target.value)}>
-              <option value="">Todos</option>
-              <option value="contado">Contado</option>
-              <option value="credito">Crédito</option>
-            </select>
+            <Select
+              value={fPayment}
+              onChange={setFPayment}
+              className="w-full sm:!w-auto"
+              options={[{ value: '', label: 'Todos' }, { value: 'contado', label: 'Contado' }, { value: 'credito', label: 'Crédito' }]}
+            />
             {(search || fPayment) && (
               <button
                 className="btn-neutral !h-9 text-xs"

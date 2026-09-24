@@ -1,5 +1,6 @@
 'use client';
 import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   FiAward,
@@ -319,6 +320,36 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   }
 
   function NotificationMenu({ inline = false }: { inline?: boolean }) {
+    const [mounted, setMounted] = useState(false);
+    useEffect(() => { setMounted(true); }, []);
+    const panelContent = (
+      <>
+        <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: BRAND.border }}>
+          <span className="text-sm font-semibold">Separaciones por aprobar</span>
+          <span className="badge bg-softblue" style={{ color: BRAND.blue }}>{pendingApp.count}</span>
+        </div>
+        <div className="divide-y">
+          {pendingApp.rows.slice(0, 15).map((sale) => (
+            <button key={sale.id} onClick={() => goToPendingSale(sale)}
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50">
+              <span className="truncate text-sm">Lote {sale.lotCode ? sale.lotCode : `#${sale.lotId ?? '-'}`}</span>
+              <span className="badge bg-softblue text-[11px]" style={{ color: BRAND.blueDark }}>Pendiente</span>
+            </button>
+          ))}
+        </div>
+        {pendingApp.rows.length === 0 && (
+          <p className="flex flex-col items-center gap-1.5 px-4 py-8 text-center text-sm text-slate-400">
+            <FiCheckCircle style={{ fontSize: 20 }} /> Sin separaciones pendientes
+          </p>
+        )}
+        {pendingApp.rows.length > 0 && (
+          <div className="border-t px-3 py-2.5" style={{ borderColor: BRAND.border }}>
+            <button className="btn-primary w-full justify-center" onClick={() => goToPendingSale(pendingApp.rows[0])}>Ir a revisar y aprobar</button>
+          </div>
+        )}
+      </>
+    );
+
     return (
       <div className="relative">
         <button
@@ -338,38 +369,26 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           </span>
           {inline && <span className="min-w-0 truncate">Notificaciones</span>}
         </button>
-        {bellOpen && (
+        {bellOpen && inline && mounted && createPortal(
+          <>
+            <div className="fixed inset-0 z-[70]" onClick={() => setBellOpen(false)} />
+            <div
+              className="fixed inset-x-3 bottom-3 z-[80] max-h-[60vh] overflow-auto rounded-lg border bg-white shadow-2xl"
+              style={{ borderColor: BRAND.border }}
+            >
+              {panelContent}
+            </div>
+          </>,
+          document.body,
+        )}
+        {bellOpen && !inline && (
           <>
             <div className="fixed inset-0 z-40" onClick={() => setBellOpen(false)} />
             <div
-              className={inline
-                ? 'relative z-50 mt-1 overflow-auto rounded-lg border bg-white shadow-2xl'
-                : 'absolute right-0 top-11 z-50 max-h-[70vh] w-[min(20rem,calc(100vw-2rem))] overflow-auto rounded-lg border bg-white shadow-2xl'}
+              className="absolute right-0 top-11 z-50 max-h-[70vh] w-[min(20rem,calc(100vw-2rem))] overflow-auto rounded-lg border bg-white shadow-2xl"
               style={{ borderColor: BRAND.border }}
             >
-              <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: BRAND.border }}>
-                <span className="text-sm font-semibold">Separaciones por aprobar</span>
-                <span className="badge bg-softblue" style={{ color: BRAND.blue }}>{pendingApp.count}</span>
-              </div>
-              <div className="divide-y">
-                {pendingApp.rows.slice(0, 15).map((sale) => (
-                  <button key={sale.id} onClick={() => goToPendingSale(sale)}
-                    className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50">
-                    <span className="truncate text-sm">Lote {sale.lotCode ? sale.lotCode : `#${sale.lotId ?? '-'}`}</span>
-                    <span className="badge bg-softblue text-[11px]" style={{ color: BRAND.blueDark }}>Pendiente</span>
-                  </button>
-                ))}
-              </div>
-              {pendingApp.rows.length === 0 && (
-                <p className="flex flex-col items-center gap-1.5 px-4 py-8 text-center text-sm text-slate-400">
-                  <FiCheckCircle style={{ fontSize: 20 }} /> Sin separaciones pendientes
-                </p>
-              )}
-              {pendingApp.rows.length > 0 && (
-                <div className="border-t px-3 py-2.5" style={{ borderColor: BRAND.border }}>
-                  <button className="btn-primary w-full justify-center" onClick={() => goToPendingSale(pendingApp.rows[0])}>Ir a revisar y aprobar</button>
-                </div>
-              )}
+              {panelContent}
             </div>
           </>
         )}

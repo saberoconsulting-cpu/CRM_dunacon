@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Toaster, toast, Field, StatCard } from '@/components/ui/ui';
 import { api } from '@/lib/api';
+import { Select } from '@/components/ui/Select';
 import { formatMoney } from '@/lib/types';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 
@@ -67,9 +68,12 @@ export default function CampaignsView({ lockedProjectId }: { lockedProjectId?: n
             <h3 className="font-semibold">Campañas</h3>
             <div className="flex flex-wrap gap-2">
               {!lockedProjectId && (
-                <select className="input !w-auto" value={fProject} onChange={(e) => setFProject(e.target.value)}>
-                  <option value="">Proyecto: todos</option>{projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <Select
+                value={fProject}
+                onChange={setFProject}
+                className="!w-auto"
+                options={[{ value: '', label: 'Proyecto: todos' }, ...projects.map((p: any) => ({ value: p.id, label: p.name }))]}
+              />
               )}
               <button className="btn-primary" onClick={() => setOpen(true)}>Nueva campaña</button>
             </div>
@@ -112,9 +116,9 @@ export default function CampaignsView({ lockedProjectId }: { lockedProjectId?: n
             <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Nueva campaña</h3>
             <Field label="Nombre *"><input className="input" value={form.name || ''} onChange={(e) => set('name', e.target.value)} /></Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Canal"><select className="input" value={form.channel || 'otro'} onChange={(e) => set('channel', e.target.value)}>{Object.keys(CHANNELS).map((k) => <option key={k} value={k}>{CHANNELS[k]}</option>)}</select></Field>
+              <Field label="Canal"><Select value={form.channel || 'otro'} onChange={(v) => set('channel', v)} options={Object.keys(CHANNELS).map((k) => ({ value: k, label: CHANNELS[k] }))} /></Field>
               {!lockedProjectId && (
-                <Field label="Proyecto"><select className="input" value={form.projectId || ''} onChange={(e) => set('projectId', e.target.value ? Number(e.target.value) : null)}><option value="">—</option>{projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+                <Field label="Proyecto"><Select value={form.projectId || ''} onChange={(v) => set('projectId', v ? Number(v) : null)} options={[{ value: '', label: '—' }, ...projects.map((p: any) => ({ value: p.id, label: p.name }))]} /></Field>
               )}
             </div>
             <Field label="Presupuesto (S/)"><input type="number" className="input" value={form.budget || ''} onChange={(e) => set('budget', e.target.value)} /></Field>

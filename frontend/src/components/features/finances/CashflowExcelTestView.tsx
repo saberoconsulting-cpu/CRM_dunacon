@@ -787,7 +787,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             {modeSwitchOpen && pendingMode && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-slate-950/40" onClick={() => { setModeSwitchOpen(false); setPendingMode(null); }} />
-                    <div className="relative w-full max-w-md rounded-xl border bg-white p-5 shadow-2xl" style={{ borderColor: BRAND.border }}>
+                    <div className="relative flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto rounded-xl border bg-white p-5 shadow-2xl" style={{ borderColor: BRAND.border }}>
                         <div className="mb-4 flex items-start gap-3">
                             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg" style={{ background: `${BRAND.blue}14`, color: BRAND.blue }}>{pendingMode === 'dinamico' ? <FiZap /> : <FiClipboard />}</span>
                             <div>
@@ -809,9 +809,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             {assumptionsOpen && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-slate-950/40" onClick={() => setAssumptionsOpen(false)} />
-                    <div className="relative w-full max-w-xl rounded-xl border bg-white shadow-2xl" style={{ borderColor: BRAND.border }}>
-                        <div className="border-b px-5 py-4" style={{ borderColor: BRAND.border }}><p className="text-xs font-semibold uppercase tracking-wide" style={{ color: BRAND.blue }}>Supuestos del proyecto</p><h3 className="mt-1 text-lg font-semibold" style={{ color: BRAND.ink }}>Editar datos base</h3><p className="mt-1 text-sm text-slate-500">Estos valores afectan los cálculos de todo el modelo.</p></div>
-                        <div className="grid grid-cols-2 gap-3 p-5">
+                    <div className="relative flex max-h-[90vh] w-full max-w-xl flex-col rounded-xl border bg-white shadow-2xl" style={{ borderColor: BRAND.border }}>
+                        <div className="shrink-0 border-b px-5 py-4" style={{ borderColor: BRAND.border }}><p className="text-xs font-semibold uppercase tracking-wide" style={{ color: BRAND.blue }}>Supuestos del proyecto</p><h3 className="mt-1 text-lg font-semibold" style={{ color: BRAND.ink }}>Editar datos base</h3><p className="mt-1 text-sm text-slate-500">Estos valores afectan los cálculos de todo el modelo.</p></div>
+                        <div className="grid flex-1 grid-cols-2 gap-3 overflow-y-auto p-5">
                             {[
                                 ['Área venta (m²)', 'landArea'],
                                 ['Área promedio lote (m²)', 'lotArea'],
@@ -836,14 +836,14 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 return <label key={key} className="label">{label}<input className="input mt-1" inputMode="numeric" value={visibleValue} onChange={(event) => setDraftManual((current) => ({ ...current, [key]: key === 'priceM2' ? baseNumber(event.target.value) : parseFormattedNumber(event.target.value) }))} /></label>;
                             })}
                         </div>
-                        <div className="flex justify-end gap-2 border-t px-5 py-4" style={{ borderColor: BRAND.border }}><button className="btn-neutral" onClick={() => setAssumptionsOpen(false)}>Cancelar</button><button className="btn-primary" onClick={applyAssumptions}><FiSave /> Aplicar supuestos</button></div>
+                        <div className="flex shrink-0 justify-end gap-2 border-t px-5 py-4" style={{ borderColor: BRAND.border }}><button className="btn-neutral" onClick={() => setAssumptionsOpen(false)}>Cancelar</button><button className="btn-primary" onClick={applyAssumptions}><FiSave /> Aplicar supuestos</button></div>
                     </div>
                 </div>
             )}
             {pendingEdit && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-slate-950/40" onClick={cancelCellEdit} />
-                    <div className="relative w-full max-w-sm rounded-xl border bg-white p-5 shadow-2xl" style={{ borderColor: BRAND.border }}>
+                    <div className="relative flex max-h-[90vh] w-full max-w-sm flex-col overflow-y-auto rounded-xl border bg-white p-5 shadow-2xl" style={{ borderColor: BRAND.border }}>
                         <div className="mb-4 flex items-start gap-3">
                             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg" style={{ background: `${BRAND.blue}14`, color: BRAND.blue }}><FiEdit3 /></span>
                             <div><h3 className="font-semibold" style={{ color: BRAND.ink }}>Confirmar cambio</h3><p className="mt-1 text-sm text-slate-500">¿Deseas aplicar este dato al modelo financiero?</p></div>

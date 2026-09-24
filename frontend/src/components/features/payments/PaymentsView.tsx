@@ -22,6 +22,7 @@ import { PaginationBar } from '@/components/ui/PaginationBar';
 import { formatMoney, formatDate } from '@/lib/types';
 import { useDisplayCurrency, DEFAULT_EXCHANGE_RATE } from '@/lib/currency';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
+import { Select } from '@/components/ui/Select';
 import { printHtml } from '@/lib/print';
 import { EvidenceButton } from './EvidenceViewer';
 import { comparePaymentRows, PAYMENT_CONCEPT_LABEL } from './paymentOrder';
@@ -1403,12 +1404,12 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <h3 className="font-semibold">Historial de pagos</h3>
             <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
-              <select className="input w-full sm:!w-auto" value={status} onChange={(e) => setStatus(e.target.value)}>
-                <option value="">Estado: todos</option>
-                <option value="pagado">Pagado</option>
-                <option value="pendiente">Pendiente</option>
-                <option value="vencido">Vencido</option>
-              </select>
+              <Select
+                value={status}
+                onChange={setStatus}
+                className="w-full sm:!w-auto"
+                options={[{ value: '', label: 'Estado: todos' }, { value: 'pagado', label: 'Pagado' }, { value: 'pendiente', label: 'Pendiente' }, { value: 'vencido', label: 'Vencido' }]}
+              />
               <input
                 className="input w-full sm:!w-56"
                 placeholder="Buscar por lote, cliente o referencia"
@@ -1676,30 +1677,26 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
               {!lockedProjectId && (
                 <Field label="Proyecto">
-                  <select className="input" value={payProjectId} onChange={(e) => { setPayProjectId(Number(e.target.value)); setLotId(0); setClientId(0); }}>
-                    <option value={0}>Selecciona el proyecto…</option>
-                    {payProjects.map((pr: any) => <option key={pr.id} value={pr.id}>{pr.name}</option>)}
-                  </select>
+                  <Select
+                    value={payProjectId}
+                    onChange={(v) => { setPayProjectId(Number(v)); setLotId(0); setClientId(0); }}
+                    options={[{ value: 0, label: 'Selecciona el proyecto…' }, ...payProjects.map((pr: any) => ({ value: pr.id, label: pr.name }))]}
+                  />
                 </Field>
               )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <Field label="Lote">
-                  <select className="input" value={lotId} onChange={(e) => selectLot(Number(e.target.value))}>
-                    <option value={0}>{payProjectId ? 'Selecciona el lote…' : 'Primero elige un proyecto'}</option>
-                    {availableLots.map((l: any) => <option key={l.id} value={l.id}>Lote {l.code} — {show(l.price)}</option>)}
-                  </select>
+                  <Select
+                    value={lotId}
+                    onChange={(v) => selectLot(Number(v))}
+                    options={[{ value: 0, label: payProjectId ? 'Selecciona el lote…' : 'Primero elige un proyecto' }, ...availableLots.map((l: any) => ({ value: l.id, label: `Lote ${l.code} — ${show(l.price)}` }))]}
+                  />
                 </Field>
                 <Field label="Cliente">
-                  <select className="input" value={clientId} onChange={(e) => setClientId(Number(e.target.value))}>
-                    <option value={0}>— Sin asignar —</option>
-                    {clients.map((c: any) => <option key={c.id} value={c.id}>{c.fullName || c.full_name || '— Sin nombre —'}</option>)}
-                  </select>
+                  <Select value={clientId} onChange={(v) => setClientId(Number(v))} options={[{ value: 0, label: '— Sin asignar —' }, ...clients.map((c: any) => ({ value: c.id, label: (c.fullName || c.full_name || '— Sin nombre —') }))]} />
                 </Field>
                 <Field label="Tipo de pago">
-                  <select className="input" value={payType} onChange={(e) => setPayType(e.target.value)}>
-                    <option value="reserva">Reserva</option><option value="adelanto">Cuota inicial</option>
-                    <option value="primera_cuota">Cuota normal</option><option value="cuota">Cuota</option>
-                  </select>
+                  <Select value={payType} onChange={setPayType} options={[{ value: 'reserva', label: 'Reserva' }, { value: 'adelanto', label: 'Cuota inicial' }, { value: 'primera_cuota', label: 'Cuota normal' }, { value: 'cuota', label: 'Cuota' }]} />
                   <p className="mt-1 text-[11px]" style={{ color: MUTED }}>
                     {payType === 'reserva'
                       ? 'Reserva: se descuenta del saldo de la venta y va antes de la cuota inicial.'
@@ -1711,9 +1708,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   </p>
                 </Field>
                 <Field label="Medio de pago">
-                  <select className="input" value={payMethod} onChange={(e) => setPayMethod(e.target.value)}>
-                    {METHODS.map(([v, label]) => <option key={v} value={v}>{label}</option>)}
-                  </select>
+                  <Select value={payMethod} onChange={setPayMethod} options={METHODS.map(([v, label]) => ({ value: v, label }))} />
                 </Field>
               </div>
               <Field label="Referencia (n.º operación Yape/banco)">

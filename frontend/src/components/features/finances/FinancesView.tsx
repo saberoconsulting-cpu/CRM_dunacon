@@ -5,6 +5,7 @@ import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/types';
 import { useDisplayCurrency } from '@/lib/currency';
+import { Select } from '@/components/ui/Select';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { FiSearch } from 'react-icons/fi';
 
@@ -174,10 +175,11 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                   onChange={(e) => setSearch(e.target.value)}
                 />
               </div>
-              <select className="input !h-9 !w-auto" value={cat} onChange={(e) => setCat(e.target.value)}>
-                <option value="">Todas las categorías</option>
-                {CATS.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <Select
+                value={cat}
+                onChange={setCat}
+                options={[{ value: '', label: 'Todas las categorías' }, ...CATS.map((c) => ({ value: c, label: c }))]}
+              />
             </div>
             {(cat || search || typeFilter) && (
               <button className="btn-neutral !h-8 w-full text-xs sm:w-auto" onClick={() => { setCat(''); setSearch(''); setDebouncedSearch(''); setTypeFilter(''); }}>Limpiar filtros</button>
@@ -231,19 +233,14 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Registrar egreso</h3>
             <Field label="Concepto *"><input className="input" value={eForm.concept || ''} onChange={(e) => ef('concept', e.target.value)} /></Field>
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Categoría"><select className="input" value={eForm.category || 'otros'} onChange={(e) => ef('category', e.target.value)}>{CATS.map((c) => <option key={c} value={c}>{c}</option>)}</select></Field>
+              <Field label="Categoría"><Select value={eForm.category || 'otros'} onChange={(v) => ef('category', v)} options={CATS.map((c) => ({ value: c, label: c }))} /></Field>
               <Field label="Monto (S/) *"><input type="number" className="input" value={eForm.amount || ''} onChange={(e) => ef('amount', e.target.value)} /></Field>
             </div>
             <Field label="Clasificación de la inversión/gasto">
-              <select className="input" value={eForm.expenseClass || 'operacion'} onChange={(e) => ef('expenseClass', e.target.value)}>
-                <option value="operacion">Operación (G&A, comisiones, admin)</option>
-                <option value="inversion">Inversión / Construcción</option>
-                <option value="financiamiento">Financiamiento</option>
-                <option value="compra_terreno">Compra de terreno</option>
-              </select>
+              <Select value={eForm.expenseClass || 'operacion'} onChange={(v) => ef('expenseClass', v)} options={[{ value: 'operacion', label: 'Operación (G&A, comisiones, admin)' }, { value: 'inversion', label: 'Inversión / Construcción' }, { value: 'financiamiento', label: 'Financiamiento' }, { value: 'compra_terreno', label: 'Compra de terreno' }]} />
             </Field>
             {!lockedProjectId && (
-              <Field label="Proyecto"><select className="input" value={eForm.projectId || ''} onChange={(e) => ef('projectId', e.target.value ? Number(e.target.value) : null)}><option value="">—</option>{projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+              <Field label="Proyecto"><Select value={eForm.projectId || ''} onChange={(v) => ef('projectId', v ? Number(v) : null)} options={[{ value: '', label: '—' }, ...projects.map((p: any) => ({ value: p.id, label: p.name }))]} /></Field>
             )}
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-neutral" onClick={() => setOpenExp(false)}>Cancelar</button>
@@ -260,7 +257,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             <Field label="Concepto *"><input className="input" value={iForm.concept || ''} onChange={(e) => inf('concept', e.target.value)} /></Field>
             <Field label="Monto (S/) *"><input type="number" className="input" value={iForm.amount || ''} onChange={(e) => inf('amount', e.target.value)} /></Field>
             {!lockedProjectId && (
-              <Field label="Proyecto"><select className="input" value={iForm.projectId || ''} onChange={(e) => inf('projectId', e.target.value ? Number(e.target.value) : null)}><option value="">—</option>{projects.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+              <Field label="Proyecto"><Select value={iForm.projectId || ''} onChange={(v) => inf('projectId', v ? Number(v) : null)} options={[{ value: '', label: '—' }, ...projects.map((p: any) => ({ value: p.id, label: p.name }))]} /></Field>
             )}
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-neutral" onClick={() => setOpenIn(false)}>Cancelar</button>
