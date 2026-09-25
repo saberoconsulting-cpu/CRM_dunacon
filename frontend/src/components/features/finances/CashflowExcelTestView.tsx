@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FiBriefcase, FiCheck, FiClipboard, FiCreditCard, FiDollarSign, FiEdit3, FiHome, FiLayers, FiMapPin, FiPercent, FiPieChart, FiRefreshCw, FiSave, FiTool, FiTrendingUp, FiZap } from 'react-icons/fi';
+import { FiBriefcase, FiCheck, FiClipboard, FiCreditCard, FiDollarSign, FiDownload, FiEdit3, FiHome, FiLayers, FiMapPin, FiPercent, FiPieChart, FiRefreshCw, FiSave, FiTool, FiTrendingUp, FiZap } from 'react-icons/fi';
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '@/lib/api';
 import { BRAND } from '@/lib/types';
@@ -450,6 +450,11 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         setModeSwitchOpen(true);
     }
 
+    function exportPdf() {
+        setExpanded(Object.fromEntries(SECTIONS.map((section) => [section.id, true])));
+        window.setTimeout(() => window.print(), 80);
+    }
+
     function applyModeSwitch() {
         if (pendingMode) setMode(pendingMode);
         setPendingMode(null);
@@ -519,8 +524,58 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     return (
         <div className="space-y-5">
             <Toaster />
+            <style jsx global>{`
+                @media print {
+                    @page {
+                        size: A4 landscape;
+                        margin: 10mm;
+                    }
+                    body * {
+                        visibility: hidden !important;
+                    }
+                    .cashflow-print-area,
+                    .cashflow-print-area * {
+                        visibility: visible !important;
+                    }
+                    .cashflow-print-area {
+                        position: absolute !important;
+                        inset: 0 auto auto 0 !important;
+                        width: 100% !important;
+                        background: #ffffff !important;
+                    }
+                    .cashflow-no-print {
+                        display: none !important;
+                    }
+                    .cashflow-print-header {
+                        display: flex !important;
+                    }
+                    .cashflow-print-area,
+                    .cashflow-print-area section {
+                        box-shadow: none !important;
+                    }
+                    .cashflow-print-area table {
+                        width: 100% !important;
+                    }
+                }
+            `}</style>
+            <div className="cashflow-print-area space-y-5">
+            <div className="cashflow-print-header hidden items-center justify-between gap-5 border-b pb-4" style={{ borderColor: BRAND.border }}>
+                <div className="flex items-center gap-3">
+                    {project?.logoImageUrl ? <img src={project.logoImageUrl} alt={project?.name || 'Proyecto'} className="h-12 max-w-36 object-contain" /> : null}
+                    <img src="/logo/dunacon.png" alt="Dunacon" className="h-12 max-w-36 object-contain" />
+                </div>
+                <div className="text-center">
+                    <p className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: BRAND.blue }}>Dunacon CRM</p>
+                    <h1 className="mt-1 text-xl font-bold" style={{ color: BRAND.ink }}>Flujo de Caja</h1>
+                    <p className="mt-1 text-xs" style={{ color: BRAND.muted }}>{project?.name || `Proyecto ${projectId}`} - {MODE_LABEL[mode]}</p>
+                </div>
+                <div className="text-right text-xs" style={{ color: BRAND.muted }}>
+                    <p className="font-semibold" style={{ color: BRAND.ink }}>Fecha</p>
+                    <p>{new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+                </div>
+            </div>
             <section className="overflow-hidden rounded-lg border bg-white shadow-sm" style={{ borderColor: BRAND.border }}>
-                <div className="flex flex-col gap-4 border-b px-5 py-5 lg:flex-row lg:items-start lg:justify-between" style={{ borderColor: BRAND.border }}>
+                <div className="cashflow-no-print flex flex-col gap-4 border-b px-5 py-5 lg:flex-row lg:items-start lg:justify-between" style={{ borderColor: BRAND.border }}>
                     <div>
                         <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold" style={{ background: `${BRAND.blue}14`, color: BRAND.blue }}><FiTrendingUp /> Flujo de caja</div>
                         <h2 className="mt-3 text-2xl font-bold" style={{ color: BRAND.ink }}>{project?.name || 'Proyecto'} · FLUJO DE CAJA</h2>
@@ -530,12 +585,13 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         <div className="col-span-2 lg:col-span-1">
                             <CurrencyToggle currency={currency} setCurrency={setCurrency} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} />
                         </div>
+                        <button className="btn-neutral min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" onClick={exportPdf}><FiDownload /> Exportar PDF</button>
                         <button className="btn-neutral min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" onClick={() => (mode === 'dinamico' ? refreshDynamic() : loadModel('estatico'))}><FiRefreshCw /> {mode === 'dinamico' ? 'Actualizar data' : 'Recargar'}</button>
                         <button className="btn-primary min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" onClick={openAssumptions}><FiEdit3 /> Ajustar supuestos</button>
                     </div>
                 </div>
 
-                <div className="flex flex-col gap-3 border-b bg-[#F8FAFC] px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: BRAND.border }}>
+                <div className="cashflow-no-print flex flex-col gap-3 border-b bg-[#F8FAFC] px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: BRAND.border }}>
                     <div className="flex flex-wrap items-center gap-2">
                         {(['estatico', 'dinamico'] as CashflowMode[]).map((option) => {
                             const active = mode === option;
@@ -582,7 +638,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             </section>
 
             <section className="overflow-hidden rounded-lg border bg-white shadow-sm" style={{ borderColor: BRAND.border }}>
-                <div className="flex items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BRAND.border }}>
+                <div className="cashflow-no-print flex items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BRAND.border }}>
                     <div>
                         <h3 className="font-semibold" style={{ color: BRAND.ink }}>Indicadores del proyecto</h3>
                         <p className="text-xs text-slate-500">Se recalculan en tiempo real con la data del modelo · Base contable (utilidad neta) · VAN con tasa de descuento del {Number(manual.discountRate) || 10}%.</p>
@@ -608,8 +664,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             </section>
 
             <section className="overflow-hidden rounded-lg border bg-white shadow-sm" style={{ borderColor: BRAND.border }}>
-                <div className="flex items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BRAND.border }}><div><h3 className="font-semibold" style={{ color: BRAND.ink }}>Estado de resultados proyectado</h3><p className="text-xs text-slate-500">Valores en US$ · al salir de una celda se te pedirá confirmar el cambio.</p></div><FiEdit3 style={{ color: BRAND.blue }} /></div>
-                <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver los años.</p>
+                <div className="flex items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BRAND.border }}><div><h3 className="font-semibold" style={{ color: BRAND.ink }}>Estado de resultados proyectado</h3><p className="cashflow-no-print text-xs text-slate-500">Valores en US$ · al salir de una celda se te pedirá confirmar el cambio.</p></div><FiEdit3 className="cashflow-no-print" style={{ color: BRAND.blue }} /></div>
+                <p className="cashflow-no-print px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver los años.</p>
                 {/* [container-type:inline-size] permite usar `cqw` (ancho visible) en las columnas
                     fijas: en movil Concepto + Total llenan la pantalla y los años se ven al deslizar. */}
                 <div className="overflow-auto [container-type:inline-size]" style={{ WebkitOverflowScrolling: 'touch' }}>
@@ -769,7 +825,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                             </button>
                         ))}
                     </div>
-                    <div className="border-t px-5 py-3 text-xs text-slate-500" style={{ borderColor: BRAND.border }}>
+                    <div className="cashflow-no-print border-t px-5 py-3 text-xs text-slate-500" style={{ borderColor: BRAND.border }}>
                         Edita estos supuestos desde <button className="font-semibold" style={{ color: BRAND.blue }} onClick={openAssumptions}>Ajustar supuestos</button>.
                     </div>
                 </div>
@@ -794,6 +850,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     </div>
                 </div>
             </section>
+            </div>
             {modeSwitchOpen && pendingMode && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-slate-950/40" onClick={() => { setModeSwitchOpen(false); setPendingMode(null); }} />

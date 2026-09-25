@@ -6,7 +6,7 @@ import { FiCamera, FiUsers, FiTag, FiDollarSign, FiArrowDownCircle, FiTrendingUp
 import { IoLocationSharp } from 'react-icons/io5';
 import Layout from '@/components/layout/Layout';
 import { Toaster, toast } from '@/components/ui/ui';
-import { MetricTile, KPI_GRID_6 } from '@/components/ui/Metrics';
+import { MetricTile, KPI_GRID_8 } from '@/components/ui/Metrics';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import ProjectReports from '@/components/features/projects/ProjectReports';
@@ -16,6 +16,7 @@ import { Lot, LOT_STATUS_COLOR, LOT_STATUS_LABEL } from '@/lib/types';
 import { useDisplayCurrency } from '@/lib/currency';
 
 type AgentRanking = { agentId?: number | null; agentName: string; salesCount: number; salesAmount: number; commission: number };
+type IncomeStatement = { egresos_clasificados?: Record<string, number | string> };
 
 const LOT_STATUSES = ['disponible', 'reservado', 'adelanto', 'primera_cuota', 'vendido'] as const;
 const LEAD_CHANNEL_LABEL: Record<string, string> = {
@@ -51,6 +52,8 @@ export default function ProjectPage() {
   const [lots, setLots] = useState<Lot[]>([]);
   const [stats, setStats] = useState<any>(null);
   const [kpis, setKpis] = useState<any>(null);
+  const [budgetSummary, setBudgetSummary] = useState<any>({ categories: {}, grandTotal: 0 });
+  const [statement, setStatement] = useState<IncomeStatement | null>(null);
   const [selectedLot, setSelectedLot] = useState<number | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const [agentPage, setAgentPage] = useState(0);
@@ -126,6 +129,8 @@ export default function ProjectPage() {
     api.get<any>(`/dashboards/project/${projectId}`).then(setStats).catch(() => {});
     api.get<any[]>(`/clients/metrics/channels?projectId=${projectId}`).then((data) => setLeadsByChannel(data || [])).catch(() => {});
     api.get<any>(`/payments/caja?projectId=${projectId}`).then(setCash).catch(() => {});
+    api.get<any>(`/construction-budget?projectId=${projectId}`).then((data) => setBudgetSummary(data?.summary || { categories: {}, grandTotal: 0 })).catch(() => {});
+    api.get<IncomeStatement>(`/finances/income-statement?projectId=${projectId}`).then(setStatement).catch(() => {});
   }, [projectId]);
 
   const countByStatus = (status: Lot['status']) => lots.filter((lot) => lot.status === status).length;
@@ -146,6 +151,10 @@ export default function ProjectPage() {
   const expense = asNumber(stats?.cards?.expense);
   const profit = asNumber(stats?.cards?.profit);
   const soldLots = countByStatus('vendido');
+  const constructionBudget = asNumber(budgetSummary?.grandTotal);
+  const obraReal = ['compra_terreno', 'inversion', 'costo_indirecto', 'ventas_admin', 'operacion', 'financiamiento', 'impuestos']
+    .reduce((sum, key) => sum + asNumber(statement?.egresos_clasificados?.[key]), 0);
+  const obraExecutionPct = constructionBudget > 0 ? (obraReal / constructionBudget) * 100 : 0;
   const inventoryValue = stats?.cards?.inventoryValue != null ? asNumber(stats.cards.inventoryValue) : sumBy(lots, (lot) => lot.finalPrice ?? lot.salePrice ?? lot.price);
   const soldListValue = stats?.cards?.soldListValue != null ? asNumber(stats.cards.soldListValue) : sumBy(lots.filter((lot) => lot.status === 'vendido'), (lot) => lot.finalPrice ?? lot.salePrice ?? lot.price);
   const agentRanking = (stats?.agentRanking || []) as AgentRanking[];
@@ -237,13 +246,15 @@ export default function ProjectPage() {
           </div>
         </div>
 
-        <div className={`xl:col-span-3 ${KPI_GRID_6}`}>
+        <div className={`project-dashboard-kpis xl:col-span-3 ${KPI_GRID_8}`}>
           <MetricTile label="Leads del proyecto" value={totalLeads} icon={<FiUsers />} />
           <MetricTile label="Ventas registradas" value={salesCount} icon={<FiTag />} tone="#111827" />
           <MetricTile label="Ingresos" value={fmt(income)} icon={<FiDollarSign />} tone="#0F8B5F" />
           <MetricTile label="Egresos" value={fmt(expense)} icon={<FiArrowDownCircle />} tone="#E11D48" />
           <MetricTile label="Utilidad" value={fmt(profit)} icon={<FiTrendingUp />} tone="#1259C4" />
-          <MetricTile label="Lotes vendidos" value={soldLots} icon={<FiPieChart />} tone="#6B7280" />
+          <MetricTile label="Presupuesto de Obra" value={fmt(constructionBudget)} icon={<FiPieChart />} tone="#6B7280" />
+          <MetricTile label="Avance Ppto. de Obra S/" value={fmt(obraReal)} icon={<FiArrowDownCircle />} tone="#16A36A" />
+          <MetricTile label="Ejecucion de Obra %" value={`${obraExecutionPct.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`} icon={<FiTrendingUp />} tone="#1877F2" />
         </div>
 
         <div className="min-w-0 xl:col-span-3">

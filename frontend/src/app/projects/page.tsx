@@ -4,7 +4,7 @@ import Layout from '@/components/layout/Layout';
 import { Toaster, toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api, uploadFile } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { FiAlertTriangle, FiCamera, FiEdit3, FiMap, FiMapPin, FiMoreVertical, FiTrash2, FiX } from 'react-icons/fi';
+import { FiAlertTriangle, FiCamera, FiEdit3, FiMap, FiMapPin, FiMoreVertical, FiTrash2, FiUpload, FiX } from 'react-icons/fi';
 import { BRAND, Project, formatMoney } from '@/lib/types';
 import ProjectsMap from '@/components/features/projects/ProjectsMap';
 
@@ -23,6 +23,7 @@ export default function ProjectsPage() {
   const [form, setForm] = useState<any>({});
   const [cover, setCover] = useState<File | null>(null);
   const [logo, setLogo] = useState<File | null>(null);
+  const [planImage, setPlanImage] = useState<File | null>(null);
   const setf = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
   const projectActionBase = 'inline-flex h-10 min-w-0 items-center justify-center gap-2 border px-2 text-xs font-semibold transition-colors';
 
@@ -43,8 +44,9 @@ export default function ProjectsPage() {
       });
       if (cover) { await uploadFile(`/projects/cover/${created?.id || 1}`, cover); }
       if (logo) { await uploadFile(`/projects/logo/${created?.id || 1}`, logo); }
+      if (planImage) { await uploadFile(`/plan/image/${created?.id || 1}`, planImage); }
       toast('Proyecto creado');
-      setOpenCreate(false); setForm({}); setCover(null); setLogo(null);
+      setOpenCreate(false); setForm({}); setCover(null); setLogo(null); setPlanImage(null);
       api.get<any>('/projects').then(setProjects).catch(() => {});
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -229,8 +231,18 @@ export default function ProjectsPage() {
             <Field label="Precio referencial (S/)"><input type="number" className="input" value={form.referencePrice || ''} onChange={(e) => setf('referencePrice', e.target.value)} /></Field>
             <Field label="Logo"><input type="file" accept="image/*" className="block w-full min-w-0 max-w-full overflow-hidden text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium" onChange={(e) => setLogo(e.target.files?.[0] || null)} /></Field>
             <Field label="Portada"><input type="file" accept="image/*" className="block w-full min-w-0 max-w-full overflow-hidden text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium" onChange={(e) => setCover(e.target.files?.[0] || null)} /></Field>
+            <Field label="Plano">
+              <label className="flex min-h-10 w-full cursor-pointer items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600 hover:bg-slate-50">
+                <span className="flex min-w-0 items-center gap-2">
+                  <FiUpload className="shrink-0 text-slate-500" />
+                  <span className="truncate">{planImage?.name || 'Agregar plano del proyecto'}</span>
+                </span>
+                <span className="shrink-0 text-xs font-semibold text-[#1877F2]">Seleccionar</span>
+                <input type="file" accept="image/*" className="hidden" onChange={(e) => setPlanImage(e.target.files?.[0] || null)} />
+              </label>
+            </Field>
             <div className="flex justify-end gap-2 pt-2">
-              <button className="btn-neutral" onClick={() => setOpenCreate(false)}>Cancelar</button>
+              <button className="btn-neutral" onClick={() => { setOpenCreate(false); setPlanImage(null); }}>Cancelar</button>
               <button className="btn-primary" onClick={crearProyecto}>Crear proyecto</button>
             </div>
           </div>

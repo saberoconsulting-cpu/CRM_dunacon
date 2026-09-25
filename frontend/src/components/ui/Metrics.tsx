@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 
 export const KPI_GRID_6 = 'kpi-grid-6';
+export const KPI_GRID_8 = 'kpi-grid-8';
 export const KPI_GRID_3 = 'kpi-grid-3';
 
 export type KpiCardSize = 'compact' | 'expanded';

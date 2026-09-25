@@ -7,10 +7,8 @@ import {
   FiChevronRight,
   FiDollarSign,
   FiEdit3,
-  FiFilePlus,
   FiLayers,
   FiPlus,
-  FiRefreshCw,
   FiTrash2,
   FiX,
 } from 'react-icons/fi';
@@ -34,7 +32,7 @@ type BudgetItem = {
   sortOrder: number;
   isActive: boolean;
 };
-
+type BudgetTreeItem = BudgetItem & { children: BudgetTreeItem[] };
 const CATEGORIES: Array<{ key: BudgetCategory; label: string; letter: string; color: string; helper: string }> = [
   { key: 'costo_terreno', label: 'Costo de terreno', letter: 'A', color: '#0866E5', helper: 'Compra del fundo matriz y formalizacion legal.' },
   { key: 'costo_directo', label: 'Costos directos', letter: 'B', color: '#16A36A', helper: 'Ejecucion fisica de habilitacion urbana.' },
@@ -49,8 +47,31 @@ const MUTED = '#64748B';
 
 function nextCode(items: BudgetItem[], category: BudgetCategory) {
   const meta = CATEGORIES.find((item) => item.key === category);
-  const count = items.filter((item) => item.category === category).length + 1;
+  const count = items.filter((item) => item.category === category && !item.parentId).length + 1;
   return `${meta?.letter || 'X'}.${String(count).padStart(2, '0')}`;
+}
+
+function nextChildCode(items: BudgetItem[], parentId: number, parentCode: string) {
+  const count = items.filter((item) => Number(item.parentId || 0) === Number(parentId)).length + 1;
+  return `${parentCode}.${String(count).padStart(2, '0')}`;
+}
+
+function compareBudgetItems(a: BudgetItem, b: BudgetItem) {
+  return compareBudgetCodes(a.code, b.code) || (a.sortOrder || 0) - (b.sortOrder || 0) || Number(a.id) - Number(b.id);
+}
+
+function compareBudgetCodes(a: string, b: string) {
+  const ax = String(a || '').match(/[A-Za-z]+|\d+/g) || [];
+  const bx = String(b || '').match(/[A-Za-z]+|\d+/g) || [];
+  for (let i = 0; i < Math.max(ax.length, bx.length); i += 1) {
+    if (ax[i] == null) return -1;
+    if (bx[i] == null) return 1;
+    const an = Number(ax[i]);
+    const bn = Number(bx[i]);
+    const diff = Number.isFinite(an) && Number.isFinite(bn) ? an - bn : ax[i].localeCompare(bx[i]);
+    if (diff) return diff;
+  }
+  return String(a || '').localeCompare(String(b || ''));
 }
 
 function parentOptions(items: BudgetItem[], category: BudgetCategory, currentId?: number) {
@@ -73,7 +94,9 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.get<any>(`/construction-budget?projectId=${projectId}`);
+      const [data] = await Promise.all([
+        api.get<any>(`/construction-budget?projectId=${projectId}`),
+      ]);
       setItems(data?.items || []);
       setSummary(data?.summary || { categories: {}, grandTotal: 0 });
       setOpenCats((current) => current && Object.keys(current).length ? current : Object.fromEntries(CATEGORIES.map((cat) => [cat.key, true])));
@@ -86,20 +109,41 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
 
   useEffect(() => { load(); }, [load]);
 
+  function projectedAmount(item: BudgetTreeItem): number {
+    if (item.children.length) return item.children.reduce((sum, child) => sum + projectedAmount(child), 0);
+    return Number(item.amount || 0);
+  }
+
   const itemTree = useMemo(() => {
-    const children = new Map<number, BudgetItem[]>();
+    const children = new Map<number, BudgetTreeItem[]>();
+    const normalizedItems = items.map((item) => ({
+      ...item,
+      id: Number(item.id),
+      projectId: Number(item.projectId),
+      parentId: item.parentId == null ? null : Number(item.parentId),
+      sortOrder: Number(item.sortOrder || 0),
+      children: [],
+    }));
     for (const item of items) {
-      if (!item.parentId) continue;
-      children.set(item.parentId, [...(children.get(item.parentId) || []), item]);
+      const parentId = item.parentId == null ? null : Number(item.parentId);
+      if (!parentId) continue;
+      const normalized = normalizedItems.find((candidate) => Number(candidate.id) === Number(item.id));
+      if (normalized) children.set(parentId, [...(children.get(parentId) || []), normalized]);
     }
+    const withChildren = (item: BudgetTreeItem): BudgetTreeItem => ({
+      ...item,
+      children: (children.get(Number(item.id)) || []).sort(compareBudgetItems).map(withChildren),
+    });
     return CATEGORIES.map((category) => ({
       ...category,
-      roots: items
+      roots: normalizedItems
         .filter((item) => item.category === category.key && !item.parentId)
-        .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || a.id - b.id)
-        .map((item) => ({ ...item, children: (children.get(item.id) || []).sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0) || a.id - b.id) })),
+        .sort(compareBudgetItems)
+        .map(withChildren),
     }));
   }, [items]);
+
+  const projectedObra = itemTree.reduce((sum, cat) => sum + cat.roots.reduce((catSum, item) => catSum + projectedAmount(item), 0), 0);
 
   function openCreate(category: BudgetCategory, parentId?: number | null) {
     setEditing(null);
@@ -107,11 +151,15 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
       projectId,
       category,
       parentId: parentId || null,
-      code: nextCode(items, category),
+      code: parentId
+        ? nextChildCode(items, Number(parentId), items.find((item) => Number(item.id) === Number(parentId))?.code || nextCode(items, category))
+        : nextCode(items, category),
       name: '',
       amount: '',
       currency: 'PEN',
-      sortOrder: items.length * 10 + 10,
+      sortOrder: parentId
+        ? items.filter((item) => Number(item.parentId || 0) === Number(parentId)).length * 10 + 10
+        : items.filter((item) => item.category === category && !item.parentId).length * 10 + 10,
     });
     setModalOpen(true);
   }
@@ -120,17 +168,6 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     setEditing(item);
     setForm({ ...item, amount: Number(item.amount || 0) });
     setModalOpen(true);
-  }
-
-  async function seedBase() {
-    try {
-      const data = await api.post<any>('/construction-budget/seed', { projectId });
-      setItems(data?.items || []);
-      setSummary(data?.summary || { categories: {}, grandTotal: 0 });
-      toast('Estructura base cargada');
-    } catch (error: any) {
-      toast(error?.message || 'No se pudo cargar la estructura base', 'err');
-    }
   }
 
   async function save() {
@@ -166,7 +203,8 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     }
   }
 
-  function renderItem(item: BudgetItem & { children?: BudgetItem[] }, level = 0) {
+  function renderItem(item: BudgetTreeItem, level = 0) {
+    const projected = projectedAmount(item);
     return (
       <div key={item.id} className="min-w-0 border-t" style={{ borderColor: '#EEF2F7' }}>
         {/* Fila del presupuesto. En movil la fila mide "ancho visible + 104px":
@@ -174,6 +212,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
             "+", y las acciones se alcanzan deslizando. El nombre se ajusta solo
             al espacio disponible. En escritorio todo queda como antes. */}
         <div className="flex min-h-14 items-center gap-3 px-4 py-2 hover:bg-slate-50 sm:gap-4">
+          <div className="mx-auto flex w-full max-w-5xl items-center gap-3 sm:gap-4">
           <div className="flex min-w-0 flex-1 items-center gap-3" style={{ paddingLeft: level * 22 }}>
             <span className="shrink-0 rounded-md px-2 py-1 text-xs font-bold" style={{ background: '#EAF3FF', color: BRAND.blue }}>{item.code}</span>
             <div className="min-w-0 flex-1">
@@ -182,15 +221,19 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            <div className="min-w-[104px] text-right text-sm font-bold tabular-nums sm:min-w-[132px]" style={{ color: INK }}>{show(item.amount)}</div>
+            <div className="min-w-[120px] text-right sm:min-w-[150px]">
+              <p className="text-[10px] font-semibold uppercase leading-tight" style={{ color: MUTED }}>Monto</p>
+              <p className="text-sm font-bold tabular-nums" style={{ color: INK }}>{show(projected)}</p>
+            </div>
             <div className="flex shrink-0 justify-end gap-1">
               <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Agregar subpartida" onClick={() => openCreate(item.category, item.id)}><FiPlus /></button>
               <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Editar" onClick={() => openEdit(item)}><FiEdit3 /></button>
               <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-red-50 hover:text-red-600" title="Eliminar" onClick={() => setDeleting(item)}><FiTrash2 /></button>
             </div>
           </div>
+          </div>
         </div>
-        {(item.children || []).map((child) => renderItem(child, level + 1))}
+        {item.children.map((child) => renderItem(child, level + 1))}
       </div>
     );
   }
@@ -210,7 +253,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                 Partidas y subpartidas por proyecto. Estos montos alimentan automaticamente la columna Proyectado del Estado de Resultados.
               </p>
             </div>
-            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:max-w-[520px] lg:flex-wrap lg:justify-end">
+            <div className="grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:max-w-[360px] lg:flex-wrap lg:justify-end">
               <div className="flex w-full justify-center sm:col-span-2 lg:w-auto lg:justify-start">
                 <CurrencyToggle
                   currency={currency}
@@ -219,20 +262,20 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                   setExchangeRate={setExchangeRate}
                 />
               </div>
-              <button className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={load} disabled={loading}><FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar</button>
-              <button className="btn-outline w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={seedBase}><FiFilePlus /> Base</button>
               <button className="btn-primary w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={() => openCreate('costo_directo')}><FiPlus /> Nueva partida</button>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 border-t bg-[#F8FAFC] p-4 xl:grid-cols-6" style={{ borderColor: BORDER }}>
+          <div className="grid grid-cols-2 gap-3 border-t bg-[#F8FAFC] p-4 lg:grid-cols-3 xl:grid-cols-6" style={{ borderColor: BORDER }}>
             <div className="min-w-0 rounded-md border bg-white p-3 sm:p-4 xl:col-span-1" style={{ borderColor: BORDER }}>
               <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }}>Total presupuesto</p>
-              <p className="mt-1 truncate text-base font-bold tabular-nums sm:text-xl" style={{ color: INK }}>{show(summary?.grandTotal)}</p>
+              <p className="mt-1 truncate text-base font-bold tabular-nums sm:text-xl" style={{ color: INK }}>{show(projectedObra || summary?.grandTotal)}</p>
             </div>
             {CATEGORIES.map((cat) => (
               <div key={cat.key} className="min-w-0 rounded-md border bg-white p-3 sm:p-4" style={{ borderColor: BORDER }}>
                 <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }} title={`${cat.letter}. ${cat.label}`}>{cat.letter}. {cat.label}</p>
-                <p className="mt-1 truncate text-base font-bold tabular-nums sm:text-lg" style={{ color: cat.color }}>{show(summary?.categories?.[cat.key])}</p>
+                <p className="mt-1 truncate text-base font-bold tabular-nums sm:text-lg" style={{ color: cat.color }}>
+                  {show(itemTree.find((item) => item.key === cat.key)?.roots.reduce((sum, item) => sum + projectedAmount(item), 0) || summary?.categories?.[cat.key])}
+                </p>
               </div>
             ))}
           </div>
@@ -245,17 +288,19 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
             <div className="grid place-items-center px-5 py-14 text-center">
               <div className="grid h-14 w-14 place-items-center rounded-md" style={{ background: '#EAF3FF', color: BRAND.blue }}><FiLayers /></div>
               <h3 className="mt-4 font-semibold" style={{ color: INK }}>Aun no hay partidas</h3>
-              <p className="mt-1 max-w-md text-sm" style={{ color: MUTED }}>Carga la estructura base o crea una partida global para empezar.</p>
-              <button className="btn-primary mt-4" onClick={seedBase}>Cargar estructura base</button>
+              <p className="mt-1 max-w-md text-sm" style={{ color: MUTED }}>Crea una partida global para empezar.</p>
+              <button className="btn-primary mt-4" onClick={() => openCreate('costo_directo')}><FiPlus /> Nueva partida</button>
             </div>
           ) : (
             <>
-              <p className="px-4 py-2 text-xs text-slate-400 sm:hidden">Desliza hacia la derecha para editar o eliminar.</p>
+              <p className="px-4 py-2 text-xs text-slate-400 sm:hidden">Desliza hacia la derecha para ver monto y acciones.</p>
               {/* [container-type:inline-size] permite usar `cqw` (= ancho visible del
-                  contenedor) para que en movil cada categoria mida ancho visible + 104px. */}
+                  contenedor) para que en movil cada categoria mida ancho visible + 260px. */}
               <div className="overflow-x-auto [container-type:inline-size]">
-                {itemTree.map((cat) => (
-                  <div key={cat.key} className="w-[calc(100cqw_+_104px)] border-b last:border-b-0 sm:w-full" style={{ borderColor: BORDER }}>
+                {itemTree.map((cat) => {
+                  const categoryProjected = cat.roots.reduce((sum, item) => sum + projectedAmount(item), 0);
+                  return (
+                  <div key={cat.key} className="w-[calc(100cqw_+_260px)] border-b last:border-b-0 sm:w-full" style={{ borderColor: BORDER }}>
                     {/* Cabecera pegada a la izquierda: no se desplaza, su monto y flecha siempre se ven. */}
                     <button
                       className="sticky left-0 flex w-[100cqw] items-center justify-between gap-3 px-5 py-4 text-left hover:bg-slate-50 sm:w-full"
@@ -269,7 +314,13 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                         </span>
                       </span>
                       <span className="flex shrink-0 items-center gap-4">
-                        <b className="text-sm tabular-nums" style={{ color: cat.color }}>{show(summary?.categories?.[cat.key])}</b>
+                        <span className="hidden text-right sm:block">
+                          <span>
+                            <span className="block text-[10px] font-semibold uppercase" style={{ color: MUTED }}>Monto</span>
+                            <b className="text-sm tabular-nums" style={{ color: cat.color }}>{show(categoryProjected)}</b>
+                          </span>
+                        </span>
+                        <b className="text-sm tabular-nums sm:hidden" style={{ color: cat.color }}>{show(categoryProjected)}</b>
                         {openCats[cat.key] ? <FiChevronDown /> : <FiChevronRight />}
                       </span>
                     </button>
@@ -284,7 +335,8 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </>
           )}

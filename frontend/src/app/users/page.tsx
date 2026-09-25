@@ -4,7 +4,7 @@ import Layout from '@/components/layout/Layout';
 import { Toaster, toast, Field } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/types';
-import { FiSettings } from 'react-icons/fi';
+import { FiSettings, FiX } from 'react-icons/fi';
 
 type U = { id: number; name: string; email: string; phone?: string | null; role: string; status: string; commissionRate?: string; created_at: string; lastLoginAt?: string | null };
 
@@ -31,6 +31,9 @@ export default function UsersPage() {
   const [openAdmin, setOpenAdmin] = useState(false);
   const [formA, setFormA] = useState<any>({});
   const [formAd, setFormAd] = useState<any>({});
+  const [resetUser, setResetUser] = useState<U | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
+  const [resetting, setResetting] = useState(false);
   const fA = (k: string, v: any) => setFormA((p: any) => ({ ...p, [k]: v }));
   const fD = (k: string, v: any) => setFormAd((p: any) => ({ ...p, [k]: v }));
 
@@ -121,10 +124,24 @@ export default function UsersPage() {
     catch (e: any) { toast(e.message, 'err'); }
   }
   async function reset(u: U) {
-    const pw = prompt(`Nueva contraseña temporal para ${u.name}:`)?.trim();
-    if (!pw) return;
-    try { const r = await api.post<{ temporaryPassword: string }>(`/users/reset-password/${u.id}`, { newPassword: pw }); toast('Contraseña restablecida'); void r; }
-    catch (e: any) { toast(e.message, 'err'); }
+    setResetUser(u);
+    setResetPassword('');
+  }
+  async function confirmResetPassword() {
+    const pw = resetPassword.trim();
+    if (!resetUser || !pw) return toast('Ingresa la nueva contraseña temporal', 'err');
+    setResetting(true);
+    try {
+      const r = await api.post<{ temporaryPassword: string }>(`/users/reset-password/${resetUser.id}`, { newPassword: pw });
+      toast('Contraseña restablecida');
+      void r;
+      setResetUser(null);
+      setResetPassword('');
+    } catch (e: any) {
+      toast(e.message, 'err');
+    } finally {
+      setResetting(false);
+    }
   }
   async function editCommission(u: U) {
     const value = prompt(`Comisión % para ${u.name} (la usa el admin en registros de venta):`, String(Number(u.commissionRate || 0)));
@@ -168,7 +185,7 @@ export default function UsersPage() {
                   <td className="td-base"><RoleBadge r={u.role} /></td>
                   <td className="td-base">{u.role === 'agent' ? (
                     <button className="text-[#1877F2] hover:underline text-xs font-medium inline-flex items-center gap-1" onClick={() => editCommission(u)}><FiSettings /> {Number(u.commissionRate || 0)}% editar</button>
-                  ) : '—'}</td>
+                  ) : '-'}</td>
                   <td className="td-base"><span className="badge" style={{ background: u.status === 'active' ? '#EAF7EE' : '#F1F5F9', color: u.status === 'active' ? '#125A3B' : '#64748B' }}>{u.status}</span></td>
                   <td className="td-base">
                     <button className="btn-neutral !h-7 text-xs mr-1" onClick={() => toggle(u)}>{u.status === 'active' ? 'Desactivar' : 'Activar'}</button>
@@ -269,6 +286,49 @@ export default function UsersPage() {
             <div className="flex justify-end gap-2 pt-2">
               <button className="btn-neutral" onClick={() => setOpenAdmin(false)}>Cancelar</button>
               <button className="btn-primary" onClick={crearAdmin}>Crear administrador</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {resetUser && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/50" onClick={() => !resetting && setResetUser(null)} />
+          <div className="relative w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-slate-900">Nueva contraseña temporal</h3>
+                <p className="mt-1 truncate text-sm text-slate-500">Para {resetUser.name}</p>
+              </div>
+              <button
+                type="button"
+                className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-500 hover:bg-slate-100"
+                onClick={() => !resetting && setResetUser(null)}
+                disabled={resetting}
+                aria-label="Cerrar"
+              >
+                <FiX />
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <Field label="Contraseña temporal *">
+                <input
+                  type="password"
+                  className="input"
+                  value={resetPassword}
+                  onChange={(event) => setResetPassword(event.target.value)}
+                  autoFocus
+                />
+              </Field>
+              <p className="text-xs leading-relaxed text-slate-500">
+                El usuario podrá iniciar sesión con esta contraseña temporal y luego cambiarla desde su perfil.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50 px-5 py-4">
+              <button className="btn-neutral" onClick={() => setResetUser(null)} disabled={resetting}>Cancelar</button>
+              <button className="btn-primary" onClick={confirmResetPassword} disabled={resetting}>
+                {resetting ? 'Guardando...' : 'Guardar contraseña'}
+              </button>
             </div>
           </div>
         </div>

@@ -260,18 +260,8 @@ export default function ProfilePage() {
             )}
           </div>
 
-          {/* Panel derecho: evita el vacío y es uso rápido */}
+          {/* Panel derecho */}
           <aside className="space-y-4 xl:mt-[72px] xl:sticky xl:top-8">
-            <div className="card">
-              <h3 className="font-semibold mb-3">Accesos rápidos</h3>
-              <div className="grid grid-cols-2 gap-2 text-xs">
-                <a className="btn-neutral justify-center" href="/projects">Proyectos</a>
-                <a className="btn-neutral justify-center" href="/sales">Ventas</a>
-                <a className="btn-neutral justify-center" href="/payments">Pagos</a>
-                <a className="btn-neutral justify-center" href="/lots">Lotes</a>
-                {(role === 'admin' || role === 'superadmin') && <a className="btn-neutral justify-center" href="/settings">Configuración</a>}
-              </div>
-            </div>
             <div className="card">
               <h3 className="font-semibold mb-3">DashBoard</h3>
               <div className="rounded-lg bg-canvas p-3"><span className="label">Puesto</span><b className="capitalize">{role === 'superadmin' ? 'Administración' : role}</b></div>
