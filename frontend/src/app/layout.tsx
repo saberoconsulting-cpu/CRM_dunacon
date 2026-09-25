@@ -1,10 +1,15 @@
-// Metadata no necesaria (dashboard). Layout global raíz.
+// Metadata no necesaria (dashboard). Layout global raiz.
 import './globals.css';
 import type { Viewport } from 'next';
 
 export const metadata = {
-  title: 'CRM Inmobiliario',
-  description: 'Gestión de lotes, planos, clientes y ventas inmobiliarias',
+  title: 'Dunacon CRM',
+  description: 'Gestion de lotes, planos, clientes y ventas inmobiliarias',
+  icons: {
+    icon: '/favicon.png',
+    shortcut: '/favicon.png',
+    apple: '/favicon.png',
+  },
 };
 
 export const viewport: Viewport = {
@@ -27,6 +32,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Inter:wght@400;500;600;700&display=swap"
           rel="stylesheet"
         />
+        <link rel="icon" type="image/png" href="/favicon.png" />
+        <link rel="shortcut icon" type="image/png" href="/favicon.png" />
+        <link rel="apple-touch-icon" href="/favicon.png" />
       </head>
       <body>{children}</body>
     </html>
