@@ -113,18 +113,22 @@ export class PaymentsService {
         throw new Error('No se pudo registrar el pago');
       }
 
-      // Registrar movimiento financiero inmutable (ingreso)
-      await manager.save(FinancialTransactionEntity, {
-        projectId: dto.projectId,
-        lotId: dto.lotId,
-        clientId,
-        paymentId: savedPayment.id,
-        createdBy: actorId,
-        type: 'ingreso',
-        category: dto.type,
-        concept: `Pago ${dto.type} del lote ${lot?.code ?? ''}`,
-        amount: String(dto.amount),
-      });
+      // Finanzas solo debe reconocer dinero cobrado. Si el pago nace pendiente,
+      // el ingreso se crea cuando se marque o apruebe como pagado.
+      if (savedPayment.status === 'pagado') {
+        await manager.save(FinancialTransactionEntity, {
+          projectId: dto.projectId,
+          lotId: dto.lotId,
+          clientId,
+          paymentId: savedPayment.id,
+          createdBy: actorId,
+          type: 'ingreso',
+          category: dto.type,
+          concept: `Pago ${dto.type} del lote ${lot?.code ?? ''}`,
+          amount: String(dto.amount),
+          txnDate: savedPayment.paidAt || new Date(),
+        });
+      }
 
       // Asesor/responsable automático y bloqueo de venta "robada".
       // Reservar/adelantar = compromete el lote a su vendedor (regla de negocio).
@@ -271,6 +275,7 @@ export class PaymentsService {
     payment.paidAt = new Date();
     payment.dueDate = null;
     const saved = await this.paymentRepo.save(payment);
+    await this.ensurePaymentIncome(saved);
     this.gateway.emitToAll('payment.created', saved);
     return saved;
   }
@@ -289,8 +294,27 @@ export class PaymentsService {
     payment.approvedBy = actorId;
     payment.approvedAt = new Date();
     const saved = await this.paymentRepo.save(payment);
+    await this.ensurePaymentIncome(saved, actorId);
     this.gateway.emitToAll('payment.created', saved);
     return saved;
+  }
+
+  private async ensurePaymentIncome(payment: PaymentEntity, actorId?: number) {
+    const existing = await this.txnRepo.findOne({ where: { paymentId: payment.id, type: 'ingreso' } });
+    if (existing) return existing;
+    const lot = payment.lotId ? await this.lotRepo.findOne({ where: { id: payment.lotId } }) : null;
+    return this.txnRepo.save({
+      projectId: payment.projectId,
+      lotId: payment.lotId,
+      clientId: payment.clientId,
+      paymentId: payment.id,
+      createdBy: actorId ?? payment.createdBy,
+      type: 'ingreso',
+      category: payment.type,
+      concept: `Pago ${payment.type} del lote ${lot?.code ?? ''}`,
+      amount: payment.amount,
+      txnDate: payment.paidAt || new Date(),
+    });
   }
 
   // Adjuntar/actualizar comprobante (voucher) mediante URL de subida previa

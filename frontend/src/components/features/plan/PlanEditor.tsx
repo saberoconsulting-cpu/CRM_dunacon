@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { api, uploadFile } from '@/lib/api';
 import { Block, Lot, Point } from '@/lib/types';
@@ -24,6 +24,33 @@ function streetTone(index: number, highlighted: boolean) {
 function centroid(pts: Point[]) {
   if (!pts.length) return { x: 0, y: 0 };
   return pts.reduce((a, p) => ({ x: a.x + p.x / pts.length, y: a.y + p.y / pts.length }), { x: 0, y: 0 });
+}
+
+function streetLabelBox(pts: Point[], text: string) {
+  if (!pts.length) return { x: 0, y: 0, angle: 0, width: 0, height: 0, fontSize: 10 };
+  const xs = pts.map((p) => Number(p.x || 0));
+  const ys = pts.map((p) => Number(p.y || 0));
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const width = Math.max(24, maxX - minX);
+  const height = Math.max(14, maxY - minY);
+  const center = centroid(pts);
+  let best = { length: 0, angle: 0 };
+  pts.forEach((point, index) => {
+    const next = pts[(index + 1) % pts.length];
+    const dx = next.x - point.x;
+    const dy = next.y - point.y;
+    const length = Math.hypot(dx, dy);
+    if (length > best.length) best = { length, angle: Math.atan2(dy, dx) * 180 / Math.PI };
+  });
+  let angle = best.angle;
+  if (angle > 90) angle -= 180;
+  if (angle < -90) angle += 180;
+  const available = Math.max(30, Math.min(best.length || width, width * 0.9));
+  const fontSize = Math.max(11, Math.min(19, available / Math.max(5, String(text || '').length * 0.58), height * 0.5));
+  return { x: center.x, y: center.y, angle, width: available, height: fontSize + 10, fontSize };
 }
 
 function insidePolygon(x: number, y: number, pts: Point[]) {
@@ -280,12 +307,34 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
           <svg ref={svgRef} viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="w-full h-full cursor-crosshair" onClick={addNode}>
             {imgUrl && <image href={imgUrl} x={imgX} y={imgY} width={imgW} height={imgH} preserveAspectRatio="xMidYMid meet" />}
             {streets.map((street, index) => {
-              const c = centroid(street.points);
               const tone = streetTone(index, selectedStreet === street.id && mode === 'none');
+              const label = streetLabelBox(street.points, street.name);
               return (
                 <g key={street.id} onClick={(e) => { if (mode === 'none') { e.stopPropagation(); setSelectedStreet(selectedStreet === street.id ? null : street.id); } }} style={{ pointerEvents: mode === 'lot' ? 'none' : 'auto' }}>
                   <polygon points={street.points.map((p) => `${p.x},${p.y}`).join(' ')} fill={tone.fill} stroke={tone.stroke} strokeWidth={selectedStreet === street.id ? 2.5 : 1.2} />
-                  <text x={c.x} y={c.y} fontSize={22} fontWeight={800} textAnchor="middle" dominantBaseline="central" fill={tone.label} stroke="#FFFFFF" strokeWidth={4} paintOrder="stroke" style={{ pointerEvents: 'none' }}>{street.name}</text>
+                  <g transform={`translate(${label.x} ${label.y}) rotate(${label.angle})`} style={{ pointerEvents: 'none' }}>
+                    {/* Sin fondo: el nombre de la calle se apoya solo en su tipografia y su contorno de color */}
+                    <text
+                      y={1}
+                      fontSize={label.fontSize}
+                      fontWeight={700}
+                      fontFamily="Georgia, 'Times New Roman', serif"
+                      fontStyle="italic"
+                      letterSpacing={1.5}
+                      stroke="#FFC107"
+                      strokeWidth={2}
+                      strokeOpacity={0.95}
+                      paintOrder="stroke"
+                      strokeLinejoin="round"
+                      textAnchor="middle"
+                      dominantBaseline="central"
+                      fill="#FFFFFF"
+                      textLength={label.width}
+                      lengthAdjust="spacingAndGlyphs"
+                    >
+                      {street.name}
+                    </text>
+                  </g>
                 </g>
               );
             })}
@@ -294,8 +343,7 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
               return (
                 <g key={lot.id} onClick={(e) => e.stopPropagation()} style={{ pointerEvents: 'all' }}>
                   <polygon points={lot.points.map((p) => `${p.x},${p.y}`).join(' ')} fill="#cbd5e1" fillOpacity={0.55} stroke="#94a3b8" strokeWidth={1} />
-                  <text x={c.x} y={c.y - 4} fontSize={11} textAnchor="middle" fontWeight={600}>{lot.code}</text>
-                  <text x={c.x} y={c.y + 8} fontSize={8} textAnchor="middle">{lot.areaM2} m2</text>
+                  <text x={c.x} y={c.y + 4} fontSize={11} textAnchor="middle" fontWeight={600}>{lot.code}</text>
                 </g>
               );
             })}

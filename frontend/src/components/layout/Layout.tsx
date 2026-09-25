@@ -201,7 +201,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const activeNavItem = visiblePrimary.find((item) => isActive(item.href)) || visibleEnd.find((item) => isActive(item.href));
   const headerTitle = activeNavItem?.label || title || (isProjectContext ? 'Proyecto' : 'Dashboard general');
   const headerTitleMobile = activeNavItem?.shortLabel || activeNavItem?.label || title || 'Dashboard general';
-  const headerTitleLogo = isProjectContext && activeProject?.logoImageUrl ? activeProject.logoImageUrl : titleLogoUrl;
+  const headerTitleLogo = titleLogoUrl || (isProjectContext && activeProject?.logoImageUrl ? activeProject.logoImageUrl : null);
   const showHeaderCurrency = pathname === '/dashboard';
 
   function isActive(href: string) {

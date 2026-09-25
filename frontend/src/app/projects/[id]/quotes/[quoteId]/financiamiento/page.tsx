@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 
+const DUNACON_LOGO = '/logo/dunacon.png';
+
 const fmtUsd = (n: number) => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 type Row = {
@@ -39,9 +41,21 @@ export default function FinanciamientoDocPage() {
         <div className="no-print flex justify-end mb-4">
           <button onClick={() => window.print()} className="btn-primary">Imprimir / Guardar PDF</button>
         </div>
-        <div className="px-4 py-4 rounded-t-2xl text-white" style={{ background: 'linear-gradient(135deg,#1877F2 0%,#166FE0 100%)' }}>
-          <p className="text-xs uppercase tracking-wider opacity-80">Cronograma de pago</p>
-          <h1 className="text-xl font-bold mt-1">{project?.name} — Lote {lot?.code}</h1>
+        <div className="overflow-hidden rounded-t-2xl border border-b-0 bg-white" style={{ borderColor: '#E5E7EB' }}>
+          <div className="flex items-center justify-between gap-4 border-b px-4 py-3" style={{ borderColor: '#E5E7EB' }}>
+            <div className="flex min-w-0 items-center gap-3">
+              {project?.logoImageUrl && <img src={project.logoImageUrl} alt={project?.name || 'Proyecto'} className="h-11 w-auto max-w-40 object-contain" />}
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-slate-800">{project?.name || 'Proyecto'}</p>
+                <p className="text-xs text-slate-500">Documento comercial</p>
+              </div>
+            </div>
+            <img src={DUNACON_LOGO} alt="Dunacon" className="h-10 w-auto max-w-32 shrink-0 object-contain" />
+          </div>
+          <div className="px-4 py-4 text-white" style={{ background: 'linear-gradient(135deg,#1877F2 0%,#166FE0 100%)' }}>
+            <p className="text-xs uppercase tracking-wider opacity-80">Cronograma de pago</p>
+            <h1 className="text-xl font-bold mt-1">{project?.name} — Lote {lot?.code}</h1>
+          </div>
         </div>
         <div className="border-x border-b rounded-b-2xl p-4 text-sm grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" style={{ borderColor: '#E5E7EB' }}>
           <div><span className="text-slate-500 block text-xs">Cliente</span><b>{quote.clientName}</b></div>

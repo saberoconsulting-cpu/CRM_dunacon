@@ -266,7 +266,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     try {
       const storedUser = JSON.parse(localStorage.getItem('crm_user') || 'null');
       setSessionUser(storedUser);
-      if (storedUser?.role === 'agent' && storedUser?.id) setAgentId(Number(storedUser.id));
+      if (storedUser?.id) setAgentId(Number(storedUser.id));
     } catch { setSessionUser(null); }
   }, []);
 
@@ -326,6 +326,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const salePriceUsd = exchangeRate > 0 ? round2(salePrice / exchangeRate) : 0;
   const exchangeRateDisplay = round2(exchangeRate);
   const quoteProjectId = lockedProjectId || projectId || Number(selectedLot?.projectId || 0);
+  const responsibleUserId = Number(sessionUser?.id || 0);
+  const responsibleUserName = sessionUser?.name || sessionUser?.email || 'Usuario logueado';
+  const effectiveAgentId = Number(agentId || responsibleUserId || 0);
 
   useEffect(() => {
     if (!open) return;
@@ -453,7 +456,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const created = await api.post<any>('/clients', {
       fullName: name,
       projectInterestId: lockedProjectId || projectId || undefined,
-      agentId: agentId || undefined,
+      agentId: effectiveAgentId || undefined,
       pipelineStatus: 'ganado',
       source: 'venta_directa',
     });
@@ -468,20 +471,20 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     if (!open || !salePrice) { setPreview(null); return; }
     const t = setTimeout(() => {
       api.post('/sales/preview', {
-        projectId: projectId || 1, lotId: lotId || 1, agentId: agentId || 1,
+        projectId: projectId || 1, lotId: lotId || 1, agentId: effectiveAgentId || 1,
         salePrice, appliesCommission: false,
         totalCuotas, cuotaInicial, graceMonths: applyInterest ? graceMonths : 0, interestType: applyInterest ? 'tea' : 'sin_intereses', tea: applyInterest ? tea : undefined,
         paymentMethod,
       }).then(setPreview).catch(() => setPreview(null));
     }, 300);
     return () => clearTimeout(t);
-  }, [open, salePrice, totalCuotas, cuotaInicial, graceMonths, applyInterest, tea, paymentMethod, projectId, lotId, agentId]);
+  }, [open, salePrice, totalCuotas, cuotaInicial, graceMonths, applyInterest, tea, paymentMethod, projectId, lotId, effectiveAgentId]);
 
   async function registrar() {
     if (!selectedQuoteId) return toast('Selecciona una cotizacion antes de registrar la venta. Si no existe, genera una primero.', 'err');
     if (!lotId) return toast('Selecciona un lote', 'err');
     if (!clientName.trim() && !clientId) return toast('Ingresa el nombre del cliente real.', 'err');
-    if (!agentId) return toast('No se pudo identificar el agente logueado', 'err');
+    if (!effectiveAgentId) return toast('No se pudo identificar el usuario logueado', 'err');
     if (!salePrice) return toast('Ingresa el precio de venta', 'err');
     if (!saleDate) return toast('Selecciona la fecha de venta', 'err');
     if (!(Number(exchangeRate) > 0)) return toast('Ingresa un tipo de cambio valido', 'err');
@@ -500,7 +503,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       const sale = selectedQuote || null;
       await api.post('/sales', {
         projectId: lockedProjectId || projectId || lot?.projectId || 1, lotId: Number(lotId),
-        clientId: resolvedClientId, agentId: Number(agentId), salePrice,
+        clientId: resolvedClientId, agentId: effectiveAgentId, salePrice,
         exchangeRate: Number(exchangeRate) > 0 ? Number(exchangeRate) : undefined,
         paymentMethod,
         totalCuotas: paymentMethod === 'Contado' ? undefined : (totalCuotas || undefined),
@@ -519,7 +522,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       toast('Separación registrada. Queda pendiente de validación.');
       setOpen(false); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setClientId(0); setClientName(''); setConditions(''); setSalePrice(0);
       setPaymentMethod('Contado'); setTotalCuotas(0); setCuotaInicial(0); setInitialPaymentMode('contado'); setInitialParts(3); setGraceMonths(0); setApplyInterest(false); setInterestType('sin_intereses'); setTea(0);
-      setSaleDate(todayInput()); setAgentId(role === 'agent' ? Number(sessionUser?.id || 0) : 0); setPreview(null);
+      setSaleDate(todayInput()); setAgentId(responsibleUserId); setPreview(null);
       setQuoteSearch(''); setQuoteFrom(''); setQuoteTo(''); setShowCotizaciones(false);
       load();
     } catch (e: any) { toast(e.message, 'err'); }
@@ -926,11 +929,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 />
               </Field>
               <div className="hidden"><Field label="Cliente"><Select value={clientId} onChange={(v) => setClientId(Number(v))} options={[{ value: 0, label: '— Sin asignar —' }, ...clients.map((c: any) => ({ value: c.id, label: (c.fullName || c.full_name || '— Sin nombre —') }))]} /></Field></div>
-              {role === 'agent' ? (
-                <Field label="Agente asignado"><div className="input flex items-center bg-slate-50 text-slate-700">{sessionUser?.name || 'Agente logueado'}</div></Field>
-              ) : (
-                <Field label="Agente *"><Select value={agentId} onChange={(v) => setAgentId(Number(v))} options={[{ value: 0, label: 'Selecciona…' }, ...agents.map((a: any) => ({ value: a.id, label: a.name }))]} /></Field>
-              )}
+              <Field label="Responsable">
+                <div className="input flex items-center bg-slate-50 text-slate-700">
+                  {responsibleUserName}
+                </div>
+              </Field>
             </div>
             {lotId > 0 && salePrice > 0 && (
               <p className="text-xs mt-1" style={{ color: '#1259C4' }}>

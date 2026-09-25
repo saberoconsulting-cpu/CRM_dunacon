@@ -3,6 +3,8 @@ import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 
+const DUNACON_LOGO = '/logo/dunacon.png';
+
 const fmtUsd = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtPen = (n: number) => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const PAY_LABEL: Record<string, string> = { contado: 'Contado', credito: 'Crédito' };
@@ -124,6 +126,16 @@ export default function CotizacionDocPage() {
           <button onClick={() => window.print()} className="btn-primary">Imprimir / Guardar PDF</button>
         </div>
         <div className="border rounded-2xl overflow-hidden" style={{ borderColor: '#E5E7EB' }}>
+          <div className="flex items-center justify-between gap-4 border-b bg-white px-4 py-3 sm:px-6" style={{ borderColor: '#E5E7EB' }}>
+            <div className="flex min-w-0 items-center gap-3">
+              {project?.logoImageUrl && <img src={project.logoImageUrl} alt={project?.name || 'Proyecto'} className="h-11 w-auto max-w-36 object-contain" />}
+              <div className="min-w-0">
+                <p className="truncate text-sm font-bold text-slate-800">{project?.name || 'Proyecto'}</p>
+                <p className="text-xs text-slate-500">Documento comercial</p>
+              </div>
+            </div>
+            <img src={DUNACON_LOGO} alt="Dunacon" className="h-10 w-auto max-w-32 shrink-0 object-contain" />
+          </div>
           <div className="px-4 py-4 text-white sm:px-6 sm:py-5" style={{ background: 'linear-gradient(135deg,#1877F2 0%,#166FE0 100%)' }}>
             <p className="text-xs uppercase tracking-wider opacity-80">Cotización de lote</p>
             <h1 className="text-xl font-bold mt-1 sm:text-2xl">{project?.name} — Lote {lot?.code}</h1>

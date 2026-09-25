@@ -5,7 +5,6 @@ import { SaleEntity } from '../../shared/infrastructure/entities/sale.entity';
 import { SaleInstallmentEntity } from '../../shared/infrastructure/entities/sale-installment.entity';
 import { LotEntity } from '../../shared/infrastructure/entities/lot.entity';
 import { UserEntity } from '../../shared/infrastructure/entities/user.entity';
-import { FinancialTransactionEntity } from '../../shared/infrastructure/entities/financial-transaction.entity';
 import { AuditLogEntity } from '../../shared/infrastructure/entities/audit-log.entity';
 import { WebsocketModule } from '../../shared/infrastructure/websocket/websocket.module';
 import { SalesController } from './interface/sales.controller';
@@ -18,7 +17,6 @@ import { SalesService } from './application/sales.service';
       SaleInstallmentEntity,
       LotEntity,
       UserEntity,
-      FinancialTransactionEntity,
       AuditLogEntity,
     ]),
     WebsocketModule,

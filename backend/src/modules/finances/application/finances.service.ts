@@ -335,12 +335,12 @@ export class FinancesService {
     if (projectId) tq.where('t.project_id = :projectId', { projectId });
     const totals = await tq
       .select("COALESCE(SUM(CASE WHEN t.type='ingreso' THEN t.amount ELSE 0 END),0)", 'income')
-      .addSelect("COALESCE(SUM(CASE WHEN t.type='egreso' THEN t.amount ELSE 0 END),0)", 'egreso')
       .getRawOne();
     const income = Number(totals?.income || 0);
-    const egresosT = Number(totals?.egreso || 0);
 
-    // Egresos por expense_class sobre expenses (clasificación pedida)
+    // Egresos por expense_class sobre expenses (fuente unica de verdad).
+    // `expenses` es la tabla que guarda la clasificacion (expense_class) que se
+    // muestra en el desglose, asi el total y las familias siempre cuadran.
     const eq = this.expenseRepo.createQueryBuilder('e');
     if (projectId) eq.where('e.project_id = :projectId', { projectId });
     const byClass = await eq
@@ -382,12 +382,12 @@ export class FinancesService {
     };
     return {
       ingresos: income,
-      egresos_total: egresosT,
+      egresos_total: egresosTotal,
       egresos_clasificados: egresosClasificados,
       egresos_por_clases: egresosTotal,
       proyectado: projected,
       presupuesto_obra: budgetTotals,
-      utilidad: income - egresosT,
+      utilidad: income - egresosTotal,
     };
   }
 }

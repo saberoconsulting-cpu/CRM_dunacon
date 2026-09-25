@@ -203,7 +203,10 @@ export default function ProjectPage() {
         <div className="card flex flex-wrap items-center gap-4 xl:col-span-3">
           {project.coverImageUrl && <img src={project.coverImageUrl} className="h-16 w-16 rounded-lg object-cover" alt="" />}
           <div className="min-w-40 flex-1">
-            <h2 className="text-xl font-bold">{project.name}</h2>
+            <div className="flex min-w-0 items-center gap-3">
+              {project.logoImageUrl && <img src={project.logoImageUrl} className="h-12 w-auto max-w-40 shrink-0 object-contain" alt={`Logo ${project.name}`} />}
+              <h2 className="min-w-0 truncate text-xl font-bold">{project.name}</h2>
+            </div>
             <p className="flex items-center gap-1 text-sm text-slate-500"><IoLocationSharp /> {project.location}</p>
             {project.description && <p className="mt-1 text-xs text-slate-400">{project.description}</p>}
             <span className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold" style={{ background: '#EAF7EE', color: '#125A3B' }}>

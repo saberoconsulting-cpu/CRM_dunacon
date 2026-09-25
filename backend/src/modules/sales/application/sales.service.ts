@@ -7,7 +7,6 @@ import { SaleInstallmentEntity } from '../../../shared/infrastructure/entities/s
 import { LotEntity } from '../../../shared/infrastructure/entities/lot.entity';
 import { ClientEntity } from '../../../shared/infrastructure/entities/client.entity';
 import { UserEntity } from '../../../shared/infrastructure/entities/user.entity';
-import { FinancialTransactionEntity } from '../../../shared/infrastructure/entities/financial-transaction.entity';
 import { PaymentEntity } from '../../../shared/infrastructure/entities/payment.entity';
 import { ProjectEntity } from '../../../shared/infrastructure/entities/project.entity';
 import { QuoteEntity } from '../../../shared/infrastructure/entities/quote.entity';
@@ -32,8 +31,6 @@ export class SalesService {
     private readonly userRepo: Repository<UserEntity>,
     @InjectRepository(SaleInstallmentEntity)
     private readonly instRepo: Repository<SaleInstallmentEntity>,
-    @InjectRepository(FinancialTransactionEntity)
-    private readonly txnRepo: Repository<FinancialTransactionEntity>,
     @InjectRepository(AuditLogEntity)
     private readonly auditRepo: Repository<AuditLogEntity>,
     private readonly gateway: NotificationsGateway,
@@ -96,7 +93,7 @@ export class SalesService {
       throw new BadRequestException('El lote ya tiene una separación pendiente de validación');
     }
 
-    const assignedAgentId = actorRole === 'agent' ? actorId : dto.agentId;
+    const assignedAgentId = Number(dto.agentId || actorId);
     const agent = await this.userRepo.findOne({ where: { id: assignedAgentId } });
     const appliesAgency = !!dto.appliesCommission;
     const commissionRate = dto.commissionRate ?? Number(agent?.commissionRate || 0);
@@ -215,18 +212,6 @@ export class SalesService {
         lot.status = 'vendido';
         await manager.save(LotEntity, lot);
       }
-
-      // Ingreso inmutable por la venta al aprobarse
-      await manager.save(FinancialTransactionEntity, {
-        projectId: sale.projectId,
-        lotId: sale.lotId,
-        clientId: sale.clientId,
-        createdBy: actorId,
-        type: 'ingreso',
-        category: 'venta',
-        concept: `Venta aprobada lote #${sale.lotId}`,
-        amount: sale.salePrice,
-      });
 
       // Cronograma si hay plan
       if (sale.totalCuotas > 0) {

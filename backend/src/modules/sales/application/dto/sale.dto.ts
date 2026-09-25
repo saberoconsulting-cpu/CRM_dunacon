@@ -1,5 +1,5 @@
 // modules/sales/application/dto/sale.dto.ts
-import { IsBoolean, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateSaleDto {
   @IsNumber()
@@ -11,9 +11,9 @@ export class CreateSaleDto {
   @IsOptional()
   clientId?: number;
 
+  @IsOptional()
   @IsNumber()
-  @IsNotEmpty()
-  agentId!: number;
+  agentId?: number;
 
   @IsOptional()
   @IsNumber()

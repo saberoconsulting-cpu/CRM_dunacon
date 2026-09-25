@@ -203,7 +203,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             api.get<any>(`/construction-budget?projectId=${projectId}`).catch(() => ({ items: [], summary: {} })),
             api.get<any>(`/finances/income-statement?projectId=${projectId}`).catch(() => ({})),
             api.get<any>(`/sales?projectId=${projectId}&limit=${SALES_EXPORT_LIMIT}`).catch(() => ({ items: [] })),
-            api.get<any>(`/payments?projectId=${projectId}&limit=500`).catch(() => ({ items: [] })),
+            api.get<any>(`/payments?projectId=${projectId}&status=pagado&limit=500`).catch(() => ({ items: [] })),
         ]);
         const sales = Array.isArray(salesData) ? salesData : (salesData?.items || []);
         const payments = Array.isArray(paymentsData) ? paymentsData : (paymentsData?.items || []);
@@ -244,7 +244,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             return Number.isNaN(date.getTime()) ? null : date.getFullYear();
         };
         const saleYears = sales.map((sale: any) => yearOf(sale.saleDate)).filter((year: number | null): year is number => year !== null);
-        const paymentYears = payments.map((payment: any) => yearOf(payment.paidAt || payment.paid_at || payment.createdAt)).filter((year: number | null): year is number => year !== null);
+        const paidPayments = payments.filter((payment: any) => String(payment.status || '').toLowerCase() === 'pagado');
+        const paymentYearOf = (payment: any) => yearOf(payment.paidAt || payment.paid_at || payment.createdAt);
+        const paymentYears = paidPayments.map(paymentYearOf).filter((year: number | null): year is number => year !== null);
         const allYears = [...saleYears, ...paymentYears];
         const calculatedBaseYear = allYears.length ? Math.min(...allYears) : new Date().getFullYear();
         const baseYear = calculatedBaseYear;
@@ -272,9 +274,17 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         setSeries('lots-sold', spreadByDates(soldLots, salesYearsList));
         const realSoldValue = sales.reduce((sum: number, sale: any) => sum + Number(sale.salePrice || 0), 0);
         const soldValue = realSoldValue || saleValue;
-        setSeries('initial-fee', spreadByDates(soldValue * initialPercent, salesYearsList));
-        const financingTotal = soldValue * (1 - initialPercent);
-        setSeries('financing-fee', paymentYears.length ? spreadByDates(financingTotal, paymentYears) : spreadByDates(financingTotal, salesYearsList));
+        const paymentSeries = (types: string[]) => {
+            const series = emptySeries();
+            for (const payment of paidPayments) {
+                if (!types.includes(String(payment.type || '').toLowerCase())) continue;
+                series[toSlot(paymentYearOf(payment))] += Number(payment.amount || 0);
+            }
+            return series;
+        };
+        const initialPaymentTypes = ['reserva', 'adelanto', 'primera_cuota', 'cuota_inicial', 'otros'];
+        setSeries('initial-fee', paymentSeries(initialPaymentTypes));
+        setSeries('financing-fee', paymentSeries(['cuota']));
         setSeries('land-cost', atYearZero(land));
         setSeries('alcabala', atYearZero(land * 0.03));
         setSeries('legal', atYearZero(landLegal));
