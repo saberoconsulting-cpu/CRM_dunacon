@@ -898,9 +898,9 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
       )}
 
       {formOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setFormOpen(false)} />
-          <div ref={formRef} className="relative max-h-[92vh] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-6 shadow-2xl">
+          <div ref={formRef} className="relative max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-4 shadow-2xl sm:max-h-[92vh] sm:p-6">
             <div className="mb-4 flex items-start justify-between gap-3">
               <div>
                 <h3 className="font-semibold" style={{ color: INK, fontSize: 17 }}>
@@ -960,16 +960,16 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
             </div>
 
             <div className="grid grid-cols-3 gap-2">
-              <Field label="Abono (ingreso)">
-                <input type="number" step="0.01" min="0" className="input" readOnly={!!editing} value={form.depositAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, depositAmount: event.target.value, chargeAmount: event.target.value ? '' : p.chargeAmount }))} />
+              <Field label="Abono">
+                <input type="number" step="0.01" min="0" className="input !px-2 text-xs tabular-nums sm:!px-3 sm:text-sm" readOnly={!!editing} value={form.depositAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, depositAmount: event.target.value, chargeAmount: event.target.value ? '' : p.chargeAmount }))} />
               </Field>
-              <Field label="Cargo (egreso)">
-                <input type="number" step="0.01" min="0" className="input" readOnly={!!editing} value={form.chargeAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, chargeAmount: event.target.value, depositAmount: event.target.value ? '' : p.depositAmount }))} />
+              <Field label="Cargo">
+                <input type="number" step="0.01" min="0" className="input !px-2 text-xs tabular-nums sm:!px-3 sm:text-sm" readOnly={!!editing} value={form.chargeAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, chargeAmount: event.target.value, depositAmount: event.target.value ? '' : p.depositAmount }))} />
               </Field>
               <Field label="Moneda">
-                <select className="input" disabled={!!editing} value={form.currency || 'PEN'} onChange={(event) => setForm((p: any) => ({ ...p, currency: event.target.value }))}>
-                  <option value="PEN">S/ PEN</option>
-                  <option value="USD">US$ USD</option>
+                <select className="input !px-2 text-xs font-semibold sm:!px-3 sm:text-sm" disabled={!!editing} value={form.currency || 'PEN'} onChange={(event) => setForm((p: any) => ({ ...p, currency: event.target.value }))}>
+                  <option value="PEN">PEN</option>
+                  <option value="USD">USD</option>
                 </select>
               </Field>
             </div>

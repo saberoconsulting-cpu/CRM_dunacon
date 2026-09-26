@@ -238,7 +238,7 @@ export default function ProjectsPage() {
                   <span className="truncate">{planImage?.name || 'Agregar plano del proyecto'}</span>
                 </span>
                 <span className="shrink-0 text-xs font-semibold text-[#1877F2]">Seleccionar</span>
-                <input type="file" accept="image/*" className="hidden" onChange={(e) => setPlanImage(e.target.files?.[0] || null)} />
+                <input type="file" accept="image/*,.jpg,.jpeg,.jpe,.png,.webp,.bmp,.gif,.jpng" className="hidden" onChange={(e) => setPlanImage(e.target.files?.[0] || null)} />
               </label>
             </Field>
             <div className="flex justify-end gap-2 pt-2">

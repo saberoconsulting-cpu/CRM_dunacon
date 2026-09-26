@@ -227,12 +227,12 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         </div>
       </div>
       {openExp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-2 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpenExp(false)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-md p-6">
+          <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-4 sm:max-h-[92vh] sm:p-6">
             <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Registrar egreso</h3>
             <Field label="Concepto *"><input className="input" value={eForm.concept || ''} onChange={(e) => ef('concept', e.target.value)} /></Field>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Categoría"><Select value={eForm.category || 'otros'} onChange={(v) => ef('category', v)} options={CATS.map((c) => ({ value: c, label: c }))} /></Field>
               <Field label="Monto (S/) *"><input type="number" className="input" value={eForm.amount || ''} onChange={(e) => ef('amount', e.target.value)} /></Field>
             </div>
@@ -250,9 +250,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         </div>
       )}
       {openIn && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-2 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpenIn(false)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-md p-6">
+          <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-4 sm:max-h-[92vh] sm:p-6">
             <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Registrar ingreso adicional</h3>
             <Field label="Concepto *"><input className="input" value={iForm.concept || ''} onChange={(e) => inf('concept', e.target.value)} /></Field>
             <Field label="Monto (S/) *"><input type="number" className="input" value={iForm.amount || ''} onChange={(e) => inf('amount', e.target.value)} /></Field>

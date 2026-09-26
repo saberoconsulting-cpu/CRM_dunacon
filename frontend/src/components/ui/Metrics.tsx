@@ -7,22 +7,21 @@ export const KPI_GRID_3 = 'kpi-grid-3';
 export type KpiCardSize = 'compact' | 'expanded';
 
 const LABEL_CLASS = 'min-w-0 text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-[11px]';
-const VALUE_CLASS = 'w-full max-w-full whitespace-nowrap font-extrabold tabular-nums leading-none';
-const HELPER_CLASS = 'mt-1 truncate text-[10px] font-normal leading-tight sm:text-[11px]';
+const VALUE_CLASS = 'kpi-value-text w-full max-w-full overflow-hidden text-ellipsis whitespace-nowrap font-extrabold tabular-nums leading-none';
+const HELPER_CLASS = 'kpi-helper-text mt-0.5 text-[9px] font-normal leading-tight sm:text-[10px] md:truncate';
 
 function valueFitStyle(value: ReactNode, tone: string, size: KpiCardSize) {
   const style: CSSProperties = { color: tone };
   if (typeof value !== 'string' && typeof value !== 'number') return style;
 
   const chars = String(value).replace(/\s/g, '').length;
-  if (chars <= 7) return style;
-
   const expanded = size === 'expanded';
-  if (chars <= 10) style.fontSize = expanded ? 'clamp(1.15rem, 1.5vw, 1.5rem)' : 'clamp(1.05rem, 1.35vw, 1.3rem)';
-  else if (chars <= 13) style.fontSize = expanded ? 'clamp(1rem, 1.3vw, 1.3rem)' : 'clamp(0.92rem, 1.15vw, 1.1rem)';
-  else if (chars <= 16) style.fontSize = expanded ? 'clamp(0.86rem, 1.1vw, 1.1rem)' : 'clamp(0.8rem, 0.95vw, 0.95rem)';
-  else if (chars <= 20) style.fontSize = expanded ? 'clamp(0.72rem, 0.9vw, 0.92rem)' : 'clamp(0.68rem, 0.8vw, 0.82rem)';
-  else style.fontSize = expanded ? 'clamp(0.64rem, 0.78vw, 0.82rem)' : 'clamp(0.6rem, 0.7vw, 0.72rem)';
+  if (chars <= 7) style.fontSize = expanded ? 'clamp(1.05rem, 1.35vw, 1.35rem)' : 'clamp(0.98rem, 1.25vw, 1.18rem)';
+  else if (chars <= 10) style.fontSize = expanded ? 'clamp(1rem, 1.25vw, 1.25rem)' : 'clamp(0.9rem, 1.1vw, 1.06rem)';
+  else if (chars <= 13) style.fontSize = expanded ? 'clamp(0.88rem, 1.1vw, 1.1rem)' : 'clamp(0.8rem, 0.98vw, 0.94rem)';
+  else if (chars <= 16) style.fontSize = expanded ? 'clamp(0.76rem, 0.95vw, 0.96rem)' : 'clamp(0.7rem, 0.85vw, 0.83rem)';
+  else if (chars <= 20) style.fontSize = expanded ? 'clamp(0.66rem, 0.82vw, 0.84rem)' : 'clamp(0.62rem, 0.74vw, 0.75rem)';
+  else style.fontSize = expanded ? 'clamp(0.58rem, 0.7vw, 0.75rem)' : 'clamp(0.54rem, 0.64vw, 0.66rem)';
   style.letterSpacing = '0';
   return style;
 }
@@ -30,17 +29,17 @@ function valueFitStyle(value: ReactNode, tone: string, size: KpiCardSize) {
 function sizeClasses(size: KpiCardSize) {
   if (size === 'expanded') {
     return {
-      box: 'min-h-[104px] px-3.5 py-3.5 sm:min-h-[114px] sm:px-4 sm:py-4',
-      icon: 'h-8 w-8 text-sm',
-      value: 'mt-1.5 text-base sm:text-lg',
-      blob: 'h-12 w-12 sm:h-16 sm:w-16',
+      box: 'min-h-[94px] px-3 py-3 sm:min-h-[106px] sm:px-4 sm:py-4',
+      icon: 'h-7 w-7 text-xs sm:h-8 sm:w-8 sm:text-sm',
+      value: 'mt-1 text-[15px] sm:text-base',
+      blob: 'h-10 w-10 sm:h-16 sm:w-16',
     };
   }
   return {
-    box: 'min-h-[96px] px-3 py-3 sm:min-h-[106px] sm:px-4 sm:py-4',
-    icon: 'h-8 w-8 text-sm',
-    value: 'mt-1.5 text-base sm:text-[17px]',
-    blob: 'h-12 w-12 sm:h-16 sm:w-16',
+    box: 'min-h-[84px] px-3 py-2.5 sm:min-h-[96px] sm:px-4 sm:py-3.5',
+    icon: 'h-7 w-7 text-xs sm:h-8 sm:w-8 sm:text-sm',
+    value: 'mt-1 text-[15px] sm:text-base',
+    blob: 'h-10 w-10 sm:h-14 sm:w-14',
   };
 }
 
@@ -81,7 +80,7 @@ export function KpiCardValue({ children, tone, size = 'compact', align = 'left' 
 
 /** Texto de apoyo bajo el valor. */
 export function KpiCardHelper({ children }: { children: ReactNode }) {
-  return <p className={`kpi-helper ${HELPER_CLASS}`} style={{ color: '#6B7280' }}>{children}</p>;
+  return <p className={`kpi-helper ${HELPER_CLASS}`} style={{ color: '#6B7280' }} title={typeof children === 'string' ? children : undefined}>{children}</p>;
 }
 
 export function KpiCardShell({
@@ -146,6 +145,7 @@ export function KpiCard({
   tone = '#1259C4',
   size = 'compact',
   truncateLabel = false,
+  valueAlign = 'left',
   onClick,
   ariaLabel,
 }: {
@@ -157,14 +157,15 @@ export function KpiCard({
   size?: KpiCardSize;
   /** etiquetas largas se recortan con "...". */
   truncateLabel?: boolean;
+  valueAlign?: 'left' | 'center';
   onClick?: () => void;
   ariaLabel?: string;
 }) {
   const ring = `${tone}1F`;
   return (
-    <KpiCardShell tone={tone} ring={ring} size={size} className="flex flex-col" onClick={onClick} title={label} ariaLabel={ariaLabel}>
+      <KpiCardShell tone={tone} ring={ring} size={size} className="flex flex-col" onClick={onClick} title={label} ariaLabel={ariaLabel}>
       <KpiCardLabel icon={icon} tone={tone} ring={ring} truncate={truncateLabel} size={size}>{label}</KpiCardLabel>
-      <KpiCardValue tone={tone} size={size}>{value}</KpiCardValue>
+      <KpiCardValue tone={tone} size={size} align={valueAlign}>{value}</KpiCardValue>
       {helper && <KpiCardHelper>{helper}</KpiCardHelper>}
     </KpiCardShell>
   );

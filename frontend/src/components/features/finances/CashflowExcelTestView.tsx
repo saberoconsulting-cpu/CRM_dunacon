@@ -26,7 +26,7 @@ const empty = () => Array(11).fill(0) as number[];
 // Desde md vuelve a 240px, con columnas pegadas (sticky) como antes.
 const CONCEPT_COL = 'w-[calc(100cqw_-_108px)] min-w-[calc(100cqw_-_108px)] max-w-[calc(100cqw_-_108px)] md:w-[240px] md:min-w-[240px] md:max-w-none';
 const TOTAL_COL = 'w-[96px] min-w-[96px] md:w-auto md:min-w-[100px]';
-const TOTAL_COL_PLAIN = 'w-[96px] min-w-[96px] md:w-[78px] md:min-w-[78px]';
+const YEAR_COL = 'w-[104px] min-w-[104px]';
 
 function computeIRR(flow: number[]): number | null {
     const hasNeg = flow.some((value) => value < 0);
@@ -195,6 +195,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const [hasSavedModel, setHasSavedModel] = useState(false);
     const [savingModel, setSavingModel] = useState(false);
     const [baseYear, setBaseYear] = useState(new Date().getFullYear());
+    const gridVars = {
+        '--cashflow-years-width': `${visibleYears.length * 104}px`,
+    } as React.CSSProperties;
 
     async function buildSeedRows(): Promise<{ rows: Row[]; manualFields: Partial<typeof manual>; project: any; baseYear: number }> {
         const [projectData, plan, budget, statement, salesData, paymentsData] = await Promise.all([
@@ -675,14 +678,14 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 <th className={`${CONCEPT_COL} border border-slate-200 bg-[#F8FAFC] px-3 py-3 text-left text-slate-500 md:sticky md:left-0 md:z-20 md:px-4`}>Concepto</th>
                                 <th className={`${TOTAL_COL} border border-[#0F4C9A] bg-[#1259C4] px-2 py-3 text-right text-sm font-extrabold text-white shadow-sm md:sticky md:left-[240px] md:z-20`}>Total</th>
                                 {visibleYears.map((year) => (
-                                    <th key={year} className="w-[104px] min-w-[104px] border border-slate-200 px-2 py-3 text-center font-semibold" style={{ background: BRAND.blue, color: '#fff' }}>{year}</th>
+                                    <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-3 text-center font-semibold`} style={{ background: BRAND.blue, color: '#fff' }}>{year}</th>
                                 ))}
                             </tr>
                             <tr>
                                 <th className={`${CONCEPT_COL} border border-slate-200 bg-[#F8FAFC] px-3 py-2 text-left text-[11px] font-semibold md:sticky md:left-0 md:z-20 md:px-4`} style={{ color: BRAND.muted }}><span className="block truncate md:whitespace-normal">Proyección anual</span></th>
                                 <th className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2 text-right text-[11px] font-bold text-[#1259C4] md:sticky md:left-[240px] md:z-20"></th>
                                 {visibleYears.map((_, year) => (
-                                    <th key={year} className="w-[104px] min-w-[104px] border border-slate-200 px-2 py-2 text-center text-[11px] font-medium" style={{ background: year === 0 ? '#D3E4FD' : '#EAF7EE', color: year === 0 ? BRAND.blueDark : '#125A3B' }}>{baseYear + year}</th>
+                                    <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-2 text-center text-[11px] font-medium`} style={{ background: year === 0 ? '#D3E4FD' : '#EAF7EE', color: year === 0 ? BRAND.blueDark : '#125A3B' }}>{baseYear + year}</th>
                                 ))}
                             </tr>
                         </thead>
@@ -773,15 +776,22 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
 
             <section className="overflow-hidden rounded-lg border bg-white shadow-sm" style={{ borderColor: BRAND.border }} aria-label="Utilidad acumulada">
                 <div className="overflow-auto [container-type:inline-size]" style={{ WebkitOverflowScrolling: 'touch' }}>
-                    <table className="w-max border-collapse text-xs">
+                    <table className="table-fixed border-collapse text-xs [width:calc(100cqw_-_12px_+_var(--cashflow-years-width))] md:[width:calc(340px_+_var(--cashflow-years-width))]" style={gridVars}>
+                        <colgroup>
+                            <col className="w-[calc(100cqw_-_108px)] md:w-[240px]" />
+                            <col className="w-[96px] md:w-[100px]" />
+                            {visibleYears.map((year) => (
+                                <col key={`accumulated-col-${year}`} className="w-[104px]" />
+                            ))}
+                        </colgroup>
                         <thead className="sticky top-0 z-[15]">
                             <tr>
                                 <th colSpan={visibleYears.length + 2} className="border border-slate-300 bg-white px-4 py-2 text-left text-base font-bold" style={{ color: BRAND.blue }}>Utilidad Acumulada</th>
                             </tr>
                             <tr>
-                                <th className={`${CONCEPT_COL} border border-slate-300 bg-[#F8FAFC] px-3 py-2 text-left text-[11px] font-semibold text-slate-500 md:px-4`}>Concepto</th>
-                                <th className={`${TOTAL_COL_PLAIN} border border-[#0F4C9A] bg-[#1259C4] px-2 py-2 text-right text-sm font-extrabold text-white shadow-sm`}>Total</th>
-                                {visibleYears.map((year) => <th key={year} className="w-[104px] min-w-[104px] border border-slate-300 bg-[#F8FAFC] px-2 py-2 text-center text-[11px] font-semibold text-slate-500">{year}</th>)}
+                                <th className={`${CONCEPT_COL} border border-slate-300 bg-[#F8FAFC] px-3 py-3 text-left text-[11px] font-semibold text-slate-500 md:px-4`}>Concepto</th>
+                                <th className={`${TOTAL_COL} border border-[#0F4C9A] bg-[#1259C4] px-2 py-3 text-right text-sm font-extrabold text-white shadow-sm md:sticky md:left-[240px] md:z-20`}>Total</th>
+                                {visibleYears.map((year) => <th key={year} className={`${YEAR_COL} border border-slate-300 bg-[#F8FAFC] px-2 py-3 text-center text-[11px] font-semibold text-slate-500`}>{year}</th>)}
                             </tr>
                         </thead>
                         <tbody>
@@ -791,9 +801,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                             ].map((item) => (
                                 <tr key={item.label}>
                                     <td className={`${CONCEPT_COL} border border-slate-300 px-3 py-2.5 font-bold md:px-4`} style={{ background: '#D3E4FD', color: item.tone }}><span className="block truncate md:whitespace-normal" title={item.label}>{item.label}</span></td>
-                                    <td className={`${TOTAL_COL_PLAIN} border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4]`}>{displayRowTotal(item.values)}</td>
+                                    <td className={`${TOTAL_COL} border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[240px] md:z-[1]`}>{displayRowTotal(item.values)}</td>
                                     {item.values.slice(0, visibleYears.length).map((value, year) => (
-                                        <td key={`${item.label}-${year}`} className="w-[104px] min-w-[104px] border border-slate-300 px-2 py-2.5 text-right font-bold tabular-nums" style={{ background: '#D3E4FD', color: BRAND.ink }}>{formatInteger(value)}</td>
+                                        <td key={`${item.label}-${year}`} className={`${YEAR_COL} border border-slate-300 px-2 py-2.5 text-right font-bold tabular-nums`} style={{ background: '#D3E4FD', color: BRAND.ink }}>{formatInteger(value)}</td>
                                     ))}
                                 </tr>
                             ))}

@@ -381,11 +381,23 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           </>,
           document.body,
         )}
+        {bellOpen && !inline && mounted && createPortal(
+          <>
+            <div className="fixed inset-0 z-[70] bg-black/35 md:hidden" onClick={() => setBellOpen(false)} />
+            <div
+              className="fixed inset-x-3 bottom-3 z-[80] max-h-[70dvh] overflow-auto rounded-2xl border bg-white shadow-2xl md:hidden"
+              style={{ borderColor: BRAND.border }}
+            >
+              {panelContent}
+            </div>
+          </>,
+          document.body,
+        )}
         {bellOpen && !inline && (
           <>
-            <div className="fixed inset-0 z-40" onClick={() => setBellOpen(false)} />
+            <div className="fixed inset-0 z-40 hidden md:block" onClick={() => setBellOpen(false)} />
             <div
-              className="absolute right-0 top-11 z-50 max-h-[70vh] w-[min(20rem,calc(100vw-2rem))] overflow-auto rounded-lg border bg-white shadow-2xl"
+              className="absolute right-0 top-11 z-50 hidden max-h-[70vh] w-[min(20rem,calc(100vw-2rem))] overflow-auto rounded-lg border bg-white shadow-2xl md:block"
               style={{ borderColor: BRAND.border }}
             >
               {panelContent}
@@ -660,7 +672,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
               </>
             )}
           </div>
-          <div className="order-2 hidden md:block">
+          <div className="order-2 md:order-none">
             <NotificationMenu />
           </div>
         </header>

@@ -788,9 +788,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       </div>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-2 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
-          <div className="relative max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-4 sm:p-6">
+          <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-4 sm:max-h-[92vh] sm:p-6">
             <div className="mb-4">
               <h3 className="font-semibold" style={{ fontSize: 17 }}>Registrar venta</h3>
               <p className="mt-0.5 text-xs text-slate-500">Filtra la cotizacion por cliente o fecha y asignala para autocompletar la ficha.</p>

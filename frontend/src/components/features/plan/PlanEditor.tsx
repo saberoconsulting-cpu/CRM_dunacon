@@ -288,7 +288,7 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
             {status === 'published' ? <span className="badge" style={{ background: '#EAF7EE', color: '#125A3B' }}>Publicado</span> : <span className="badge" style={{ background: '#FFF6E4', color: '#B45309' }}>Borrador</span>}
           </div>
           <div className="flex flex-wrap gap-2">
-            <label className="btn-neutral cursor-pointer"><input type="file" accept="image/*" className="hidden" onChange={(e) => e.target.files?.[0] && uploadImage(e.target.files[0])} />Subir imagen</label>
+            <label className="btn-neutral cursor-pointer"><input type="file" accept="image/*,.jpg,.jpeg,.jpe,.png,.webp,.bmp,.gif,.jpng" className="hidden" onChange={(e) => e.target.files?.[0] && uploadImage(e.target.files[0])} />Subir imagen</label>
             {status === 'published'
               ? <button className="btn-neutral" onClick={() => setStatusP('draft')}>Borrador</button>
               : <button className="btn-primary" onClick={() => setStatusP('published')}>Publicar</button>}

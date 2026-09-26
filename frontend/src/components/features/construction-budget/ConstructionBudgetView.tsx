@@ -137,6 +137,11 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
   // Moneda unica de la pantalla: los montos se guardan siempre en soles y
   // `show()` los convierte a la moneda activa al momento de pintarlos.
   const { currency, setCurrency, exchangeRate, setExchangeRate, format: show } = useDisplayCurrency();
+  // Simbolo de la moneda activa para los encabezados de la tabla.
+  const symbol = String(currency).toUpperCase() === 'USD' ? 'US$' : 'S/';
+  // En movil la columna del monto es angosta: pintamos el numero sin simbolo
+  // (el encabezado ya lo indica) para que no se amontone con el Concepto.
+  const showCompact = (value: number) => show(value).replace(/^[^\d-]+/, '').trim();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -175,6 +180,16 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     window.addEventListener('afterprint', done);
     return () => window.removeEventListener('afterprint', done);
   }, [printing]);
+
+  // Con un modal abierto se bloquea el scroll del fondo. Sin esto, el overlay
+  // `fixed` de los Select y el viewport movil (dvh) puede desplazar la pagina
+  // detras del modal y descolocar la posicion del menu.
+  useEffect(() => {
+    if (!modalOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [modalOpen]);
 
   const itemTree = useMemo(() => {
     const normalized = items.map((item) => ({
@@ -302,6 +317,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
   }
 
   async function seedBase() {
+    if (items.length > 0) return toast('La base solo se carga cuando el presupuesto esta vacio', 'err');
     try {
       const data = await api.post<any>('/construction-budget/seed', { projectId });
       setItems(data?.items || []);
@@ -355,8 +371,8 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     return (
       <>
         <tr key={item.id} className="border-t hover:bg-slate-50" style={{ borderColor: '#EEF2F7' }}>
-          <td className="px-2 py-3 sm:px-4">
-            <div className="flex min-w-0 items-center gap-2 sm:gap-3" style={{ paddingLeft: level * 12 }}>
+          <td className="px-3 py-3 sm:px-4">
+            <div className="flex min-w-0 items-center gap-2 overflow-hidden sm:gap-3" style={{ paddingLeft: level * 12 }}>
               {hasChildren ? (
                 <button
                   type="button"
@@ -372,20 +388,26 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
               )}
               <span className="shrink-0 rounded-md px-1.5 py-1 text-[11px] font-bold sm:px-2 sm:text-xs" style={{ background: level ? '#F8FAFC' : '#EAF3FF', color: level ? MUTED : BRAND.blue, border: `1px solid ${level ? BORDER : '#BFDBFE'}` }}>{item.code}</span>
               <div
-                className={`min-w-0 ${hasChildren ? 'cursor-pointer select-none' : ''}`}
+                className={`min-w-0 flex-1 overflow-hidden ${hasChildren ? 'cursor-pointer select-none' : ''}`}
                 onClick={hasChildren ? () => setOpenItems((current) => ({ ...current, [item.id]: !current[item.id] })) : undefined}
                 title={hasChildren ? (isOpen ? 'Ocultar subpartidas' : 'Ver subpartidas') : undefined}
               >
-                <p className="line-clamp-2 text-sm font-semibold leading-tight sm:truncate" style={{ color: INK }} title={item.name}>{item.name}</p>
-                {item.description && <p className="truncate text-xs" style={{ color: MUTED }} title={item.description}>{item.description}</p>}
+                <p className="block w-full truncate whitespace-nowrap text-xs font-semibold leading-tight sm:text-sm" style={{ color: INK }} title={item.name}>{item.name}</p>
+                {item.description && <p className="hidden truncate text-xs sm:block" style={{ color: MUTED }} title={item.description}>{item.description}</p>}
               </div>
               {hasChildren && (
                 <span className="budget-no-print shrink-0 text-[10px] font-semibold tabular-nums" style={{ color: MUTED }}>{item.children.length}</span>
               )}
             </div>
           </td>
-          <td className="px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: INK }}>{show(projected)}</td>
-          <td className="budget-cell-real px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: real > 0 ? '#16A36A' : INK }}>{show(real)}</td>
+          <td className="budget-cell-projected whitespace-nowrap px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: INK }}>
+            <span className="budget-amount-compact md:hidden">{showCompact(projected)}</span>
+            <span className="budget-amount-full hidden md:inline">{show(projected)}</span>
+          </td>
+          <td className="budget-cell-real whitespace-nowrap px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: real > 0 ? '#16A36A' : INK }}>
+            <span className="budget-amount-compact md:hidden">{showCompact(real)}</span>
+            <span className="budget-amount-full hidden md:inline">{show(real)}</span>
+          </td>
           <td className="budget-cell-advance px-1.5 py-3 text-right md:px-3">
             <span className="inline-block rounded-full px-1.5 py-1 text-[11px] font-bold tabular-nums sm:px-2.5 sm:text-xs" style={{ background: advance >= 100 ? '#EAF7EE' : '#F1F5F9', color: advance >= 100 ? '#16A36A' : BRAND.blue }}>
               {advance.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
@@ -415,22 +437,8 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     <>
       <Toaster />
       <style jsx global>{`
-        .budget-table > colgroup > .budget-col-concept { width: 70% !important; }
-        .budget-table > colgroup > .budget-col-projected { width: 30% !important; }
-        .budget-table > colgroup > .budget-col-real,
-        .budget-table > colgroup > .budget-col-advance,
-        .budget-table > colgroup > .budget-col-actions { width: 0 !important; }
-        .budget-table .budget-cell-real,
-        .budget-table .budget-cell-advance { display: none !important; }
         @media (min-width: 768px) {
           .budget-table { width: 100% !important; min-width: 980px !important; }
-          .budget-table > colgroup > .budget-col-concept { width: 44% !important; }
-          .budget-table > colgroup > .budget-col-projected { width: 15% !important; }
-          .budget-table > colgroup > .budget-col-real { width: 15% !important; }
-          .budget-table > colgroup > .budget-col-advance { width: 12% !important; }
-          .budget-table > colgroup > .budget-col-actions { width: 14% !important; }
-          .budget-table .budget-cell-real,
-          .budget-table .budget-cell-advance { display: table-cell !important; }
         }
         @media print {
           @page {
@@ -481,6 +489,20 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
             padding-left: 8px !important;
             padding-right: 8px !important;
           }
+          /* En el PDF/impresion los montos siempre muestran su simbolo, aunque
+             se imprima desde el celular (donde el ancho es reducido). */
+          .budget-print-area .budget-amount-compact {
+            display: none !important;
+          }
+          .budget-print-area .budget-amount-full {
+            display: inline !important;
+          }
+          /* En el PDF las celdas recuperan su padding normal y dejan de recortar
+             el contenido, porque el ancho de hoja (A4 landscape) ya alcanza. */
+          .budget-print-area .budget-table td,
+          .budget-print-area .budget-table th { overflow: visible !important; }
+          .budget-print-area .budget-table .budget-cell-projected,
+          .budget-print-area .budget-table .budget-head-projected { padding-left: 8px !important; padding-right: 8px !important; }
         }
       `}</style>
       <div className="budget-print-area space-y-5">
@@ -518,7 +540,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
               </div>
               <button className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={exportPdf}><FiDownload /> Exportar PDF</button>
               <button className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={load} disabled={loading}><FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar</button>
-              <button className="btn-outline w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={seedBase} title="Carga las partidas base del presupuesto"><FiFilePlus /> Base</button>
+              <button className="btn-outline w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={seedBase} disabled={items.length > 0} title={items.length > 0 ? 'La base solo se carga cuando el presupuesto esta vacio' : 'Carga las partidas base del presupuesto'}><FiFilePlus /> Base</button>
               <button className="btn-primary w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={() => openCreate('costo_directo')}><FiPlus /> Nueva partida</button>
             </div>
           </div>
@@ -548,24 +570,22 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
             </div>
           ) : (
             <>
-              {/* La tabla mide el ancho visible del contenedor. En movil (< md) solo
-                  se muestran "Concepto" (70%) y "Proyectado S/" (30%); Real, Avance
-                  y Acciones se ocultan y vuelven a aparecer desde md. */}
+              <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
               <div className="overflow-x-auto [container-type:inline-size]" style={{ WebkitOverflowScrolling: 'touch' }}>
-                <table className="budget-table w-[100cqw] table-fixed border-collapse text-sm md:w-full md:min-w-[980px]">
+                <table className="budget-table w-[calc(100cqw_+_300px)] table-fixed border-collapse text-[13px] md:w-full md:min-w-[980px] md:text-sm">
                   <colgroup>
-                    <col className="budget-col-concept" />
-                    <col className="budget-col-projected" />
-                    <col className="budget-col-real" />
-                    <col className="budget-col-advance" />
-                    <col className="budget-col-actions budget-no-print" />
+                    <col className="budget-col-concept w-[calc(100cqw_-_132px)] md:w-[44%]" />
+                    <col className="budget-col-projected w-[132px] md:w-[15%]" />
+                    <col className="budget-col-real w-[130px] md:w-[15%]" />
+                    <col className="budget-col-advance w-[86px] md:w-[12%]" />
+                    <col className="budget-col-actions budget-no-print w-[84px] md:w-[14%]" />
                   </colgroup>
                   <thead>
                     <tr className="border-b text-[10px] font-bold uppercase tracking-wide" style={{ borderColor: BORDER, background: '#F8FAFC', color: MUTED }}>
-                      <th className="px-2 py-3 text-left sm:px-4">Concepto</th>
-                      <th className="px-2 py-3 text-right md:px-3">Proyectado S/</th>
-                      <th className="budget-cell-real px-2 py-3 text-right md:px-3">Real S/</th>
-                      <th className="budget-cell-advance px-1.5 py-3 text-right md:px-3">Avance %</th>
+                      <th className="px-3 py-3 text-left sm:px-4">Concepto</th>
+                      <th className="budget-head-projected whitespace-nowrap px-2 py-3 text-right md:px-3">Proyectado {symbol}</th>
+                      <th className="budget-cell-real whitespace-nowrap px-2 py-3 text-right md:px-3">Real {symbol}</th>
+                      <th className="budget-cell-advance whitespace-nowrap px-1.5 py-3 text-right md:px-3">Avance %</th>
                       <th className="budget-no-print px-1.5 py-3 text-right md:px-3">Acciones</th>
                     </tr>
                   </thead>
@@ -578,22 +598,28 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                       return (
                         <Fragment key={cat.key}>
                           <tr className="border-b" style={{ borderColor: BORDER, background: '#F8FAFC' }}>
-                            <td className="px-2 py-3 sm:px-4">
+                            <td className="px-3 py-3 sm:px-4">
                               <button
                                 type="button"
-                                className="flex min-w-0 items-center gap-2 text-left sm:gap-3"
+                                className="flex w-full min-w-0 items-center gap-2 overflow-hidden text-left sm:gap-3"
                                 onClick={() => setOpenCats((current) => ({ ...current, [cat.key]: !current[cat.key] }))}
                               >
                                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-sm font-bold text-white sm:h-9 sm:w-9" style={{ background: cat.color }}>{cat.letter}</span>
-                                <span className="min-w-0">
-                                  <span className="block truncate font-semibold sm:whitespace-normal" style={{ color: INK }}>{cat.label}</span>
-                                  <span className="budget-no-print block truncate text-xs" style={{ color: MUTED }}>{cat.helper}</span>
+                                <span className="min-w-0 flex-1 overflow-hidden">
+                                  <span className="block w-full truncate whitespace-nowrap text-xs font-semibold sm:text-sm" style={{ color: INK }}>{cat.label}</span>
+                                  <span className="budget-no-print hidden truncate text-xs sm:block" style={{ color: MUTED }}>{cat.helper}</span>
                                 </span>
                                 <span className="budget-no-print shrink-0 text-slate-500">{isOpen ? <FiChevronDown /> : <FiChevronRight />}</span>
                               </button>
                             </td>
-                            <td className="px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: cat.color }}>{show(categoryProjected)}</td>
-                            <td className="budget-cell-real px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: categoryReal > 0 ? '#16A36A' : INK }}>{show(categoryReal)}</td>
+                            <td className="budget-cell-projected whitespace-nowrap px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: cat.color }}>
+                              <span className="budget-amount-compact md:hidden">{showCompact(categoryProjected)}</span>
+                              <span className="budget-amount-full hidden md:inline">{show(categoryProjected)}</span>
+                            </td>
+                            <td className="budget-cell-real whitespace-nowrap px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: categoryReal > 0 ? '#16A36A' : INK }}>
+                              <span className="budget-amount-compact md:hidden">{showCompact(categoryReal)}</span>
+                              <span className="budget-amount-full hidden md:inline">{show(categoryReal)}</span>
+                            </td>
                             <td className="budget-cell-advance px-1.5 py-3 text-right md:px-3">
                               <span className="inline-block rounded-full px-1.5 py-1 text-[11px] font-bold tabular-nums sm:px-2.5 sm:text-xs" style={{ background: categoryAdvance >= 100 ? '#EAF7EE' : '#F1F5F9', color: categoryAdvance >= 100 ? '#16A36A' : BRAND.blue }}>
                                 {categoryAdvance.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
@@ -609,8 +635,14 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                     })}
                     <tr className="border-t" style={{ borderColor: BRAND.blueDark, background: '#EAF3FF' }}>
                       <td className="px-2 py-4 text-sm font-bold sm:px-4 sm:text-base" style={{ color: BRAND.blueDark }}>Total A+B+C+D+E</td>
-                      <td className="px-2 py-4 text-right text-xs font-extrabold tabular-nums sm:text-sm md:px-3" style={{ color: INK }}>{show(budgetTotals.projected)}</td>
-                      <td className="budget-cell-real px-2 py-4 text-right text-xs font-extrabold tabular-nums sm:text-sm md:px-3" style={{ color: '#16A36A' }}>{show(budgetTotals.real)}</td>
+                      <td className="budget-cell-projected whitespace-nowrap px-2 py-4 text-right text-xs font-extrabold tabular-nums sm:text-sm md:px-3" style={{ color: INK }}>
+                        <span className="budget-amount-compact md:hidden">{showCompact(budgetTotals.projected)}</span>
+                        <span className="budget-amount-full hidden md:inline">{show(budgetTotals.projected)}</span>
+                      </td>
+                      <td className="budget-cell-real whitespace-nowrap px-2 py-4 text-right text-xs font-extrabold tabular-nums sm:text-sm md:px-3" style={{ color: '#16A36A' }}>
+                        <span className="budget-amount-compact md:hidden">{showCompact(budgetTotals.real)}</span>
+                        <span className="budget-amount-full hidden md:inline">{show(budgetTotals.real)}</span>
+                      </td>
                       <td className="budget-cell-advance px-1.5 py-4 text-right md:px-3">
                         <span className="inline-block rounded-full bg-white px-1.5 py-1 text-[11px] font-extrabold tabular-nums sm:px-2.5 sm:text-xs" style={{ color: pct(budgetTotals.real, budgetTotals.projected) >= 100 ? '#16A36A' : BRAND.blue }}>
                           {pct(budgetTotals.real, budgetTotals.projected).toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
@@ -627,10 +659,10 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
       </div>
 
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center p-0 sm:items-center sm:p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto px-4 py-3 sm:p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setModalOpen(false)} />
-          <div className="relative flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-h-[92vh] sm:max-w-xl sm:rounded-2xl">
-            <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2.5 sm:items-start sm:px-5 sm:py-4" style={{ borderColor: BORDER }}>
+          <div className="relative flex max-h-[calc(100dvh-1.5rem)] min-h-0 w-full max-w-[20rem] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[92vh] sm:max-w-md">
+            <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3 sm:items-start sm:px-5 sm:py-4" style={{ borderColor: BORDER }}>
               <div className="min-w-0">
                 <h3 className="text-base font-semibold sm:text-lg" style={{ color: INK }}>{editing ? 'Editar partida' : 'Nueva partida'}</h3>
                 <p className="mt-0.5 hidden text-xs sm:block" style={{ color: MUTED }}>Define la partida y su monto dentro del presupuesto.</p>
@@ -640,8 +672,8 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
               </button>
             </div>
 
-            <div className="flex-1 space-y-2.5 overflow-y-auto px-4 py-3 sm:space-y-3 sm:px-5 sm:py-4 [&_.input]:!h-9 [&_.input]:!py-1 [&_.input]:!text-sm [&_.label]:!mb-1 [&_.select-trigger]:!h-9 [&_.select-trigger]:!text-sm sm:[&_.input]:!h-10 sm:[&_.input]:!py-2 sm:[&_.select-trigger]:!h-10">
-              <div className="grid gap-2.5 sm:grid-cols-2 sm:gap-3">
+            <div className="min-h-0 flex-1 space-y-2.5 overflow-y-auto px-4 py-3 pb-4 sm:space-y-3 sm:px-5 sm:py-4 [&_.input]:!h-9 [&_.input]:!py-1 [&_.input]:!text-sm [&_.label]:!mb-1 [&_.select-trigger]:!h-9 [&_.select-trigger]:!text-sm sm:[&_.input]:!h-10 sm:[&_.input]:!py-2 sm:[&_.select-trigger]:!h-10">
+              <div className="grid gap-2.5">
                 <Field label="Categoria">
                   <Select
                     value={form.category || 'costo_directo'}
@@ -676,14 +708,14 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                 </Field>
               </div>
 
-              <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-2.5 sm:grid-cols-[130px_minmax(0,1fr)] sm:gap-3">
+              <div className="grid grid-cols-[88px_minmax(0,1fr)] gap-2.5 sm:gap-3">
                 <Field label="Codigo"><input className="input" value={form.code || ''} onChange={(event) => setForm((p: any) => ({ ...p, code: event.target.value }))} /></Field>
                 <Field label="Nombre"><input className="input" value={form.name || ''} onChange={(event) => setForm((p: any) => ({ ...p, name: event.target.value }))} /></Field>
               </div>
 
               <Field label="Descripcion opcional"><input className="input" value={form.description || ''} onChange={(event) => setForm((p: any) => ({ ...p, description: event.target.value }))} /></Field>
 
-              <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)_minmax(0,0.7fr)] sm:gap-3">
+              <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
                 <Field label="Monto proyectado"><input type="number" inputMode="decimal" className="input" value={form.amount || ''} onChange={(event) => setForm((p: any) => ({ ...p, amount: event.target.value }))} /></Field>
                 <Field label="Moneda">
                   <Select
@@ -701,7 +733,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
               </div>
             </div>
 
-            <div className="grid shrink-0 grid-cols-[1fr_1.7fr] gap-2 border-t px-4 py-2.5 sm:flex sm:justify-end sm:px-5 sm:py-3" style={{ borderColor: BORDER }}>
+            <div className="grid shrink-0 grid-cols-[1fr_1.7fr] gap-2 border-t px-4 py-3 sm:flex sm:justify-end sm:px-5" style={{ borderColor: BORDER }}>
               <button className="btn-neutral justify-center !h-10 text-sm sm:!h-auto" onClick={() => setModalOpen(false)}>Cancelar</button>
               <button className="btn-primary justify-center !h-10 text-sm sm:!h-auto" onClick={save}><FiDollarSign /> Guardar presupuesto</button>
             </div>

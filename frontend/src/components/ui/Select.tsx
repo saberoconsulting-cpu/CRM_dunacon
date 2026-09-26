@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
 import { FiChevronDown } from 'react-icons/fi';
 
 export type SelectOption = { value: string | number; label: string; hint?: string };
@@ -16,28 +16,33 @@ export function Select({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const [menuStyle, setMenuStyle] = useState<CSSProperties>({});
+  const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const current = options.find((o) => String(o.value) === String(value));
 
-  useEffect(() => {
-    if (!open) return;
-    const reposition = () => {
-      const rect = rootRef.current?.getBoundingClientRect();
-      if (!rect) return;
-      const gap = 4;
-      const below = window.innerHeight - rect.bottom - gap - 12;
-      const above = rect.top - gap - 12;
-      const openUp = below < 160 && above > below;
-      const maxHeight = Math.max(140, Math.min(288, openUp ? above : below));
-      setMenuStyle({
-        position: 'fixed',
-        left: rect.left,
-        width: rect.width,
-        maxHeight,
-        ...(openUp ? { bottom: window.innerHeight - rect.top + gap } : { top: rect.bottom + gap }),
-      });
-    };
+  const reposition = () => {
+    const rect = rootRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const gap = 4;
+    const below = window.innerHeight - rect.bottom - gap - 12;
+    const above = rect.top - gap - 12;
+    const openUp = below < 160 && above > below;
+    const maxHeight = Math.max(140, Math.min(288, openUp ? above : below));
+    setMenuStyle({
+      position: 'fixed',
+      left: rect.left,
+      width: rect.width,
+      maxHeight,
+      ...(openUp ? { bottom: window.innerHeight - rect.top + gap } : { top: rect.bottom + gap }),
+    });
+  };
+
+  // Se mide ANTES del primer pintado: si el menu se renderizara sin `position`
+  // (menuStyle null) apareceria en el flujo normal durante un frame, expandiendo
+  // el contenedor con scroll del modal y empujando el contenido hacia abajo.
+  // Eso era el salto que solo ocurria la primera vez que se abria un select.
+  useLayoutEffect(() => {
+    if (!open) return undefined;
     reposition();
     window.addEventListener('resize', reposition);
     window.addEventListener('scroll', reposition, true);
@@ -45,6 +50,11 @@ export function Select({
       window.removeEventListener('resize', reposition);
       window.removeEventListener('scroll', reposition, true);
     };
+  }, [open]);
+
+  // Al cerrar se limpia la medida para que la proxima apertura vuelva a medir.
+  useEffect(() => {
+    if (!open) setMenuStyle(null);
   }, [open]);
 
   return (
@@ -58,7 +68,7 @@ export function Select({
         <span className="truncate text-[#171717]">{current ? current.label : ''}</span>
         <FiChevronDown className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
-      {open && (
+      {open && menuStyle && (
         <>
           <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
           <div

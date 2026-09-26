@@ -400,7 +400,7 @@ function QuoteDocumentModal({ doc, onClose }: { doc: { id: number; type: 'cotiza
 }
 
 function QuoteKpi({ label, value, helper, icon, accent }: { label: string; value: string; helper: string; icon: React.ReactNode; accent: string }) {
-  return <KpiCard label={label} value={value} helper={helper} icon={icon} tone={accent} truncateLabel />;
+  return <KpiCard label={label} value={value} helper={helper} icon={icon} tone={accent} truncateLabel valueAlign="center" />;
 }
 
 export default function QuotesView({ lockedProjectId }: { lockedProjectId?: number }) {
@@ -719,9 +719,9 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
       </div>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-2 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
-          <div className="relative bg-white rounded-2xl w-full max-w-2xl p-6 max-h-[92vh] overflow-y-auto">
+          <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-4 sm:max-h-[92vh] sm:p-6">
             <h3 className="font-semibold mb-1" style={{ fontSize: 17 }}>Calcula tu financiamiento</h3>
             <p className="text-xs text-slate-500 mb-4">Esta calculadora trabaja en US$, con un tipo de cambio manual para mostrar el equivalente en soles.</p>
 

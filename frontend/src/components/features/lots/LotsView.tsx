@@ -289,7 +289,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                         Plano
                         <input
                           type="file"
-                          accept="image/*,.pdf"
+                          accept="image/*,.jpg,.jpeg,.jpe,.png,.webp,.bmp,.gif,.jpng,.pdf"
                           className="hidden"
                           onChange={(e) => {
                             const file = e.target.files?.[0];
@@ -334,7 +334,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
           { label: 'Lotes Promoción', value: stats.promocion, color: '#7C3AED', icon: <FiTag /> },
           { label: 'Lotes 2da Etapa', value: stats.segundaEtapa, color: '#0E7490', icon: <FiFlag /> },
         ] as const).map((k) => (
-          <KpiCard key={k.label} label={k.label} value={k.value} icon={k.icon} tone={k.color} />
+          <KpiCard key={k.label} label={k.label} value={k.value} icon={k.icon} tone={k.color} valueAlign="center" />
         ))}
       </div>
 

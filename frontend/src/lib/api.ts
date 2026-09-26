@@ -69,7 +69,10 @@ export const api = {
 
 export async function uploadFile(path: string, file: File, fields?: Record<string, string | number>): Promise<any> {
   const form = new FormData();
-  form.append('file', file);
+  const upload = /\.jpng$/i.test(file.name)
+    ? new File([file], file.name.replace(/\.jpng$/i, '.jpg'), { type: file.type || 'image/jpeg' })
+    : file;
+  form.append('file', upload);
   Object.entries(fields || {}).forEach(([key, value]) => form.append(key, String(value)));
   const token = getToken();
   const res = await fetch(BASE + path, {

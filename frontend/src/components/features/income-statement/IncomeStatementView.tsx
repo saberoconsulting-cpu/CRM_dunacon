@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { FiActivity, FiAward, FiBarChart2, FiBriefcase, FiCheckCircle, FiClipboard, FiCreditCard, FiDollarSign, FiEdit3, FiFileText, FiGrid, FiMapPin, FiPackage, FiPercent, FiPieChart, FiRefreshCw, FiTool, FiTrendingUp, FiUsers } from 'react-icons/fi';
+import { FiActivity, FiAward, FiBarChart2, FiBriefcase, FiCheckCircle, FiClipboard, FiCreditCard, FiDollarSign, FiDownload, FiEdit3, FiFileText, FiGrid, FiMapPin, FiPackage, FiPercent, FiPieChart, FiRefreshCw, FiTool, FiTrendingUp, FiUsers } from 'react-icons/fi';
 import { Toaster, toast } from '@/components/ui/ui';
 import { KpiCard as SharedKpiCard } from '@/components/ui/Metrics';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
+import { printHtml } from '@/lib/print';
 import { BRAND, Lot, Project } from '@/lib/types';
 import { useDisplayCurrency, formatCurrency } from '@/lib/currency';
 
@@ -117,9 +118,9 @@ function KpiCard({ label, value, helper, icon, color = BLUE }: { label: string; 
 
 function MetricPill({ label, value, color = BLUE }: { label: string; value: string; color?: string }) {
   return (
-    <div className="min-w-0 rounded-md border bg-white px-3 py-2.5 sm:px-4 sm:py-3" style={{ borderColor: BORDER }}>
-      <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }}>{label}</p>
-      <p className="mt-1 truncate text-base font-bold tabular-nums sm:text-lg" style={{ color }}>{value}</p>
+    <div className="min-w-0 rounded-md border bg-white px-3 py-2 sm:px-4 sm:py-2.5" style={{ borderColor: BORDER }}>
+      <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }} title={label}>{label}</p>
+      <p className="mt-0.5 truncate text-sm font-bold tabular-nums sm:text-base" style={{ color }} title={value}>{value}</p>
     </div>
   );
 }
@@ -137,6 +138,109 @@ function StatementTooltip({ active, payload, label, formatter = money }: any) {
       ))}
     </div>
   );
+}
+
+/** Estilos del PDF de Estado de Resultados (se inyectan en el iframe de printHtml). */
+const PDF_STYLES = `
+  body{font-family:Arial,Helvetica,sans-serif;margin:22px;color:#0F172A;background:white}
+  .brand{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;border-bottom:3px solid #0866E5;padding-bottom:14px;margin-bottom:14px}
+  .brand img{height:42px;max-width:180px;object-fit:contain}
+  .eyebrow{margin:0 0 5px;color:#0866E5;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+  h1{margin:0;font-size:23px;line-height:1.15;color:#111827}
+  h2{font-size:12px;margin:16px 0 7px;color:#063B87;text-transform:uppercase;letter-spacing:.05em}
+  p{margin:3px 0 0;color:#64748B;font-size:11px}
+  .meta{display:flex;gap:18px;flex-wrap:wrap;margin-top:6px}
+  .cards{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:8px 0 4px}
+  .card{border:1px solid #E2E8F0;border-top:3px solid #0866E5;border-radius:6px;background:#FFFFFF;padding:9px 10px}
+  .card-label{margin:0;color:#6B7280;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+  .card-value{margin:4px 0 0;font-size:15px;font-weight:800;line-height:1.1}
+  .card-helper{margin:3px 0 0;color:#6B7280;font-size:8px}
+  .pills{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:8px 0 4px}
+  .pill{border:1px solid #E2E8F0;border-radius:6px;background:#F8FAFC;padding:8px 10px}
+  .pill-label{margin:0;color:#64748B;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+  .pill-value{margin:4px 0 0;color:#0F172A;font-size:12px;font-weight:800}
+  table{width:100%;border-collapse:collapse;table-layout:fixed;margin-top:6px;background:white}
+  th{background:#0866E5;color:white;border:1px solid #0866E5;padding:7px 6px;font-size:8px;text-align:left;text-transform:uppercase;letter-spacing:.03em}
+  th.num,td.num{text-align:right;white-space:nowrap}
+  td{border:1px solid #E2E8F0;padding:6px;font-size:9px;vertical-align:top}
+  .concept-name{display:block;font-weight:600;color:#0F172A}
+  .concept-note{display:block;color:#6B7280;font-size:8px}
+  .cell-child{padding-left:16px}
+  .row-cost{background:#EEF2FF}
+  .row-income{background:#F0FDF4}
+  .row-subtotal{background:#F8FAFC;font-weight:700}
+  .row-tax{background:#FFF7ED}
+  .row-final{background:#EAF3FF;font-weight:700}
+  .footer{margin-top:16px;border-top:1px solid #E2E8F0;padding-top:8px;color:#6B7280;font-size:9px;text-align:right}
+  @media print{body{margin:14px}thead{display:table-header-group}tr{break-inside:avoid}.cards,.pills{break-inside:avoid}}
+`;
+
+/**
+ * Arma el documento HTML imprimible del Estado de Resultados: encabezado de
+ * marca, cards de indicadores, pills de precios/areas y el cuadro completo.
+ */
+function buildPdfHtml({ logoUrl, projectName, today, metaHtml, cardsHtml, pillsHtml, rowsHtml }: {
+  logoUrl: string;
+  projectName: string;
+  today: string;
+  metaHtml: string;
+  cardsHtml: string;
+  pillsHtml: string;
+  rowsHtml: string;
+}) {
+  return `
+    <html>
+      <head>
+        <title>Estado de Resultados - ${escapeForPdf(projectName)}</title>
+        <style>${PDF_STYLES}</style>
+      </head>
+      <body>
+        <div class="brand">
+          <div>
+            <p class="eyebrow">Reporte contable</p>
+            <h1>Estado de Resultados</h1>
+            <div class="meta">${metaHtml}</div>
+          </div>
+          <img src="${escapeForPdf(logoUrl)}" alt="Dunacon" />
+        </div>
+
+        <h2>Indicadores principales</h2>
+        <div class="cards">${cardsHtml}</div>
+
+        <h2>Precios y areas</h2>
+        <div class="pills">${pillsHtml}</div>
+
+        <h2>Resultado economico del proyecto</h2>
+        <table>
+          <colgroup>
+            <col style="width:40%" /><col style="width:16%" /><col style="width:16%" /><col style="width:13%" /><col style="width:15%" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Concepto</th>
+              <th class="num">Proyectado</th>
+              <th class="num">Real</th>
+              <th class="num">% Ingreso</th>
+              <th class="num">Desviacion</th>
+            </tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+
+        <div class="footer">CRM - DUNACON &middot; Documento gerencial de referencia, no reemplaza el cierre tributario.</div>
+      </body>
+    </html>
+  `;
+}
+
+/** Escapa texto para HTML en el PDF (mismo criterio que las demas vistas). */
+function escapeForPdf(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 async function loadAllLots(projectId: number) {
@@ -287,6 +391,93 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     };
   }, [lots, statement, cashflow]);
 
+  function escapeHtml(value: unknown) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
+
+  /**
+   * Exporta las cards (KPI + metricas) y el cuadro completo del Estado de
+   * Resultados a PDF usando el mismo helper `printHtml` que el resto del CRM.
+   * Respeta la moneda activa (S/ o US$) mediante `show()` y `symbol`.
+   */
+  function exportPdf() {
+    if (loading) return toast('Espera a que termine la carga', 'err');
+    const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
+    const projectName = project?.name || `Proyecto ${projectId}`;
+    const today = new Date().toLocaleString('es-PE', { dateStyle: 'long', timeStyle: 'short' });
+
+    const cards: Array<{ label: string; value: string; helper: string; tone: string }> = [
+      { label: 'Ingreso real', value: show(report.realRevenue), helper: 'Ingresos de la operacion diaria (transacciones)', tone: GREEN },
+      { label: 'Utilidad neta', value: show(report.netProfit), helper: `Margen neto ${pct(report.margin)}`, tone: report.netProfit >= 0 ? BLUE : RED },
+      { label: 'Lotes vendidos', value: `${report.soldLots}/${lots.length}`, helper: 'Conteo desde lotizacion', tone: BLUE_DARK },
+      { label: 'Area vendible', value: `${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 0 })} m2`, helper: project?.location || 'Ubicacion del proyecto', tone: '#7C3AED' },
+    ];
+    const pills: Array<{ label: string; value: string }> = [
+      { label: 'Precio proyectado m2', value: show(report.projectedM2) },
+      { label: 'Ingreso real m2', value: show(report.realM2) },
+      { label: 'Area venta m2', value: `${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} m2` },
+      { label: 'Fecha de reporte', value: new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }) },
+    ];
+
+    const cardsHtml = cards.map((card) => `
+      <div class="card" style="border-top-color:${card.tone}">
+        <p class="card-label">${escapeHtml(card.label)}</p>
+        <p class="card-value" style="color:${card.tone}">${escapeHtml(card.value)}</p>
+        <p class="card-helper">${escapeHtml(card.helper)}</p>
+      </div>
+    `).join('');
+
+    const pillsHtml = pills.map((pill) => `
+      <div class="pill">
+        <p class="pill-label">${escapeHtml(pill.label)}</p>
+        <p class="pill-value">${escapeHtml(pill.value)}</p>
+      </div>
+    `).join('');
+
+    const rowsHtml = report.rows.map((row) => {
+      const diff = deviation(row.real, row.projected);
+      const share = incomeShare(row.real, report.realRevenue);
+      const cls = row.accent === 'final' ? 'row-final'
+        : row.accent === 'subtotal' ? 'row-subtotal'
+          : row.accent === 'tax' ? 'row-tax'
+            : row.accent === 'income' ? 'row-income'
+              : (row.group === 'cost' ? 'row-cost' : '');
+      const child = row.child ? ' cell-child' : '';
+      return `
+        <tr class="${cls}">
+          <td class="concept${child}">
+            <span class="concept-name">${escapeHtml(row.label)}</span>
+            ${row.note ? `<span class="concept-note">${escapeHtml(row.note)}</span>` : ''}
+          </td>
+          <td class="num">${escapeHtml(show(row.projected))}</td>
+          <td class="num">${escapeHtml(show(row.real))}</td>
+          <td class="num">${escapeHtml(pct(share))}</td>
+          <td class="num">${escapeHtml(`${diff >= 0 ? '+' : ''}${pct(diff)}`)}</td>
+        </tr>
+      `;
+    }).join('');
+
+    printHtml(buildPdfHtml({
+      logoUrl,
+      projectName,
+      today,
+      metaHtml: [
+        `<p><b>Proyecto:</b> ${escapeHtml(projectName)}</p>`,
+        `<p><b>RUC:</b> ${escapeHtml(ruc)}</p>`,
+        `<p><b>Moneda:</b> ${escapeHtml(symbol)}${String(currency).toUpperCase() === 'USD' ? ` (TC ${escapeHtml(String(exchangeRate))})` : ''}</p>`,
+        `<p><b>Generado:</b> ${escapeHtml(today)}</p>`,
+      ].join(''),
+      cardsHtml,
+      pillsHtml,
+      rowsHtml,
+    }));
+  }
+
   return (
     <>
       <Toaster />
@@ -330,6 +521,16 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                     inputMode="numeric"
                   />
                 </div>
+                <button
+                  type="button"
+                  className="btn-neutral !h-10 w-full justify-center whitespace-nowrap text-sm"
+                  style={{ color: INK }}
+                  onClick={exportPdf}
+                  disabled={loading}
+                  title="Exporta las cards y el cuadro del Estado de Resultados a PDF"
+                >
+                  <FiDownload /> Exportar PDF
+                </button>
               </div>
             </div>
           </div>
@@ -361,25 +562,25 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
             </div>
             <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
             {/* [container-type:inline-size] permite usar `cqw` (= ancho visible del
-                contenedor). En movil la tabla mide "ancho visible + 340px": la primera
+                contenedor). En movil la tabla mide "ancho visible + 300px": la primera
                 columna se ajusta (texto con "...") y deja ver completa la columna
                 Proyectado; el resto se alcanza deslizando. Desde md vuelve a porcentajes. */}
             <div className="overflow-x-auto [container-type:inline-size]">
-              <table className="w-[calc(100cqw_+_340px)] table-fixed md:w-full md:min-w-[780px]">
+              <table className="w-[calc(100cqw_+_300px)] table-fixed text-[13px] md:w-full md:min-w-[700px] md:text-sm">
                 <colgroup>
-                  <col className="w-[calc(100cqw_-_150px)] md:w-[34%]" />
-                  <col className="w-[150px] md:w-[17%]" />
-                  <col className="w-[145px] md:w-[17%]" />
-                  <col className="w-[95px] md:w-[15%]" />
-                  <col className="w-[100px] md:w-[17%]" />
+                  <col className="w-[calc(100cqw_-_132px)] md:w-[34%]" />
+                  <col className="w-[132px] md:w-[17%]" />
+                  <col className="w-[130px] md:w-[17%]" />
+                  <col className="w-[86px] md:w-[15%]" />
+                  <col className="w-[84px] md:w-[17%]" />
                 </colgroup>
                 <thead>
-                  <tr className="border-b text-left text-xs font-bold uppercase tracking-wide" style={{ borderColor: BORDER, color: MUTED, background: '#F8FAFC' }}>
+                  <tr className="border-b text-left text-[11px] font-bold uppercase tracking-wide md:text-xs" style={{ borderColor: BORDER, color: MUTED, background: '#F8FAFC' }}>
                     <th className="px-4 py-3">Concepto</th>
-                    <th className="px-2 py-3 text-right md:px-3">Proyectado {symbol}</th>
-                    <th className="px-2 py-3 text-right md:px-3">Real {symbol}</th>
-                    <th className="px-2 py-3 text-right md:px-3">% del Ingreso</th>
-                    <th className="px-4 py-3 text-right">Desviacion</th>
+                    <th className="whitespace-nowrap px-2 py-3 text-right md:px-3">Proyectado {symbol}</th>
+                    <th className="whitespace-nowrap px-2 py-3 text-right md:px-3">Real {symbol}</th>
+                    <th className="px-2 py-3 text-right md:px-3">% Ingreso</th>
+                    <th className="px-4 py-3 text-right">Desviaci&oacute;n</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y" style={{ borderColor: BORDER }}>
@@ -409,11 +610,11 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                             </div>
                           </div>
                         </td>
-                        <td className="px-2 py-3 text-right text-sm font-semibold tabular-nums md:px-3" style={{ color: INK }}>{show(row.projected)}</td>
-                        <td className="px-2 py-3 text-right text-sm font-bold tabular-nums md:px-3" style={{ color: row.real < 0 ? RED : INK }}>{show(row.real)}</td>
-                        <td className="px-2 py-3 text-right text-sm tabular-nums md:px-3" style={{ color: row.real < 0 ? RED : row.accent === 'income' ? GREEN : MUTED, fontWeight: row.accent === 'income' || row.accent === 'final' || row.accent === 'subtotal' ? 700 : 500 }}>{pct(share)}</td>
-                        <td className="px-4 py-3 text-right">
-                          <span className="inline-block rounded-full px-2.5 py-1 text-xs font-bold tabular-nums" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
+                        <td className="px-2 py-2.5 text-right font-semibold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: INK }}>{show(row.projected)}</td>
+                        <td className="px-2 py-2.5 text-right font-bold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: row.real < 0 ? RED : INK }}>{show(row.real)}</td>
+                        <td className="px-2 py-2.5 text-right tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: row.real < 0 ? RED : row.accent === 'income' ? GREEN : MUTED, fontWeight: row.accent === 'income' || row.accent === 'final' || row.accent === 'subtotal' ? 700 : 500 }}>{pct(share)}</td>
+                        <td className="px-2 py-2.5 text-right md:px-3 md:py-3">
+                          <span className="inline-block rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums md:text-xs md:px-2.5 md:py-1" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
                             {diff >= 0 ? '+' : ''}{pct(diff)}
                           </span>
                         </td>

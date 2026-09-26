@@ -163,7 +163,7 @@ function KpiTile({ label, value, helper, icon, accent }: {
   icon: JSX.Element;
   accent: string;
 }) {
-  return <KpiCard label={label} value={value} helper={helper} icon={icon} tone={accent} truncateLabel />;
+  return <KpiCard label={label} value={value} helper={helper} icon={icon} tone={accent} truncateLabel valueAlign="center" />;
 }
 
 function EmptyChart({ text }: { text: string }) {
@@ -276,7 +276,7 @@ function AmountField({
           <input
             type="number"
             step="0.01"
-            className="input !pl-11"
+            className="input min-w-0 !pl-11 !pr-2 tabular-nums"
             value={shown || ''}
             placeholder={placeholder}
             onChange={(event) => handleInput(event.target.value)}
@@ -285,12 +285,12 @@ function AmountField({
         <button
           type="button"
           onClick={onToggleCurrency}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md border bg-white px-2 text-xs font-semibold transition-colors hover:bg-slate-50"
+          className="inline-flex w-12 shrink-0 items-center justify-center gap-1 rounded-md border bg-white px-1 text-xs font-semibold transition-colors hover:bg-slate-50 sm:w-auto sm:px-2"
           style={{ borderColor: currency === 'USD' ? '#A9C9FB' : BORDER, color: currency === 'USD' ? BLUE : MUTED }}
           title={`Convertir a ${currency === 'USD' ? 'soles (S/)' : 'dolares (US$)'} con TC ${safeRate}`}
           aria-label={`Convertir a ${currency === 'USD' ? 'soles' : 'dolares'}`}
         >
-          <FiRefreshCw style={{ fontSize: 12 }} />
+          <FiRefreshCw className="hidden sm:block" style={{ fontSize: 12 }} />
           {currency === 'USD' ? 'US$' : 'S/'}
         </button>
       </div>
@@ -1730,7 +1730,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   )}
                 </div>
               </Field>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="TC (opcional)"><input type="number" step="0.0001" className="input" value={formExchangeRate} onChange={(e) => setFormExchangeRate(e.target.value)} placeholder="Ej: 3.75" /></Field>
                 <AmountField
                   label="Monto US$"
@@ -1743,7 +1743,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   helper="Se guarda como monto referencial en dolares."
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <AmountField
                   label="Monto"
                   value={amount}
