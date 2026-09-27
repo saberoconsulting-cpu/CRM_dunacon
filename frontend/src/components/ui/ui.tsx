@@ -46,7 +46,7 @@ export function StatCard({ label, value, color = '#171717', delta, deltaUp, date
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#1877F2]" />
       </div>
       <div className="relative mt-1.5">
-        {isText ? <KpiCardValue tone={color}>{value}</KpiCardValue> : value}
+        {isText ? <KpiCardValue tone={color} align="center">{value}</KpiCardValue> : value}
       </div>
       {(delta || date) && (
         <div className="relative mt-1 flex items-center gap-2">

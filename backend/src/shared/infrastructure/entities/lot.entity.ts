@@ -51,6 +51,9 @@ export class LotEntity {
   @Column({ length: 80, nullable: true })
   type?: string;
 
+  @Column({ length: 80, nullable: true })
+  dimensions?: string;
+
   @Column({ name: 'sale_price', type: 'numeric', precision: 14, scale: 2, nullable: true })
   salePrice?: string;
 

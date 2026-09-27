@@ -16,12 +16,12 @@ function valueFitStyle(value: ReactNode, tone: string, size: KpiCardSize) {
 
   const chars = String(value).replace(/\s/g, '').length;
   const expanded = size === 'expanded';
-  if (chars <= 7) style.fontSize = expanded ? 'clamp(1.05rem, 1.35vw, 1.35rem)' : 'clamp(0.98rem, 1.25vw, 1.18rem)';
-  else if (chars <= 10) style.fontSize = expanded ? 'clamp(1rem, 1.25vw, 1.25rem)' : 'clamp(0.9rem, 1.1vw, 1.06rem)';
-  else if (chars <= 13) style.fontSize = expanded ? 'clamp(0.88rem, 1.1vw, 1.1rem)' : 'clamp(0.8rem, 0.98vw, 0.94rem)';
-  else if (chars <= 16) style.fontSize = expanded ? 'clamp(0.76rem, 0.95vw, 0.96rem)' : 'clamp(0.7rem, 0.85vw, 0.83rem)';
-  else if (chars <= 20) style.fontSize = expanded ? 'clamp(0.66rem, 0.82vw, 0.84rem)' : 'clamp(0.62rem, 0.74vw, 0.75rem)';
-  else style.fontSize = expanded ? 'clamp(0.58rem, 0.7vw, 0.75rem)' : 'clamp(0.54rem, 0.64vw, 0.66rem)';
+  if (chars <= 7) style.fontSize = expanded ? 'clamp(0.98rem, 1.22vw, 1.22rem)' : 'clamp(0.84rem, 1vw, 1rem)';
+  else if (chars <= 10) style.fontSize = expanded ? 'clamp(0.92rem, 1.12vw, 1.12rem)' : 'clamp(0.78rem, 0.92vw, 0.92rem)';
+  else if (chars <= 13) style.fontSize = expanded ? 'clamp(0.82rem, 1vw, 1rem)' : 'clamp(0.7rem, 0.82vw, 0.82rem)';
+  else if (chars <= 16) style.fontSize = expanded ? 'clamp(0.72rem, 0.88vw, 0.88rem)' : 'clamp(0.64rem, 0.74vw, 0.74rem)';
+  else if (chars <= 20) style.fontSize = expanded ? 'clamp(0.64rem, 0.76vw, 0.78rem)' : 'clamp(0.58rem, 0.66vw, 0.68rem)';
+  else style.fontSize = expanded ? 'clamp(0.56rem, 0.66vw, 0.68rem)' : 'clamp(0.52rem, 0.58vw, 0.6rem)';
   style.letterSpacing = '0';
   return style;
 }
@@ -145,7 +145,7 @@ export function KpiCard({
   tone = '#1259C4',
   size = 'compact',
   truncateLabel = false,
-  valueAlign = 'left',
+  valueAlign = 'center',
   onClick,
   ariaLabel,
 }: {

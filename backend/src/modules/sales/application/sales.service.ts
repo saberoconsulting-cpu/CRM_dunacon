@@ -313,6 +313,11 @@ export class SalesService {
       .addSelect('s.plan_status AS "planStatus"')
       .addSelect('s.total_cuotas AS "totalCuotas"')
       .addSelect('s.interest_type AS "interestType"')
+      // La ficha de venta en PDF arma el bloque de Financiamiento (saldo,
+      // cuota inicial, TEA, TC), por eso el listado tambien expone la cuota
+      // inicial y el tipo de cambio de la cotizacion convertida.
+      .addSelect('s.cuota_inicial AS "cuotaInicial"')
+      .addSelect('(SELECT q.exchange_rate FROM quotes q WHERE q.id = (SELECT MAX(q2.id) FROM quotes q2 WHERE q2.lot_id = s.lot_id AND q2.status IN (\'convertida\',\'aprobada\'))) AS "exchangeRate"')
       .addSelect('s.tea AS "tea"');
     if (filters.projectId) qb.andWhere('s.project_id = :projectId', { projectId: filters.projectId });
     if (filters.agentId) qb.andWhere('s.agent_id = :agentId', { agentId: filters.agentId });
@@ -361,6 +366,8 @@ export class SalesService {
       totalCuotas: Number(r.totalCuotas || 0),
       interestType: r.interestType || 'sin_intereses',
       tea: Number(r.tea || 0),
+      cuotaInicial: Number(r.cuotaInicial || 0),
+      exchangeRate: Number(r.exchangeRate || 0),
     }));
     const result = buildPaginatedResult(items, total, page, limit);
     return {
@@ -815,8 +822,28 @@ export class SalesService {
       planStatus: sale.planStatus,
       clientName: client?.fullName || null,
       lotCode: lot?.code || null,
+      // TC pactado de la cotizacion que origino la venta: se usa para mostrar el
+      // equivalente en US$ del pago sin depender del TC global de la pantalla.
+      exchangeRate: await this.resolveSaleExchangeRate(sale.lotId),
     };
     return this.buildPaymentContextRow(row, { lot, client, agent, installments, payments });
+  }
+
+  /**
+   * Tipo de cambio de la ultima cotizacion aprobada/convertida del lote.
+   * Devuelve 0 cuando la venta no nacio de una cotizacion, para que el
+   * llamador decida el TC por defecto.
+   */
+  private async resolveSaleExchangeRate(lotId: number): Promise<number> {
+    const rows = await this.dataSource.query(
+      `SELECT q.exchange_rate AS "exchangeRate"
+         FROM quotes q
+        WHERE q.lot_id = $1 AND q.status IN ('convertida','aprobada')
+        ORDER BY q.id DESC
+        LIMIT 1`,
+      [lotId],
+    ).catch(() => [] as any[]);
+    return Number(rows?.[0]?.exchangeRate || 0);
   }
 
   private buildPaymentContextRow(
@@ -1026,6 +1053,9 @@ export class SalesService {
         approvalStatus: r.approvalStatus || 'pendiente',
         planStatus: r.planStatus || 'pendiente',
         saleDate: r.s_sale_date,
+        // TC pactado de la venta (0 si no proviene de cotizacion). El frontend
+        // lo usa para convertir a US$ el monto de la cuota que se autocompleta.
+        exchangeRate: Number(r.exchangeRate || 0),
       },
       lot: lot ? { id: lot.id, code: lot.code, areaM2: Number(lot.areaM2 || 0), price: Number(lot.price || 0), streetName: (lot as any).streetName || null } : null,
       client: client ? { id: client.id, fullName: client.fullName || null, phone: (client as any).phone || null, email: (client as any).email || null } : null,

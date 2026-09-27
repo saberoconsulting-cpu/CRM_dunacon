@@ -1,6 +1,7 @@
 // modules/users/application/dto/update-user.dto.ts
 import {
   IsArray,
+  IsEmail,
   IsNumber,
   IsOptional,
   IsString,
@@ -19,6 +20,10 @@ export class UpdateUserDto {
   @IsOptional()
   @IsString()
   name?: string;
+
+  @IsOptional()
+  @IsEmail()
+  email?: string;
 
   @IsOptional()
   @IsString()

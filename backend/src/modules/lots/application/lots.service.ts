@@ -9,6 +9,7 @@ import { ClientEntity } from '../../../shared/infrastructure/entities/client.ent
 import { UserEntity } from '../../../shared/infrastructure/entities/user.entity';
 import { BlockEntity } from '../../../shared/infrastructure/entities/block.entity';
 import { PlanEntity } from '../../../shared/infrastructure/entities/plan.entity';
+import { ProjectLotCatalogEntity } from '../../../shared/infrastructure/entities/project-lot-catalog.entity';
 
 @Injectable()
 export class LotsService {
@@ -27,6 +28,8 @@ export class LotsService {
     private readonly blockRepo: Repository<BlockEntity>,
     @InjectRepository(PlanEntity)
     private readonly planRepo: Repository<PlanEntity>,
+    @InjectRepository(ProjectLotCatalogEntity)
+    private readonly lotCatalogRepo: Repository<ProjectLotCatalogEntity>,
   ) {}
 
   // Listado global con filtros
@@ -61,7 +64,7 @@ export class LotsService {
       // vuelve "agentname"), por eso todos estos van entre comillas dobles.
       .addSelect([
         'u.name AS "agentName"', 'c.full_name AS "clientName"', 'l.selling_stage AS "sellingStage"',
-        'l.type AS "type"', 'l.sale_price AS "salePrice"', 'l.final_price AS "finalPrice"',
+        'l.type AS "type"', 'l.dimensions AS "dimensions"', 'l.sale_price AS "salePrice"', 'l.final_price AS "finalPrice"',
         'b.name AS "streetName"', 'b.address AS "streetAddress"',
       ]);
 
@@ -97,6 +100,7 @@ export class LotsService {
       agentName: r.agentName || null,
       clientName: r.clientName || null,
       type: r.type || null,
+      dimensions: r.dimensions || null,
       salePrice: r.salePrice != null ? Number(r.salePrice) : null,
       finalPrice: r.finalPrice != null ? Number(r.finalPrice) : null,
       planVoucherUrl: r.l_plan_voucher_url || null,
@@ -155,7 +159,19 @@ export class LotsService {
     const totalPaid = payments
       .filter((p) => p.status === 'pagado')
       .reduce((s, p) => s + Number(p.amount), 0);
-    const balance = Number(lot.price) - totalPaid;
-    return { lot: { ...lot, blockId: lot.streetId }, history, payments, client, agent, street, block: street, plan, totalPaid, balance };
+    const catalog = await this.lotCatalogRepo.findOne({ where: { projectId: lot.projectId, code: lot.code } }).catch(() => null);
+    const lotWithCatalog = {
+      ...lot,
+      blockId: lot.streetId,
+      address: catalog?.address || undefined,
+      type: lot.type || catalog?.type || undefined,
+      dimensions: lot.dimensions || catalog?.dimensions || undefined,
+      areaM2: Number(lot.areaM2 || 0) || Number(catalog?.areaM2 || 0),
+      price: Number(lot.price || 0) || Number(catalog?.priceM2 || 0),
+      salePrice: lot.salePrice != null ? Number(lot.salePrice) : Number(catalog?.salePrice || 0) || null,
+      finalPrice: lot.finalPrice != null ? Number(lot.finalPrice) : Number(catalog?.finalPrice || 0) || null,
+    };
+    const balance = Number(lotWithCatalog.finalPrice || lotWithCatalog.salePrice || lotWithCatalog.price || 0) - totalPaid;
+    return { lot: lotWithCatalog, history, payments, client, agent, street, block: street, plan, totalPaid, balance };
   }
 }

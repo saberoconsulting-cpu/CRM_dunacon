@@ -21,11 +21,13 @@ import { SaleInstallmentEntity } from '../shared/infrastructure/entities/sale-in
 import { ProjectDocumentEntity } from '../shared/infrastructure/entities/project-document.entity';
 import { QuoteEntity } from '../shared/infrastructure/entities/quote.entity';
 import { ConstructionBudgetItemEntity } from '../shared/infrastructure/entities/construction-budget-item.entity';
+import { IncomeStatementItemEntity } from '../shared/infrastructure/entities/income-statement-item.entity';
 import { BankAccountMovementEntity } from '../shared/infrastructure/entities/bank-account-movement.entity';
 import { BankAccountBalanceEntity } from '../shared/infrastructure/entities/bank-account-balance.entity';
 import { BankAccountEntity } from '../shared/infrastructure/entities/bank-account.entity';
 import { BankCategoryMappingEntity } from '../shared/infrastructure/entities/bank-category-mapping.entity';
 import { CashflowModelEntity } from '../shared/infrastructure/entities/cashflow-model.entity';
+import { ProjectLotCatalogEntity } from '../shared/infrastructure/entities/project-lot-catalog.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -61,7 +63,9 @@ export const AppDataSource = new DataSource({
     BankAccountBalanceEntity,
     BankAccountEntity,
     BankCategoryMappingEntity,
+    ProjectLotCatalogEntity,
     CashflowModelEntity,
+    IncomeStatementItemEntity,
   ],
   migrations:
     process.env.NODE_ENV === 'production'

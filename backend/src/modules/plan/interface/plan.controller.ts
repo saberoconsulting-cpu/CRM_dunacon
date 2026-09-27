@@ -19,6 +19,7 @@ import { PlanService } from '../application/plan.service';
 import { UpdatePlanDto } from '../application/dto/plan.dto';
 import { CreateBlockDto, UpdateBlockDto } from '../application/dto/plan.dto';
 import { CreateLotDto, UpdateLotDto } from '../application/dto/lot.dto';
+import { UpsertProjectLotCatalogDto } from '../application/dto/project-lot-catalog.dto';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/application/guards/roles.guard';
 import { Roles } from '../../../shared/application/decorators/roles.decorator';
@@ -126,6 +127,53 @@ export class PlanController {
   }
 
   // ---- lotes ----
+  @Get('lot-catalog/:projectId')
+  getLotCatalog(@Param('projectId', ParseIntPipe) projectId: number) {
+    return this.planService.listLotCatalog(projectId);
+  }
+
+  @Post('lot-catalog/import/:projectId')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
+  importLotCatalog(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @UploadedFile() file: Express.Multer.File,
+    @CurrentUser('id') actorId: number,
+  ) {
+    return this.planService.importLotCatalog(projectId, file, actorId);
+  }
+
+  @Post('lot-catalog/:projectId')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  createLotCatalog(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Body() dto: UpsertProjectLotCatalogDto,
+    @CurrentUser('id') actorId: number,
+  ) {
+    return this.planService.upsertLotCatalog(projectId, dto, actorId);
+  }
+
+  @Post('lot-catalog/update/:projectId/:rowId')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  updateLotCatalog(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('rowId', ParseIntPipe) rowId: number,
+    @Body() dto: UpsertProjectLotCatalogDto,
+    @CurrentUser('id') actorId: number,
+  ) {
+    return this.planService.upsertLotCatalog(projectId, dto, actorId, rowId);
+  }
+
+  @Post('lot-catalog/delete/:projectId/:rowId')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  deleteLotCatalog(
+    @Param('projectId', ParseIntPipe) projectId: number,
+    @Param('rowId', ParseIntPipe) rowId: number,
+    @CurrentUser('id') actorId: number,
+  ) {
+    return this.planService.deleteLotCatalog(projectId, rowId, actorId);
+  }
+
   @Post('lot/:projectId')
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
   createLot(

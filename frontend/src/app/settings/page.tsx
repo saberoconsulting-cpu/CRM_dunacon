@@ -5,6 +5,7 @@ import { api } from '@/lib/api';
 import { useEffect, useState } from 'react';
 
 const DEF = { companyName: 'Inmobiliaria S.A.C.', color: '#1877F2', alertCuotas: '1', approvalNotify: '1' };
+const roleLabel = (value?: string) => value === 'admin' ? 'Gerente' : value === 'agent' ? 'Agente' : value === 'superadmin' ? 'Super Admin' : (value || '');
 
 export default function SettingsPage() {
   const [me, setMe] = useState<any>(null);
@@ -64,7 +65,7 @@ export default function SettingsPage() {
             <label className="flex items-center justify-between py-3" style={{ borderColor: '#F0F1F3' }}>
               <div>
                 <span className="text-sm block">Aprobar ventas al admin (notificar)</span>
-                <span className="text-xs" style={{ color: '#6B7280' }}>Cuando un agente registra una venta, el Admin recibe aviso para habilitarla.</span>
+                <span className="text-xs" style={{ color: '#6B7280' }}>Cuando un agente registra una venta, el gerente recibe aviso para habilitarla.</span>
               </div>
               <input type="checkbox" checked={bool(form.approvalNotify)} onChange={(e) => set('approvalNotify', e.target.checked ? '1' : '0')} />
             </label>
@@ -77,7 +78,7 @@ export default function SettingsPage() {
           <div className="card">
             <h3 className="font-semibold mb-3">Entorno</h3>
             <div className="grid sm:grid-cols-3 gap-3 text-sm">
-              <div className="rounded-lg bg-canvas p-3"><span className="label">Usuario</span>{me?.name || '—'} ({me?.role || ''})</div>
+              <div className="rounded-lg bg-canvas p-3"><span className="label">Usuario</span>{me?.name || '—'} ({roleLabel(me?.role)})</div>
               <div className="rounded-lg bg-canvas p-3"><span className="label">Base de datos</span>crm_inmobiliario · PostgreSQL</div>
               <div className="rounded-lg bg-canvas p-3"><span className="label">Archivos</span>Cloudinary / uploads</div>
             </div>

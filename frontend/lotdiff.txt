@@ -1,0 +1,106 @@
+warning: in the working copy of 'frontend/src/components/features/lots/LotsView.tsx', LF will be replaced by CRLF the next time Git touches it
+diff --git a/frontend/src/components/features/lots/LotsView.tsx b/frontend/src/components/features/lots/LotsView.tsx
+index c5c6e8e..1c81797 100644
+--- a/frontend/src/components/features/lots/LotsView.tsx
++++ b/frontend/src/components/features/lots/LotsView.tsx
+@@ -31,2 +31,4 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
+   const moneyLabel = CURRENCY_SYMBOL[currency];
++  // Solo admin/superadmin pueden eliminar lotes (el backend tambien lo exige).
++  const canDelete = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
+ 
+@@ -224,2 +226,13 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
+ 
++  async function deleteLot(lot: Lot) {
++    if (!confirm(`¿Eliminar el lote ${lot.code}? Esta acción no se puede revertir.`)) return;
++    try {
++      await api.post(`/plan/lot/delete/${lot.id}`);
++      toast('Lote eliminado');
++      await load();
++    } catch (e: any) {
++      toast(e.message || 'No se pudo eliminar el lote', 'err');
++    }
++  }
++
+   function renderTable(items: Lot[], key: string, header?: { blockName: string; blockAddress: string | null }) {
+@@ -245,14 +258,14 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
+         <div className="overflow-x-auto">
+-          <table className="table-base text-[12px]" style={{ width: '100%', minWidth: 1060, tableLayout: 'fixed' }}>
++          <table className="table-base text-[12px]" style={{ width: '100%', minWidth: 1068, tableLayout: 'fixed' }}>
+             <colgroup>
+-              <col style={{ width: '78px' }} />
++              <col style={{ width: '68px' }} />
++              <col style={{ width: '130px' }} />
++              <col style={{ width: '74px' }} />
++              <col style={{ width: '74px' }} />
++              <col style={{ width: '96px' }} />
++              <col style={{ width: '106px' }} />
++              <col style={{ width: '106px' }} />
++              <col style={{ width: '92px' }} />
+               <col style={{ width: '150px' }} />
+-              <col style={{ width: '86px' }} />
+-              <col style={{ width: '84px' }} />
+-              <col style={{ width: '108px' }} />
+-              <col style={{ width: '118px' }} />
+-              <col style={{ width: '118px' }} />
+-              <col style={{ width: '104px' }} />
+-              <col style={{ width: '116px' }} />
+-              <col style={{ width: '98px' }} />
++              <col style={{ width: '172px' }} />
+             </colgroup>
+@@ -285,5 +298,5 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
+                   <td className="td-base !px-2" style={{ textAlign: 'right' }}>
+-                    <div className="flex justify-end gap-1">
+-                      <button className="btn-secondary !h-7 !px-2 text-[11px] whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id }); }}>Ficha</button>
+-                      <label className="btn-primary !h-7 !px-2 text-[11px] whitespace-nowrap cursor-pointer" onClick={(e) => e.stopPropagation()} title={l.planVoucherUrl ? 'Reemplazar plano/voucher' : 'Subir plano/voucher'}>
++                    <div className="flex min-w-[156px] justify-end gap-1">
++                      <button className="btn-secondary !h-7 !px-1.5 text-[11px] whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id }); }}>Ficha</button>
++                      <label className="btn-primary !h-7 !px-1.5 text-[11px] whitespace-nowrap cursor-pointer" onClick={(e) => e.stopPropagation()} title={l.planVoucherUrl ? 'Reemplazar plano/voucher' : 'Subir plano/voucher'}>
+                         Plano
+@@ -300,2 +313,5 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
+                       </label>
++                      {canDelete && (
++                        <button className="btn-danger !h-7 !px-1.5 text-[11px] whitespace-nowrap" onClick={(e) => { e.stopPropagation(); deleteLot(l); }}>Eliminar</button>
++                      )}
+                     </div>
+@@ -379,2 +395,3 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
+       <div className="space-y-5">
++        <p className="text-[11px] text-slate-400 sm:hidden">Desliza la tabla hacia los lados para ver todas las columnas.</p>
+         {(() => {
+@@ -423,3 +440,15 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
+                 <div className="overflow-x-auto">
+-                  <table className="table-base" style={{ width: '100%', minWidth: 900 }}>
++                  <table className="table-base" style={{ width: '100%', minWidth: 998, tableLayout: 'fixed' }}>
++                    <colgroup>
++                      <col style={{ width: '70px' }} />
++                      <col style={{ width: '130px' }} />
++                      <col style={{ width: '76px' }} />
++                      <col style={{ width: '80px' }} />
++                      <col style={{ width: '102px' }} />
++                      <col style={{ width: '110px' }} />
++                      <col style={{ width: '110px' }} />
++                      <col style={{ width: '98px' }} />
++                      <col style={{ width: '150px' }} />
++                      <col style={{ width: '172px' }} />
++                    </colgroup>
+                     <thead><tr>
+@@ -440,4 +469,4 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
+                           <td className="td-base font-semibold" style={{ textAlign: 'left' }}>{l.code}</td>
+-                          <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{g.blockAddress || '—'}</td>
+-                          <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{l.type || '—'}</td>
++                          <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={g.blockAddress || '—'}>{g.blockAddress || '—'}</td>
++                          <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.type || '—'}>{l.type || '—'}</td>
+                           <td className="td-base" style={{ textAlign: 'left' }}>{l.areaM2} m²</td>
+@@ -449,5 +478,10 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
+                           </td>
+-                          <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{l.clientName || '—'}</td>
+-                          <td className="td-base" style={{ textAlign: 'right' }}>
+-                            <button className="btn-secondary !h-8 !px-3 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id }); }}>Ver ficha</button>
++                          <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.clientName || '—'}>{l.clientName || '—'}</td>
++                          <td className="td-base !px-2" style={{ textAlign: 'right' }}>
++                            <div className="flex min-w-[152px] justify-end gap-1">
++                              <button className="btn-secondary !h-8 !px-2 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id }); }}>Ver ficha</button>
++                              {canDelete && (
++                                <button className="btn-danger !h-8 !px-2 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); deleteLot(l); }}>Eliminar</button>
++                              )}
++                            </div>
+                           </td>

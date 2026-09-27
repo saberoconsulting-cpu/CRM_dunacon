@@ -8,6 +8,7 @@ import { ClientEntity } from '../../shared/infrastructure/entities/client.entity
 import { UserEntity } from '../../shared/infrastructure/entities/user.entity';
 import { BlockEntity } from '../../shared/infrastructure/entities/block.entity';
 import { PlanEntity } from '../../shared/infrastructure/entities/plan.entity';
+import { ProjectLotCatalogEntity } from '../../shared/infrastructure/entities/project-lot-catalog.entity';
 import { LotsController } from './interface/lots.controller';
 import { LotsService } from './application/lots.service';
 
@@ -21,6 +22,7 @@ import { LotsService } from './application/lots.service';
       UserEntity,
       BlockEntity,
       PlanEntity,
+      ProjectLotCatalogEntity,
     ]),
   ],
   controllers: [LotsController],

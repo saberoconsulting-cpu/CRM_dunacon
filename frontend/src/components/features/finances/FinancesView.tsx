@@ -123,7 +123,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
               ].map((item) => (
                 <div key={item.label} className="min-w-0 rounded-xl px-3 py-2.5" style={{ background: item.bg }}>
                   <div className="truncate text-[11px] font-medium leading-tight sm:text-xs" style={{ color: item.labelColor }} title={item.label}>{item.label}</div>
-                  <div className="truncate text-sm font-bold tabular-nums sm:text-lg" style={{ color: item.valueColor }}>{show(item.value)}</div>
+                  <div className="truncate text-center text-sm font-bold tabular-nums sm:text-lg" style={{ color: item.valueColor }}>{show(item.value)}</div>
                 </div>
               ))}
             </div>

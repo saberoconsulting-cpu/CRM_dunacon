@@ -21,6 +21,9 @@ export class BankCategoryMappingEntity {
   @Column({ name: 'movement_type', type: 'varchar', length: 150 })
   movementType: string;
 
+  @Column({ name: 'code', type: 'varchar', length: 12, nullable: true })
+  code: string | null;
+
   @Column({ name: 'eerr_classification', type: 'varchar', length: 150 })
   eerrClassification: string;
 

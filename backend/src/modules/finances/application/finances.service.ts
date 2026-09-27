@@ -8,6 +8,7 @@ import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-lo
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
 import { CreateExpenseDto, CreateAdditionalIncomeDto } from './dto/finance.dto';
 import { ConstructionBudgetService } from '../../construction-budget/application/construction-budget.service';
+import { IncomeStatementService } from '../../income-statement/application/income-statement.service';
 import * as XLSX from 'xlsx';
 
 @Injectable()
@@ -21,6 +22,7 @@ export class FinancesService {
     private readonly auditRepo: Repository<AuditLogEntity>,
     private readonly gateway: NotificationsGateway,
     private readonly constructionBudgetService: ConstructionBudgetService,
+    private readonly incomeStatementService: IncomeStatementService,
   ) {}
 
   async audit(userId: number, action: string, entity?: string, entityId?: number) {
@@ -371,6 +373,13 @@ export class FinancesService {
     };
     const egresosTotal = Object.values(egresosClasificados).reduce((a, b) => a + b, 0);
     const budgetTotals = projectId ? await this.constructionBudgetService.totalsByProject(projectId) : await this.constructionBudgetService.totalsByProject();
+    // Partidas propias del Estado de Resultados (editables por el usuario y con
+    // subpartidas). Son la fuente del "Real" cuando el proyecto ya las cargo.
+    const erItems = projectId
+      ? (await this.incomeStatementService.list(projectId)).items
+      : [];
+    const erSummary = this.incomeStatementService.buildSummary(erItems);
+    const erHasData = erItems.length > 0;
     const projected = {
       compra_terreno: budgetTotals.costo_terreno,
       inversion: budgetTotals.costo_directo,
@@ -387,6 +396,7 @@ export class FinancesService {
       egresos_por_clases: egresosTotal,
       proyectado: projected,
       presupuesto_obra: budgetTotals,
+      partidas_er: erSummary,
       utilidad: income - egresosTotal,
     };
   }

@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { FiActivity, FiAward, FiBarChart2, FiBriefcase, FiCheckCircle, FiClipboard, FiCreditCard, FiDollarSign, FiDownload, FiEdit3, FiFileText, FiGrid, FiMapPin, FiPackage, FiPercent, FiPieChart, FiRefreshCw, FiTool, FiTrendingUp, FiUsers } from 'react-icons/fi';
-import { Toaster, toast } from '@/components/ui/ui';
+import { FiActivity, FiAward, FiBarChart2, FiBriefcase, FiCheckCircle, FiChevronDown, FiChevronRight, FiClipboard, FiCreditCard, FiDollarSign, FiDownload, FiEdit3, FiFileText, FiGrid, FiMapPin, FiPackage, FiPercent, FiPieChart, FiPlus, FiRefreshCw, FiTool, FiTrendingUp, FiUsers, FiX } from 'react-icons/fi';
+import { Toaster, toast, Field } from '@/components/ui/ui';
+import { Select } from '@/components/ui/Select';
 import { KpiCard as SharedKpiCard } from '@/components/ui/Metrics';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
@@ -34,22 +35,44 @@ type IncomeStatement = {
     total_costos?: number | string;
   };
   presupuesto_obra?: Record<string, number | string>;
+  partidas_er?: {
+    lines?: Record<string, number | string>;
+    computed?: Record<string, number | string>;
+  };
   utilidad: number | string;
 };
 
-type CashflowModel = {
-  rows?: Array<{ id: string; label: string; values: number[] }>;
+/**
+ * Linea contable del Estado de Resultados. Cada partida pertenece a una linea:
+ * los cargos restan (costo, ventas/admin, financiero, impuestos, IGV) y los
+ * abonos suman (ingreso, ajuste).
+ */
+type StatementLine = 'ingreso' | 'costo' | 'ventas_admin' | 'financiero' | 'impuestos' | 'igv' | 'ajuste';
+
+type StatementItem = {
+  id: number;
+  projectId: number;
+  parentId?: number | null;
+  line: StatementLine;
+  code: string;
+  name: string;
+  description?: string | null;
+  amount: string;
+  currency: string;
+  sortOrder: number;
+  isActive: boolean;
 };
 
-type StatementRow = {
+type StatementTreeItem = StatementItem & { children: StatementTreeItem[] };
+
+type StatementLineMeta = {
+  key: StatementLine;
   label: string;
-  projected: number;
-  real: number;
-  icon: JSX.Element;
-  accent?: 'income' | 'subtotal' | 'tax' | 'final';
-  group?: 'cost';
-  child?: boolean;
-  note?: string;
+  letter: string;
+  color: string;
+  soft: string;
+  parent: string | null;
+  helper: string;
 };
 
 const BLUE = '#0866E5';
@@ -66,8 +89,103 @@ const COST = '#4F46E5';
 const COST_SOFT = '#EEF2FF';
 const COST_BORDER = '#C7D2FE';
 const RUC_KEY_PREFIX = 'crm_income_statement_ruc_';
+const LABEL_KEY_PREFIX = 'crm_income_statement_labels_';
 const DEFAULT_RUC = '20601820049';
 const INCOME_TAX_RATE = 0.295;
+
+/** Lineas maestras del cuadro: mismas del backend (`INCOME_STATEMENT_LINE_LABELS`). */
+const LINES: StatementLineMeta[] = [
+  { key: 'ingreso', label: 'Ingreso por venta de lotes', letter: 'I', color: GREEN, soft: '#F0FDF4', parent: null, helper: 'Ventas de lotes y otros ingresos que alimentan la utilidad bruta.' },
+  { key: 'costo', label: 'Costo de venta de lotes', letter: 'C', color: COST, soft: COST_SOFT, parent: null, helper: 'Terreno, costos directos e indirectos de la venta.' },
+  { key: 'ventas_admin', label: 'Gastos de ventas y administrativos', letter: 'D', color: AMBER, soft: '#FFF7ED', parent: null, helper: 'Comisiones, marketing y administracion del proyecto.' },
+  { key: 'financiero', label: 'Gastos financieros', letter: 'E', color: '#7C3AED', soft: '#F5F3FF', parent: null, helper: 'Intereses y comisiones bancarias.' },
+  { key: 'impuestos', label: 'Impuesto a la renta referencial', letter: 'F', color: RED, soft: '#FEF2F2', parent: null, helper: 'Referencia gerencial del 29.5% sobre la utilidad.' },
+  { key: 'igv', label: 'IGV referencial incluido en ingresos', letter: 'G', color: '#0F766E', soft: '#F0FDFA', parent: null, helper: 'Separacion referencial del IGV contenido en los ingresos.' },
+  { key: 'ajuste', label: 'Utilidad ajustada referencial', letter: 'H', color: BLUE_DARK, soft: BLUE_SOFT, parent: null, helper: 'Ajustes gerenciales que no forman parte del cierre tributario.' },
+];
+
+const LINE_BY_KEY = Object.fromEntries(LINES.map((line) => [line.key, line])) as Record<StatementLine, StatementLineMeta>;
+
+function nextItemCode(items: StatementItem[], line: StatementLine, excludeId?: number) {
+  const meta = LINE_BY_KEY[line];
+  const count = items.filter((item) => item.line === line && !item.parentId && Number(item.id) !== Number(excludeId || 0)).length + 1;
+  return `${meta?.letter || 'X'}.${String(count).padStart(2, '0')}`;
+}
+
+function childCodeFor(items: StatementItem[], parent: StatementItem, line: StatementLine, excludeId?: number) {
+  const base = String(parent?.code || nextItemCode(items, line)).trim().replace(/-/g, '.');
+  const count = items.filter((item) => Number(item.parentId || 0) === Number(parent.id) && Number(item.id) !== Number(excludeId || 0)).length;
+  return `${base}.${String(count + 1).padStart(2, '0')}`;
+}
+
+function compareStatementItems(a: StatementItem, b: StatementItem) {
+  return Number(a.sortOrder || 0) - Number(b.sortOrder || 0)
+    || String(a.code || '').localeCompare(String(b.code || ''), 'es')
+    || Number(a.id) - Number(b.id);
+}
+
+type CashflowModel = {
+  rows?: Array<{ id: string; label: string; values: number[] }>;
+};
+
+/** Fila del cuadro: una linea contable fija, una partida editable o un subtotal. */
+type SheetRow =
+  | { kind: 'line'; id: string; line: StatementLine; label: string; level: 0; meta: StatementLineMeta }
+  | { kind: 'item'; id: string; line: StatementLine; label: string; level: number; meta: StatementLineMeta; item: StatementTreeItem; hasChildren: boolean }
+  | { kind: 'computed'; id: string; line: StatementLine; label: string; level: 0; meta: StatementLineMeta };
+
+
+/** Iconos inline del cuadro (elegidos por linea; no dependen de react-icons). */
+function LineIcon({ line, size = 14 }: { line: StatementLine; size?: number }) {
+  const common = {
+    width: size,
+    height: size,
+    viewBox: '0 0 24 24',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.9,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+  };
+  if (line === 'ingreso') return <svg {...common}><path d="M12 2v20M17 6.5c0-1.9-2.2-3-5-3s-5 1.1-5 3 2.2 3 5 3 5 1.1 5 3-2.2 3-5 3-5-1.1-5-3" /></svg>;
+  if (line === 'costo') return <svg {...common}><path d="M21 8.5 12 3 3 8.5v7L12 21l9-5.5v-7Z" /><path d="m3 8.5 9 5.5 9-5.5M12 21v-7" /></svg>;
+  if (line === 'ventas_admin') return <svg {...common}><path d="M19 21V8M15 21V11M11 21V5M7 21v-8M3 21h18" /></svg>;
+  if (line === 'financiero') return <svg {...common}><rect x="2" y="6" width="20" height="12" rx="2" /><path d="M2 10.5h20" /></svg>;
+  if (line === 'impuestos') return <svg {...common}><path d="M19 5 5 19" /><circle cx="7.5" cy="7.5" r="2.5" /><circle cx="16.5" cy="16.5" r="2.5" /></svg>;
+  if (line === 'igv') return <svg {...common}><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9l-6-6Z" /><path d="M14 3v6h6M9 14h6M9 17h4" /></svg>;
+  return <svg {...common}><path d="M20 6 9 17l-5-5" /></svg>;
+}
+
+/** Lineas donde un monto resta para llegar a la utilidad; el resto suma. */
+const CARGO_LINES: StatementLine[] = ['costo', 'ventas_admin', 'financiero', 'impuestos', 'igv'];
+
+/** Construye el arbol de partidas (padres con sus subpartidas ordenadas). */
+function buildTree(items: StatementItem[]): StatementTreeItem[] {
+  const normalized = items.map((item) => ({
+    ...item,
+    id: Number(item.id),
+    parentId: item.parentId == null ? null : Number(item.parentId),
+    sortOrder: Number(item.sortOrder || 0),
+    children: [] as StatementTreeItem[],
+  }));
+  const childrenOf = new Map<number, StatementTreeItem[]>();
+  for (const item of normalized) {
+    if (!item.parentId) continue;
+    childrenOf.set(item.parentId, [...(childrenOf.get(item.parentId) || []), item]);
+  }
+  const withChildren = (item: StatementTreeItem): StatementTreeItem => ({
+    ...item,
+    children: (childrenOf.get(Number(item.id)) || []).sort(compareStatementItems).map(withChildren),
+  });
+  return normalized.filter((item) => !item.parentId).sort(compareStatementItems).map(withChildren);
+}
+
+/** Monto real de una partida: si tiene subpartidas, suma solo las hojas. */
+function itemRealAmount(item: StatementTreeItem): number {
+  if (item.children.length) return item.children.reduce((sum, child) => sum + itemRealAmount(child), 0);
+  return num(item.amount);
+}
+
 
 function money(n: number) {
   return formatCurrency(Number.isFinite(n) ? n : 0, 'PEN');
@@ -97,13 +215,20 @@ function lotRevenue(lot: Lot) {
   return num(lot.finalPrice || lot.salePrice || lot.price);
 }
 
-function rowTone(row: StatementRow) {
-  if (row.group === 'cost') return { bg: COST_SOFT, color: COST, border: COST_BORDER };
-  if (row.accent === 'income') return { bg: '#F0FDF4', color: GREEN, border: '#BBF7D0' };
-  if (row.accent === 'final') return { bg: BLUE_SOFT, color: BLUE_DARK, border: '#BFDBFE' };
-  if (row.accent === 'tax') return { bg: '#FFF7ED', color: AMBER, border: '#FED7AA' };
-  if (row.accent === 'subtotal') return { bg: '#F8FAFC', color: INK, border: BORDER };
-  return { bg: '#FFFFFF', color: INK, border: BORDER };
+/**
+ * Colores de la fila segun su naturaleza: ingresos en verde, costo de venta en
+ * el grupo indigo, impuestos/IGV en ambar y los subtotales en gris.
+ */
+function rowTone(row: SheetRow) {
+  const line = row.kind === 'computed'
+    ? (row.id === 'net' || row.id === 'adjusted' ? 'ajuste' : 'costo')
+    : row.line;
+  if (line === 'costo') return { bg: COST_SOFT, color: COST, border: COST_BORDER };
+  if (line === 'ingreso') return { bg: '#F0FDF4', color: GREEN, border: '#BBF7D0' };
+  if (line === 'ajuste') return { bg: BLUE_SOFT, color: BLUE_DARK, border: '#BFDBFE' };
+  if (line === 'impuestos' || line === 'igv') return { bg: '#FFF7ED', color: AMBER, border: '#FED7AA' };
+  if (row.kind === 'computed') return { bg: '#F8FAFC', color: INK, border: BORDER };
+  return { bg: '#F8FAFC', color: INK, border: BORDER };
 }
 
 function KpiCard({ label, value, helper, icon, color = BLUE }: { label: string; value: string; helper: string; icon: JSX.Element; color?: string }) {
@@ -120,7 +245,7 @@ function MetricPill({ label, value, color = BLUE }: { label: string; value: stri
   return (
     <div className="min-w-0 rounded-md border bg-white px-3 py-2 sm:px-4 sm:py-2.5" style={{ borderColor: BORDER }}>
       <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }} title={label}>{label}</p>
-      <p className="mt-0.5 truncate text-sm font-bold tabular-nums sm:text-base" style={{ color }} title={value}>{value}</p>
+      <p className="mt-0.5 truncate text-center text-sm font-bold tabular-nums sm:text-base" style={{ color }} title={value}>{value}</p>
     </div>
   );
 }
@@ -263,10 +388,21 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   const [project, setProject] = useState<Project | null>(null);
   const [statement, setStatement] = useState<IncomeStatement | null>(null);
   const [lots, setLots] = useState<Lot[]>([]);
+  // Partidas editables del cuadro (con subpartidas), persistidas en backend.
+  const [items, setItems] = useState<StatementItem[]>([]);
+  const [openItems, setOpenItems] = useState<Record<number, boolean>>({});
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState<StatementItem | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<Partial<Omit<StatementItem, 'amount'>> & { amount?: number | string }>({});
+  // Al exportar a PDF se fuerzan abiertas todas las subpartidas.
+  const [printing, setPrinting] = useState(false);
   // Modelo de Flujo de Caja Estático: fuente del Proyectado.
   const [cashflow, setCashflow] = useState<CashflowModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [ruc, setRuc] = useState(DEFAULT_RUC);
+  const [labelOverrides, setLabelOverrides] = useState<Record<string, string>>({});
+  const [editingLabel, setEditingLabel] = useState<string | null>(null);
   // Moneda unica de la pantalla: `show()` convierte los montos a la moneda activa.
   const { currency, setCurrency, exchangeRate, setExchangeRate, format: show, formatShort: short } = useDisplayCurrency();
   // Simbolo para los encabezados de la tabla segun la moneda activa.
@@ -283,6 +419,21 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
 
   useEffect(() => {
     try {
+      const saved = localStorage.getItem(`${LABEL_KEY_PREFIX}${projectId}`);
+      setLabelOverrides(saved ? JSON.parse(saved) : {});
+    } catch {
+      setLabelOverrides({});
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(`${LABEL_KEY_PREFIX}${projectId}`, JSON.stringify(labelOverrides));
+    } catch { }
+  }, [projectId, labelOverrides]);
+
+  useEffect(() => {
+    try {
       localStorage.setItem(`${RUC_KEY_PREFIX}${projectId}`, ruc);
     } catch { }
   }, [projectId, ruc]);
@@ -290,16 +441,18 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [projectData, statementData, lotData, cashflowData] = await Promise.all([
+      const [projectData, statementData, lotData, cashflowData, itemsData] = await Promise.all([
         api.get<Project>(`/projects/${projectId}`),
         api.get<IncomeStatement>(`/finances/income-statement?projectId=${projectId}`),
         loadAllLots(projectId),
         api.get<CashflowModel | null>(`/cashflow/model?projectId=${projectId}&mode=estatico`).catch(() => null),
+        api.get<{ items?: StatementItem[] }>(`/income-statement?projectId=${projectId}`).catch(() => ({ items: [] })),
       ]);
       setProject(projectData);
       setStatement(statementData);
       setLots(lotData);
       setCashflow(cashflowData && Array.isArray(cashflowData.rows) ? cashflowData : null);
+      setItems(Array.isArray(itemsData?.items) ? itemsData.items : []);
     } catch (error: any) {
       toast(error?.message || 'No se pudo cargar el estado de resultados', 'err');
     } finally {
@@ -308,6 +461,15 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   }, [projectId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Con un modal abierto se bloquea el scroll del fondo (mismo criterio que
+  // Presupuesto de Obra) para que el Select no descoloque la pagina.
+  useEffect(() => {
+    if (!modalOpen) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previousOverflow; };
+  }, [modalOpen]);
 
   const report = useMemo(() => {
     const classes = statement?.egresos_clasificados || {};
@@ -350,46 +512,164 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const projectedIncomeTax = cf('tax', Math.max(0, projectedPreTaxProfit * INCOME_TAX_RATE));
     const projectedNetProfit = projectedPreTaxProfit - projectedIncomeTax;
 
-    const rows: StatementRow[] = [
-      { label: 'Ingreso por venta de lotes', projected: projectedRevenue, real: realRevenue, accent: 'income', icon: <FiDollarSign />, note: 'Proyectado del flujo de caja estático' },
-      { label: 'Costo de venta de lotes', projected: projectedCostOfSales, real: costOfSales, accent: 'subtotal', group: 'cost', icon: <FiPackage />, note: 'Terreno + costos directos + costos indirectos del flujo de caja estático' },
-      { label: 'Costo de terreno', projected: projectedLand, real: landCost, group: 'cost', child: true, icon: <FiMapPin /> },
-      { label: 'Costo directo / inversion', projected: projectedDirect, real: directCost, group: 'cost', child: true, icon: <FiTool /> },
-      { label: 'Costo indirecto', projected: projectedIndirect, real: indirectCost, group: 'cost', child: true, icon: <FiClipboard /> },
-      { label: 'Utilidad bruta', projected: projectedGrossProfit, real: grossProfit, accent: 'subtotal', icon: <FiTrendingUp /> },
-      { label: 'Gastos de ventas y administrativos', projected: projectedSalesAdmin, real: salesAdminCost, icon: <FiUsers /> },
-      { label: 'Utilidad operativa', projected: projectedOperatingProfit, real: operatingProfit, accent: 'subtotal', icon: <FiActivity /> },
-      { label: 'Gastos financieros', projected: projectedFinanceTax, real: financeCost, icon: <FiCreditCard /> },
-      { label: 'Utilidad antes de impuesto', projected: projectedPreTaxProfit, real: preTaxProfit, accent: 'subtotal', icon: <FiPieChart /> },
-      { label: 'Impuesto a la renta referencial', projected: projectedIncomeTax, real: Math.max(realTaxRegistered, incomeTax), accent: 'tax', icon: <FiPercent />, note: 'Real toma impuestos registrados o referencia 29.5%' },
-      { label: 'Utilidad neta', projected: projectedNetProfit, real: netProfit, accent: 'final', icon: <FiAward /> },
-      { label: 'IGV referencial incluido en ingresos', projected: projectedRevenue > 0 ? projectedRevenue * 18 / 118 : 0, real: igvReference, accent: 'tax', icon: <FiFileText />, note: 'Separacion referencial si los ingresos incluyen IGV' },
-      { label: 'Utilidad ajustada referencial', projected: projectedNetProfit - (projectedRevenue > 0 ? projectedRevenue * 18 / 118 : 0), real: adjustedProfit, accent: 'final', icon: <FiCheckCircle /> },
-    ];
+    // Reales por linea: si el proyecto cargo partidas propias, esas mandan;
+    // si no, se mantiene la lectura historica de transacciones/egresos.
+    const lineTotals = (statement?.partidas_er?.lines || {}) as Record<string, number | string>;
+    const hasPartidas = items.length > 0;
+    const realIncome = hasPartidas ? num(lineTotals.ingreso) : realRevenue;
+    const realCostOfSales = hasPartidas ? num(lineTotals.costo) : costOfSales;
+    const realSalesAdmin = hasPartidas ? num(lineTotals.ventas_admin) : salesAdminCost;
+    const realFinance = hasPartidas ? num(lineTotals.financiero) : financeCost;
+    const realIgv = hasPartidas ? num(lineTotals.igv) : igvReference;
+    const realTax = hasPartidas ? num(lineTotals.impuestos) : Math.max(realTaxRegistered, incomeTax);
+    const realGrossProfit = realIncome - realCostOfSales;
+    const realOperatingProfit = realGrossProfit - realSalesAdmin;
+    const realPreTaxProfit = realOperatingProfit - realFinance;
+    const realNetProfit = realPreTaxProfit - realTax;
+    const realAdjustedProfit = hasPartidas
+      ? realNetProfit - realIgv + num(lineTotals.ajuste)
+      : realNetProfit - realIgv;
 
     return {
-      rows,
       totalArea,
       soldLots,
       projectedRevenue,
-      realRevenue,
-      netProfit,
-      adjustedProfit,
-      costOfSales,
-      operatingCost: salesAdminCost,
-      financeCost,
-      margin: realRevenue > 0 ? (netProfit / realRevenue) * 100 : 0,
+      realRevenue: realIncome,
+      netProfit: realNetProfit,
+      adjustedProfit: realAdjustedProfit,
+      costOfSales: realCostOfSales,
+      operatingCost: realSalesAdmin,
+      financeCost: realFinance,
+      margin: realIncome > 0 ? (realNetProfit / realIncome) * 100 : 0,
       projectedM2: totalArea > 0 ? projectedRevenue / totalArea : 0,
-      realM2: totalArea > 0 ? realRevenue / totalArea : 0,
+      realM2: totalArea > 0 ? realIncome / totalArea : 0,
+      // Proyectado de cada linea, usado por el cuadro editable.
+      projectedCostOfSales,
+      projectedSalesAdmin,
+      projectedFinanceTax,
+      projectedIncomeTax,
+      projectedNetProfit,
       chart: [
-        { name: 'Ingresos', value: realRevenue, color: GREEN },
-        { name: 'Costo venta', value: costOfSales, color: BLUE },
-        { name: 'Ventas/Admin', value: salesAdminCost, color: AMBER },
-        { name: 'Financiero', value: financeCost, color: '#7C3AED' },
-        { name: 'Utilidad neta', value: netProfit, color: netProfit >= 0 ? BLUE_DARK : RED },
+        { name: 'Ingresos', value: realIncome, color: GREEN },
+        { name: 'Costo venta', value: realCostOfSales, color: BLUE },
+        { name: 'Ventas/Admin', value: realSalesAdmin, color: AMBER },
+        { name: 'Financiero', value: realFinance, color: '#7C3AED' },
+        { name: 'Utilidad neta', value: realNetProfit, color: realNetProfit >= 0 ? BLUE_DARK : RED },
       ],
     };
-  }, [lots, statement, cashflow]);
+  }, [lots, statement, cashflow, labelOverrides, items]);
+
+  /** Arbol de partidas por linea (padres + subpartidas), ya ordenado. */
+  const treeByLine = useMemo(() => {
+    const tree = buildTree(items);
+    const grouped: Record<StatementLine, StatementTreeItem[]> = {
+      ingreso: [], costo: [], ventas_admin: [], financiero: [], impuestos: [], igv: [], ajuste: [],
+    };
+    for (const item of tree) {
+      if (grouped[item.line]) grouped[item.line].push(item);
+    }
+    return grouped;
+  }, [items]);
+
+  /**
+   * Filas visibles del cuadro: cada linea fija con sus partidas y, despues, los
+   * subtotales de utilidad. Las subpartidas se expanden con el chevron (o
+   * siempre, al exportar a PDF).
+   */
+  const sheet = useMemo<SheetRow[]>(() => {
+    const rows: SheetRow[] = [];
+    const walk = (line: StatementLine, nodes: StatementTreeItem[], depth: number) => {
+      for (const node of nodes) {
+        const hasChildren = node.children.length > 0;
+        rows.push({
+          kind: 'item',
+          id: `item-${node.id}`,
+          line,
+          label: node.name,
+          level: depth,
+          meta: LINE_BY_KEY[line],
+          item: node,
+          hasChildren,
+        });
+        if (hasChildren && (printing || openItems[node.id])) walk(line, node.children, depth + 1);
+      }
+    };
+    const pushItems = (line: StatementLine) => walk(line, treeByLine[line] || [], 1);
+    const pushLine = (line: StatementLine) => rows.push({
+      kind: 'line', id: `line-${line}`, line, label: LINE_BY_KEY[line].label, level: 0, meta: LINE_BY_KEY[line],
+    });
+    const pushComputed = (id: string, label: string, line: StatementLine) => rows.push({
+      kind: 'computed', id, line, label: labelOverrides[id] || label, level: 0, meta: LINE_BY_KEY[line],
+    });
+
+    pushLine('ingreso');
+    pushItems('ingreso');
+    pushLine('costo');
+    pushItems('costo');
+    pushComputed('gross', 'Utilidad bruta', 'costo');
+    pushLine('ventas_admin');
+    pushItems('ventas_admin');
+    pushComputed('operating', 'Utilidad operativa', 'ventas_admin');
+    pushLine('financiero');
+    pushItems('financiero');
+    pushComputed('pre-tax', 'Utilidad antes de impuesto', 'financiero');
+    pushLine('impuestos');
+    pushItems('impuestos');
+    pushComputed('net', 'Utilidad neta', 'impuestos');
+    pushLine('igv');
+    pushItems('igv');
+    pushLine('ajuste');
+    pushItems('ajuste');
+    pushComputed('adjusted', 'Utilidad ajustada referencial', 'ajuste');
+    return rows;
+  }, [treeByLine, labelOverrides, openItems, printing]);
+
+  /**
+   * Real de cada fila del cuadro. Las lineas fijas suman sus partidas y los
+   * subtotales se recalculan en cascada, igual que el PDF.
+   */
+  const rowReal = useMemo(() => {
+    const totals: Record<string, number> = {};
+    for (const meta of LINES) {
+      totals[`line-${meta.key}`] = (treeByLine[meta.key] || []).reduce((sum, item) => sum + itemRealAmount(item), 0);
+    }
+    const line = (key: StatementLine) => totals[`line-${key}`] || 0;
+    const gross = line('ingreso') - line('costo');
+    const operating = gross - line('ventas_admin');
+    const preTax = operating - line('financiero');
+    const net = preTax - line('impuestos');
+    totals.gross = gross;
+    totals.operating = operating;
+    totals['pre-tax'] = preTax;
+    totals.net = net;
+    totals.adjusted = net - line('igv') + line('ajuste');
+    return totals;
+  }, [treeByLine]);
+
+  const hasItems = items.length > 0;
+
+  /**
+   * Monto proyectado de cada fila. Las partidas creadas por el usuario no
+   * tienen proyectado propio (solo detallan el real), por eso el proyectado se
+   * prorratea segun el peso de cada partida dentro de su linea.
+   */
+  const lineProjected: Record<StatementLine, number> = {
+    ingreso: report.projectedRevenue,
+    costo: report.projectedCostOfSales,
+    ventas_admin: report.projectedSalesAdmin,
+    financiero: report.projectedFinanceTax,
+    impuestos: report.projectedIncomeTax,
+    igv: report.projectedRevenue > 0 ? report.projectedRevenue * 18 / 118 : 0,
+    ajuste: 0,
+  };
+
+  function rowProjected(row: SheetRow): number {
+    if (row.kind === 'computed') return report.projectedNetProfit - (row.id === 'adjusted' ? lineProjected.igv : 0);
+    if (row.kind === 'line') return lineProjected[row.line] || 0;
+    const itemsInLine = (treeByLine[row.line] || []).reduce((sum, item) => sum + itemRealAmount(item), 0);
+    if (!itemsInLine) return 0;
+    return (lineProjected[row.line] || 0) * (itemRealAmount(row.item) / itemsInLine);
+  }
 
   function escapeHtml(value: unknown) {
     return String(value ?? '')
@@ -400,6 +680,143 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
       .replace(/'/g, '&#039;');
   }
 
+  function saveRowLabel(id: string | undefined, label: string) {
+    if (!id) return;
+    const nextLabel = label.trim();
+    if (!nextLabel) {
+      setEditingLabel(null);
+      return;
+    }
+    setLabelOverrides((current) => ({ ...current, [id]: nextLabel }));
+    setEditingLabel(null);
+  }
+
+  /** Nombre del concepto: en linea fija se edita por localStorage, la partida en su modal. */
+  function editableConcept(row: SheetRow, color: string) {
+    const isChild = row.level > 1;
+    // El concepto usa el mismo tamaño que las columnas de montos (text-xs en
+    // movil / text-sm desde md); antes iba un punto arriba y se veia mas grande.
+    const textClass = `truncate text-xs font-semibold leading-tight md:text-sm ${isChild ? 'font-medium' : ''}`;
+    if (row.kind !== 'line') {
+      return (
+        <p className={textClass} style={{ color }} title={row.label}>
+          {row.label}
+        </p>
+      );
+    }
+    if (editingLabel === row.id) {
+      return (
+        <input
+          autoFocus
+          className="w-full min-w-0 rounded border border-[#1877F2] bg-white px-1.5 py-1 text-xs font-semibold outline-none md:text-sm"
+          defaultValue={row.label}
+          onClick={(event) => event.stopPropagation()}
+          onDoubleClick={(event) => event.stopPropagation()}
+          onBlur={(event) => saveRowLabel(row.id, event.currentTarget.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              event.currentTarget.blur();
+            }
+            if (event.key === 'Escape') setEditingLabel(null);
+          }}
+        />
+      );
+    }
+    return (
+      <p
+        className={`${textClass} cursor-text`}
+        style={{ color }}
+        title={`${row.label} (doble clic para renombrar)`}
+        onDoubleClick={(event) => {
+          event.stopPropagation();
+          setEditingLabel(row.id);
+        }}
+      >
+        {row.label}
+      </p>
+    );
+  }
+
+  /** Cierra el modal y limpia el formulario para la siguiente vez. */
+  function closeModal() {
+    setModalOpen(false);
+    setEditing(null);
+    setForm({});
+  }
+
+  /** Abre el modal para crear una partida raiz o una subpartida de otra. */
+  function openCreate(line: StatementLine, parent?: StatementItem) {
+    const parentItem = parent || null;
+    setEditing(null);
+    setForm({
+      projectId,
+      line,
+      parentId: parentItem ? Number(parentItem.id) : null,
+      code: parentItem
+        ? childCodeFor(items, parentItem, line)
+        : nextItemCode(items, line),
+      name: '',
+      description: '',
+      amount: '',
+      currency: 'PEN',
+      sortOrder: parentItem
+        ? items.filter((item) => Number(item.parentId || 0) === Number(parentItem.id)).length * 10 + 10
+        : items.filter((item) => item.line === line && !item.parentId).length * 10 + 10,
+    });
+    setModalOpen(true);
+  }
+
+  function openEdit(item: StatementItem) {
+    setEditing(item);
+    setForm({
+      projectId,
+      line: item.line,
+      parentId: item.parentId ? Number(item.parentId) : null,
+      code: item.code,
+      name: item.name,
+      description: item.description || '',
+      amount: Number(item.amount || 0),
+      currency: item.currency || 'PEN',
+      sortOrder: Number(item.sortOrder || 0),
+    });
+    setModalOpen(true);
+  }
+
+  async function saveItem() {
+    const code = String(form.code || '').trim();
+    const name = String(form.name || '').trim();
+    if (!code || !name) return toast('Completa codigo y nombre', 'err');
+    setSaving(true);
+    try {
+      const payload = {
+        projectId,
+        line: form.line,
+        parentId: form.parentId ? Number(form.parentId) : null,
+        code,
+        name,
+        description: form.description ?? null,
+        amount: Number(form.amount || 0),
+        currency: form.currency || 'PEN',
+        sortOrder: Number(form.sortOrder || 0),
+      };
+      if (editing) {
+        const { projectId: _omit, ...patch } = payload;
+        await api.patch(`/income-statement/${editing.id}`, patch);
+      } else {
+        await api.post('/income-statement', payload);
+      }
+      if (payload.parentId) setOpenItems((current) => ({ ...current, [Number(payload.parentId)]: true }));
+      toast(editing ? 'Partida actualizada' : 'Partida creada');
+      closeModal();
+      load();
+    } catch (error: any) {
+      toast(error?.message || 'No se pudo guardar la partida', 'err');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   /**
    * Exporta las cards (KPI + metricas) y el cuadro completo del Estado de
    * Resultados a PDF usando el mismo helper `printHtml` que el resto del CRM.
@@ -407,6 +824,12 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
    */
   function exportPdf() {
     if (loading) return toast('Espera a que termine la carga', 'err');
+    // Las subpartidas salen siempre en el PDF: se abren antes de construir el HTML.
+    setOpenItems(Object.fromEntries(items.map((item) => [Number(item.id), true])));
+    setPrinting(true);
+    window.setTimeout(() => {
+      setPrinting(false);
+    }, 1200);
     const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
     const projectName = project?.name || `Proyecto ${projectId}`;
     const today = new Date().toLocaleString('es-PE', { dateStyle: 'long', timeStyle: 'short' });
@@ -439,23 +862,27 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
       </div>
     `).join('');
 
-    const rowsHtml = report.rows.map((row) => {
-      const diff = deviation(row.real, row.projected);
-      const share = incomeShare(row.real, report.realRevenue);
-      const cls = row.accent === 'final' ? 'row-final'
-        : row.accent === 'subtotal' ? 'row-subtotal'
-          : row.accent === 'tax' ? 'row-tax'
-            : row.accent === 'income' ? 'row-income'
-              : (row.group === 'cost' ? 'row-cost' : '');
-      const child = row.child ? ' cell-child' : '';
+    const rowsHtml = sheet.map((row) => {
+      const real = rowReal[row.id] || 0;
+      const projected = rowProjected(row);
+      const diff = deviation(real, projected);
+      const share = incomeShare(real, report.realRevenue);
+      const isChild = row.level > 1;
+      const cls = row.kind === 'computed'
+        ? (row.id === 'net' || row.id === 'adjusted' ? 'row-final' : 'row-subtotal')
+        : row.kind === 'line'
+          ? (row.line === 'ingreso' ? 'row-income'
+            : row.line === 'impuestos' || row.line === 'igv' ? 'row-tax'
+              : row.line === 'costo' ? 'row-cost' : 'row-subtotal')
+          : (row.line === 'costo' ? 'row-cost' : '');
+      const child = isChild ? ' cell-child' : '';
       return `
         <tr class="${cls}">
           <td class="concept${child}">
             <span class="concept-name">${escapeHtml(row.label)}</span>
-            ${row.note ? `<span class="concept-note">${escapeHtml(row.note)}</span>` : ''}
           </td>
-          <td class="num">${escapeHtml(show(row.projected))}</td>
-          <td class="num">${escapeHtml(show(row.real))}</td>
+          <td class="num">${escapeHtml(show(projected))}</td>
+          <td class="num">${escapeHtml(show(real))}</td>
           <td class="num">${escapeHtml(pct(share))}</td>
           <td class="num">${escapeHtml(`${diff >= 0 ? '+' : ''}${pct(diff)}`)}</td>
         </tr>
@@ -554,25 +981,31 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
             <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BORDER }}>
               <div>
                 <h3 className="font-semibold" style={{ color: INK }}>Resultado economico del proyecto</h3>
-                <p className="mt-1 text-xs" style={{ color: MUTED }}>Proyectado vs real con desviacion porcentual y participacion de cada linea sobre el ingreso real.</p>
+                <p className="mt-1 text-xs" style={{ color: MUTED }}>Partidas y subpartidas editables por linea. Usa el lapiz para editar o el + para agregar una subpartida.</p>
               </div>
-              <button className="btn-neutral !h-9 text-xs" onClick={load} disabled={loading}>
-                <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button className="btn-neutral !h-9 text-xs" onClick={() => openCreate('costo')} disabled={loading} title="Agregar una partida a la linea de costo de venta">
+                  <FiPlus /> Agregar partida
+                </button>
+                <button className="btn-neutral !h-9 text-xs" onClick={load} disabled={loading}>
+                  <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar
+                </button>
+              </div>
             </div>
             <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
             {/* [container-type:inline-size] permite usar `cqw` (= ancho visible del
-                contenedor). En movil la tabla mide "ancho visible + 300px": la primera
+                contenedor). En movil la tabla mide "ancho visible + 352px": la primera
                 columna se ajusta (texto con "...") y deja ver completa la columna
                 Proyectado; el resto se alcanza deslizando. Desde md vuelve a porcentajes. */}
             <div className="overflow-x-auto [container-type:inline-size]">
-              <table className="w-[calc(100cqw_+_300px)] table-fixed text-[13px] md:w-full md:min-w-[700px] md:text-sm">
+              <table className="w-[calc(100cqw_+_352px)] table-fixed text-[13px] md:w-full md:min-w-[760px] md:text-sm">
                 <colgroup>
-                  <col className="w-[calc(100cqw_-_132px)] md:w-[34%]" />
-                  <col className="w-[132px] md:w-[17%]" />
-                  <col className="w-[130px] md:w-[17%]" />
-                  <col className="w-[86px] md:w-[15%]" />
-                  <col className="w-[84px] md:w-[17%]" />
+                  <col className="w-[calc(100cqw_-_184px)] md:w-[30%]" />
+                  <col className="w-[132px] md:w-[16%]" />
+                  <col className="w-[130px] md:w-[16%]" />
+                  <col className="w-[86px] md:w-[13%]" />
+                  <col className="w-[84px] md:w-[15%]" />
+                  <col className="w-[52px] md:w-[10%]" />
                 </colgroup>
                 <thead>
                   <tr className="border-b text-left text-[11px] font-bold uppercase tracking-wide md:text-xs" style={{ borderColor: BORDER, color: MUTED, background: '#F8FAFC' }}>
@@ -580,47 +1013,90 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                     <th className="whitespace-nowrap px-2 py-3 text-right md:px-3">Proyectado {symbol}</th>
                     <th className="whitespace-nowrap px-2 py-3 text-right md:px-3">Real {symbol}</th>
                     <th className="px-2 py-3 text-right md:px-3">% Ingreso</th>
-                    <th className="px-4 py-3 text-right">Desviaci&oacute;n</th>
+                    <th className="px-2 py-3 text-right md:px-3">Desviaci&oacute;n</th>
+                    <th className="px-2 py-3 text-right md:px-3">
+                      <span className="hidden md:inline">Acciones</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y" style={{ borderColor: BORDER }}>
                   {loading ? (
                     <tr>
-                      <td className="py-10" colSpan={5}>
+                      <td className="py-10" colSpan={6}>
                         <div className="sticky left-0 w-[100cqw] text-center text-sm text-slate-400 md:w-full">Cargando estado de resultados...</div>
                       </td>
                     </tr>
-                  ) : report.rows.map((row) => {
+                  ) : sheet.map((row) => {
                     const tone = rowTone(row);
-                    const diff = deviation(row.real, row.projected);
-                    const share = incomeShare(row.real, report.realRevenue);
-                    const rowBg = row.group === 'cost'
-                      ? (row.child ? 'bg-[#F7F8FF] hover:bg-[#EEF1FF]' : 'bg-[#EEF2FF] hover:bg-[#E6EBFF]')
-                      : 'hover:bg-slate-50';
+                    const real = rowReal[row.id] || 0;
+                    const projected = rowProjected(row);
+                    const diff = deviation(real, projected);
+                    const share = incomeShare(real, report.realRevenue);
+                    const isChild = row.level > 1;
+                    const isItem = row.kind === 'item';
+                    const rowBg = row.kind === 'computed'
+                      ? 'bg-[#F8FAFC] hover:bg-[#F1F5F9]'
+                      : row.line === 'costo'
+                        ? (isChild ? 'bg-[#F7F8FF] hover:bg-[#EEF1FF]' : 'bg-[#EEF2FF] hover:bg-[#E6EBFF]')
+                        : isChild ? 'bg-[#FAFAFB] hover:bg-slate-50' : 'hover:bg-slate-50';
                     return (
-                      <tr key={row.label} className={`transition-colors ${rowBg}`}>
-                        <td className="px-4 py-3" style={row.group === 'cost' ? { boxShadow: `inset ${row.child ? 3 : 4}px 0 0 ${COST}` } : undefined}>
-                          <div className={`flex min-w-0 items-center gap-3 ${row.child ? 'pl-3' : ''}`}>
-                            <span className={`grid shrink-0 place-items-center rounded-md ${row.child ? 'h-7 w-7' : 'h-8 w-8'}`} style={{ background: tone.bg, color: tone.color, border: `1px solid ${tone.border}` }}>
-                              {row.icon}
-                            </span>
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold" style={{ color: tone.color }} title={row.label}>{row.label}</p>
-                              {row.note && <p className="truncate text-[11px] leading-tight" style={{ color: MUTED }} title={row.note}>{row.note}</p>}
+                      <tr key={row.id} className={`group transition-colors ${rowBg}`}>
+                        <td className="px-4 py-2.5 md:py-3" style={row.kind !== 'computed' && row.line === 'costo' ? { boxShadow: `inset ${isChild ? 3 : 4}px 0 0 ${COST}` } : undefined}>
+                          <div className="flex min-w-0 items-center gap-2 sm:gap-3" style={isChild ? { paddingLeft: 22 } : undefined}>
+                            {isItem && row.hasChildren ? (
+                              <button
+                                type="button"
+                                className="grid h-5 w-5 shrink-0 place-items-center rounded text-slate-500 hover:bg-slate-200/70"
+                                title={openItems[Number(row.item.id)] ? 'Ocultar subpartidas' : 'Ver subpartidas'}
+                                aria-expanded={!!openItems[Number(row.item.id)]}
+                                onClick={() => setOpenItems((current) => ({ ...current, [Number(row.item.id)]: !current[Number(row.item.id)] }))}
+                              >
+                                {openItems[Number(row.item.id)] ? <FiChevronDown /> : <FiChevronRight />}
+                              </button>
+                            ) : row.kind === 'line' ? (
+                              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md" style={{ background: tone.bg, color: tone.color, border: `1px solid ${tone.border}` }}>
+                                <LineIcon line={row.line} />
+                              </span>
+                            ) : <span className="w-4 shrink-0" />}
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                {row.kind === 'item' && (
+                                  <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-bold" style={{ background: isChild ? '#F8FAFC' : '#EAF3FF', color: isChild ? MUTED : BLUE, border: `1px solid ${isChild ? BORDER : '#BFDBFE'}` }}>{row.item.code}</span>
+                                )}
+                                {editableConcept(row, tone.color)}
+                                {row.kind === 'item' && (
+                                  <span className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                                    <button type="button" className="grid h-6 w-6 place-items-center rounded text-slate-500 hover:bg-slate-100" title="Agregar subpartida" onClick={() => openCreate(row.line, row.item)}><FiPlus /></button>
+                                    <button type="button" className="grid h-6 w-6 place-items-center rounded text-slate-500 hover:bg-slate-100" title="Editar" onClick={() => openEdit(row.item)}><FiEdit3 /></button>
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                         </td>
-                        <td className="px-2 py-2.5 text-right font-semibold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: INK }}>{show(row.projected)}</td>
-                        <td className="px-2 py-2.5 text-right font-bold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: row.real < 0 ? RED : INK }}>{show(row.real)}</td>
-                        <td className="px-2 py-2.5 text-right tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: row.real < 0 ? RED : row.accent === 'income' ? GREEN : MUTED, fontWeight: row.accent === 'income' || row.accent === 'final' || row.accent === 'subtotal' ? 700 : 500 }}>{pct(share)}</td>
+                        <td className="px-2 py-2.5 text-right font-semibold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: INK }}>{show(projected)}</td>
+                        <td className="px-2 py-2.5 text-right font-bold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : INK }}>{show(real)}</td>
+                        <td className="px-2 py-2.5 text-right tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : row.line === 'ingreso' ? GREEN : MUTED, fontWeight: row.line === 'ingreso' || row.kind === 'computed' ? 700 : 500 }}>{pct(share)}</td>
                         <td className="px-2 py-2.5 text-right md:px-3 md:py-3">
                           <span className="inline-block rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums md:text-xs md:px-2.5 md:py-1" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
                             {diff >= 0 ? '+' : ''}{pct(diff)}
                           </span>
                         </td>
+                        <td className="px-1.5 py-2.5 text-right md:px-3 md:py-3">
+                          {row.kind === 'line' ? (
+                            <button type="button" className="grid h-7 w-7 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Agregar partida" onClick={() => openCreate(row.line)}><FiPlus /></button>
+                          ) : <span className="block h-7 w-7" />}
+                        </td>
                       </tr>
                     );
                   })}
+                  {!loading && !hasItems && (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-6 text-center text-sm text-slate-500">
+                        Este proyecto aun no tiene partidas: usa <b>Agregar partida</b> o el boton <b>+</b> de cada linea para crear la primera.
+                      </td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -658,6 +1134,83 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
           </aside>
         </div>
       </div>
+
+      {modalOpen && (
+        <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto bg-slate-900/50 p-4 sm:items-center">
+          <div className="w-full max-w-lg rounded-lg bg-white shadow-2xl">
+            <div className="flex items-center justify-between border-b px-5 py-4" style={{ borderColor: BORDER }}>
+              <div>
+                <h3 className="font-semibold" style={{ color: INK }}>{editing ? 'Editar partida' : 'Nueva partida'}</h3>
+                <p className="mt-0.5 text-xs" style={{ color: MUTED }}>
+                  {editing ? 'Actualiza el detalle y el monto de la partida.' : 'Se agrega a la linea contable seleccionada.'}
+                </p>
+              </div>
+              <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" onClick={() => { setModalOpen(false); setEditing(null); }}><FiX /></button>
+            </div>
+
+            <div className="space-y-4 px-5 py-4">
+              <Field label="Linea del cuadro">
+                <Select
+                  value={form.line || 'costo'}
+                  onChange={(value) => setForm((current) => ({ ...current, line: value as StatementLine }))}
+                  options={LINES.map((line) => ({ value: line.key, label: line.label, hint: line.letter }))}
+                />
+              </Field>
+
+              <Field label="Partida padre (opcional)">
+                <Select
+                  value={form.parentId ? String(form.parentId) : ''}
+                  onChange={(value) => setForm((current) => ({ ...current, parentId: value ? Number(value) : null }))}
+                  options={[
+                    { value: '', label: 'Sin padre (partida raiz)' },
+                    ...items
+                      .filter((item) => item.line === (form.line || 'costo') && Number(item.id) !== Number(editing?.id || 0))
+                      .map((item) => ({ value: String(item.id), label: `${item.code} - ${item.name}` })),
+                  ]}
+                />
+              </Field>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Codigo">
+                  <input className="input" value={form.code || ''} onChange={(event) => setForm((current) => ({ ...current, code: event.target.value }))} placeholder="C.01" />
+                </Field>
+                <Field label={`Monto (${form.currency || 'PEN'})`}>
+                  <input
+                    type="number"
+                    step="0.01"
+                    className="input"
+                    value={form.amount === undefined || form.amount === null ? '' : String(form.amount)}
+                    onChange={(event) => setForm((current) => ({ ...current, amount: event.target.value === '' ? '' : Number(event.target.value) }))}
+                    placeholder="0.00"
+                  />
+                </Field>
+              </div>
+
+              <Field label="Nombre">
+                <input className="input" value={form.name || ''} onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))} placeholder="Ej. Movimiento de tierras" />
+              </Field>
+
+              <Field label="Descripcion (opcional)">
+                <textarea
+                  className="input min-h-[70px]"
+                  value={form.description || ''}
+                  onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
+                  placeholder="Detalle de la partida"
+                />
+              </Field>
+
+              <p className="rounded-md bg-[#F8FAFC] px-3 py-2 text-xs" style={{ color: MUTED }}>
+                Si esta partida tiene subpartidas, su monto mostrado sera la suma de ellas.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 border-t px-5 py-4" style={{ borderColor: BORDER }}>
+              <button className="btn-neutral" onClick={closeModal} disabled={saving}>Cancelar</button>
+              <button className="btn-primary" onClick={saveItem} disabled={saving}>{saving ? 'Guardando...' : editing ? 'Guardar cambios' : 'Crear partida'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

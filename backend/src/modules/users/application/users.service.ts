@@ -99,6 +99,26 @@ export class UsersService {
     return users.map(({ passwordHash, ...u }) => u);
   }
 
+  async getOne(id: number) {
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+    const [projects, activity] = await Promise.all([
+      this.userProjectRepo.find({ where: { userId: id } }),
+      this.activity(id),
+    ]);
+    const { passwordHash, ...safeUser } = user;
+    return {
+      ...safeUser,
+      projectIds: projects.map((row) => row.projectId),
+      projectAccess: projects.map((row) => ({
+        projectId: row.projectId,
+        modules: row.allowedModules || [],
+      })),
+      activity,
+      canDelete: activity.sales === 0,
+    };
+  }
+
   async findAgents() {
     return this.list('agent');
   }
@@ -111,6 +131,11 @@ export class UsersService {
     const user = await this.userRepo.findOne({ where: { id } });
     if (!user) throw new NotFoundException('Usuario no encontrado');
     if (dto.name !== undefined) user.name = dto.name;
+    if (dto.email !== undefined && dto.email !== user.email) {
+      const existing = await this.userRepo.findOne({ where: { email: dto.email } });
+      if (existing && existing.id !== id) throw new BadRequestException('El correo ya está registrado');
+      user.email = dto.email;
+    }
     if (dto.phone !== undefined) user.phone = dto.phone;
     if (dto.status !== undefined) user.status = dto.status;
     if (dto.commissionRate !== undefined) user.commissionRate = String(dto.commissionRate);
@@ -123,7 +148,7 @@ export class UsersService {
       if (projectRows.length) await this.userProjectRepo.save(projectRows);
     }
     await this.audit(actorId, 'EDITAR_USUARIO', 'users', id);
-    return saved;
+    return this.getOne(saved.id);
   }
 
   async setStatus(id: number, status: 'active' | 'inactive', actorId: number) {
@@ -151,6 +176,20 @@ export class UsersService {
     ]);
     const user = await this.userRepo.findOne({ where: { id } });
     return { sales, payments, lastLoginAt: user?.lastLoginAt };
+  }
+
+  async remove(id: number, actorId: number) {
+    const user = await this.userRepo.findOne({ where: { id } });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+    if (user.role === 'superadmin') throw new BadRequestException('No se puede eliminar un Super Admin');
+    const sales = await this.saleRepo.count({ where: { agentId: id } });
+    if (sales > 0) {
+      throw new BadRequestException('No se puede eliminar: el usuario ya generó ventas. Puedes desactivarlo.');
+    }
+    await this.audit(actorId, 'ELIMINAR_USUARIO', 'users', id);
+    await this.userProjectRepo.delete({ userId: id });
+    await this.userRepo.delete(id);
+    return { ok: true };
   }
 
   async projectsOf(userId: number) {

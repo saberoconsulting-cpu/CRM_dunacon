@@ -33,12 +33,13 @@ export class QuotesService {
     const cuotaInicial = dto.paymentMethod === 'credito' ? Math.max(0, Number(dto.cuotaInicialUsd || 0)) : 0;
     const totalCuotas = dto.paymentMethod === 'credito' ? Math.max(0, Number(dto.totalCuotas || 0)) : 0;
     const saldoAFinanciar = Math.max(0, finalPrice - cuotaInicial);
-    const graceMonths = dto.paymentMethod === 'credito' ? Math.min(totalCuotas, Math.max(0, Number(dto.graceMonths || 0))) : 0;
+    const cuotasFinanciadas = Math.max(0, totalCuotas - (cuotaInicial > 0 ? 1 : 0));
+    const graceMonths = dto.paymentMethod === 'credito' ? Math.min(cuotasFinanciadas, Math.max(0, Number(dto.graceMonths || 0))) : 0;
     const initialPaymentMode = dto.paymentMethod === 'credito' && dto.initialPaymentMode === 'partes' ? 'partes' : 'contado';
     const initialParts = initialPaymentMode === 'partes' ? Math.max(2, Math.floor(Number(dto.initialParts || 3))) : 1;
     const gracePlan = buildGraceSchedule({
       principal: saldoAFinanciar,
-      totalCuotas,
+      totalCuotas: cuotasFinanciadas,
       graceMonths,
       interestType: dto.interestType,
       teaPct: dto.tea,
@@ -167,12 +168,13 @@ export class QuotesService {
       }
 
       const graceMonthsRaw = dto.graceMonths != null ? dto.graceMonths : quote.graceMonths;
-      quote.graceMonths = Math.min(quote.totalCuotas, Math.max(0, Math.floor(graceMonthsRaw || 0)));
+      const cuotasFinanciadas = Math.max(0, quote.totalCuotas - (Number(quote.cuotaInicialUsd) > 0 ? 1 : 0));
+      quote.graceMonths = Math.min(cuotasFinanciadas, Math.max(0, Math.floor(graceMonthsRaw || 0)));
 
       const saldoAFinanciar = Math.max(0, finalPrice - Number(quote.cuotaInicialUsd));
       const plan = buildGraceSchedule({
         principal: saldoAFinanciar,
-        totalCuotas: quote.totalCuotas,
+        totalCuotas: cuotasFinanciadas,
         graceMonths: quote.graceMonths,
         interestType: quote.interestType,
         teaPct: Number(quote.tea),
@@ -203,11 +205,12 @@ export class QuotesService {
     const finalPrice = Math.max(0, Number(quote.finalPriceUsd));
     const cuotaInicial = Math.max(0, Number(quote.cuotaInicialUsd));
     const saldoAFinanciar = Math.max(0, finalPrice - cuotaInicial);
+    const cuotasFinanciadas = Math.max(0, quote.totalCuotas - (cuotaInicial > 0 ? 1 : 0));
     try {
       const plan = buildGraceSchedule({
         principal: saldoAFinanciar,
-        totalCuotas: quote.totalCuotas,
-        graceMonths: quote.graceMonths,
+        totalCuotas: cuotasFinanciadas,
+        graceMonths: Math.min(cuotasFinanciadas, quote.graceMonths),
         interestType: quote.interestType,
         teaPct: Number(quote.tea),
       });

@@ -7,6 +7,7 @@ import { CashflowModelEntity } from '../../shared/infrastructure/entities/cashfl
 import { AuditLogEntity } from '../../shared/infrastructure/entities/audit-log.entity';
 import { WebsocketModule } from '../../shared/infrastructure/websocket/websocket.module';
 import { ConstructionBudgetModule } from '../construction-budget/construction-budget.module';
+import { IncomeStatementModule } from '../income-statement/income-statement.module';
 import { FinancesController } from './interface/finances.controller';
 import { CashflowController } from './interface/cashflow.controller';
 import { FinancesService } from './application/finances.service';
@@ -17,6 +18,7 @@ import { CashflowService } from './application/cashflow.service';
     TypeOrmModule.forFeature([FinancialTransactionEntity, ExpenseEntity, AuditLogEntity, CashflowModelEntity]),
     WebsocketModule,
     ConstructionBudgetModule,
+    IncomeStatementModule,
   ],
   controllers: [FinancesController, CashflowController],
   providers: [FinancesService, CashflowService],

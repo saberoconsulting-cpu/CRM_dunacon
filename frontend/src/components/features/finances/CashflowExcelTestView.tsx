@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FiBriefcase, FiCheck, FiClipboard, FiCreditCard, FiDollarSign, FiDownload, FiEdit3, FiHome, FiLayers, FiMapPin, FiPercent, FiPieChart, FiRefreshCw, FiSave, FiTool, FiTrendingUp, FiZap } from 'react-icons/fi';
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '@/lib/api';
@@ -128,7 +128,7 @@ const SECTION_ICONS: Record<string, any> = {
 
 const COST_DETAIL_SECTIONS = new Set(['land', 'direct', 'indirect']);
 
-function SectionTitle({ section, color }: { section: { id: string; label: string }; color: string }) {
+function SectionTitle({ section, color, label }: { section: { id: string; label: string }; color: string; label?: ReactNode }) {
     const Icon = SECTION_ICONS[section.id] || FiClipboard;
     const isCostDetail = COST_DETAIL_SECTIONS.has(section.id);
 
@@ -144,7 +144,7 @@ function SectionTitle({ section, color }: { section: { id: string; label: string
                             Costo
                         </span>
                     )}
-                    <span className="truncate">{section.label}</span>
+                    {label || <span className="truncate">{section.label}</span>}
                 </div>
             </div>
         </div>
@@ -195,9 +195,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const [hasSavedModel, setHasSavedModel] = useState(false);
     const [savingModel, setSavingModel] = useState(false);
     const [baseYear, setBaseYear] = useState(new Date().getFullYear());
-    const gridVars = {
-        '--cashflow-years-width': `${visibleYears.length * 104}px`,
-    } as React.CSSProperties;
+    const [editingLabel, setEditingLabel] = useState<string | null>(null);
 
     async function buildSeedRows(): Promise<{ rows: Row[]; manualFields: Partial<typeof manual>; project: any; baseYear: number }> {
         const [projectData, plan, budget, statement, salesData, paymentsData] = await Promise.all([
@@ -310,9 +308,11 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             setProject(seed.project);
             setBaseYear(seed.baseYear);
             if (target === 'dinamico') {
-                setRows(seed.rows);
+                const savedModel = await api.get<any>(`/cashflow/model?projectId=${projectId}&mode=dinamico`).catch(() => null);
+                const savedLabels = new Map((savedModel?.rows || []).map((item: any) => [item.id, item.label]));
+                setRows(seed.rows.map((item) => ({ ...item, label: String(savedLabels.get(item.id) || item.label) })));
                 setManual((current) => ({ ...current, ...seed.manualFields, initialPercent: current.initialPercent || 10, years: current.years || 10, discountRate: current.discountRate || 10 }));
-                setHasSavedModel(false);
+                setHasSavedModel(Boolean(savedModel?.rows?.length));
             } else {
                 const savedModel = await api.get<any>(`/cashflow/model?projectId=${projectId}&mode=estatico`).catch(() => null);
                 if (savedModel?.rows?.length) {
@@ -421,6 +421,72 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     function applyCellEdit() { setSaved(false); setHasSavedModel(false); setPendingEdit(null); }
 
     function toggleSection(sectionId: string) { setExpanded((current) => ({ ...current, [sectionId]: !(current[sectionId] ?? true) })); }
+
+    async function updateRowLabel(id: string, label: string) {
+        const nextLabel = label.trim();
+        if (!nextLabel) { setEditingLabel(null); return; }
+        const currentLabel = calculated.find((item) => item.id === id)?.label;
+        if (currentLabel === nextLabel) { setEditingLabel(null); return; }
+        setRows((current) => current.map((item) => item.id === id ? { ...item, label: nextLabel } : item));
+        setSaved(false);
+        setHasSavedModel(false);
+        setEditingLabel(null);
+        try {
+            await api.post('/cashflow/model', {
+                projectId,
+                mode,
+                assumptions: { ...manual, overrides },
+                rows: calculated.map((item) => ({
+                    id: item.id,
+                    label: item.id === id ? nextLabel : item.label,
+                    values: item.values,
+                })),
+            });
+            setHasSavedModel(true);
+            setSaved(true);
+            toast('Nombre actualizado');
+        } catch (error: any) {
+            toast(error?.message || 'No se pudo guardar el nombre', 'err');
+        }
+    }
+
+    function rowLabel(id: string, fallback: string) {
+        return calculated.find((item) => item.id === id)?.label || fallback;
+    }
+
+    function editableConcept(id: string, label: string, className = 'block min-w-0 truncate md:whitespace-normal') {
+        if (editingLabel === id) {
+            return (
+                <input
+                    autoFocus
+                    className="w-full min-w-0 rounded border border-[#1877F2] bg-white px-1.5 py-1 text-sm font-semibold outline-none"
+                    defaultValue={label}
+                    onClick={(event) => event.stopPropagation()}
+                    onDoubleClick={(event) => event.stopPropagation()}
+                    onBlur={(event) => { void updateRowLabel(id, event.currentTarget.value); }}
+                    onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                            event.preventDefault();
+                            event.currentTarget.blur();
+                        }
+                        if (event.key === 'Escape') setEditingLabel(null);
+                    }}
+                />
+            );
+        }
+        return (
+            <span
+                className={className}
+                title={label}
+                onDoubleClick={(event) => {
+                    event.stopPropagation();
+                    setEditingLabel(id);
+                }}
+            >
+                {label}
+            </span>
+        );
+    }
 
     function openAssumptions() { setDraftManual(manual); setAssumptionsOpen(true); }
 
@@ -659,7 +725,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     ].map(({ label, value, helper, tone }) => (
                         <div key={label} className="min-w-0 rounded-xl border bg-white px-3 py-3" style={{ borderColor: `${tone}40` }}>
                             <p className="truncate text-[11px] font-semibold uppercase tracking-wide" style={{ color: tone }} title={label}>{label}</p>
-                            <p className="mt-1 truncate text-lg font-bold tabular-nums" style={{ color: BRAND.ink }} title={value}>{value}</p>
+                            <p className="mt-1 truncate text-center text-lg font-bold tabular-nums" style={{ color: BRAND.ink }} title={value}>{value}</p>
                             <p className="mt-1 truncate text-[11px] text-slate-400" title={helper}>{helper}</p>
                         </div>
                     ))}
@@ -696,14 +762,14 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                         <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md border bg-white text-[#1259C4]" style={{ borderColor: '#B9D2F4' }}>
                                             <FiHome size={15} aria-hidden="true" />
                                         </span>
-                                        <span className="block min-w-0 truncate md:whitespace-normal">Venta de lotes por año</span>
+                                        {editableConcept('lots-sold', lotsSoldRow.label)}
                                     </div>
                                 </td>
                                 <td className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[240px] md:z-[1]">{displayPlainRowTotal(lotsSoldRow.values)}</td>
                                 {lotsSoldRow.values.slice(0, visibleYears.length).map((value, year) => (
                                     <td key={`lots-sold-top-${year}`} className="border border-slate-200 bg-[#F8FAFC] px-1 py-1">
                                         <input
-                                            aria-label={`Venta de lotes por año ${YEARS[year]}`}
+                                            aria-label={`${lotsSoldRow.label} ${YEARS[year]}`}
                                             className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${mode === 'dinamico' ? 'cursor-default' : 'focus:border-[#1877F2] focus:bg-[#F5F9FF]'}`}
                                             value={value ? formatPlainInteger(value) : ''}
                                             readOnly={mode === 'dinamico'}
@@ -724,13 +790,17 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                         {sectionRow && (
                                             <tr onClick={() => section.rows.length > 0 && toggleSection(section.id)} className="cursor-pointer">
                                                 <td className={`${CONCEPT_COL} border border-slate-200 px-3 py-2.5 font-bold md:sticky md:left-0 md:z-[1] md:px-4`} style={{ background: surface.background, color: surface.color }}>
-                                                    <SectionTitle section={section} color={COST_DETAIL_SECTIONS.has(section.id) ? '#0EA5A9' : surface.color} />
+                                                    <SectionTitle
+                                                        section={section}
+                                                        color={COST_DETAIL_SECTIONS.has(section.id) ? '#0EA5A9' : surface.color}
+                                                        label={editableConcept(section.id, sectionRow.label, 'truncate')}
+                                                    />
                                                 </td>
                                                 <td className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[240px] md:z-[1]">{displayRowTotal(sectionRow.values)}</td>
                                                 {sectionRow.values.slice(0, visibleYears.length).map((value, year) => (
                                                     <td key={year} className="border border-slate-200 px-1 py-1" style={{ background: surface.background }}>
                                                         <input
-                                                            aria-label={`${section.label} ${YEARS[year]}`}
+                                                            aria-label={`${sectionRow.label} ${YEARS[year]}`}
                                                             className={`w-full min-w-[88px] border border-transparent bg-transparent px-1 py-1.5 text-right font-bold tabular-nums outline-none transition ${mode === 'dinamico' ? 'cursor-default' : 'focus:border-[#1877F2] focus:bg-white'}`}
                                                             value={value ? formatInteger(value) : ''}
                                                             readOnly={mode === 'dinamico' || Boolean(sectionRow.computed)}
@@ -748,12 +818,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
 
                                             return (
                                                 <tr key={definition.id} className="hover:bg-slate-50">
-                                                    <td className={`${CONCEPT_COL} border border-slate-200 bg-white py-2 pl-6 pr-2 text-slate-700 md:sticky md:left-0 md:z-[1] md:px-8`}><span className="block truncate md:whitespace-normal" title={definition.label}>{definition.label}</span></td>
+                                                    <td className={`${CONCEPT_COL} border border-slate-200 bg-white py-2 pl-6 pr-2 text-slate-700 md:sticky md:left-0 md:z-[1] md:px-8`}>{editableConcept(item.id, item.label)}</td>
                                                     <td className="border border-[#B9D2F4] bg-[#F4F8FE] px-2 py-2 text-right tabular-nums text-[#5277A8] md:sticky md:left-[240px] md:z-[1]">{displayRowTotal(item.values)}</td>
                                                     {item.values.slice(0, visibleYears.length).map((value, year) => (
                                                         <td key={`${definition.id}-${year}`} className="border border-slate-200 bg-white px-1 py-1">
                                                             <input
-                                                                aria-label={`${definition.label} ${YEARS[year]}`}
+                                                                aria-label={`${item.label} ${YEARS[year]}`}
                                                                 className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${mode === 'dinamico' ? 'cursor-default' : 'focus:border-[#1877F2] focus:bg-[#F5F9FF]'}`}
                                                                 value={value ? formatInteger(value) : ''}
                                                                 readOnly={mode === 'dinamico'}
@@ -769,41 +839,22 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     </Fragment>
                                 );
                             })}
-                        </tbody>
-                    </table>
-                </div>
-            </section>
-
-            <section className="overflow-hidden rounded-lg border bg-white shadow-sm" style={{ borderColor: BRAND.border }} aria-label="Utilidad acumulada">
-                <div className="overflow-auto [container-type:inline-size]" style={{ WebkitOverflowScrolling: 'touch' }}>
-                    <table className="table-fixed border-collapse text-xs [width:calc(100cqw_-_12px_+_var(--cashflow-years-width))] md:[width:calc(340px_+_var(--cashflow-years-width))]" style={gridVars}>
-                        <colgroup>
-                            <col className="w-[calc(100cqw_-_108px)] md:w-[240px]" />
-                            <col className="w-[96px] md:w-[100px]" />
-                            {visibleYears.map((year) => (
-                                <col key={`accumulated-col-${year}`} className="w-[104px]" />
-                            ))}
-                        </colgroup>
-                        <thead className="sticky top-0 z-[15]">
                             <tr>
-                                <th colSpan={visibleYears.length + 2} className="border border-slate-300 bg-white px-4 py-2 text-left text-base font-bold" style={{ color: BRAND.blue }}>Utilidad Acumulada</th>
+                                <td colSpan={2 + visibleYears.length} className="border border-slate-200 bg-white px-4 py-2 text-left text-sm font-bold" style={{ color: BRAND.blue }}>
+                                    Utilidad Acumulada
+                                </td>
                             </tr>
-                            <tr>
-                                <th className={`${CONCEPT_COL} border border-slate-300 bg-[#F8FAFC] px-3 py-3 text-left text-[11px] font-semibold text-slate-500 md:px-4`}>Concepto</th>
-                                <th className={`${TOTAL_COL} border border-[#0F4C9A] bg-[#1259C4] px-2 py-3 text-right text-sm font-extrabold text-white shadow-sm md:sticky md:left-[240px] md:z-20`}>Total</th>
-                                {visibleYears.map((year) => <th key={year} className={`${YEAR_COL} border border-slate-300 bg-[#F8FAFC] px-2 py-3 text-center text-[11px] font-semibold text-slate-500`}>{year}</th>)}
-                            </tr>
-                        </thead>
-                        <tbody>
                             {[
-                                { label: 'Utilidad Antes de Imp. Acumulada', values: preTaxAccumulated, tone: '#15803D' },
-                                { label: 'Utilidad Ajustada Referencial Acumulada Neta', values: accumulatedProfit, tone: BRAND.blue },
+                                { id: 'pre-tax-accumulated', label: rowLabel('pre-tax-accumulated', 'Utilidad Antes de Imp. Acumulada'), values: preTaxAccumulated, tone: '#15803D' },
+                                { id: 'adjusted-accumulated', label: rowLabel('adjusted-accumulated', 'Utilidad Ajustada Referencial Acumulada Neta'), values: accumulatedProfit, tone: BRAND.blue },
                             ].map((item) => (
-                                <tr key={item.label}>
-                                    <td className={`${CONCEPT_COL} border border-slate-300 px-3 py-2.5 font-bold md:px-4`} style={{ background: '#D3E4FD', color: item.tone }}><span className="block truncate md:whitespace-normal" title={item.label}>{item.label}</span></td>
+                                <tr key={item.id}>
+                                    <td className={`${CONCEPT_COL} border border-slate-200 px-3 py-2.5 font-bold md:sticky md:left-0 md:z-[1] md:px-4`} style={{ background: '#D3E4FD', color: item.tone }}>
+                                        {editableConcept(item.id, item.label, 'truncate')}
+                                    </td>
                                     <td className={`${TOTAL_COL} border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[240px] md:z-[1]`}>{displayRowTotal(item.values)}</td>
                                     {item.values.slice(0, visibleYears.length).map((value, year) => (
-                                        <td key={`${item.label}-${year}`} className={`${YEAR_COL} border border-slate-300 px-2 py-2.5 text-right font-bold tabular-nums`} style={{ background: '#D3E4FD', color: BRAND.ink }}>{formatInteger(value)}</td>
+                                        <td key={`${item.id}-${year}`} className={`${YEAR_COL} border border-slate-200 px-2 py-2.5 text-right font-bold tabular-nums`} style={{ background: '#D3E4FD', color: BRAND.ink }}>{formatInteger(value)}</td>
                                     ))}
                                 </tr>
                             ))}

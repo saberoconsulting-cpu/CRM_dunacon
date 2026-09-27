@@ -95,6 +95,11 @@ export class CreateBankCategoryDto {
   @IsNumber()
   projectId!: number;
 
+  @IsOptional()
+  @IsString()
+  @MaxLength(12)
+  code?: string;
+
   @IsString()
   @MaxLength(150)
   movementType!: string;
@@ -109,6 +114,11 @@ export class CreateBankCategoryDto {
 }
 
 export class UpdateBankCategoryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(12)
+  code?: string;
+
   @IsOptional()
   @IsString()
   @MaxLength(150)

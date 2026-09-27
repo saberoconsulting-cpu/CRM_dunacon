@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { FiLock, FiRotateCcw, FiUnlock } from 'react-icons/fi';
 import { Block, Lot, LotStatus, Point, LOT_STATUS_COLOR, LOT_STATUS_LABEL, formatMoney, pointsToString } from '@/lib/types';
+import { optimizedPlanImageUrl } from '@/lib/planImage';
 
 interface Props {
   imageUrl?: string | null;
@@ -33,33 +34,6 @@ const BLOCK_COLORS = [
   { fill: 'rgba(100,116,139,0.14)', stroke: '#475569', label: '#334155' },
 ];
 
-function labelBox(pts: Point[], text: string) {
-  if (!pts.length) return { x: 0, y: 0, angle: 0, width: 0, height: 0, fontSize: 10 };
-  const xs = pts.map((p) => Number(p.x || 0));
-  const ys = pts.map((p) => Number(p.y || 0));
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const width = Math.max(24, maxX - minX);
-  const height = Math.max(14, maxY - minY);
-  const center = pts.reduce((a, p) => ({ x: a.x + p.x / pts.length, y: a.y + p.y / pts.length }), { x: 0, y: 0 });
-  let best = { length: 0, angle: 0 };
-  pts.forEach((point, index) => {
-    const next = pts[(index + 1) % pts.length];
-    const dx = next.x - point.x;
-    const dy = next.y - point.y;
-    const length = Math.hypot(dx, dy);
-    if (length > best.length) best = { length, angle: Math.atan2(dy, dx) * 180 / Math.PI };
-  });
-  let angle = best.angle;
-  if (angle > 90) angle -= 180;
-  if (angle < -90) angle += 180;
-  const available = Math.max(30, Math.min(best.length || width, width * 0.9));
-  const fontSize = Math.max(11, Math.min(19, available / Math.max(5, String(text || '').length * 0.58), height * 0.5));
-  return { x: center.x, y: center.y, angle, width: available, height: fontSize + 10, fontSize };
-}
-
 function blockTone(index: number, highlighted: boolean) {
   if (highlighted) return { fill: '#A9C9FB', stroke: '#1877F2', label: '#1259C4' };
   return BLOCK_COLORS[index % BLOCK_COLORS.length];
@@ -83,6 +57,7 @@ export default function InteractivePlan({
   const imgH = imageH * imgScale;
   const imgOffsetX = (SVG_W - imgW) / 2;
   const imgOffsetY = (SVG_H - imgH) / 2;
+  const displayImageUrl = optimizedPlanImageUrl(imageUrl);
 
   function applyViewBox(x: number, y: number, w: number) {
     const next = SVG_W / w;
@@ -209,8 +184,8 @@ export default function InteractivePlan({
         className={`absolute inset-0 h-full w-full ${viewLocked ? 'cursor-default' : 'cursor-grab active:cursor-grabbing'}`}
         viewBox={`${-t.x / scale} ${-t.y / scale} ${SVG_W / scale} ${SVG_H / scale}`}
       >
-          {imageUrl && (
-            <image href={imageUrl} x={imgOffsetX} y={imgOffsetY} width={imgW} height={imgH} preserveAspectRatio="xMidYMid meet" />
+          {displayImageUrl && (
+            <image href={displayImageUrl} x={imgOffsetX} y={imgOffsetY} width={imgW} height={imgH} preserveAspectRatio="xMidYMid meet" />
           )}
 
           {blocks.map((b, index) => {
@@ -226,35 +201,6 @@ export default function InteractivePlan({
                 style={{ cursor: interactive ? 'pointer' : 'default' }}
                 onClick={(e) => { e.stopPropagation(); if (interactive && onBlockClick) onBlockClick(b); }}
               />
-            );
-          })}
-          {blocks.map((b, index) => {
-            const tone = blockTone(index, highlightBlockId === b.id);
-            const label = labelBox(b.points, b.name);
-            return (
-              <g key={`bl-${b.id}`} transform={`translate(${label.x} ${label.y}) rotate(${label.angle})`} opacity={0.95} style={{ pointerEvents: 'none' }}>
-                {/* Sin fondo: el nombre de la calle se apoya solo en su tipografia y su contorno de color */}
-                <text
-                  y={1}
-                  fontSize={label.fontSize}
-                  fontWeight={700}
-                  fontFamily="Georgia, 'Times New Roman', serif"
-                  fontStyle="italic"
-                  letterSpacing={1.5}
-                  stroke="#FFC107"
-                  strokeWidth={2}
-                  strokeOpacity={0.95}
-                  paintOrder="stroke"
-                  strokeLinejoin="round"
-                  textAnchor="middle"
-                  dominantBaseline="central"
-                  fill="#FFFFFF"
-                  textLength={label.width}
-                  lengthAdjust="spacingAndGlyphs"
-                >
-                  {b.name}
-                </text>
-              </g>
             );
           })}
           {lots.map((lot) => {
@@ -289,7 +235,7 @@ export default function InteractivePlan({
                         <path d="M20 6L9 17l-5-5" />
                       </g>
                     )}
-                    <text x={c.x} y={c.y + 4} fontSize="12" fontWeight="600" textAnchor="middle" fill="#0f172a">{lot.code}</text>
+                    <text x={c.x} y={c.y + 3} fontSize="10" fontWeight="600" textAnchor="middle" fill="#0f172a">{lot.code}</text>
                   </g>
                 ); })()}
               </g>

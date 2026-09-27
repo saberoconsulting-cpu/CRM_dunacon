@@ -7,6 +7,7 @@ import { Toaster } from '@/components/ui/ui';
 import PlanEditor from '@/components/features/plan/PlanEditor';
 import InteractivePlan from '@/components/features/plan/InteractivePlan';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
+import ProjectLotCatalogPanel from '@/components/features/plan/ProjectLotCatalogPanel';
 import { api, getSessionUser } from '@/lib/api';
 import { Block, Lot, formatMoney } from '@/lib/types';
 
@@ -56,7 +57,6 @@ export default function PlanEditorPage() {
         lotId={selectedLot}
         onClose={() => setSelectedLot(null)}
         onChanged={loadPlan}
-        compact
       />
       {can === null ? (
         <p className="text-slate-400">Comprobando permisos...</p>
@@ -111,26 +111,46 @@ export default function PlanEditorPage() {
               {/* Resumen del plano */}
               <div className="rounded-lg border bg-white p-4" style={{ borderColor: '#E5E7EB' }}>
                 <h3 className="text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: '#111827' }}>Resumen del plano</h3>
-                <div className="mt-3 space-y-2">
+                <div className="mt-3 grid grid-cols-2 gap-2">
                   {summary.map((item) => (
-                    <div key={item.label} className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2" style={{ borderColor: '#E5E7EB' }}>
-                      <span className="flex min-w-0 items-center gap-2 text-xs font-semibold" style={{ color: '#111827' }}>
-                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md" style={{ background: `${item.tone}12`, color: item.tone }}>{item.icon}</span>
-                        {item.label}
+                    <div key={item.label} className="min-w-0 rounded-lg border px-3 py-2" style={{ borderColor: '#E5E7EB' }}>
+                      <span className="flex min-w-0 items-center gap-2 text-[11px] font-semibold" style={{ color: '#111827' }}>
+                        <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md" style={{ background: `${item.tone}12`, color: item.tone }}>{item.icon}</span>
+                        <span className="truncate">{item.label}</span>
                       </span>
-                      <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: item.tone }}>{item.value}</span>
+                      <span className="mt-1 block text-center text-sm font-bold tabular-nums" style={{ color: item.tone }}>{item.value}</span>
                     </div>
                   ))}
-                  <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2" style={{ borderColor: '#E5E7EB' }}>
-                    <span className="text-xs font-semibold" style={{ color: '#111827' }}>Area total</span>
-                    <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: '#1259C4' }}>{totalArea.toLocaleString('es-PE')} m2</span>
+                  <div className="min-w-0 rounded-lg border px-3 py-2" style={{ borderColor: '#E5E7EB' }}>
+                    <span className="block truncate text-[11px] font-semibold" style={{ color: '#111827' }}>Area total</span>
+                    <span className="mt-1 block text-center text-sm font-bold tabular-nums" style={{ color: '#1259C4' }}>{totalArea.toLocaleString('es-PE')} m2</span>
                   </div>
-                  <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2" style={{ borderColor: '#E5E7EB' }}>
-                    <span className="text-xs font-semibold" style={{ color: '#111827' }}>Valor de venta</span>
-                    <span className="shrink-0 text-sm font-bold tabular-nums" style={{ color: '#0F8B5F' }}>{formatMoney(totalValue)}</span>
+                  <div className="min-w-0 rounded-lg border px-3 py-2" style={{ borderColor: '#E5E7EB' }}>
+                    <span className="block truncate text-[11px] font-semibold" style={{ color: '#111827' }}>Valor de venta</span>
+                    <span className="mt-1 block text-center text-sm font-bold tabular-nums" style={{ color: '#0F8B5F' }}>{formatMoney(totalValue)}</span>
                   </div>
                 </div>
               </div>
+
+              <div className="rounded-lg border bg-white p-4" style={{ borderColor: '#E5E7EB' }}>
+                <h3 className="text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: '#111827' }}>Calles ({streets.length})</h3>
+                <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1 text-sm">
+                  {streets.map((street, index) => (
+                    <li key={street.id} className="rounded-lg border px-3 py-2" style={{ borderColor: selectedBlock === street.id ? '#1877F2' : '#E5E7EB', background: selectedBlock === street.id ? '#E7F0FE' : '#fff' }}>
+                      <button type="button" onClick={() => setSelectedBlock(selectedBlock === street.id ? null : street.id)} className="flex w-full items-center gap-2 text-left">
+                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[#1259C4] text-xs font-bold text-white">{index + 1}</span>
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold">{street.name}</span>
+                          <span className="block text-[11px] text-slate-500">{lots.filter((lot) => Number(lot.streetId ?? lot.blockId) === Number(street.id)).length} lotes</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {streets.length === 0 && <li className="text-xs text-slate-400">Aun no hay calles dibujadas.</li>}
+                </ul>
+              </div>
+
+              <ProjectLotCatalogPanel projectId={id} canManage={Boolean(can)} />
 
             </div>
           </aside>

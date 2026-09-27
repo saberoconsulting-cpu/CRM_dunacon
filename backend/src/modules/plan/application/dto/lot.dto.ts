@@ -46,6 +46,10 @@ export class CreateLotDto {
   type?: string;
 
   @IsOptional()
+  @IsString()
+  dimensions?: string;
+
+  @IsOptional()
   @IsNumber()
   salePrice?: number;
 
@@ -95,6 +99,10 @@ export class UpdateLotDto {
   @IsOptional()
   @IsString()
   type?: string;
+
+  @IsOptional()
+  @IsString()
+  dimensions?: string;
 
   @IsOptional()
   @IsNumber()

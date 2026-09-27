@@ -47,6 +47,8 @@ interface NavItem {
   soon?: boolean;
 }
 
+const roleLabel = (role?: string) => role === 'admin' ? 'Gerente' : role === 'agent' ? 'Agente comercial' : role === 'superadmin' ? 'Super Admin' : (role || '');
+
 const GLOBAL_NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard general', shortLabel: 'Dashboard', icon: <FiHome />, roles: ['superadmin', 'admin', 'agent'] },
   { href: '/projects', label: 'Proyectos', icon: <FiMap />, roles: ['superadmin', 'admin', 'agent'] },
@@ -540,7 +542,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           {showLabels && (
             <span className="min-w-0 flex-1">
               <span className="block truncate text-[13px] font-semibold" style={{ color: BRAND.ink }}>{user.name}</span>
-              <span className="block truncate text-[11px] capitalize" style={{ color: BRAND.muted }}>{user.role === 'agent' ? 'Agente comercial' : user.role}</span>
+              <span className="block truncate text-[11px]" style={{ color: BRAND.muted }}>{roleLabel(user.role)}</span>
             </span>
           )}
         </div>
@@ -594,7 +596,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           )}
           {canManage && (
             <span className="hidden items-center gap-1.5 rounded-md bg-softblue px-3 sm:inline-flex" style={{ height: 28, fontSize: 12, color: BRAND.blue }}>
-              <span className="h-1.5 w-1.5 rounded-full" style={{ background: BRAND.blue }} /> Acceso de administracion
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: BRAND.blue }} /> Acceso de gerencia
             </span>
           )}
           {showHeaderCurrency && (

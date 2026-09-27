@@ -9,11 +9,13 @@ export function Select({
   onChange,
   options,
   className = '',
+  disabled = false,
 }: {
   value: string | number;
   onChange: (value: string) => void;
   options: SelectOption[];
   className?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
@@ -61,8 +63,9 @@ export function Select({
     <div ref={rootRef} className={`relative select-none ${className}`}>
       <button
         type="button"
-        onClick={() => setOpen(!open)}
-        className="select-trigger flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-[#D1D5DB] bg-white px-3 text-left text-sm"
+        disabled={disabled}
+        onClick={() => !disabled && setOpen(!open)}
+        className={`select-trigger flex h-10 w-full items-center justify-between gap-2 rounded-xl border border-[#D1D5DB] bg-white px-3 text-left text-sm ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
         style={{ boxShadow: 'inset 0 1px 2px rgba(15,23,42,.02), 0 1px 2px rgba(15,23,42,.02)' }}
       >
         <span className="truncate text-[#171717]">{current ? current.label : ''}</span>

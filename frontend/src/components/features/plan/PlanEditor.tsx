@@ -3,6 +3,8 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { api, uploadFile } from '@/lib/api';
 import { Block, Lot, Point } from '@/lib/types';
 import { toast, Field } from '@/components/ui/ui';
+import { optimizedPlanImageUrl } from '@/lib/planImage';
+import { FiLock, FiUnlock, FiRotateCcw } from 'react-icons/fi';
 
 const SVG_W = 1000;
 const SVG_H = 800;
@@ -16,6 +18,35 @@ const STREET_COLORS = [
   { fill: 'rgba(100,116,139,0.14)', stroke: '#475569', label: '#334155' },
 ];
 
+type LotCatalogRow = {
+  id?: number;
+  code: string;
+  address?: string;
+  type?: string;
+  areaM2: number;
+  dimensions?: string;
+  priceM2: number;
+  salePrice: number;
+  discount: number;
+  finalPrice: number;
+  status?: string;
+  client?: string;
+};
+
+const emptyCatalogRow = (): LotCatalogRow => ({
+  code: '',
+  address: '',
+  type: '',
+  areaM2: 0,
+  dimensions: '',
+  priceM2: 0,
+  salePrice: 0,
+  discount: 0,
+  finalPrice: 0,
+  status: 'Disponible',
+  client: '',
+});
+
 function streetTone(index: number, highlighted: boolean) {
   if (highlighted) return { fill: 'rgba(24,119,242,0.25)', stroke: '#1877F2', label: '#1259C4' };
   return STREET_COLORS[index % STREET_COLORS.length];
@@ -24,33 +55,6 @@ function streetTone(index: number, highlighted: boolean) {
 function centroid(pts: Point[]) {
   if (!pts.length) return { x: 0, y: 0 };
   return pts.reduce((a, p) => ({ x: a.x + p.x / pts.length, y: a.y + p.y / pts.length }), { x: 0, y: 0 });
-}
-
-function streetLabelBox(pts: Point[], text: string) {
-  if (!pts.length) return { x: 0, y: 0, angle: 0, width: 0, height: 0, fontSize: 10 };
-  const xs = pts.map((p) => Number(p.x || 0));
-  const ys = pts.map((p) => Number(p.y || 0));
-  const minX = Math.min(...xs);
-  const maxX = Math.max(...xs);
-  const minY = Math.min(...ys);
-  const maxY = Math.max(...ys);
-  const width = Math.max(24, maxX - minX);
-  const height = Math.max(14, maxY - minY);
-  const center = centroid(pts);
-  let best = { length: 0, angle: 0 };
-  pts.forEach((point, index) => {
-    const next = pts[(index + 1) % pts.length];
-    const dx = next.x - point.x;
-    const dy = next.y - point.y;
-    const length = Math.hypot(dx, dy);
-    if (length > best.length) best = { length, angle: Math.atan2(dy, dx) * 180 / Math.PI };
-  });
-  let angle = best.angle;
-  if (angle > 90) angle -= 180;
-  if (angle < -90) angle += 180;
-  const available = Math.max(30, Math.min(best.length || width, width * 0.9));
-  const fontSize = Math.max(11, Math.min(19, available / Math.max(5, String(text || '').length * 0.58), height * 0.5));
-  return { x: center.x, y: center.y, angle, width: available, height: fontSize + 10, fontSize };
 }
 
 function insidePolygon(x: number, y: number, pts: Point[]) {
@@ -70,6 +74,7 @@ function formatUsd(value: unknown) {
 
 export default function PlanEditor({ projectId }: { projectId: number }) {
   const svgRef = useRef<SVGSVGElement>(null);
+  const lotCatalogFileRef = useRef<HTMLInputElement>(null);
   const [imgUrl, setImgUrl] = useState('');
   const [streets, setStreets] = useState<Block[]>([]);
   const [lots, setLots] = useState<Lot[]>([]);
@@ -77,7 +82,14 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
   const [mode, setMode] = useState<'none' | 'street' | 'lot'>('none');
   const [draft, setDraft] = useState<Point[]>([]);
   const [selectedStreet, setSelectedStreet] = useState<number | null>(null);
-  const [lotInfo, setLotInfo] = useState({ code: '', area: 0, price: 0, type: '', salePrice: 0, finalPrice: 0 });
+  const [streetsOpen, setStreetsOpen] = useState(true);
+  const [lotInfo, setLotInfo] = useState({ code: '', address: '', area: 0, dimensions: '', price: 0, type: '', salePrice: 0, discount: 0, finalPrice: 0, catalogStatus: '', client: '' });
+  const [lotCatalog, setLotCatalog] = useState<LotCatalogRow[]>([]);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogEditorOpen, setCatalogEditorOpen] = useState(false);
+  const [catalogDraft, setCatalogDraft] = useState<LotCatalogRow>(emptyCatalogRow());
+  const [editingCatalogId, setEditingCatalogId] = useState<number | null>(null);
+  const [catalogSearch, setCatalogSearch] = useState('');
   const [streetPage, setStreetPage] = useState(0);
   const [lotPage, setLotPage] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -96,13 +108,38 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
   }>(null);
   const dim = useRef({ w: SVG_W, h: SVG_H });
 
+  // Zoom / encuadre del lienzo, igual que la vista publica (InteractivePlan):
+  // botones + / - , rueda (solo desbloqueado) y una llave para fijar la vista y
+  // poder dibujar con precision sin que el plano se mueva.
+  const [viewState, setViewState] = useState({ scale: 1, x: 0, y: 0 });
+  const [viewLocked, setViewLocked] = useState(true);
+  const wheelHandlerRef = useRef<(e: WheelEvent) => void>(() => {});
+
+  const normalizeCode = (value: string) => String(value || '').trim().toUpperCase().replace(/^L-0+(\d+)$/, 'L-$1');
+  const catalogByCode = new Map(lotCatalog.map((item) => [normalizeCode(item.code), item]));
+
   const load = useCallback(async () => {
     try {
       const pl = await api.get<any>(`/plan/project/${projectId}`).catch(() => ({ plan: { status: 'draft' }, streets: [], blocks: [], lots: [] }));
+      const catalog = await api.get<any[]>(`/plan/lot-catalog/${projectId}`).catch(() => []);
       setImgUrl(pl.plan?.imageUrl || '');
       setStatus(pl.plan?.status || 'draft');
       setStreets(pl.streets || pl.blocks || []);
       setLots(pl.lots || []);
+      setLotCatalog((Array.isArray(catalog) ? catalog : []).map((item: any) => ({
+        id: item.id,
+        code: item.code || '',
+        address: item.address || '',
+        type: item.type || '',
+        areaM2: Number(item.areaM2 || 0),
+        dimensions: item.dimensions || '',
+        priceM2: Number(item.priceM2 || 0),
+        salePrice: Number(item.salePrice || 0),
+        discount: Number(item.discount || 0),
+        finalPrice: Number(item.finalPrice || 0),
+        status: item.status || 'Disponible',
+        client: item.client || '',
+      })));
       dim.current = { w: Number(pl.plan?.imageWidth || SVG_W), h: Number(pl.plan?.imageHeight || SVG_H) };
     } catch (e: any) { toast(e.message, 'err'); }
   }, [projectId]);
@@ -117,10 +154,92 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
   const imgH = dim.current.h * imgScale;
   const imgX = (SVG_W - imgW) / 2;
   const imgY = (SVG_H - imgH) / 2;
+  const displayImgUrl = optimizedPlanImageUrl(imgUrl);
+
+  // ---- Zoom / encuadre (mismo comportamiento que InteractivePlan) ----
+  function applyViewBox(vx: number, vy: number, vw: number) {
+    const next = SVG_W / vw;
+    setViewState({ scale: next, x: -vx * next, y: -vy * next });
+  }
+
+  function resetView() {
+    const w = Number(dim.current.w || SVG_W);
+    const h = Number(dim.current.h || SVG_H);
+    const iScale = Math.min(SVG_W / w, SVG_H / h);
+    const iw = w * iScale;
+    const ih = h * iScale;
+    const ix = (SVG_W - iw) / 2;
+    const iy = (SVG_H - ih) / 2;
+    const padding = 18;
+    let x = ix - padding;
+    let y = iy - padding;
+    let vw = iw + padding * 2;
+    let vh = ih + padding * 2;
+    const target = SVG_W / SVG_H;
+    if (vw / vh > target) { vh = vw / target; y = iy + ih / 2 - vh / 2; }
+    else { vw = vh * target; x = ix + iw / 2 - vw / 2; }
+    x = Math.max(0, x);
+    y = Math.max(0, y);
+    vw = Math.min(SVG_W, vw);
+    applyViewBox(x, y, vw);
+  }
+
+  useEffect(() => {
+    resetView();
+    window.addEventListener('resize', resetView);
+    return () => window.removeEventListener('resize', resetView);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imgUrl]);
+
+  function zoomAt(clientX: number, clientY: number, factor: number) {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const px = clientX - rect.left;
+    const py = clientY - rect.top;
+    setViewState((v) => {
+      const next = Math.min(6, Math.max(0.4, v.scale * factor));
+      const nx = px - ((px - v.x) / v.scale) * next;
+      const ny = py - ((py - v.y) / v.scale) * next;
+      return { scale: next, x: nx, y: ny };
+    });
+  }
+
+  function zoomCentered(factor: number) {
+    const rect = svgRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const px = rect.width / 2;
+    const py = rect.height / 2;
+    setViewState((v) => {
+      const next = Math.min(6, Math.max(0.4, v.scale * factor));
+      const nx = px - ((px - v.x) / v.scale) * next;
+      const ny = py - ((py - v.y) / v.scale) * next;
+      return { scale: next, x: nx, y: ny };
+    });
+  }
+
+  wheelHandlerRef.current = (e: WheelEvent) => {
+    if (viewLocked) return;
+    e.preventDefault();
+    zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1 / 1.15 : 1.15);
+  };
+
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const handler = (e: WheelEvent) => wheelHandlerRef.current(e);
+    el.addEventListener('wheel', handler, { passive: false });
+    return () => el.removeEventListener('wheel', handler);
+  }, []);
 
   function toSvg(e: any): Point {
     const rect = svgRef.current!.getBoundingClientRect();
-    return { x: ((e.clientX - rect.left) / rect.width) * SVG_W, y: ((e.clientY - rect.top) / rect.height) * SVG_H };
+    const vx = -viewState.x / viewState.scale;
+    const vy = -viewState.y / viewState.scale;
+    const vw = SVG_W / viewState.scale;
+    const vh = SVG_H / viewState.scale;
+    const px = e.clientX - rect.left;
+    const py = e.clientY - rect.top;
+    return { x: vx + (px / rect.width) * vw, y: vy + (py / rect.height) * vh };
   }
 
   function addNode(e: any) {
@@ -164,14 +283,87 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
         points: draft,
         areaM2: Number(lotInfo.area) || 0,
         price: Number(lotInfo.price) || 0,
-        status: 'disponible',
+        status: lotInfo.catalogStatus?.toLowerCase() === 'vendido' ? 'vendido' : 'disponible',
         type: lotInfo.type || undefined,
+        dimensions: lotInfo.dimensions || undefined,
         salePrice: lotInfo.salePrice || undefined,
         finalPrice: lotInfo.finalPrice || undefined,
       });
       toast('Lote guardado');
       setDraft([]);
-      setLotInfo({ code: '', area: 0, price: 0, type: '', salePrice: 0, finalPrice: 0 });
+      setLotInfo({ code: '', address: '', area: 0, dimensions: '', price: 0, type: '', salePrice: 0, discount: 0, finalPrice: 0, catalogStatus: '', client: '' });
+      load();
+    } catch (e: any) { toast(e.message, 'err'); }
+  }
+
+  function applyCatalogToLot(code: string) {
+    const row = catalogByCode.get(normalizeCode(code));
+    if (!row) {
+      setLotInfo((current) => ({ ...current, code }));
+      return;
+    }
+    setLotInfo({
+      code: row.code,
+      address: row.address || '',
+      area: Number(row.areaM2 || 0),
+      dimensions: row.dimensions || '',
+      price: Number(row.priceM2 || 0),
+      type: row.type || '',
+      salePrice: Number(row.salePrice || 0),
+      discount: Number(row.discount || 0),
+      finalPrice: Number(row.finalPrice || 0),
+      catalogStatus: row.status || '',
+      client: row.client || '',
+    });
+  }
+
+  function startCatalogEdit(row?: LotCatalogRow) {
+    setEditingCatalogId(row?.id || null);
+    setCatalogDraft(row ? { ...row } : emptyCatalogRow());
+    setCatalogEditorOpen(true);
+  }
+
+  async function saveCatalogRow() {
+    if (!catalogDraft.code.trim()) return toast('Indica el numero de lote', 'err');
+    const payload = {
+      ...catalogDraft,
+      code: catalogDraft.code.trim(),
+      areaM2: Number(catalogDraft.areaM2) || 0,
+      priceM2: Number(catalogDraft.priceM2) || 0,
+      salePrice: Number(catalogDraft.salePrice) || 0,
+      discount: Number(catalogDraft.discount) || 0,
+      finalPrice: Number(catalogDraft.finalPrice) || 0,
+    };
+    try {
+      if (editingCatalogId) await api.post(`/plan/lot-catalog/update/${projectId}/${editingCatalogId}`, payload);
+      else await api.post(`/plan/lot-catalog/${projectId}`, payload);
+      toast('Lote base guardado');
+      setEditingCatalogId(null);
+      setCatalogEditorOpen(false);
+      setCatalogDraft(emptyCatalogRow());
+      load();
+    } catch (e: any) { toast(e.message, 'err'); }
+  }
+
+  async function importLotCatalog(file?: File) {
+    if (!file) return;
+    try {
+      const result = await uploadFile(`/plan/lot-catalog/import/${projectId}`, file);
+      toast(`Excel cargado: ${result?.created || 0} nuevos, ${result?.updated || 0} actualizados`);
+      setCatalogOpen(true);
+      load();
+    } catch (e: any) {
+      toast(e?.message || 'No se pudo cargar el Excel de lotes', 'err');
+    } finally {
+      if (lotCatalogFileRef.current) lotCatalogFileRef.current.value = '';
+    }
+  }
+
+  async function deleteCatalogRow(row: LotCatalogRow) {
+    if (!row.id || !confirm(`Eliminar ${row.code} de la lista base?`)) return;
+    try {
+      await api.post(`/plan/lot-catalog/delete/${projectId}/${row.id}`, {});
+      toast('Lote base eliminado');
       load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -191,10 +383,6 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
   async function deleteStreet(street: Block) {
     if (!confirm(`Eliminar calle ${street.name}? Sus lotes no se borran, quedan sin calle.`)) return;
     try { await api.post(`/plan/street/delete/${street.id}`); toast('Calle eliminada'); load(); } catch (e: any) { toast(e.message, 'err'); }
-  }
-
-  async function duplicateStreet(street: Block) {
-    try { await api.post(`/plan/street/duplicate/${street.id}`); toast('Calle duplicada'); load(); } catch (e: any) { toast(e.message, 'err'); }
   }
 
   async function deleteLot(lot: Lot) {
@@ -270,17 +458,21 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
   }
 
   const lotTypes = Array.from(new Set(lots.map((lot: any) => String(lot.type || '').trim()).filter(Boolean))).sort();
+  const filteredCatalog = lotCatalog.filter((row) => {
+    const query = catalogSearch.trim().toLowerCase();
+    return !query || [row.code, row.address, row.type, row.status, row.client].some((value) => String(value || '').toLowerCase().includes(query));
+  });
   const filteredLots = lots.filter((lot: any) => {
     const query = lotSearch.trim().toLowerCase();
     const street = streetForLot(lot);
     const matchesSearch = !query || [lot.code, street?.name, street?.address, lot.type].some((value) => String(value || '').toLowerCase().includes(query));
     const matchesStreet = !lotStreetFilter || Number(street?.id) === Number(lotStreetFilter);
     const matchesType = !lotTypeFilter || String(lot.type || '') === lotTypeFilter;
-    return matchesSearch && matchesStreet && matchesType;
+    return matchesSearch && matchesType && matchesStreet;
   });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 overflow-x-hidden">
       <div className="card">
         <div className="flex flex-wrap items-center gap-2 justify-between">
           <div className="flex items-center gap-2">
@@ -302,39 +494,15 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 card overflow-hidden !p-0 relative bg-slate-100" style={{ aspectRatio: '1000 / 800' }}>
-          <svg ref={svgRef} viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="w-full h-full cursor-crosshair" onClick={addNode}>
-            {imgUrl && <image href={imgUrl} x={imgX} y={imgY} width={imgW} height={imgH} preserveAspectRatio="xMidYMid meet" />}
+      <div className={`grid grid-cols-1 items-stretch gap-4 min-w-0 ${mode === 'none' ? 'lg:grid-cols-3' : 'lg:grid-cols-[7fr_3fr] lg:h-[calc(100vh-260px)]'}`}>
+        <div className={`${mode === 'none' ? 'lg:col-span-2' : 'lg:h-full w-full'} card overflow-hidden !p-0 relative bg-slate-100 min-w-0`} style={mode === 'none' ? { aspectRatio: '1000 / 800' } : undefined}>
+          <svg ref={svgRef} viewBox={`${-viewState.x / viewState.scale} ${-viewState.y / viewState.scale} ${SVG_W / viewState.scale} ${SVG_H / viewState.scale}`} className={`w-full h-full ${viewLocked ? 'cursor-crosshair' : 'cursor-zoom-in'}`} onClick={addNode}>
+            {displayImgUrl && <image href={displayImgUrl} x={imgX} y={imgY} width={imgW} height={imgH} preserveAspectRatio="xMidYMid meet" />}
             {streets.map((street, index) => {
               const tone = streetTone(index, selectedStreet === street.id && mode === 'none');
-              const label = streetLabelBox(street.points, street.name);
               return (
                 <g key={street.id} onClick={(e) => { if (mode === 'none') { e.stopPropagation(); setSelectedStreet(selectedStreet === street.id ? null : street.id); } }} style={{ pointerEvents: mode === 'lot' ? 'none' : 'auto' }}>
                   <polygon points={street.points.map((p) => `${p.x},${p.y}`).join(' ')} fill={tone.fill} stroke={tone.stroke} strokeWidth={selectedStreet === street.id ? 2.5 : 1.2} />
-                  <g transform={`translate(${label.x} ${label.y}) rotate(${label.angle})`} style={{ pointerEvents: 'none' }}>
-                    {/* Sin fondo: el nombre de la calle se apoya solo en su tipografia y su contorno de color */}
-                    <text
-                      y={1}
-                      fontSize={label.fontSize}
-                      fontWeight={700}
-                      fontFamily="Georgia, 'Times New Roman', serif"
-                      fontStyle="italic"
-                      letterSpacing={1.5}
-                      stroke="#FFC107"
-                      strokeWidth={2}
-                      strokeOpacity={0.95}
-                      paintOrder="stroke"
-                      strokeLinejoin="round"
-                      textAnchor="middle"
-                      dominantBaseline="central"
-                      fill="#FFFFFF"
-                      textLength={label.width}
-                      lengthAdjust="spacingAndGlyphs"
-                    >
-                      {street.name}
-                    </text>
-                  </g>
                 </g>
               );
             })}
@@ -343,7 +511,7 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
               return (
                 <g key={lot.id} onClick={(e) => e.stopPropagation()} style={{ pointerEvents: 'all' }}>
                   <polygon points={lot.points.map((p) => `${p.x},${p.y}`).join(' ')} fill="#cbd5e1" fillOpacity={0.55} stroke="#94a3b8" strokeWidth={1} />
-                  <text x={c.x} y={c.y + 4} fontSize={11} textAnchor="middle" fontWeight={600}>{lot.code}</text>
+                  <text x={c.x} y={c.y + 3} fontSize={9} textAnchor="middle" fontWeight={600}>{lot.code}</text>
                 </g>
               );
             })}
@@ -351,176 +519,123 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
             {draft.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={5} fill="#1877F2" stroke="#fff" strokeWidth={1.5} />)}
           </svg>
           {!imgUrl && <div className="absolute inset-0 grid place-items-center text-sm" style={{ color: '#6B7280' }}>Sube la imagen del plano para dibujar sobre ella.</div>}
+
+          {/* Controles de zoom / llave (igual que la vista publica) */}
+          <div className="absolute right-3 top-3 z-10 flex flex-col gap-1.5">
+            <button type="button" onClick={() => zoomCentered(1.25)} className="grid h-9 w-9 place-items-center rounded-lg bg-white/90 text-lg font-bold text-slate-700 shadow hover:bg-white" title="Acercar (+)">+</button>
+            <button type="button" onClick={() => zoomCentered(0.8)} className="grid h-9 w-9 place-items-center rounded-lg bg-white/90 text-lg font-bold text-slate-700 shadow hover:bg-white" title="Alejar (-)">−</button>
+            <button
+              type="button"
+              onClick={() => setViewLocked((value) => !value)}
+              className={`grid h-9 w-9 place-items-center rounded-lg shadow transition-colors ${viewLocked ? 'bg-[#1877F2] text-white' : 'bg-white/90 text-slate-700 hover:bg-white'}`}
+              title={viewLocked ? 'Vista fija activada (bloquea la rueda)' : 'Liberar zoom con la rueda'}
+            >
+              {viewLocked ? <FiLock /> : <FiUnlock />}
+            </button>
+            <button type="button" onClick={resetView} className="grid h-9 w-9 place-items-center rounded-lg bg-white/90 text-slate-700 shadow hover:bg-white" title="Restablecer vista"><FiRotateCcw /></button>
+          </div>
         </div>
 
-        <div className="space-y-4">
+        <div className="min-w-0 space-y-4 lg:self-stretch">
           {mode === 'none' && (
-            <div className="card">
-              <p className="text-xs" style={{ color: '#6B7280' }}>Usa Calle / Lote para dibujar sobre el plano. Las listas de calles y lotes estan debajo.</p>
-            </div>
+            <>
+              <div className="card">
+                <p className="text-xs" style={{ color: '#6B7280' }}>Usa Calle / Lote para dibujar sobre el plano.</p>
+                <button className="btn-neutral mt-3 w-full justify-center" onClick={() => setStreetsOpen((value) => !value)}>
+                  Calles ({streets.length})
+                </button>
+              </div>
+              {streetsOpen && (
+                <div className="card">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <h4 className="font-semibold">Calles ({streets.length})</h4>
+                    <button className="btn-neutral !h-7 !px-2 text-xs" onClick={() => setStreetsOpen(false)}>Cerrar</button>
+                  </div>
+                  <ul className="max-h-[460px] space-y-2 overflow-y-auto pr-1 text-sm">
+                    {streets.map((street, index) => {
+                      const tone = streetTone(index, selectedStreet === street.id);
+                      const lotsCount = countLotsIn(street);
+                      return (
+                        <li key={street.id} className="rounded-lg border p-2" style={{ borderColor: tone.stroke, background: selectedStreet === street.id ? '#E7F0FE' : '#fff' }}>
+                          <div className="flex items-center justify-between gap-2">
+                            <button onClick={() => setSelectedStreet(selectedStreet === street.id ? null : street.id)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left font-bold" style={{ color: '#171717' }}>
+                              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md text-white" style={{ background: tone.stroke }}>{index + 1}</span>
+                              <span className="min-w-0">
+                                <span className="block truncate">{street.name}</span>
+                                <span className="block text-xs font-medium" style={{ color: lotsCount ? '#067a46' : '#94a3b8' }}>{lotsCount} {lotsCount === 1 ? 'lote' : 'lotes'}</span>
+                              </span>
+                            </button>
+                            <span className="flex shrink-0 flex-wrap items-center gap-1">
+                              <button className="btn-neutral !h-6 !px-2 text-xs" onClick={() => renameStreet(street)}>Nombrar</button>
+                              <button className="btn-danger !h-6 !px-2 text-xs" onClick={() => deleteStreet(street)}>Eliminar</button>
+                            </span>
+                          </div>
+                        </li>
+                      );
+                    })}
+                    {streets.length === 0 && <li className="text-xs" style={{ color: '#94a3b8' }}>Aun no hay calles dibujadas.</li>}
+                  </ul>
+                </div>
+              )}
+            </>
           )}
           {mode !== 'none' && (
-            <div className="card">
-              <h4 className="font-semibold mb-3">Guardar {mode === 'street' ? 'calle' : 'lote'}</h4>
+            <div className="card lg:h-full lg:overflow-y-auto">
+              <h4 className="mb-2 text-sm font-semibold">Guardar {mode === 'street' ? 'calle' : 'lote'}</h4>
               {mode === 'street' ? (
-                <button className="btn-primary w-full" onClick={saveStreet}>Guardar calle ({draft.length} pts)</button>
+                <div className="grid grid-cols-2 gap-2">
+                  <button className="btn-primary w-full" onClick={saveStreet}>Guardar calle ({draft.length} pts)</button>
+                  <button className="btn-neutral w-full" onClick={closeShape}>Cerrar forma</button>
+                </div>
               ) : (
-                <>
+                <div className="space-y-2 text-xs">
                   <Field label="Calle contenedora">
-                    <select className="input" value={selectedStreet || ''} onChange={(e) => setSelectedStreet(Number(e.target.value))}>
+                    <select className="input !h-9 text-sm" value={selectedStreet || ''} onChange={(e) => setSelectedStreet(Number(e.target.value))}>
                       <option value="">Selecciona...</option>
                       {streets.map((street) => <option key={street.id} value={street.id}>{street.name}</option>)}
                     </select>
                   </Field>
-                  <Field label="Codigo del lote *"><input className="input" value={lotInfo.code} onChange={(e) => setLotInfo({ ...lotInfo, code: e.target.value })} placeholder="L-01" /></Field>
+                  <Field label="Codigo del lote *">
+                    <input
+                      className="input !h-9 text-sm"
+                      list="project-lot-catalog-codes"
+                      value={lotInfo.code}
+                      onChange={(e) => applyCatalogToLot(e.target.value)}
+                      onBlur={(e) => applyCatalogToLot(e.target.value)}
+                      placeholder="L-1"
+                    />
+                    <datalist id="project-lot-catalog-codes">
+                      {lotCatalog.map((row) => <option key={row.id || row.code} value={row.code}>{row.address || row.type || row.status || ''}</option>)}
+                    </datalist>
+                  </Field>
+                  <Field label="Direccion"><input className="input !h-9 text-sm" value={lotInfo.address} onChange={(e) => setLotInfo({ ...lotInfo, address: e.target.value })} placeholder="Se llena desde la lista base" /></Field>
                   <div className="grid grid-cols-2 gap-2">
-                    <Field label="Area m2"><input type="number" className="input" value={lotInfo.area || ''} onChange={(e) => setLotInfo({ ...lotInfo, area: Number(e.target.value) })} /></Field>
-                    <Field label="Tipo"><input className="input" value={lotInfo.type} onChange={(e) => setLotInfo({ ...lotInfo, type: e.target.value })} placeholder="Ej: Esquina" /></Field>
+                    <Field label="Area m2"><input type="number" className="input !h-9 text-sm" value={lotInfo.area || ''} onChange={(e) => setLotInfo({ ...lotInfo, area: Number(e.target.value) })} /></Field>
+                    <Field label="Tipo"><input className="input !h-9 text-sm" value={lotInfo.type} onChange={(e) => setLotInfo({ ...lotInfo, type: e.target.value })} placeholder="Ej: Esquina" /></Field>
                   </div>
-                  <Field label="Precio US$/m2"><input type="number" className="input" value={lotInfo.price || ''} onChange={(e) => setLotInfo({ ...lotInfo, price: Number(e.target.value) })} /></Field>
                   <div className="grid grid-cols-2 gap-2">
-                    <Field label="Precio venta US$"><input type="number" className="input" value={lotInfo.salePrice || ''} onChange={(e) => setLotInfo({ ...lotInfo, salePrice: Number(e.target.value) })} /></Field>
-                    <Field label="Precio final US$"><input type="number" className="input" value={lotInfo.finalPrice || ''} onChange={(e) => setLotInfo({ ...lotInfo, finalPrice: Number(e.target.value) })} /></Field>
+                    <Field label="Dimensiones"><input className="input !h-9 text-sm" value={lotInfo.dimensions} onChange={(e) => setLotInfo({ ...lotInfo, dimensions: e.target.value })} placeholder="10m x 30m" /></Field>
+                    <Field label="Precio US$/m2"><input type="number" className="input !h-9 text-sm" value={lotInfo.price || ''} onChange={(e) => setLotInfo({ ...lotInfo, price: Number(e.target.value) })} /></Field>
                   </div>
-                  <button className="btn-primary w-full" onClick={() => saveLot(streets.find((x) => x.id === selectedStreet) || null)}>Guardar lote</button>
-                </>
-              )}
-              <button className="btn-neutral w-full mt-2" onClick={closeShape}>Cerrar forma</button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:items-stretch">
-        <div className="card flex min-h-[560px] min-w-0 flex-col">
-          <h4 className="font-semibold mb-2">Calles ({streets.length})</h4>
-          <ul className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 text-sm">
-            {streets.slice(streetPage * LIST_PAGE_SIZE, streetPage * LIST_PAGE_SIZE + LIST_PAGE_SIZE).map((street, index) => {
-              const globalIndex = streetPage * LIST_PAGE_SIZE + index;
-              const tone = streetTone(globalIndex, selectedStreet === street.id);
-              const lotsCount = countLotsIn(street);
-              return (
-                <li key={street.id} className="rounded-lg border p-2" style={{ borderColor: tone.stroke, background: selectedStreet === street.id ? '#E7F0FE' : '#fff' }}>
-                  <div className="flex items-center justify-between gap-2">
-                    <button onClick={() => setSelectedStreet(selectedStreet === street.id ? null : street.id)} className="flex items-center gap-2.5 flex-1 min-w-0 text-left font-bold" style={{ color: '#171717' }}>
-                      <span className="grid place-items-center w-7 h-7 rounded-md text-white font-bold shrink-0" style={{ background: tone.stroke }}>{globalIndex + 1}</span>
-                      <span className="min-w-0">
-                        <span className="block truncate">{street.name}</span>
-                        <span className="block text-xs font-medium" style={{ color: lotsCount ? '#067a46' : '#94a3b8' }}>{lotsCount} {lotsCount === 1 ? 'lote' : 'lotes'}</span>
-                      </span>
-                    </button>
-                    <span className="flex flex-wrap items-center gap-1 shrink-0">
-                      <button className="btn-neutral !h-6 !px-2 text-xs" onClick={() => renameStreet(street)}>Nombrar</button>
-                      <button className="btn-neutral !h-6 !px-2 text-xs" onClick={() => duplicateStreet(street)}>Duplicar</button>
-                      <button className="btn-danger !h-6 !px-2 text-xs" onClick={() => deleteStreet(street)}>Eliminar</button>
-                    </span>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Precio venta US$"><input type="number" className="input !h-9 text-sm" value={lotInfo.salePrice || ''} onChange={(e) => setLotInfo({ ...lotInfo, salePrice: Number(e.target.value) })} /></Field>
+                    <Field label="Precio final US$"><input type="number" className="input !h-9 text-sm" value={lotInfo.finalPrice || ''} onChange={(e) => setLotInfo({ ...lotInfo, finalPrice: Number(e.target.value) })} /></Field>
                   </div>
-                </li>
-              );
-            })}
-            {streets.length === 0 && <li className="text-xs" style={{ color: '#94a3b8' }}>Aun no hay calles dibujadas.</li>}
-          </ul>
-          {streets.length > LIST_PAGE_SIZE && (
-            <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2" style={{ borderColor: '#EEF0F2' }}>
-              <button className="btn-neutral !h-7 !px-2 text-xs" disabled={streetPage <= 0} onClick={() => setStreetPage((v) => Math.max(0, v - 1))}>Anterior</button>
-              <span className="text-xs" style={{ color: '#6B7280' }}>Pagina {Math.min(streetPage, Math.floor((streets.length - 1) / LIST_PAGE_SIZE)) + 1} de {Math.max(1, Math.ceil(streets.length / LIST_PAGE_SIZE))}</span>
-              <button className="btn-neutral !h-7 !px-2 text-xs" disabled={streetPage >= Math.max(0, Math.ceil(streets.length / LIST_PAGE_SIZE) - 1)} onClick={() => setStreetPage((v) => v + 1)}>Siguiente</button>
-            </div>
-          )}
-        </div>
-
-        <div className="card flex min-h-[560px] min-w-0 flex-col">
-          <div className="mb-3 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="font-semibold">Lotes ({filteredLots.length})</h4>
-              <button className="btn-neutral !h-8 !px-3 text-xs" onClick={clearLotFilters}>Limpiar filtros</button>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <input className="input !h-8 text-xs min-w-40 flex-1" value={lotSearch} onChange={(e) => setLotSearch(e.target.value)} placeholder="Nro. lote o calle" />
-              <select className="input !h-8 text-xs" value={lotStreetFilter} onChange={(e) => setLotStreetFilter(e.target.value)}>
-                <option value="">Calle: todas</option>
-                {streets.map((street) => <option key={street.id} value={street.id}>{street.name}</option>)}
-              </select>
-              <select className="input !h-8 text-xs" value={lotTypeFilter} onChange={(e) => setLotTypeFilter(e.target.value)}>
-                <option value="">Tipo: todos</option>
-                {lotTypes.map((type) => <option key={type} value={type}>{type}</option>)}
-              </select>
-            </div>
-          </div>
-          {editingLot && (
-            <div className="mb-3 rounded-md border bg-slate-50 p-3" style={{ borderColor: '#DCE4EE' }}>
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <h5 className="text-sm font-semibold">Editar lote {editingLot.code}</h5>
-                <button className="btn-neutral !h-7 !px-2 text-xs" onClick={() => setEditingLot(null)}>Cerrar</button>
-              </div>
-              <div className="grid grid-cols-2 gap-2 xl:grid-cols-4">
-                <Field label="Nro. Lote"><input className="input !h-9" value={editingLot.code} onChange={(e) => setEditingLot({ ...editingLot, code: e.target.value })} /></Field>
-                <Field label="Calle">
-                  <select className="input !h-9" value={editingLot.streetId || ''} onChange={(e) => setEditingLot({ ...editingLot, streetId: Number(e.target.value) })}>
-                    <option value="">Selecciona...</option>
-                    {streets.map((street) => <option key={street.id} value={street.id}>{street.name}</option>)}
-                  </select>
-                </Field>
-                <Field label="Tipo"><input className="input !h-9" value={editingLot.type} onChange={(e) => setEditingLot({ ...editingLot, type: e.target.value })} /></Field>
-                <Field label="Dimension m2"><input className="input !h-9" type="number" value={editingLot.areaM2 || ''} onChange={(e) => setEditingLot({ ...editingLot, areaM2: Number(e.target.value) })} /></Field>
-                <Field label="Precio US$/m2"><input className="input !h-9" type="number" value={editingLot.price || ''} onChange={(e) => setEditingLot({ ...editingLot, price: Number(e.target.value) })} /></Field>
-                <Field label="Precio Venta US$"><input className="input !h-9" type="number" value={editingLot.salePrice || ''} onChange={(e) => setEditingLot({ ...editingLot, salePrice: Number(e.target.value) })} /></Field>
-                <Field label="Precio Final US$"><input className="input !h-9" type="number" value={editingLot.finalPrice || ''} onChange={(e) => setEditingLot({ ...editingLot, finalPrice: Number(e.target.value) })} /></Field>
-                <div className="flex items-end gap-2">
-                  <button className="btn-primary !h-9 flex-1" onClick={saveEditedLot}>Guardar</button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Estado base"><input className="input !h-9 text-sm" value={lotInfo.catalogStatus} onChange={(e) => setLotInfo({ ...lotInfo, catalogStatus: e.target.value })} /></Field>
+                    <Field label="Cliente base"><input className="input !h-9 text-sm" value={lotInfo.client} onChange={(e) => setLotInfo({ ...lotInfo, client: e.target.value })} /></Field>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 pt-1">
+                    <button className="btn-primary w-full" onClick={() => saveLot(streets.find((x) => x.id === selectedStreet) || null)}>Guardar lote</button>
+                    <button className="btn-neutral w-full" onClick={closeShape}>Cerrar forma</button>
+                  </div>
                 </div>
-              </div>
-            </div>
-          )}
-          <div className="min-h-0 flex-1 overflow-auto rounded-lg border" style={{ borderColor: '#E5E7EB' }}>
-            <table className="min-w-[920px] w-full text-sm">
-              <thead className="sticky top-0 bg-white">
-                <tr>
-                  <th className="th-base">Nro. Lote</th>
-                  <th className="th-base">Direccion</th>
-                  <th className="th-base">Tipo</th>
-                  <th className="th-base">Dimension</th>
-                  <th className="th-base" style={{ textAlign: 'right' }}>Precio US$/m2</th>
-                  <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta US$</th>
-                  <th className="th-base" style={{ textAlign: 'right' }}>Precio Final US$</th>
-                  <th className="th-base" style={{ textAlign: 'right' }}>Accion</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredLots.slice(lotPage * LIST_PAGE_SIZE, lotPage * LIST_PAGE_SIZE + LIST_PAGE_SIZE).map((lot: any) => {
-                  const street = streetForLot(lot);
-                  const pricePerM2 = Number(lot.price || 0);
-                  return (
-                    <tr key={lot.id}>
-                      <td className="td-base font-semibold">{lot.code}</td>
-                      <td className="td-base">{street?.address || lot.streetAddress || lot.blockAddress || street?.name || lot.streetName || lot.blockName || '-'}</td>
-                      <td className="td-base">{lot.type || '-'}</td>
-                      <td className="td-base">{Number(lot.areaM2 || 0).toLocaleString('es-PE')} m2</td>
-                      <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{pricePerM2 ? formatUsd(pricePerM2) : '-'}</td>
-                      <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{lot.salePrice ? formatUsd(lot.salePrice) : '-'}</td>
-                      <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{lot.finalPrice ? formatUsd(lot.finalPrice) : '-'}</td>
-                      <td className="td-base" style={{ textAlign: 'right' }}>
-                        <div className="flex justify-end gap-1.5">
-                          <button className="btn-neutral !h-7 !px-2 text-xs shrink-0" onClick={() => startEditLot(lot)}>Editar</button>
-                          <button className="btn-danger !h-7 !px-2 text-xs shrink-0" onClick={() => deleteLot(lot)}>Eliminar</button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-                {filteredLots.length === 0 && <tr><td className="td-base text-center text-slate-400" colSpan={8}>Aun no hay lotes con esos filtros.</td></tr>}
-              </tbody>
-            </table>
-          </div>
-          {filteredLots.length > LIST_PAGE_SIZE && (
-            <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2" style={{ borderColor: '#EEF0F2' }}>
-              <button className="btn-neutral !h-7 !px-2 text-xs" disabled={lotPage <= 0} onClick={() => setLotPage((v) => Math.max(0, v - 1))}>Anterior</button>
-              <span className="text-xs" style={{ color: '#6B7280' }}>Pagina {Math.min(lotPage, Math.floor((filteredLots.length - 1) / LIST_PAGE_SIZE)) + 1} de {Math.max(1, Math.ceil(filteredLots.length / LIST_PAGE_SIZE))}</span>
-              <button className="btn-neutral !h-7 !px-2 text-xs" disabled={lotPage >= Math.max(0, Math.ceil(filteredLots.length / LIST_PAGE_SIZE) - 1)} onClick={() => setLotPage((v) => v + 1)}>Siguiente</button>
+              )}
             </div>
           )}
         </div>
       </div>
+
     </div>
   );
 }

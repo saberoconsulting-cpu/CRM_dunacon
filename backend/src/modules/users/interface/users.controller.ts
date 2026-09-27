@@ -2,6 +2,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseIntPipe,
@@ -47,6 +48,12 @@ export class UsersController {
     return this.usersService.findAdmins();
   }
 
+  @Get('detail/:id')
+  @Roles(UserRole.SUPERADMIN)
+  getOne(@Param('id', ParseIntPipe) id: number) {
+    return this.usersService.getOne(id);
+  }
+
   @Get('activity/:id')
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
   activity(@Param('id', ParseIntPipe) id: number) {
@@ -66,7 +73,7 @@ export class UsersController {
   }
 
   @Post('update/:id')
-  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  @Roles(UserRole.SUPERADMIN)
   update(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateUserDto,
@@ -76,7 +83,7 @@ export class UsersController {
   }
 
   @Post('status/:id/:status')
-  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  @Roles(UserRole.SUPERADMIN)
   setStatus(
     @Param('id', ParseIntPipe) id: number,
     @Param('status') status: 'active' | 'inactive',
@@ -86,12 +93,18 @@ export class UsersController {
   }
 
   @Post('reset-password/:id')
-  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  @Roles(UserRole.SUPERADMIN)
   resetPassword(
     @Param('id', ParseIntPipe) id: number,
     @Body('newPassword') newPassword: string,
     @CurrentUser('id') actorId: number,
   ) {
     return this.usersService.resetPassword(id, newPassword, actorId);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.SUPERADMIN)
+  remove(@Param('id', ParseIntPipe) id: number, @CurrentUser('id') actorId: number) {
+    return this.usersService.remove(id, actorId);
   }
 }

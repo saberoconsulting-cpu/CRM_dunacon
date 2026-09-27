@@ -1,10 +1,13 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api } from '@/lib/api';
-import { LOT_STATUS_COLOR, LOT_STATUS_LABEL, LotStatus, formatMoney, formatDate } from '@/lib/types';
+import { LOT_STATUS_COLOR, LOT_STATUS_LABEL, LotStatus, formatDate } from '@/lib/types';
 import { Select } from '@/components/ui/Select';
 import { printHtml } from '@/lib/print';
+import CurrencyToggle from '@/components/ui/CurrencyToggle';
+import { moneyGlobal, useDisplayCurrency } from '@/lib/currency';
 import {
   FiArrowRight,
   FiCheckCircle,
@@ -46,22 +49,7 @@ function toDateInput(value?: string | Date | null) {
 
 function inferDimensions(lot: any) {
   if (lot?.dimensions) return lot.dimensions;
-  const points = Array.isArray(lot?.points) ? lot.points : [];
-  const area = Number(lot?.areaM2 || 0);
-  if (points.length < 2 || area <= 0) return '—';
-
-  const xs = points.map((point: any) => Number(point.x)).filter(Number.isFinite);
-  const ys = points.map((point: any) => Number(point.y)).filter(Number.isFinite);
-  if (!xs.length || !ys.length) return '—';
-
-  const widthUnits = Math.max(...xs) - Math.min(...xs);
-  const heightUnits = Math.max(...ys) - Math.min(...ys);
-  if (widthUnits <= 0 || heightUnits <= 0) return '—';
-
-  const ratio = widthUnits / heightUnits;
-  const width = Math.sqrt(area * ratio);
-  const height = area / width;
-  return `${formatMeters(width)}m x ${formatMeters(height)}m`;
+  return EMPTY;
 }
 
 function detailStatusColor(status: string) {
@@ -208,8 +196,42 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const [working, setWorking] = useState(false);
   const [fin, setFin] = useState<any>({ sale: null, installments: [] });
   const [lotizacion, setLotizacion] = useState({ salePrice: 0, finalPrice: 0, status: 'disponible', statusDate: '' });
+  // Datos base del lote editables (solo admin). Los montos del lote importado se
+  // guardan en US$; el toggle solo los muestra convertidos a soles cuando se pide.
+  const [lotData, setLotData] = useState({ code: '', streetId: 0, type: '', dimensions: '', areaM2: 0, price: 0 });
+  const [streets, setStreets] = useState<any[]>([]);
   const [view, setView] = useState<'detalle' | 'vender'>('detalle');
   const canEdit = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
+  // Moneda de la ficha: el cliente pidio que se muestre en dolares por defecto,
+  // pero con la opcion de cambiarla. Si el usuario aun no eligio moneda
+  // (no hay preferencia guardada), arrancamos en US$.
+  const { currency, setCurrency, exchangeRate, setExchangeRate, format: showMoney } = useDisplayCurrency();
+  useEffect(() => {
+    try {
+      if (typeof window !== 'undefined' && !window.localStorage.getItem('crm_display_currency')) {
+        setCurrency('USD');
+      }
+    } catch {}
+    // Solo al montar: despues el usuario manda con el toggle.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const formatLotMoney = (valueInUSD: unknown) => {
+    const n = Number(valueInUSD || 0);
+    if (!n) return '';
+    const displayed = currency === 'PEN' ? n * (exchangeRate || 1) : n;
+    return `${currency === 'PEN' ? 'S/' : 'US$'} ${displayed.toLocaleString('es-PE', { maximumFractionDigits: 0 })}`;
+  };
+  const money = (value: unknown) => (Number(value || 0) ? formatLotMoney(value) : EMPTY);
+  const toEditValue = (valueInUSD: unknown) => {
+    const n = Number(valueInUSD || 0);
+    if (!n) return '';
+    const displayed = currency === 'PEN' ? n * (exchangeRate || 1) : n;
+    return Number(displayed.toFixed(2));
+  };
+  const fromEditValue = (value: unknown) => {
+    const n = Number(value || 0);
+    return currency === 'PEN' ? Number((n / (exchangeRate || 1)).toFixed(2)) : n;
+  };
 
   async function load() {
     if (!lotId) return;
@@ -223,12 +245,33 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
         status: d.lot?.status || 'disponible',
         statusDate: toDateInput(lastStatusDate),
       });
+      // Precarga los datos base del lote para el formulario de edicion.
+      setLotData({
+        code: d.lot?.code || '',
+        streetId: Number(d.lot?.streetId ?? d.lot?.blockId ?? 0),
+        type: d.lot?.type || '',
+        dimensions: d.lot?.dimensions || '',
+        areaM2: Number(d.lot?.areaM2 || 0),
+        price: Number(d.lot?.price || 0),
+      });
       const fin = await api.get<any>(`/sales/by-lot/${lotId}`).catch(() => ({ sale: null, installments: [] }));
       setFin(fin);
     }
     catch (e:any){ toast(e.message,'err'); }
   }
   useEffect(() => { setLot(null); setBlock(null); setPlan(null); setHistory([]); setPayments([]); setFin({ sale: null, installments: [] } as any); setView('detalle'); if (lotId) load(); }, [lotId]);
+
+  // Calles del proyecto del lote: solo se necesitan para el formulario de
+  // edicion del admin (selector "Calle"), por eso se cargan aparte y bajo demanda.
+  const projectId = Number(lot?.projectId || 0);
+  useEffect(() => {
+    if (!canEdit || !projectId) return;
+    let active = true;
+    api.get<any>(`/plan/project/${projectId}`)
+      .then((d) => { if (active) setStreets(d.streets || d.blocks || []); })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [canEdit, projectId]);
   useEffect(() => {
     if (!lot || !initialFocus) return;
     const timer = window.setTimeout(() => {
@@ -240,15 +283,26 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
 
   async function saveLotizacion() {
     if (!lot) return;
+    if (canEdit && !lotData.code.trim()) return toast('Ingresa el numero de lote', 'err');
+    if (canEdit && !lotData.streetId) return toast('Selecciona la calle del lote', 'err');
     setWorking(true);
     try {
       await api.post(`/plan/lot/update/${lot.id}`, {
-        salePrice: lotizacion.salePrice || undefined,
-        finalPrice: lotizacion.finalPrice || undefined,
+        // Datos base del lote (solo admin los edita; el backend tambien los protege).
+        ...(canEdit ? {
+          code: lotData.code.trim(),
+          streetId: lotData.streetId,
+          type: lotData.type || undefined,
+          dimensions: lotData.dimensions || undefined,
+          areaM2: lotData.areaM2 || undefined,
+          price: fromEditValue(lotData.price) || undefined,
+        } : {}),
+        salePrice: fromEditValue(lotizacion.salePrice) || undefined,
+        finalPrice: fromEditValue(lotizacion.finalPrice) || undefined,
         status: lotizacion.status,
         statusDate: lotizacion.statusDate || undefined,
       });
-      toast('Lotización actualizada'); await load(); onChanged?.();
+      toast('Ficha del lote actualizada'); await load(); onChanged?.();
     } catch (e: any) { toast(e.message, 'err'); } finally { setWorking(false); }
   }
 
@@ -294,16 +348,16 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
       ['Estado', LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status],
       ['Area', formatArea(lot.areaM2)],
       ['Dimensiones', inferDimensions(lot)],
-      ['Precio por m2', pricePerM2 ? formatMoney(pricePerM2) : '—'],
-      ['Precio de Venta', lot.salePrice ? formatMoney(lot.salePrice) : '—'],
-      ['Precio Final', lot.finalPrice ? formatMoney(lot.finalPrice) : '—'],
+      ['Precio por m2', pricePerM2 ? money(pricePerM2) : EMPTY],
+      ['Precio de Venta', lot.salePrice ? money(lot.salePrice) : EMPTY],
+      ['Precio Final', lot.finalPrice ? money(lot.finalPrice) : EMPTY],
       ['Cliente', lot.clientName || '—'],
     ];
     const paymentRows = payments.map((p: any) => `
       <tr>
         <td>${escapeHtml(p.type || '—')}</td>
         <td>${escapeHtml(p.paymentMethod || '—')}</td>
-        <td class="num">${escapeHtml(formatMoney(p.amount))}</td>
+        <td class="num">${escapeHtml(showMoney(p.amount))}</td>
         <td>${escapeHtml(p.status || '—')}</td>
         <td>${escapeHtml(formatDate(p.paidAt || p.createdAt || ''))}</td>
       </tr>
@@ -319,7 +373,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
       <tr>
         <td>Cuota ${escapeHtml(q.installmentNo || '—')}</td>
         <td>${escapeHtml(formatDate(q.dueDate))}</td>
-        <td class="num">${escapeHtml(formatMoney(q.amount))}</td>
+        <td class="num">${escapeHtml(showMoney(q.amount))}</td>
         <td>${escapeHtml(q.status || '—')}</td>
       </tr>
     `).join('');
@@ -379,7 +433,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
           <div class="summary">
             <div><span>Estado</span><strong>${escapeHtml(LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status)}</strong></div>
             <div><span>Area</span><strong>${escapeHtml(formatArea(lot.areaM2))}</strong></div>
-            <div><span>Precio final</span><strong>${escapeHtml(lot.finalPrice ? formatMoney(lot.finalPrice) : lot.salePrice ? formatMoney(lot.salePrice) : formatMoney(lot.price))}</strong></div>
+            <div><span>Precio final</span><strong>${escapeHtml(lot.finalPrice ? money(lot.finalPrice) : lot.salePrice ? money(lot.salePrice) : money(Number(lot.price || 0) * Number(lot.areaM2 || 0)))}</strong></div>
           </div>
           <h2>Informacion del lote</h2>
           <table><tbody>
@@ -392,11 +446,11 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
           </table>
           <h2>Financiamiento del lote</h2>
           <div class="summary">
-            <div><span>Valor del lote</span><strong>${escapeHtml(formatMoney(unitPrice))}</strong></div>
-            <div><span>Total abonado</span><strong>${escapeHtml(formatMoney(amountPaid))}</strong></div>
-            <div><span>Saldo por pagar</span><strong>${escapeHtml(formatMoney(remaining))}</strong></div>
+            <div><span>Valor del lote</span><strong>${escapeHtml(money(unitPrice))}</strong></div>
+            <div><span>Total abonado</span><strong>${escapeHtml(money(amountPaid))}</strong></div>
+            <div><span>Saldo por pagar</span><strong>${escapeHtml(money(remaining))}</strong></div>
             <div><span>Avance</span><strong>${donePct}%</strong></div>
-            <div><span>Valor cuota</span><strong>${escapeHtml(formatMoney(aheadPayment))}</strong></div>
+            <div><span>Valor cuota</span><strong>${escapeHtml(money(aheadPayment))}</strong></div>
             <div><span>Cuotas</span><strong>${schedule.length}</strong></div>
             <div><span>Pagadas</span><strong>${closed}</strong></div>
             <div><span>Pendientes</span><strong>${Math.max(0, schedule.length - closed)}</strong></div>
@@ -419,13 +473,15 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
 
   const statusColor = lot ? ((LOT_STATUS_COLOR as any)[lot.status] || '#64748b') : '#64748b';
   const tableStatusColor = lot ? detailStatusColor(lot.status) : '#64748b';
-  const pricePerM2 = lot && Number(lot.areaM2) > 0 ? Number(lot.price) / Number(lot.areaM2) : 0;
+  const pricePerM2 = Number(lot?.price || 0);
 
   const paids = (payments as any[]) || [];
   const amountPaid = paids.filter((p) => p.status === 'pagado').reduce((s: number, p) => s + Number(p.amount || 0), 0);
   const saleFn = fin?.sale;
   const schedule = (fin?.installments || []) as any[];
-  const unitPrice = saleFn?.salePrice != null ? Number(saleFn.financingBase ?? saleFn.salePrice) : Number(lot?.price || saleFn?.salePrice || 0);
+  const unitPrice = saleFn?.salePrice != null
+    ? Number(saleFn.financingBase ?? saleFn.salePrice)
+    : Number(lot?.finalPrice || lot?.salePrice || (Number(lot?.price || 0) * Number(lot?.areaM2 || 0)));
   const aheadPayment = Number(saleFn?.valorCuota || (schedule[0]?.amount || 0));
   const closed = schedule.filter((x) => x.status === 'pagado').length;
   const firstDue = schedule[0]?.dueDate || null;
@@ -448,19 +504,24 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
     { label: 'Estado', value: statusLabel },
     { label: 'Area', value: formatArea(lot.areaM2) },
     { label: 'Dimensiones', value: inferDimensions(lot) },
-    { label: 'Precio por m2', value: pricePerM2 ? formatMoney(pricePerM2) : EMPTY },
-    { label: 'Precio de venta', value: lot.salePrice ? formatMoney(lot.salePrice) : EMPTY },
-    { label: 'Precio final', value: lot.finalPrice ? formatMoney(lot.finalPrice) : EMPTY },
+    { label: 'Precio por m2', value: money(pricePerM2) },
+    { label: 'Precio de venta', value: money(lot.salePrice) },
+    { label: 'Precio final', value: money(lot.finalPrice) },
   ];
 
   function focusPlan() {
     document.getElementById('lot-plan-preview')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
 
-  return (
-    <div className="fixed inset-0 z-50">
+  if (typeof document === 'undefined') return null;
+  // Se pinta en un portal a document.body para que SIEMPRE quede por encima de
+  // cualquier contenido de la pagina (planos, paneles "Base de lotes" con
+  // z-index alto, etc.). Sin el portal, el modal (z-50) quedaba detras de esos
+  // overlays que se montan en body y tapaban el formulario del lote.
+  return createPortal(
+    <div className="fixed inset-0 z-[20000]">
       <div className="absolute inset-0 bg-slate-950/50" onClick={onClose} />
-      <section className={`absolute left-1/2 top-1/2 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] ${compact ? 'max-w-5xl' : 'max-w-6xl'} -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-md bg-white shadow-[0_24px_70px_rgba(15,23,42,0.28)]`}>
+      <section className={`absolute left-1/2 top-1/2 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] ${compact ? 'max-w-4xl' : 'max-w-5xl'} -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-md bg-white shadow-[0_24px_70px_rgba(15,23,42,0.28)]`}>
         {view === 'detalle' && (
           <>
             <header className="border-b bg-white px-5 py-4 sm:px-6" style={{ borderColor: BORDER }}>
@@ -470,7 +531,13 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                   <h2 className="mt-1 text-2xl font-bold leading-tight" style={{ color: INK }}>Lote {lot.code || EMPTY}</h2>
                   <p className="mt-1 truncate text-sm" style={{ color: MUTED }}>{address}</p>
                 </div>
-                <div className="flex shrink-0 items-start gap-2">
+                <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
+                  <CurrencyToggle
+                    currency={currency}
+                    setCurrency={setCurrency}
+                    exchangeRate={exchangeRate}
+                    setExchangeRate={setExchangeRate}
+                  />
                   <span className="hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-bold sm:inline-flex" style={{ background: `${statusBadgeColor}14`, color: statusBadgeColor }}>
                     <FiCheckCircle /> {statusLabel}
                   </span>
@@ -540,14 +607,43 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
 
                   {canEdit && !compact && (
                     <div id="lot-edit-section" className="rounded-[16px] border bg-white p-4" style={{ borderColor: BORDER }}>
-                      <h4 className="mb-3 text-sm font-bold" style={{ color: INK }}>Editar Lotizacion</h4>
+                      <div className="mb-3 flex items-center justify-between gap-2">
+                        <h4 className="text-sm font-bold" style={{ color: INK }}>Editar ficha del lote</h4>
+                        <span className="badge" style={{ background: BLUE_LIGHT, color: BLUE }}>Solo administradores</span>
+                      </div>
+
+                      <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: MUTED }}>Datos del lote</p>
+                      <div className="flex flex-wrap items-end gap-2">
+                        <div className="min-w-32 flex-1"><Field label="Num. de lote *"><input className="input" value={lotData.code} onChange={(e) => setLotData({ ...lotData, code: e.target.value })} /></Field></div>
+                        <div className="min-w-36 flex-1">
+                          <Field label="Calle *">
+                            <Select
+                              value={String(lotData.streetId || '')}
+                              onChange={(v) => setLotData({ ...lotData, streetId: Number(v) })}
+                              options={[
+                                { value: '', label: 'Selecciona...' },
+                                ...streets.map((s: any) => ({ value: String(s.id), label: `${s.name}${s.address ? ` - ${s.address}` : ''}` })),
+                              ]}
+                            />
+                          </Field>
+                        </div>
+                        <div className="min-w-32 flex-1"><Field label="Tipo"><input className="input" value={lotData.type} onChange={(e) => setLotData({ ...lotData, type: e.target.value })} placeholder="Ej. Residencial" /></Field></div>
+                        <div className="min-w-28 flex-1"><Field label="Area (m2)"><input type="number" className="input" value={lotData.areaM2 || ''} onChange={(e) => setLotData({ ...lotData, areaM2: Number(e.target.value) })} /></Field></div>
+                        <div className="min-w-32 flex-1"><Field label="Dimensiones"><input className="input" value={lotData.dimensions} onChange={(e) => setLotData({ ...lotData, dimensions: e.target.value })} placeholder="Ej. 10m x 30m" /></Field></div>
+                        <div className="min-w-32 flex-1"><Field label={`Precio m2 (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotData.price)} onChange={(e) => setLotData({ ...lotData, price: fromEditValue(e.target.value) })} /></Field></div>
+                      </div>
+
+                      <p className="mb-2 mt-1 text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: MUTED }}>Estado y comercial</p>
                       <div className="flex flex-wrap items-end gap-2">
                         <div className="min-w-36 flex-1"><Field label="Estado"><Select value={lotizacion.status} onChange={(v) => setLotizacion({ ...lotizacion, status: v })} options={Object.entries(LOT_STATUS_LABEL).map(([key, label]) => ({ value: key, label }))} /></Field></div>
                         <div className="min-w-36 flex-1"><Field label="Fecha de estado"><input type="date" className="input" value={lotizacion.statusDate} onChange={(e) => setLotizacion({ ...lotizacion, statusDate: e.target.value })} /></Field></div>
-                        <div className="min-w-32 flex-1"><Field label="Precio venta (S/)"><input type="number" className="input" value={lotizacion.salePrice || ''} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: Number(e.target.value) })} /></Field></div>
-                        <div className="min-w-32 flex-1"><Field label="Precio final (S/)"><input type="number" className="input" value={lotizacion.finalPrice || ''} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: Number(e.target.value) })} /></Field></div>
-                        <button onClick={saveLotizacion} disabled={working} className="btn-secondary shrink-0">Guardar</button>
+                        <div className="min-w-32 flex-1"><Field label={`Precio venta (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotizacion.salePrice)} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: fromEditValue(e.target.value) })} /></Field></div>
+                        <div className="min-w-32 flex-1"><Field label={`Precio final (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotizacion.finalPrice)} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: fromEditValue(e.target.value) })} /></Field></div>
+                        <button onClick={saveLotizacion} disabled={working} className="btn-secondary shrink-0">{working ? 'Guardando...' : 'Guardar'}</button>
                       </div>
+                      <p className="mt-2 text-[11px]" style={{ color: MUTED }}>
+                        Los precios del lote se guardan en dólares. El modo soles solo convierte para visualizar o editar con tipo de cambio referencial.
+                      </p>
                     </div>
                   )}
 
@@ -559,13 +655,14 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                       </div>
                       <div className="mb-4 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full" style={{ width: donePct + '%', background: statusColor }} /></div>
                       <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Valor del lote</div><b>{formatMoney(unitPrice)}</b></div>
-                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Total abonado</div><b className="text-emerald-600">{formatMoney(amountPaid)}</b></div>
-                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Saldo por pagar</div><b style={{ color: BLUE_DARK }}>{formatMoney(remaining)}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Valor del lote</div><b>{money(unitPrice)}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Total abonado</div><b className="text-emerald-600">{money(amountPaid)}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Saldo por pagar</div><b style={{ color: BLUE_DARK }}>{money(remaining)}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Valor cuota</div><b className="text-slate-700">{money(aheadPayment)}</b></div>
                       </div>
                       {(schedule.length > 0 || aheadPayment > 0) && (
                         <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                          <span className="badge bg-slate-100 text-slate-600">Cuota: {formatMoney(aheadPayment)}</span>
+                          <span className="badge bg-slate-100 text-slate-600">Cuota: {money(aheadPayment)}</span>
                           <span className="badge bg-slate-100 text-slate-600">Cuotas: {schedule.length}</span>
                           <span className="badge bg-emerald-50 text-emerald-700">Pagadas: {closed}</span>
                           <span className="badge bg-amber-50 text-amber-700">Pendientes: {Math.max(0, schedule.length - closed)}</span>
@@ -577,7 +674,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                           {schedule.map((q) => (
                             <div key={q.id ?? q.installmentNo} className="flex items-center justify-between border-b border-slate-50 py-1 text-xs">
                               <span className="text-slate-500">Cuota {q.installmentNo} vence {formatDate(q.dueDate)}</span>
-                              <b className={q.status === 'pagado' ? 'text-emerald-600' : 'text-slate-700'}>{formatMoney(q.amount)}</b>
+                              <b className={q.status === 'pagado' ? 'text-emerald-600' : 'text-slate-700'}>{money(q.amount)}</b>
                             </div>
                           ))}
                         </div>
@@ -625,7 +722,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
           </div>
         )}
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
 export function PagosTable({ rows }: { rows: Row[] }) {
@@ -646,7 +744,7 @@ export function PagosTable({ rows }: { rows: Row[] }) {
               <td className="td-base capitalize">{p.type||''}</td>
               <td className="td-base capitalize">{(p as any).paymentMethod || '—'}</td>
               <td className="td-base">{(p as any).voucherUrl ? <a href={(p as any).voucherUrl} target="_blank" rel="noreferrer" className="text-[#1877F2] hover:underline">Ver comprobante</a> : '—'}</td>
-              <td className="td-base">{formatMoney(p.amount)}</td>
+              <td className="td-base">{moneyGlobal(p.amount)}</td>
               <td className="td-base"><StatusBadge status={(p as any).status||''}/></td>
               <td className="td-base">{formatDate((p as any).paidAt||(p as any).createdAt||'')}</td>
             </tr>

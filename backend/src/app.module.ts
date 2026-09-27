@@ -24,11 +24,13 @@ import { AppSettingEntity } from './shared/infrastructure/entities/app-setting.e
 import { ProjectDocumentEntity } from './shared/infrastructure/entities/project-document.entity';
 import { QuoteEntity } from './shared/infrastructure/entities/quote.entity';
 import { ConstructionBudgetItemEntity } from './shared/infrastructure/entities/construction-budget-item.entity';
+import { IncomeStatementItemEntity } from './shared/infrastructure/entities/income-statement-item.entity';
 import { BankAccountMovementEntity } from './shared/infrastructure/entities/bank-account-movement.entity';
 import { BankAccountBalanceEntity } from './shared/infrastructure/entities/bank-account-balance.entity';
 import { BankAccountEntity } from './shared/infrastructure/entities/bank-account.entity';
 import { BankCategoryMappingEntity } from './shared/infrastructure/entities/bank-category-mapping.entity';
 import { CashflowModelEntity } from './shared/infrastructure/entities/cashflow-model.entity';
+import { ProjectLotCatalogEntity } from './shared/infrastructure/entities/project-lot-catalog.entity';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ProjectsModule } from './modules/projects/projects.module';
@@ -43,6 +45,7 @@ import { SettingsModule } from './modules/settings/settings.module';
 import { DashboardsModule } from './modules/dashboards/dashboards.module';
 import { QuotesModule } from './modules/quotes/quotes.module';
 import { ConstructionBudgetModule } from './modules/construction-budget/construction-budget.module';
+import { IncomeStatementModule } from './modules/income-statement/income-statement.module';
 import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module';
 
 @Module({
@@ -79,6 +82,8 @@ import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module
         BankAccountBalanceEntity,
         BankAccountEntity,
         BankCategoryMappingEntity,
+        ProjectLotCatalogEntity,
+        IncomeStatementItemEntity,
         CashflowModelEntity,
       ],
       synchronize: false,
@@ -98,6 +103,7 @@ import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module
     DashboardsModule,
     QuotesModule,
     ConstructionBudgetModule,
+    IncomeStatementModule,
     BankAccountsModule,
   ],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

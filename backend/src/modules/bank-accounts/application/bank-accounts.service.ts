@@ -49,6 +49,54 @@ type ListFilters = {
   search?: string;
 };
 
+const DEFAULT_CATEGORY_MAPPINGS: Array<[string, string]> = [
+  ['APORTE CAPITAL', 'APORTE CAPITAL'],
+  ['PRESTAMO', 'PRESTAMO'],
+  ['VENTA DE LOTE', 'VENTA DE LOTE'],
+  ['INGRESO EXTRAORDINARIO', 'INGRESO EXTRAORDINARIO'],
+  ['CAMBIO DOLARES/SOLES', 'CAMBIO DOLARES/SOLES'],
+  ['COMPRA TERRENO', 'COMPRA TERRENO'],
+  ['DISEÑO - INGENIERIAS', 'DISEÑO - INGENIERIAS'],
+  ['MOVIMIENTO DE TIERRA', 'COSTO DE CONSTRUCCIÓN'],
+  ['CERCO PERIMETRICO', 'COSTO DE CONSTRUCCIÓN'],
+  ['PORTICO', 'COSTO DE CONSTRUCCIÓN'],
+  ['AFIRMADO DE TERRENO', 'COSTO DE CONSTRUCCIÓN'],
+  ['SARDINELES', 'COSTO DE CONSTRUCCIÓN'],
+  ['CISTERNA DE AGUA', 'COSTO DE CONSTRUCCIÓN'],
+  ['LOSA DE FULBITO - TENNIS', 'COSTO DE CONSTRUCCIÓN'],
+  ['PISCINA', 'COSTO DE CONSTRUCCIÓN'],
+  ['ZONA DE PARRILLAS', 'COSTO DE CONSTRUCCIÓN'],
+  ['CAMARAS DE VIDEOVIGILANCIA', 'COSTO DE CONSTRUCCIÓN'],
+  ['AREAS VERDES', 'COSTO DE CONSTRUCCIÓN'],
+  ['MARKETING - MKT DIGITAL', 'MARKETING - MKT DIGITAL'],
+  ['CAMPAÑAS - META ADS', 'CAMPAÑAS - META ADS'],
+  ['SERVICIO DE LUZ - AGUA', 'COSTO DE CONSTRUCCIÓN'],
+  ['ZONA DE FOGATAS', 'COSTO DE CONSTRUCCIÓN'],
+  ['JUEGO NIÑOS - EJERCICIOS', 'COSTO DE CONSTRUCCIÓN'],
+  ['OFICINA-STAND', 'COSTO DE CONSTRUCCIÓN'],
+  ['REDES DE AGUA', 'COSTO DE CONSTRUCCIÓN'],
+  ['REDES ELECTRICAS BT - INICIALES', 'COSTO DE CONSTRUCCIÓN'],
+  ['REDES ELECTRICAS BT/AP', 'COSTO DE CONSTRUCCIÓN'],
+  ['REDES ELECTRICAS MT', 'COSTO DE CONSTRUCCIÓN'],
+  ['REDES TELEFONIA', 'COSTO DE CONSTRUCCIÓN'],
+  ['RIEGO TECNIFICADO', 'COSTO DE CONSTRUCCIÓN'],
+  ['REDES SANITARIAS', 'COSTO DE CONSTRUCCIÓN'],
+  ['POZO DE AGUA', 'COSTO DE CONSTRUCCIÓN'],
+  ['CLUB HOUSE', 'COSTO DE CONSTRUCCIÓN'],
+  ['VEREDAS', 'COSTO DE CONSTRUCCIÓN'],
+  ['PISTAS', 'COSTO DE CONSTRUCCIÓN'],
+  ['INDEPENDIZACION LOTES', 'Independización y Titulación'],
+  ['DEVOLUCION', 'DEVOLUCION'],
+  ['Gastos de Administración', 'Gastos de Administración'],
+  ['Gastos Financieros', 'Gastos Financieros'],
+  ['PAGO DETRACCIONES', 'Gastos Financieros'],
+  ['VIGILANCIA', 'COSTO DE CONSTRUCCIÓN'],
+  ['VERIFICAR', 'VERIFICAR'],
+  ['COMISION VENTA LOTES', 'Comisión de Ventas'],
+  ['Gerencia de Proyectos', 'Gerencia de Proyectos'],
+  ['Mantenimiento de Instalaciones', 'COSTO DE CONSTRUCCIÓN'],
+];
+
 @Injectable()
 export class BankAccountsService {
   constructor(
@@ -445,11 +493,50 @@ export class BankAccountsService {
 
   async listCategories(projectId: number) {
     if (!projectId) throw new BadRequestException('Proyecto requerido');
+    await this.ensureProjectCategories(projectId);
     const items = await this.categoryRepo.find({
       where: { projectId, isActive: true },
       order: { sortOrder: 'ASC', id: 'ASC' },
     });
     return { items, unmapped: [], eerrOptions: Array.from(new Set(items.map((item) => item.eerrClassification))).sort() };
+  }
+
+  private async ensureProjectCategories(projectId: number) {
+    const projectExists = await this.categoryRepo.manager.query('SELECT 1 FROM "projects" WHERE "id" = $1 LIMIT 1', [projectId]);
+    if (!projectExists.length) return;
+    const existing = await this.categoryRepo.find({ where: { projectId } });
+    const known = new Set(existing.map((item) => normalizeHeader(item.movementType)));
+    const missing = DEFAULT_CATEGORY_MAPPINGS.filter(([movementType]) => !known.has(normalizeHeader(movementType)));
+    if (!missing.length) {
+      await this.ensureCategoryCodes(projectId);
+      return;
+    }
+    const baseOrder = existing.reduce((max, item) => Math.max(max, Number(item.sortOrder || 0)), 0);
+    await this.categoryRepo.save(missing.map(([movementType, eerrClassification], index) => this.categoryRepo.create({
+      projectId,
+      code: categoryCode(movementType),
+      movementType,
+      eerrClassification,
+      sortOrder: baseOrder + index + 1,
+      isActive: true,
+    })));
+    await this.ensureCategoryCodes(projectId);
+  }
+
+  private async ensureCategoryCodes(projectId: number) {
+    const items = await this.categoryRepo.find({ where: { projectId }, order: { sortOrder: 'ASC', id: 'ASC' } });
+    const used = new Set<string>();
+    const changed: BankCategoryMappingEntity[] = [];
+    for (const item of items) {
+      const current = cleanCell(item.code).toUpperCase();
+      const next = current && !used.has(current) ? current : uniqueCategoryCode(item.movementType, used);
+      used.add(next);
+      if (item.code !== next) {
+        item.code = next;
+        changed.push(item);
+      }
+    }
+    if (changed.length) await this.categoryRepo.save(changed);
   }
 
   /**
@@ -488,6 +575,7 @@ export class BankAccountsService {
     if (!dto.projectId) throw new BadRequestException('Proyecto requerido');
     const movementType = cleanCell(dto.movementType);
     const eerrClassification = cleanCell(dto.eerrClassification);
+    const code = cleanCell(dto.code).toUpperCase() || categoryCode(movementType);
     if (!movementType) throw new BadRequestException('Ingresa el TIPO INGRESO/GASTO');
     if (!eerrClassification) throw new BadRequestException('Ingresa la CLASIFICACION EERR');
 
@@ -495,6 +583,7 @@ export class BankAccountsService {
       const repo = manager.getRepository(BankCategoryMappingEntity);
       const duplicate = await repo.findOne({ where: { projectId: dto.projectId, movementType } });
       if (duplicate) {
+        duplicate.code = code;
         duplicate.eerrClassification = eerrClassification;
         duplicate.isActive = true;
         await repo.save(duplicate);
@@ -502,6 +591,7 @@ export class BankAccountsService {
       }
       await repo.save(repo.create({
         projectId: dto.projectId,
+        code,
         movementType,
         eerrClassification,
         sortOrder: dto.sortOrder ?? 0,
@@ -519,12 +609,14 @@ export class BankAccountsService {
 
     const movementType = dto.movementType !== undefined ? cleanCell(dto.movementType) : existing.movementType;
     const eerrClassification = dto.eerrClassification !== undefined ? cleanCell(dto.eerrClassification) : existing.eerrClassification;
+    const code = dto.code !== undefined ? cleanCell(dto.code).toUpperCase() : existing.code;
     if (!movementType) throw new BadRequestException('Ingresa el TIPO INGRESO/GASTO');
     if (!eerrClassification) throw new BadRequestException('Ingresa la CLASIFICACION EERR');
 
     const previousType = existing.movementType;
     await this.categoryRepo.manager.transaction(async (manager) => {
       Object.assign(existing, {
+        code: code || categoryCode(movementType),
         movementType,
         eerrClassification,
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
@@ -556,9 +648,13 @@ export class BankAccountsService {
 
   /** Mapa TIPO INGRESO/GASTO -> CLASIFICACION EERR para autocompletar. */
   private async categoryMap(projectId: number) {
+    await this.ensureProjectCategories(projectId);
     const items = await this.categoryRepo.find({ where: { projectId, isActive: true } });
     const map = new Map<string, string>();
-    for (const item of items) map.set(normalizeHeader(item.movementType), item.eerrClassification);
+    for (const item of items) {
+      map.set(normalizeHeader(item.movementType), item.eerrClassification);
+      if (item.code) map.set(normalizeHeader(item.code), item.eerrClassification);
+    }
     return map;
   }
 
@@ -932,6 +1028,41 @@ function normalizeHeader(value: string) {
 
 function cleanCell(value: unknown) {
   return String(value ?? '').replace(/\s+/g, ' ').trim();
+}
+
+function categoryCode(value: string) {
+  const words = cleanCell(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase() || 'CAT';
+  return words
+    .map((word) => word[0])
+    .join('')
+    .slice(0, 4)
+    .toUpperCase() || 'CAT';
+}
+
+function uniqueCategoryCode(value: string, used: Set<string>) {
+  const cleaned = cleanCell(value)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toUpperCase();
+  const base = categoryCode(value);
+  for (let length = base.length; length <= Math.min(12, cleaned.length || base.length); length++) {
+    const candidate = (cleaned.slice(0, length) || base).slice(0, 12);
+    if (candidate && !used.has(candidate)) return candidate;
+  }
+  for (let index = 2; index < 1000; index++) {
+    const suffix = String(index);
+    const candidate = `${base.slice(0, Math.max(1, 12 - suffix.length))}${suffix}`;
+    if (!used.has(candidate)) return candidate;
+  }
+  return base;
 }
 
 function parseItemNumber(value: unknown): number | null {

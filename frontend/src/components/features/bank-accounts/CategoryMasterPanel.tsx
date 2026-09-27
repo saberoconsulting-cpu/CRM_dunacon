@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 type Category = {
   id: number;
   projectId: number;
+  code?: string | null;
   movementType: string;
   eerrClassification: string;
   sortOrder: number;
@@ -23,7 +24,23 @@ type CategoryResponse = {
 const INK = '#0F172A';
 const BORDER = '#CBD5E1';
 const NAVY = '#002060';
-const INPUT_STYLE = { width: '95%', padding: 4, border: `1px solid ${BORDER}`, borderRadius: 4 };
+const INPUT_STYLE = { width: '100%', padding: '5px 6px', border: `1px solid ${BORDER}`, borderRadius: 4, fontSize: 12 };
+
+function makeCode(value: string) {
+  const words = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9\s]/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return words
+    .map((word) => word[0])
+    .join('')
+    .slice(0, 4)
+    .toUpperCase();
+}
 
 export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
   projectId: number;
@@ -33,10 +50,10 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
   const [items, setItems] = useState<Category[]>([]);
   const [unmapped, setUnmapped] = useState<Array<{ movementType: string; eerrClassification: string }>>([]);
   const [eerrOptions, setEerrOptions] = useState<string[]>([]);
-  const [drafts, setDrafts] = useState<Record<number, { movementType: string; eerrClassification: string }>>({});
+  const [drafts, setDrafts] = useState<Record<number, { code: string; movementType: string; eerrClassification: string }>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<number | null>(null);
-  const [newRow, setNewRow] = useState<{ movementType: string; eerrClassification: string } | null>(null);
+  const [newRow, setNewRow] = useState<{ code: string; movementType: string; eerrClassification: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -62,8 +79,8 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
 
   useEffect(() => { load(); }, [load]);
 
-  const draftOf = (item: Category) => drafts[item.id] || { movementType: item.movementType, eerrClassification: item.eerrClassification };
-  const setDraft = (id: number, current: { movementType: string; eerrClassification: string }, patch: Partial<{ movementType: string; eerrClassification: string }>) => {
+  const draftOf = (item: Category) => drafts[item.id] || { code: item.code || makeCode(item.movementType), movementType: item.movementType, eerrClassification: item.eerrClassification };
+  const setDraft = (id: number, current: { code: string; movementType: string; eerrClassification: string }, patch: Partial<{ code: string; movementType: string; eerrClassification: string }>) => {
     setDrafts((state) => ({ ...state, [id]: { ...current, ...patch } }));
   };
 
@@ -74,6 +91,7 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
     setSaving(item.id);
     try {
       await api.patch(`/bank-accounts/categories/${item.id}`, {
+        code: current.code.trim().toUpperCase() || makeCode(current.movementType),
         movementType: current.movementType.trim(),
         eerrClassification: current.eerrClassification.trim(),
       });
@@ -109,6 +127,7 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
     try {
       await api.post('/bank-accounts/categories', {
         projectId,
+        code: newRow.code.trim().toUpperCase() || makeCode(newRow.movementType),
         movementType: newRow.movementType.trim(),
         eerrClassification: newRow.eerrClassification.trim(),
       });
@@ -130,6 +149,7 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
     try {
       await api.post('/bank-accounts/categories', {
         projectId,
+        code: makeCode(row.movementType),
         movementType: row.movementType,
         eerrClassification: row.eerrClassification || 'SIN CLASIFICAR',
       });
@@ -146,24 +166,29 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
   const btnIcon = { border: 'none', background: 'transparent', cursor: 'pointer' };
 
   return (
-    <section className="rounded-md border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <h4 className="m-0 flex items-center gap-2 text-base font-semibold" style={{ color: NAVY }}>
-          Configuracion de Categorias y Mapeo EERR
-        </h4>
-        <div className="flex flex-wrap items-center gap-2">
-          <button className="btn-neutral !h-9 !px-3 text-xs" onClick={load} disabled={loading}>
+    <aside className="fixed inset-y-0 right-0 z-50 flex w-[460px] max-w-[calc(100vw_-_72px)] flex-col border-l bg-white shadow-2xl" style={{ borderColor: BORDER }}>
+      <div className="border-b px-4 py-3" style={{ borderColor: BORDER }}>
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <h4 className="m-0 truncate text-sm font-semibold" style={{ color: NAVY }}>
+              Categorias
+            </h4>
+            <p className="mt-0.5 text-[11px] text-slate-500">Codigos y mapeo EERR</p>
+          </div>
+          <button className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-500 hover:bg-slate-100" onClick={onClose} title="Cerrar">
+            <FiX />
+          </button>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button className="btn-neutral !h-8 justify-center !px-2 text-[11px]" onClick={load} disabled={loading}>
             <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar
           </button>
           <button
-            className="!h-9 !px-3 text-xs font-bold text-white"
+            className="inline-flex h-8 items-center justify-center gap-1 rounded-md px-2 text-[11px] font-bold text-white"
             style={{ backgroundColor: '#10B981', border: 'none', borderRadius: 6 }}
-            onClick={() => setNewRow({ movementType: '', eerrClassification: '' })}
+            onClick={() => setNewRow({ code: '', movementType: '', eerrClassification: '' })}
           >
-            <FiPlus /> Agregar Nueva Categoria
-          </button>
-          <button className="btn-neutral !h-9 !px-2 text-xs" onClick={onClose} title="Ocultar panel">
-            <FiX />
+            <FiPlus /> Nueva
           </button>
         </div>
       </div>
@@ -172,22 +197,22 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
         {eerrOptions.map((option) => <option key={option} value={option} />)}
       </datalist>
 
-      <div className="overflow-x-auto">
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed' }}>
           <thead>
             <tr style={{ backgroundColor: NAVY, color: '#FFFFFF' }}>
-              <th style={{ padding: 10, width: '10%', textAlign: 'center' }}>ID</th>
-              <th style={{ padding: 10, width: '40%', textAlign: 'left' }}>TIPO INGRESO/GASTO</th>
-              <th style={{ padding: 10, width: '40%', textAlign: 'left' }}>CLASIFICACION EERR</th>
-              <th style={{ padding: 10, width: '10%', textAlign: 'center' }}>Acciones</th>
+              <th style={{ padding: 8, width: 58, textAlign: 'left', fontSize: 11 }}>Codigo</th>
+              <th style={{ padding: 8, textAlign: 'left', fontSize: 11 }}>Categoria</th>
+              <th style={{ padding: 8, width: 96, textAlign: 'left', fontSize: 11 }}>EERR</th>
+              <th style={{ padding: 8, width: 54, textAlign: 'center', fontSize: 11 }}>Acc.</th>
             </tr>
           </thead>
           <tbody>
             {newRow && (
               <tr style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: '#F0FDF4' }}>
-                <td align="center" style={{ color: '#94A3B8' }}>nuevo</td>
-                <td><input autoFocus type="text" value={newRow.movementType} placeholder="Ej. MOVIMIENTO DE TIERRA" style={INPUT_STYLE} onChange={(event) => setNewRow({ ...newRow, movementType: event.target.value })} /></td>
-                <td><input type="text" list="bank-eerr-options" value={newRow.eerrClassification} placeholder="Ej. COSTO DE CONSTRUCCION" style={INPUT_STYLE} onChange={(event) => setNewRow({ ...newRow, eerrClassification: event.target.value })} /></td>
+                <td style={{ padding: 6 }}><input type="text" value={newRow.code} placeholder="CO" style={INPUT_STYLE} maxLength={12} onChange={(event) => setNewRow({ ...newRow, code: event.target.value.toUpperCase() })} /></td>
+                <td style={{ padding: 6 }}><input autoFocus type="text" value={newRow.movementType} placeholder="Ej. Costos" style={INPUT_STYLE} onChange={(event) => setNewRow({ ...newRow, movementType: event.target.value, code: newRow.code || makeCode(event.target.value) })} /></td>
+                <td style={{ padding: 6 }}><input type="text" list="bank-eerr-options" value={newRow.eerrClassification} placeholder="EERR" style={INPUT_STYLE} onChange={(event) => setNewRow({ ...newRow, eerrClassification: event.target.value })} /></td>
                 <td align="center">
                   <button style={{ ...btnIcon, color: '#10B981' }} title="Guardar" onClick={createRow} disabled={saving === -1}><FiSave /></button>
                   <button style={{ ...btnIcon, color: '#64748B' }} title="Cancelar" onClick={() => setNewRow(null)}><FiX /></button>
@@ -199,12 +224,12 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
               <tr><td colSpan={4} align="center" style={{ padding: 24, color: '#94A3B8' }}>Cargando categorias...</td></tr>
             ) : items.map((item) => {
               const current = draftOf(item);
-              const dirty = current.movementType !== item.movementType || current.eerrClassification !== item.eerrClassification;
+              const dirty = current.code !== (item.code || makeCode(item.movementType)) || current.movementType !== item.movementType || current.eerrClassification !== item.eerrClassification;
               return (
                 <tr key={item.id} style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: dirty ? '#FFFBEB' : '#fff' }}>
-                  <td align="center" style={{ color: '#64748B' }}>{item.id}</td>
-                  <td><input type="text" value={current.movementType} style={INPUT_STYLE} onChange={(event) => setDraft(item.id, current, { movementType: event.target.value })} /></td>
-                  <td><input type="text" list="bank-eerr-options" value={current.eerrClassification} style={INPUT_STYLE} onChange={(event) => setDraft(item.id, current, { eerrClassification: event.target.value })} /></td>
+                  <td style={{ padding: 6 }}><input type="text" value={current.code} style={INPUT_STYLE} maxLength={12} onChange={(event) => setDraft(item.id, current, { code: event.target.value.toUpperCase() })} /></td>
+                  <td style={{ padding: 6 }}><input type="text" value={current.movementType} style={INPUT_STYLE} onChange={(event) => setDraft(item.id, current, { movementType: event.target.value })} /></td>
+                  <td style={{ padding: 6 }}><input type="text" list="bank-eerr-options" value={current.eerrClassification} style={INPUT_STYLE} onChange={(event) => setDraft(item.id, current, { eerrClassification: event.target.value })} /></td>
                   <td align="center">
                     <button title="Guardar cambios" onClick={() => saveRow(item)} disabled={saving === item.id || !dirty} style={{ ...btnIcon, cursor: dirty ? 'pointer' : 'not-allowed', color: dirty ? '#1877F2' : '#CBD5E1' }}><FiSave /></button>
                     <button title="Eliminar" onClick={() => removeRow(item)} disabled={saving === item.id} style={{ ...btnIcon, color: '#DC2626' }}><FiTrash2 /></button>
@@ -217,7 +242,7 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
       </div>
 
       {unmapped.length > 0 && (
-        <div className="mt-4 rounded-md border p-3" style={{ borderColor: '#FCD34D', backgroundColor: '#FFFBEB' }}>
+        <div className="m-3 rounded-md border p-3" style={{ borderColor: '#FCD34D', backgroundColor: '#FFFBEB' }}>
           <p className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: '#92400E' }}>
             <FiAlertTriangle /> {unmapped.length} conceptos aparecen en tus movimientos pero aun no estan homologados
           </p>
@@ -238,9 +263,9 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
         </div>
       )}
 
-      <p className="mt-3 text-xs" style={{ color: '#64748B' }}>
+      <p className="border-t px-4 py-3 text-[11px]" style={{ color: '#64748B', borderColor: BORDER }}>
         Los conceptos de esta tabla llenan la lista de TIPO INGRESO/GASTO en el formulario de movimientos y autocompletan su CLASIFICACION EERR.
       </p>
-    </section>
+    </aside>
   );
 }

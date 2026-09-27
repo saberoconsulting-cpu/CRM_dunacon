@@ -85,6 +85,7 @@ type Preview = {
 
 type Category = {
   id: number;
+  code?: string | null;
   movementType: string;
   eerrClassification: string;
 };
@@ -164,6 +165,11 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [editing, setEditing] = useState<Movement | null>(null);
   const [deleting, setDeleting] = useState<Movement | null>(null);
   const [form, setForm] = useState<any>({});
+  // Combo propio de "Tipo ingreso/gasto": a diferencia del <datalist> nativo de
+  // Chrome (que no deja limpiar el valor elegido), este permite borrar con el
+  // boton (x) y cambiar de categoria para escribir otra.
+  const [typeOpen, setTypeOpen] = useState(false);
+  const typeInputRef = useRef<HTMLInputElement | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [importing, setImporting] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -262,17 +268,30 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
   useEffect(() => { loadCategories(); }, [loadCategories]);
 
-  const eerrByType = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const item of categories) map.set(item.movementType.trim().toUpperCase(), item.eerrClassification);
+  const categoryByLookup = useMemo(() => {
+    const map = new Map<string, Category>();
+    for (const item of categories) {
+      map.set(item.movementType.trim().toUpperCase(), item);
+      if (item.code) map.set(String(item.code).trim().toUpperCase(), item);
+    }
     return map;
   }, [categories]);
 
-  const categoryTypes = useMemo(
-    () => Array.from(new Set(categories.map((item) => item.movementType))).sort(),
+  const categoryOptions = useMemo(
+    () => categories
+      .map((item) => ({ value: item.movementType, label: item.code ? `${item.code} - ${item.eerrClassification}` : item.eerrClassification }))
+      .sort((left, right) => left.value.localeCompare(right.value)),
     [categories],
   );
 
+// Sugerencias para el combo de "Tipo ingreso/gasto", filtradas por lo escrito.
+  const typeSuggestions = useMemo(() => {
+    const q = (form.movementType || '').trim().toUpperCase();
+    if (!q) return categoryOptions;
+    return categoryOptions.filter((option) =>
+      option.value.toUpperCase().includes(q) || option.label.toUpperCase().includes(q),
+    );
+  }, [categoryOptions, form.movementType]);
   const counterparties = useMemo(
     () => Array.from(new Set(items.map((item) => item.counterparty).filter(Boolean) as string[])).sort(),
     [items],
@@ -280,11 +299,11 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
   // Al elegir el TIPO se autocompleta su CLASIFICACION EERR segun el mapeo.
   function pickMovementType(value: string) {
-    const matched = eerrByType.get(value.trim().toUpperCase());
+    const matched = categoryByLookup.get(value.trim().toUpperCase());
     setForm((current: any) => ({
       ...current,
-      movementType: value,
-      eerrClassification: matched || current.eerrClassification || '',
+      movementType: matched ? matched.movementType : value,
+      eerrClassification: matched?.eerrClassification || current.eerrClassification || '',
     }));
   }
 
@@ -528,7 +547,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 {card.label === 'Saldo inicial' ? (
                   <div className="mt-1 flex min-w-0 items-center gap-1">
                     <input
-                      className="input !h-8 min-w-0 flex-1 !px-2 text-sm font-bold tabular-nums"
+                      className="input !h-8 min-w-0 flex-1 !px-2 text-center text-sm font-bold tabular-nums"
                       type="number"
                       step="0.01"
                       value={openingBalanceDraft}
@@ -547,7 +566,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                     </button>
                   </div>
                 ) : (
-                  <p className="mt-1 truncate text-base font-bold tabular-nums sm:text-lg" style={{ color: card.color }} title={card.value}>{card.value}</p>
+                  <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-lg" style={{ color: card.color }} title={card.value}>{card.value}</p>
                 )}
                 <p className="mt-0.5 hidden truncate text-[10px] sm:block" style={{ color: '#94A3B8' }}>{card.helper}</p>
               </div>
@@ -976,17 +995,60 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Tipo ingreso/gasto">
-                <input
-                  className="input"
-                  list="bank-category-types"
-                  placeholder="Selecciona o escribe el concepto"
-                  readOnly={!!editing}
-                  value={form.movementType || ''}
-                  onChange={(event) => pickMovementType(event.target.value)}
-                />
-                <datalist id="bank-category-types">
-                  {categoryTypes.map((option) => <option key={option} value={option} />)}
-                </datalist>
+                <div className="relative">
+                  <input
+                    ref={typeInputRef}
+                    className="input pr-9"
+                    placeholder="Selecciona o escribe el concepto"
+                    readOnly={!!editing}
+                    value={form.movementType || ''}
+                    onChange={(event) => pickMovementType(event.target.value)}
+                    onFocus={() => { if (!editing) setTypeOpen(true); }}
+                  />
+                  {!editing && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTypeOpen(false);
+                        setForm((current: any) => ({ ...current, movementType: '', eerrClassification: '' }));
+                        typeInputRef.current?.focus();
+                      }}
+                      className="absolute right-1 top-1/2 grid h-7 w-7 -translate-y-1/2 cursor-pointer place-items-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
+                      title="Limpiar / cambiar el tipo seleccionado"
+                      aria-label="Limpiar tipo ingreso/gasto"
+                    >
+                      <FiX style={{ fontSize: 16 }} />
+                    </button>
+                  )}
+
+                  {typeOpen && !editing && (
+                    <>
+                      <div className="fixed inset-0 z-30" onClick={() => setTypeOpen(false)} />
+                      <div
+                        className="absolute left-0 right-0 z-40 mt-1 max-h-56 overflow-auto rounded-md border bg-white py-1 shadow-xl"
+                        style={{ borderColor: BORDER }}
+                      >
+                        {typeSuggestions.length === 0 ? (
+                          <p className="px-3 py-2 text-xs" style={{ color: MUTED }}>
+                            {form.movementType ? 'Concepto nuevo (se guardara tal cual)' : 'Sin coincidencias'}
+                          </p>
+                        ) : (
+                          typeSuggestions.map((option) => (
+                            <button
+                              key={option.value}
+                              type="button"
+                              className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-slate-50"
+                              onClick={() => { pickMovementType(option.value); setTypeOpen(false); }}
+                            >
+                              <span className="font-semibold" style={{ color: INK }}>{option.value}</span>
+                              <span className="truncate" style={{ color: MUTED }}>{option.label}</span>
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
               </Field>
               <Field label="Clasificacion EERR (automatico)">
                 <input className="input" readOnly placeholder="Se completa con el tipo" value={form.eerrClassification || ''} />

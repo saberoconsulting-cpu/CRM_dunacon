@@ -29,6 +29,8 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
   const [viewMode, setViewMode] = useState<'general' | 'blocks'>('general');
   const { currency, setCurrency, exchangeRate, setExchangeRate, format: fmt } = useDisplayCurrency();
   const moneyLabel = CURRENCY_SYMBOL[currency];
+  // Solo admin/superadmin pueden eliminar lotes (el backend tambien lo exige).
+  const canDelete = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
 
   useEffect(() => {
     const q = new URLSearchParams();
@@ -222,6 +224,17 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
     }
   }
 
+  async function deleteLot(lot: Lot) {
+    if (!confirm(`¿Eliminar el lote ${lot.code}? Esta acción no se puede revertir.`)) return;
+    try {
+      await api.post(`/plan/lot/delete/${lot.id}`);
+      toast('Lote eliminado');
+      await load();
+    } catch (e: any) {
+      toast(e.message || 'No se pudo eliminar el lote', 'err');
+    }
+  }
+
   function renderTable(items: Lot[], key: string, header?: { blockName: string; blockAddress: string | null }) {
     const t = totals(items);
     return (
@@ -243,18 +256,18 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
         )}
 
         <div className="overflow-x-auto">
-          <table className="table-base text-[12px]" style={{ width: '100%', minWidth: 1060, tableLayout: 'fixed' }}>
+          <table className="table-base text-[12px]" style={{ width: '100%', minWidth: 1068, tableLayout: 'fixed' }}>
             <colgroup>
-              <col style={{ width: '78px' }} />
+              <col style={{ width: '68px' }} />
+              <col style={{ width: '130px' }} />
+              <col style={{ width: '74px' }} />
+              <col style={{ width: '74px' }} />
+              <col style={{ width: '96px' }} />
+              <col style={{ width: '106px' }} />
+              <col style={{ width: '106px' }} />
+              <col style={{ width: '92px' }} />
               <col style={{ width: '150px' }} />
-              <col style={{ width: '86px' }} />
-              <col style={{ width: '84px' }} />
-              <col style={{ width: '108px' }} />
-              <col style={{ width: '118px' }} />
-              <col style={{ width: '118px' }} />
-              <col style={{ width: '104px' }} />
-              <col style={{ width: '116px' }} />
-              <col style={{ width: '98px' }} />
+              <col style={{ width: '172px' }} />
             </colgroup>
             <thead><tr>
               <th className="th-base !px-2" style={{ textAlign: 'left' }}>Lote</th>
@@ -283,9 +296,9 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                   </td>
                   <td className="td-base !px-2 truncate text-slate-500" style={{ textAlign: 'left' }} title={l.clientName || '—'}>{l.clientName || '—'}</td>
                   <td className="td-base !px-2" style={{ textAlign: 'right' }}>
-                    <div className="flex justify-end gap-1">
-                      <button className="btn-secondary !h-7 !px-2 text-[11px] whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id }); }}>Ficha</button>
-                      <label className="btn-primary !h-7 !px-2 text-[11px] whitespace-nowrap cursor-pointer" onClick={(e) => e.stopPropagation()} title={l.planVoucherUrl ? 'Reemplazar plano/voucher' : 'Subir plano/voucher'}>
+                    <div className="flex min-w-[156px] justify-end gap-1">
+                      <button className="btn-secondary !h-7 !px-1.5 text-[11px] whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id }); }}>Ficha</button>
+                      <label className="btn-primary !h-7 !px-1.5 text-[11px] whitespace-nowrap cursor-pointer" onClick={(e) => e.stopPropagation()} title={l.planVoucherUrl ? 'Reemplazar plano/voucher' : 'Subir plano/voucher'}>
                         Plano
                         <input
                           type="file"
@@ -298,6 +311,9 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                           }}
                         />
                       </label>
+                      {canDelete && (
+                        <button className="btn-danger !h-7 !px-1.5 text-[11px] whitespace-nowrap" onClick={(e) => { e.stopPropagation(); deleteLot(l); }}>Eliminar</button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -377,6 +393,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
       </div>
 
       <div className="space-y-5">
+        <p className="text-[11px] text-slate-400 sm:hidden">Desliza la tabla hacia los lados para ver todas las columnas.</p>
         {(() => {
           if (!lots.length) return <EmptyState text="No se encontraron lotes con los filtros" />;
           if (viewMode === 'general') return renderTable(sortedLots, 'general');
@@ -421,7 +438,19 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="table-base" style={{ width: '100%', minWidth: 900 }}>
+                  <table className="table-base" style={{ width: '100%', minWidth: 998, tableLayout: 'fixed' }}>
+                    <colgroup>
+                      <col style={{ width: '70px' }} />
+                      <col style={{ width: '130px' }} />
+                      <col style={{ width: '76px' }} />
+                      <col style={{ width: '80px' }} />
+                      <col style={{ width: '102px' }} />
+                      <col style={{ width: '110px' }} />
+                      <col style={{ width: '110px' }} />
+                      <col style={{ width: '98px' }} />
+                      <col style={{ width: '150px' }} />
+                      <col style={{ width: '172px' }} />
+                    </colgroup>
                     <thead><tr>
                       <th className="th-base" style={{ textAlign: 'left' }}>Nro. Lote</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Dirección</th>
@@ -438,8 +467,8 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                       {g.items.map((l) => (
                         <tr key={l.id} onClick={() => setSelected({ id: l.id })} className="cursor-pointer hover:bg-slate-50">
                           <td className="td-base font-semibold" style={{ textAlign: 'left' }}>{l.code}</td>
-                          <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{g.blockAddress || '—'}</td>
-                          <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{l.type || '—'}</td>
+                          <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={g.blockAddress || '—'}>{g.blockAddress || '—'}</td>
+                          <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.type || '—'}>{l.type || '—'}</td>
                           <td className="td-base" style={{ textAlign: 'left' }}>{l.areaM2} m²</td>
                           <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.price ? fmt(l.price) : '—'}</td>
                           <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.salePrice ? fmt(l.salePrice) : '—'}</td>
@@ -447,9 +476,14 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                           <td className="td-base" style={{ textAlign: 'center' }}>
                             <span className="badge whitespace-nowrap" style={{ backgroundColor: LOT_STATUS_COLOR[l.status] + '22', color: LOT_STATUS_COLOR[l.status] }}>{LOT_STATUS_LABEL[l.status]}</span>
                           </td>
-                          <td className="td-base text-slate-500" style={{ textAlign: 'left' }}>{l.clientName || '—'}</td>
-                          <td className="td-base" style={{ textAlign: 'right' }}>
-                            <button className="btn-secondary !h-8 !px-3 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id }); }}>Ver ficha</button>
+                          <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.clientName || '—'}>{l.clientName || '—'}</td>
+                          <td className="td-base !px-2" style={{ textAlign: 'right' }}>
+                            <div className="flex min-w-[152px] justify-end gap-1">
+                              <button className="btn-secondary !h-8 !px-2 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); setSelected({ id: l.id }); }}>Ver ficha</button>
+                              {canDelete && (
+                                <button className="btn-danger !h-8 !px-2 text-xs whitespace-nowrap" onClick={(e) => { e.stopPropagation(); deleteLot(l); }}>Eliminar</button>
+                              )}
+                            </div>
                           </td>
                         </tr>
                       ))}

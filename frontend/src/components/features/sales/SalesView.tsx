@@ -98,7 +98,30 @@ type S = {
   salePrice: string; saleDate: string; commission: string; agentName?: string | null; clientName?: string | null;
   lotCode?: string | null; conditions?: string | null; approvalStatus?: string; totalCuotas?: number;
   interestType?: string; tea?: number; financingBase?: number; valorCuota?: number; planStatus?: string; lotAreaM2?: number;
+  cuotaInicial?: number; exchangeRate?: number;
 };
+
+/**
+ * La venta NO guarda columnas para el tipo de cambio, las cuotas sin interes ni
+ * la forma de pago de la inicial: el backend los serializa como texto dentro de
+ * `conditions` ("TEA: 8% | Cuotas sin interes: 10 | Pago inicial: 3 partes...").
+ * Esta funcion los recupera para poder armar el bloque Financiamiento del PDF.
+ */
+function parseSaleConditions(conditions?: string | null) {
+  const text = conditions || '';
+  const num = (pattern: RegExp) => {
+    const match = text.match(pattern);
+    return match ? Number(match[1]) : 0;
+  };
+  const partesMatch = text.match(/(\d+)\s+partes/i);
+  return {
+    tea: num(/TEA:\s*([\d.]+)\s*%/i),
+    graceMonths: num(/Cuotas sin interes:\s*(\d+)/i),
+    // "3 partes sin interes" => reparte la inicial; "contado" => pago unico.
+    initialPaymentMode: partesMatch ? 'partes' : (/(Pago inicial:\s*contado)/i.test(text) ? 'contado' : ''),
+    initialParts: partesMatch ? Number(partesMatch[1]) : 0,
+  };
+}
 
 const PAYMENT_METHODS = ['Contado', 'Al crédito'];
 
@@ -111,8 +134,7 @@ function todayInput() {
 const SALE_CURRENCY_KEY = 'crm_sale_entry_currency';
 
 function readSaleCurrency(): SaleCurrency {
-  if (typeof window === 'undefined') return 'PEN';
-  try { return window.localStorage.getItem(SALE_CURRENCY_KEY) === 'USD' ? 'USD' : 'PEN'; } catch { return 'PEN'; }
+  return 'USD';
 }
 
 function initialPaymentOf(sale: S) {
@@ -322,9 +344,15 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     ? (quotes.find((q: any) => Number(q.id) === Number(selectedQuoteId)) || selectedQuoteSnapshot)
     : null;
   const round2 = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
-  const salePriceDisplay = round2(salePrice);
   const salePriceUsd = exchangeRate > 0 ? round2(salePrice / exchangeRate) : 0;
   const exchangeRateDisplay = round2(exchangeRate);
+  const quoteSelected = Boolean(selectedQuote);
+  // Bloqueo del formulario: al abrir el modal todos los campos quedan
+  // deshabilitados hasta que se elija una cotizacion (incluida una cotizacion
+  // ya preseleccionada desde la URL). Solo el buscador/lista de cotizaciones
+  // permanece habilitado para poder hacer la seleccion.
+  const formDisabled = !quoteSelected;
+  const disabledClass = formDisabled ? ' opacity-60 cursor-not-allowed select-none' : '';
   const quoteProjectId = lockedProjectId || projectId || Number(selectedLot?.projectId || 0);
   const responsibleUserId = Number(sessionUser?.id || 0);
   const responsibleUserName = sessionUser?.name || sessionUser?.email || 'Usuario logueado';
@@ -332,8 +360,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
 
   useEffect(() => {
     if (!open) return;
-    const stored = readSaleCurrency();
-    setSaleCurrencyState(stored);
+    setSaleCurrencyState('USD');
     if (!(exchangeRate > 0)) setExchangeRate(displayRate > 0 ? displayRate : DEFAULT_EXCHANGE_RATE);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -356,8 +383,25 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   }
 
 
-  const lotOptionLabel = (lot: any, fromQuote = false) =>
-    `Lote ${lot?.code || lot?.id} — ${formatMoney(lotReferencePrice(lot))}${fromQuote ? ' (de la cotización)' : ''}`;
+  // En el desplegable solo se muestra el codigo del lote (el precio va como
+  // linea secundaria) para que el campo no se vea saturado de texto.
+  const lotOptionLabel = (lot: any) => `Lote ${lot?.code || lot?.id}`;
+
+  // Formato de numeros para los campos de monto: se muestran con separador de
+  // miles y solo se envia al estado el valor numerico limpio.
+  const groupDigits = (raw: string) => {
+    const cleaned = raw.replace(/[^\d.]/g, '');
+    const [intPart, ...rest] = cleaned.split('.');
+    const decPart = rest.join('');
+    const grouped = (intPart || '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return rest.length ? `${grouped}${grouped ? '.' : ''}${decPart}` : grouped;
+  };
+  const parseGrouped = (raw: string) => Number(raw.replace(/,/g, '')) || 0;
+  const groupRate = (value: number) => (Number(value) ? groupDigits(String(Number(value))) : '');
+  const amountInputValue = (penValue: number) => {
+    const display = saleCurrency === 'USD' ? fromPen(penValue) : penValue;
+    return Number(display) ? groupDigits(String(display)) : '';
+  };
   const lotOptions = (() => {
     const list = lots.filter((l: any) =>
       l.status !== 'vendido' && l.sellingStage !== 'vendido' && l.sellingStage !== 'separado'
@@ -391,6 +435,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const values = buildQuoteAssignedValues(q, { today: todayInput(), lockedProjectId, currentProjectId: projectId });
 
     setExchangeRate(values.exchangeRate);
+    setSaleCurrencyState('USD');
     setSelectedQuoteId(values.quoteId);
     setSelectedQuoteSnapshot(q);
     setProjectId(values.projectId);
@@ -550,35 +595,129 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const financingBase = Number(s.financingBase || salePriceValue);
     const valorCuota = Number(s.valorCuota || schedule[0]?.amount || 0);
     const paidInstallments = schedule.filter((row) => row.status === 'pagado').length;
+
+    // --- Resumen de financiamiento (mismo criterio que la cotizacion) ---
+    // `cuotaInicial` y `exchangeRate` vienen del API; lo que la venta guarda
+    // como texto (TC via cotizacion, cuotas sin interes y forma de pago de la
+    // inicial) se recupera de `conditions`.
+    const parsedConditions = parseSaleConditions(s.conditions);
+    // El TC de la cotizacion convertida es la referencia para pasar a US$;
+    // si la venta no tiene cotizacion se cae al TC referencial del sistema.
+    const exchangeRate = Number(s.exchangeRate || 0) || DEFAULT_EXCHANGE_RATE;
+    const cuotaInicialPen = Number(s.cuotaInicial || 0);
+    const totalCuotasValue = Number(s.totalCuotas || 0);
+    const teaValue = Number(s.tea || 0) || parsedConditions.tea;
+    const interestType = s.interestType || (teaValue > 0 ? 'tea' : 'sin_intereses');
+    const graceMonthsSaved = parsedConditions.graceMonths;
+    const initialPaymentMode = parsedConditions.initialPaymentMode || 'contado';
+    const initialParts = Math.max(2, parsedConditions.initialParts || 0 || 2);
+    const saldoFin = Math.max(0, financingBase - cuotaInicialPen);
+    // Cuotas: la primera coincide con la cuota inicial cuando ella existe.
+    const financingInstallments = Math.max(0, totalCuotasValue - (cuotaInicialPen > 0 ? 1 : 0));
+    const graceMonths = Math.min(financingInstallments, Math.max(0, graceMonthsSaved));
+    const interestInstallments = interestType === 'tea' ? Math.max(0, financingInstallments - graceMonths) : 0;
+    const noInterestInstallments = interestType === 'tea' ? graceMonths : financingInstallments;
+
+    // Importes tomados del cronograma real (fuente de verdad) y, si no esta,
+    // recalculados con el mismo importe de cuota que ya trae la venta.
+    const cuotas = schedule.map((row) => Number(row.amount || 0));
+    const cuotasSinInteres = cuotas.slice(0, noInterestInstallments);
+    const cuotasConInteres = cuotas.slice(noInterestInstallments);
+    const noInterestCuotaUsd = cuotasSinInteres.length
+      ? cuotasSinInteres[0]
+      : (financingInstallments ? saldoFin / financingInstallments : 0);
+    const interestCuotaUsd = cuotasConInteres.length ? cuotasConInteres[0] : valorCuota;
+    const promedio = (values: number[], fallback: number) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : fallback);
+    const noInterestCuotaPen = promedio(cuotasSinInteres, noInterestCuotaUsd);
+    const interestCuotaPen = promedio(cuotasConInteres, interestCuotaUsd);
+    const totalCuotasPen = cuotas.reduce((a, b) => a + b, 0);
+    const totalPagarPen = totalCuotasPen + cuotaInicialPen;
+    // --- Moneda de la ficha: TODO el documento se expresa en US$ ---
+    // Los importes se guardan en soles en la base; aqui se dividen por el TC
+    // (columna de la cotizacion o TC referencial) y se formatean con 2
+    // decimales estilo US para que la ficha sea coherente de punta a punta.
+    const usd = (pen: number) => (exchangeRate > 0 ? Number(pen || 0) / exchangeRate : 0);
+    const fmtUsdFin = (value: number) => `US$ ${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    /** Convierte un monto en soles y lo devuelve ya formateado en US$. */
+    const usdMoney = (pen: number) => fmtUsdFin(usd(pen));
+    const initialPlan = cuotaInicialPen > 0
+      ? {
+        modo: initialPaymentMode === 'partes' ? 'partes' : 'contado',
+        partes: initialParts,
+        montoPorParte: cuotaInicialPen / initialParts,
+      }
+      : null;
+    const initialPaymentLabel = initialPlan
+      ? (initialPlan.modo === 'partes'
+        ? `${initialPlan.partes} partes de ${usdMoney(initialPlan.montoPorParte)}`
+        : 'Pago unico de contado')
+      : '-';
+    const isFinancing = formaPago !== 'Contado' && financingInstallments > 0;
+
     const detailRows = [
       ['Proyecto', project?.name || `Proyecto ${s.projectId}`],
       ['Lote', s.lotCode || `Lote ${s.lotId}`],
       ['Cliente', s.clientName || '-'],
       ['Agente', s.agentName || '-'],
-      ['Precio Venta', formatMoney(s.salePrice)],
+      ['Precio Venta', usdMoney(salePriceValue)],
       ['Fecha', formatDate(s.saleDate)],
       ['Forma de Pago', formaPago],
       ['Nro de Cuotas', s.totalCuotas || 0],
-      ['Comision', formatMoney(commission)],
-      ['Saldo a Financiar', formatMoney(financingBase)],
-      ['Interes', s.interestType === 'tea' ? `Con TEA = ${Number(s.tea || 0)}%` : 'Sin intereses'],
+      ['Comision', usdMoney(commission)],
+      ['Saldo a Financiar', usdMoney(financingBase)],
+      ['Interes', interestType === 'tea' ? `Con TEA = ${teaValue}%` : 'Sin intereses'],
       ['Estado', s.approvalStatus === 'pendiente' ? 'Pendiente' : 'Aprobada'],
     ];
     const scheduleRows = schedule.map((row) => `
-      <tr><td>Cuota ${escapeHtml(row.installmentNo || '-')}</td><td>${escapeHtml(formatDate(row.dueDate))}</td><td class="num">${escapeHtml(formatMoney(row.amount))}</td><td>${escapeHtml(row.status || '-')}</td></tr>
+      <tr><td>Cuota ${escapeHtml(row.installmentNo || '-')}</td><td>${escapeHtml(formatDate(row.dueDate))}</td><td class="num">${escapeHtml(usdMoney(Number(row.amount || 0)))}</td><td>${escapeHtml(row.status || '-')}</td></tr>
     `).join('');
+    // Fila de totales del cronograma (mismo criterio que la cotizacion).
+    const scheduleTotalRow = schedule.length ? `
+      <tr class="total-row"><td colspan="2">Total</td><td class="num">${escapeHtml(usdMoney(totalCuotasPen))}</td><td class="num">${paidInstallments}/${schedule.length}</td></tr>
+    ` : '';
+    // Bloque "Financiamiento" con las mismas tarjetas (finance-highlight) del
+    // PDF de financiamiento/cotizacion. Se inserta ANTES del cuadro de cuotas.
+    const financingBlock = isFinancing ? `
+      <h2>Financiamiento</h2>
+      <div class="summary-row">
+        <div class="finance-highlight"><span>Saldo fin.</span><strong>${escapeHtml(usdMoney(saldoFin))}</strong></div>
+        <div class="finance-highlight"><span>TEA</span><strong>${interestType === 'tea' ? `${teaValue}%` : 'Sin intereses'}</strong></div>
+        <div class="finance-highlight"><span>C. s/int. <em class="tiny">(${noInterestInstallments})</em></span><strong>${escapeHtml(usdMoney(noInterestCuotaPen))}</strong></div>
+        <div class="finance-highlight"><span>C. c/int. <em class="tiny">(${interestInstallments})</em></span><strong>${escapeHtml(usdMoney(interestCuotaPen))}</strong></div>
+        <div class="finance-highlight"><span>Total cuotas</span><strong>${totalCuotasValue}</strong></div>
+        <div class="finance-highlight"><span>TC</span><strong>S/ ${exchangeRate.toFixed(4)}</strong></div>
+      </div>
+      ${initialPlan ? `
+        <h2>Cuota inicial (sin intereses)</h2>
+        <table><tbody>
+          <tr><td class="label">Monto de la cuota inicial</td><td class="num">${escapeHtml(usdMoney(cuotaInicialPen))}</td></tr>
+          <tr><td class="label">Forma de pago</td><td class="num">${escapeHtml(initialPaymentLabel)}</td></tr>
+        </tbody></table>
+      ` : ''}
+    ` : '';
     printHtml(`
       <html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Ficha de venta V${s.id}</title><style>
-        body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white}.brand{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}.logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}.eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}h1{margin:0;font-size:24px;line-height:1.15;color:#111827}h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}p{margin:4px 0 0;color:#6B7280;font-size:12px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}.summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}.summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.summary strong{display:block;margin-top:4px;color:#111827;font-size:12px}table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:10px;text-align:left;text-transform:uppercase}td{border:1px solid #E5E7EB;padding:8px 7px;font-size:11px;vertical-align:top}tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}.num{text-align:right;white-space:nowrap;font-weight:700;color:#1259C4}.watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.06;z-index:-1}.watermark img{width:560px;max-width:72vw}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:10px;text-align:right}
-        @media (max-width:640px){body{margin:12px}.brand{flex-direction:column;gap:10px}.logos img{height:32px;max-width:120px}h1{font-size:17px}h2{font-size:11px;margin:14px 0 6px}p{font-size:11px}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}table{table-layout:auto}th,td{padding:5px 4px;font-size:9px}.watermark img{width:300px}}
-        @media print{body{margin:18px}thead{display:table-header-group}.brand,.summary{break-inside:avoid}.watermark{position:fixed}}
+        body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white}.brand{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}.logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}.eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}h1{margin:0;font-size:24px;line-height:1.15;color:#111827}h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}p{margin:4px 0 0;color:#6B7280;font-size:12px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}.summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}.summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.summary strong{display:block;margin-top:4px;color:#111827;font-size:12px}.summary-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:6px;margin:14px 0 18px}.summary-row div{border:1px solid #E5E7EB;background:#F8FAFC;padding:8px 7px;border-radius:6px;min-width:0}.summary-row span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.2}.summary-row strong{display:block;margin-top:3px;color:#111827;font-size:13px;white-space:nowrap}.summary-row .finance-highlight{border-color:#1877F2;background:#F5F9FF;border-left:4px solid #1877F2}.summary-row .finance-highlight strong{color:#1259C4}.summary-row .tiny{display:inline;margin-left:3px;color:#64748B;font-size:9px;font-weight:700;text-transform:none;letter-spacing:0}table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:11px;text-align:left;text-transform:uppercase}td{border:1px solid #E5E7EB;padding:8px 7px;font-size:12px;vertical-align:top}tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}.total-row td{background:#EAF3FF !important;border-color:#B9D2F4;font-weight:800;color:#0B2F6E}.num{text-align:right;white-space:nowrap;font-weight:700;color:#1259C4}.watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.06;z-index:-1}.watermark img{width:560px;max-width:72vw}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:11px;text-align:right}
+        @media (max-width:640px){body{margin:12px}.brand{flex-direction:column;gap:10px}.logos img{height:32px;max-width:120px}h1{font-size:17px}h2{font-size:11px;margin:14px 0 6px}p{font-size:11px}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}.summary-row{grid-template-columns:repeat(2,minmax(0,1fr))}table{table-layout:auto}th,td{padding:5px 4px;font-size:10px}.watermark img{width:300px}}
+        @media print{body{margin:18px}thead{display:table-header-group}.brand,.summary,.summary-row,.total-row{break-inside:avoid}.watermark{position:fixed}}
       </style></head><body>
         <div class="watermark"><img src="${escapeHtml(adminLogoUrl)}" alt="" /></div>
         <div class="brand"><div><p class="eyebrow">Ficha de venta</p><h1>Venta V${s.id} - ${escapeHtml(s.lotCode || `Lote ${s.lotId}`)}</h1><p>${escapeHtml(project?.name || `Proyecto ${s.projectId}`)} - generado ${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div></div>
-        <div class="summary"><div><span>Precio venta</span><strong>${escapeHtml(formatMoney(s.salePrice))}</strong></div><div><span>Comision</span><strong>${escapeHtml(formatMoney(commission))}</strong></div><div><span>Forma de pago</span><strong>${escapeHtml(formaPago)}</strong></div><div><span>Cuota</span><strong>${escapeHtml(valorCuota ? formatMoney(valorCuota) : '-')}</strong></div></div>
+        <div class="summary"><div><span>Precio venta</span><strong>${escapeHtml(usdMoney(salePriceValue))}</strong></div><div><span>Comision</span><strong>${escapeHtml(usdMoney(commission))}</strong></div><div><span>Forma de pago</span><strong>${escapeHtml(formaPago)}</strong></div><div><span>Cuota</span><strong>${escapeHtml(valorCuota ? usdMoney(valorCuota) : '-')}</strong></div></div>
         <h2>Datos de la venta</h2><table><tbody>${detailRows.map(([label, value]) => `<tr><td class="label">${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join('')}</tbody></table>
-        <h2>Financiamiento</h2><table><thead><tr><th>Cuota</th><th>Vencimiento</th><th>Monto</th><th>Estado</th></tr></thead><tbody>${scheduleRows || '<tr><td colspan="4">Sin cronograma registrado.</td></tr>'}</tbody></table>
-        <div class="summary"><div><span>Cuotas</span><strong>${Number(s.totalCuotas || 0)}</strong></div><div><span>Pagadas</span><strong>${paidInstallments}</strong></div><div><span>Pendientes</span><strong>${Math.max(0, schedule.length - paidInstallments)}</strong></div><div><span>Plan</span><strong>${escapeHtml(s.planStatus || 'pendiente')}</strong></div></div><div class="footer">Dunacon - CRM Inmobiliario</div>
+        ${financingBlock}
+        <h2>Cronograma de cuotas</h2><table><thead><tr><th>Cuota</th><th>Vencimiento</th><th>Monto</th><th>Estado</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="4">Sin cronograma registrado.</td></tr>'}</tbody></table>
+        <div class="summary"><div><span>Cuotas</span><strong>${Number(s.totalCuotas || 0)}</strong></div><div><span>Pagadas</span><strong>${paidInstallments}</strong></div><div><span>Pendientes</span><strong>${Math.max(0, schedule.length - paidInstallments)}</strong></div><div><span>Plan</span><strong>${escapeHtml(s.planStatus || 'pendiente')}</strong></div></div>
+        ${isFinancing ? `
+          <h2>Total</h2>
+          <div class="summary-row">
+            <div class="finance-highlight"><span>Cuota inicial</span><strong>${escapeHtml(usdMoney(cuotaInicialPen))}</strong></div>
+            <div class="finance-highlight"><span>Total cuotas</span><strong>${escapeHtml(usdMoney(totalCuotasPen))}</strong></div>
+            <div class="finance-highlight"><span>Total a pagar</span><strong>${escapeHtml(usdMoney(totalPagarPen))}</strong></div>
+            <div class="finance-highlight"><span>Saldo fin.</span><strong>${escapeHtml(usdMoney(saldoFin))}</strong></div>
+          </div>
+        ` : ''}
+        <div class="footer">Dunacon - CRM Inmobiliario</div>
       </body></html>
     `);
   }
@@ -799,14 +938,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   conserva al alternar, así el monto real no cambia. */}
               <div className="mt-2.5 flex flex-wrap items-center gap-2">
                 <div className="inline-flex overflow-hidden rounded-lg border border-[#D9E7FF] bg-white p-0.5" role="group" aria-label="Moneda de la ficha">
-                  {(['PEN', 'USD'] as SaleCurrency[]).map((option) => (
+                  {(['USD'] as SaleCurrency[]).map((option) => (
                     <button
                       key={option}
                       type="button"
                       aria-pressed={saleCurrency === option}
                       className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${saleCurrency === option ? 'text-white' : 'text-slate-600 hover:bg-[#F3F8FF]'}`}
                       style={saleCurrency === option ? { background: '#1259C4' } : undefined}
-                      onClick={() => setSaleCurrency(option)}
+                      onClick={() => setSaleCurrency('USD')}
                     >
                       {option === 'PEN' ? 'Soles (S/)' : 'Dólares (US$)'}
                     </button>
@@ -909,7 +1048,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             )}
 
             {/* Lote y responsable */}
-            <div className="grid grid-cols-2 gap-3">
+            <fieldset disabled={formDisabled} className="min-w-0 border-0 p-0 m-0 space-y-4 disabled:opacity-100">
+            <legend className="sr-only">Datos de la venta</legend>
+            <div className={`grid grid-cols-2 gap-3${disabledClass}`}>
               {!lockedProjectId && (
                 <div className="col-span-2">
                   <Field label="Proyecto">
@@ -925,7 +1066,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <Select
                   value={lotId}
                   onChange={(v) => selectLot(Number(v))}
-                  options={[{ value: 0, label: 'Selecciona…' }, ...lotOptions.map((l: any) => ({ value: l.id, label: lotOptionLabel(l, Boolean(selectedQuote) && Number(l.id) === Number(lotId)) }))]}
+                  options={[{ value: 0, label: 'Selecciona…' }, ...lotOptions.map((l: any) => ({ value: l.id, label: lotOptionLabel(l), hint: formatMoney(lotReferencePrice(l)) }))]}
                 />
               </Field>
               <div className="hidden"><Field label="Cliente"><Select value={clientId} onChange={(v) => setClientId(Number(v))} options={[{ value: 0, label: '— Sin asignar —' }, ...clients.map((c: any) => ({ value: c.id, label: (c.fullName || c.full_name || '— Sin nombre —') }))]} /></Field></div>
@@ -943,7 +1084,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             )}
 
             <div className="mt-3 rounded-md border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <div className={`grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end${disabledClass}`}>
                 <Field label="Nombre del cliente *">
                   <input
                     className="input"
@@ -952,39 +1093,45 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     placeholder="Escribe el cliente real"
                   />
                 </Field>
-                <button type="button" className="btn-neutral" onClick={() => assignClientByName(true)}>Asignar</button>
+                <Field label="&nbsp;">
+                  <button type="button" className="btn-neutral w-full sm:w-auto" onClick={() => assignClientByName(true)}>Asignar</button>
+                </Field>
               </div>
               {clientId > 0 && <p className="mt-2 text-xs text-emerald-600">Cliente asignado a la venta.</p>}
             </div>
 
             {/* Monto y fecha */}
-            <div className="border-t mt-4 pt-3">
+            <div className={`border-t mt-4 pt-3${disabledClass}`}>
               <div className="grid grid-cols-2 gap-2 md:grid-cols-[minmax(0,1.15fr)_minmax(0,1.15fr)_minmax(0,.85fr)_minmax(0,.9fr)]">
                 <Field label={`Precio de venta (${saleCurrency === 'USD' ? 'US$' : 'S/'})*`}>
                   <input
-                    type="number"
-                    className="input"
-                    value={fromPen(salePrice) || ''}
-                    onChange={(e) => setSalePrice(toPen(Number(e.target.value || 0)))}
+                    type="text"
+                    inputMode="decimal"
+                    className="input tabular-nums"
+                    value={amountInputValue(salePrice)}
+                    onChange={(e) => setSalePrice(toPen(parseGrouped(e.target.value)))}
                   />
                 </Field>
                 <Field label={`Precio equiv. (${saleCurrency === 'USD' ? 'S/' : 'US$'})`}>
                   <input
-                    type="number"
-                    className="input"
-                    value={saleCurrency === 'USD' ? round2(salePrice) || '' : round2(salePriceUsd) || ''}
+                    type="text"
+                    inputMode="decimal"
+                    className="input tabular-nums"
+                    value={saleCurrency === 'USD'
+                      ? (round2(salePrice) ? groupDigits(String(round2(salePrice))) : '')
+                      : (round2(salePriceUsd) ? groupDigits(String(round2(salePriceUsd))) : '')}
                     onChange={(e) => setSalePrice(saleCurrency === 'USD'
-                      ? round2(Number(e.target.value || 0))
-                      : round2(Number(e.target.value || 0) * exchangeRate))}
+                      ? round2(parseGrouped(e.target.value))
+                      : round2(parseGrouped(e.target.value) * exchangeRate))}
                   />
                 </Field>
                 <Field label="TC">
                   <input
-                    type="number"
-                    step="0.0001"
-                    className="input"
-                    value={exchangeRateDisplay || ''}
-                    onChange={(e) => setExchangeRate(round2(Number(e.target.value || 0)))}
+                    type="text"
+                    inputMode="decimal"
+                    className="input tabular-nums"
+                    value={groupRate(exchangeRateDisplay)}
+                    onChange={(e) => setExchangeRate(round2(parseGrouped(e.target.value)))}
                   />
                 </Field>
                 <Field label="Fecha"><input type="date" className="input" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></Field>
@@ -995,7 +1142,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             </div>
 
             {/* Forma de pago */}
-            <div className="border-t mt-4 pt-3">
+            <div className={`border-t mt-4 pt-3${disabledClass}`}>
               <Field label="Forma de pago">
                 <Select value={paymentMethod} onChange={setPaymentMethod} options={PAYMENT_METHODS.map((m) => ({ value: m, label: m }))} />
               </Field>
@@ -1005,9 +1152,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               <>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
                   <Field label={`Cuota inicial (${saleCurrency === 'USD' ? 'US$' : 'S/'})`}>
-                    <input type="number" className="input" value={fromPen(cuotaInicial) || ''} onChange={(e) => setCuotaInicial(toPen(Number(e.target.value)))} />
+                    <input type="text" inputMode="decimal" className="input tabular-nums" value={amountInputValue(cuotaInicial)} onChange={(e) => setCuotaInicial(toPen(parseGrouped(e.target.value)))} />
                   </Field>
-                  <Field label="Nro. de cuotas"><input type="number" min={0} max={120} className="input" value={totalCuotas} onChange={(e) => setTotalCuotas(Number(e.target.value))} /></Field>
+                  <Field label="Nro. de cuotas">
+                    <input type="text" inputMode="numeric" className="input tabular-nums" value={totalCuotas ? groupDigits(String(totalCuotas)) : ''} onChange={(e) => setTotalCuotas(Math.min(120, Math.max(0, Math.round(parseGrouped(e.target.value)))))} />
+                  </Field>
                 </div>
 
                 <div className="rounded-lg border p-3 mt-3" style={{ borderColor: '#E5E7EB' }}>
@@ -1018,7 +1167,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     </Field>
                     {initialPaymentMode === 'partes' && (
                       <Field label="Numero de partes">
-                        <input type="number" min={2} max={24} className="input" value={initialParts} onChange={(e) => setInitialParts(Number(e.target.value))} />
+                        <input type="text" inputMode="numeric" className="input tabular-nums" value={initialParts ? groupDigits(String(initialParts)) : ''} onChange={(e) => setInitialParts(Math.min(24, Math.max(2, Math.round(parseGrouped(e.target.value)) || 2)))} />
                       </Field>
                     )}
                   </div>
@@ -1042,7 +1191,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     <div className="mt-3 space-y-3">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <Field label="Cuantas cuotas sin interes">
-                          <input type="number" min={0} max={totalCuotas} className="input" value={graceMonths} onChange={(e) => setGraceMonths(Number(e.target.value))} />
+                          <input type="text" inputMode="numeric" className="input tabular-nums" value={graceMonths ? groupDigits(String(graceMonths)) : ''} onChange={(e) => setGraceMonths(Math.min(totalCuotas, Math.max(0, Math.round(parseGrouped(e.target.value)))))} />
                         </Field>
                         <Field label="Interes de las siguientes cuotas (TEA %)">
                           <input type="number" step="0.01" className="input" value={tea || ''} onChange={(e) => setTea(Number(e.target.value))} />
@@ -1075,11 +1224,13 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               </>
             )}
 
-            <Field label="Condiciones"><textarea className="input mt-3" value={conditions} onChange={(e) => setConditions(e.target.value)} /></Field>
+            <Field label="Condiciones"><textarea className={`input mt-3${disabledClass}`} value={conditions} onChange={(e) => setConditions(e.target.value)} /></Field>
+
+            </fieldset>
 
             <div className="flex justify-end gap-2 pt-4 mt-1 border-t">
               <button className="btn-neutral" onClick={() => setOpen(false)}>Cancelar</button>
-              <button className="btn-primary" onClick={async () => { await registrar(); setPage(1); load(); }}>Registrar venta</button>
+              <button className="btn-primary" disabled={formDisabled} onClick={async () => { await registrar(); setPage(1); load(); }}>Registrar venta</button>
             </div>
           </div>
         </div>

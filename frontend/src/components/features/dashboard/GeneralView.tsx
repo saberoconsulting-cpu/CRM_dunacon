@@ -205,7 +205,7 @@ function CommercialSummary({ d }: { d: FormattedDashboard }) {
             <div key={box.label} className="min-w-0 border bg-white p-3" style={{ borderColor: BRAND.border, borderRadius: 6 }}>
               <span className="block h-1 w-9" style={{ background: box.color }} />
               <p className="mt-3 min-h-[2rem] text-[10px] font-semibold leading-4 text-slate-500 sm:text-[11px]">{box.label}</p>
-              <p className="mt-1 truncate text-base font-semibold tabular-nums tracking-tight sm:text-lg" style={{ color: box.color }}>{money(box.value)}</p>
+              <p className="mt-1 truncate text-center text-base font-semibold tabular-nums tracking-tight sm:text-lg" style={{ color: box.color }}>{money(box.value)}</p>
             </div>
           ))}
         </div>
@@ -219,7 +219,7 @@ function CommercialSummary({ d }: { d: FormattedDashboard }) {
               <span className="h-1.5 w-1.5 shrink-0" style={{ background: BRAND.blue }} />
             </div>
             <p className="mt-3 truncate text-[10px] font-medium leading-tight text-slate-500 sm:mt-4 sm:text-[11px]">{item.label}</p>
-            <p className="mt-1 truncate text-lg font-semibold tabular-nums sm:text-xl" style={{ color: BRAND.ink }}>{item.value}</p>
+            <p className="mt-1 truncate text-center text-lg font-semibold tabular-nums sm:text-xl" style={{ color: BRAND.ink }}>{item.value}</p>
           </div>
         ))}
       </div>
@@ -462,7 +462,7 @@ function LotStatusDistribution({ data }: { data: { key: string; label: string; v
               <div key={item.key} className="group border p-2 transition-colors hover:bg-slate-50" style={{ borderColor: BRAND.border, borderRadius: 4 }} title={`${item.label}: ${item.value}`}>
                 <span className="block h-1 w-8 transition-all group-hover:w-12" style={{ background: item.color }} />
                 <p className="mt-2 truncate text-[11px] font-medium text-slate-500">{item.label}</p>
-                <p className="text-lg font-semibold tabular-nums" style={{ color: BRAND.ink }}>{item.value}</p>
+                <p className="text-center text-lg font-semibold tabular-nums" style={{ color: BRAND.ink }}>{item.value}</p>
               </div>
             ))}
           </div>

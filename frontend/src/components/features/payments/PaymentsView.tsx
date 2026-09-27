@@ -179,6 +179,11 @@ function MiniMetric({ label, value, color = INK }: { label: string; value: strin
   );
 }
 
+/**
+ * Tarjeta de resumen del modal "Historial de pagos": se muestran en una rejilla
+ * de 2 filas (5 columnas en escritorio) y todos los importes van en US$.
+ */
+
 function PaymentMethodRanking({ items, formatter = money }: { items: Array<{ name: string; value: number; count: number; method: string }>; formatter?: (value: number) => string }) {
   const max = Math.max(...items.map((item) => item.value), 1);
   const colors: Record<string, string> = {
@@ -655,6 +660,16 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [salesRange, setSalesRange] = useState<3 | 6>(6);
   const [salesPeriod, setSalesPeriod] = useState<'month' | 'year'>('month');
   const { currency, setCurrency, exchangeRate, setExchangeRate, format: show } = useDisplayCurrency();
+  // --- Montos del modal "Historial de pagos" siempre en US$ ---
+  // El cliente pidio ver esa ficha en dolares, sin importar el toggle de moneda
+  // de la pantalla. Los importes se guardan en soles, asi que se dividen por el
+  // TC de la venta (o el referencial) antes de pintarlos.
+  const historyRate = Number(exchangeRate) > 0 ? Number(exchangeRate) : DEFAULT_EXCHANGE_RATE;
+  const toUsd = useCallback((amountInPen: number | string | null | undefined) => Number(amountInPen || 0) / historyRate, [historyRate]);
+  const showUsd = useCallback(
+    (amountInPen: number | string | null | undefined) => `US$ ${toUsd(amountInPen).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    [toUsd],
+  );
   const [isNarrow, setIsNarrow] = useState(false);
   const [paySearch, setPaySearch] = useState('');
   const [payClientSearch, setPayClientSearch] = useState('');
@@ -689,6 +704,15 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [voucherUrl, setVoucherUrl] = useState('');
   const [formExchangeRate, setFormExchangeRate] = useState('');
   const [amountUsd, setAmountUsd] = useState('');
+  // El monto en US$ es un espejo del monto en soles: se recalcula cuando cambia
+  // el monto o el TC pactado para que nunca queden cifras contradictorias entre
+  // "Monto" y "Monto US$" al registrar el pago.
+  useEffect(() => {
+    if (!open || savingPayment) return;
+    const rate = Number(formExchangeRate) > 0 ? Number(formExchangeRate) : Number(exchangeRate) || DEFAULT_EXCHANGE_RATE;
+    const next = Number(amount || 0) / rate;
+    setAmountUsd(open ? String(Number(next.toFixed(2))) : '');
+  }, [open, amount, formExchangeRate, exchangeRate, savingPayment]);
   // Moneda en la que se capturan los montos del formulario. El sistema guarda en
   // soles (base), asi que al capturar en US$ se convierte con el TC antes de enviar.
   const [amountCurrency, setAmountCurrency] = useState<'PEN' | 'USD'>('PEN');
@@ -751,20 +775,31 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   function applyPaymentContext(ctx: any, fallback: any = {}) {
     setActiveSale(ctx || null);
     if (ctx?.client?.id) setClientId(Number(ctx.client.id));
+    // El TC debe resolverse ANTES de calcular el monto en US$: si el usuario ya
+    // escribio un TC se respeta, si no se usa el del contexto de la venta y recien
+    // como ultimo recurso el TC global de la pantalla. Antes se calculaba con el
+    // TC global y luego se fijaba el TC, lo que mostraba un US$ que no cuadraba
+    // con la cuota (p. ej. cuota de US$ 618 mostrada como US$ 164.45).
+    const nextRate = Number(formExchangeRate) > 0
+      ? Number(formExchangeRate)
+      : Number(ctx?.sale?.exchangeRate) > 0
+        ? Number(ctx.sale.exchangeRate)
+        : Number(exchangeRate) > 0
+          ? Number(exchangeRate)
+          : DEFAULT_EXCHANGE_RATE;
+    if (!formExchangeRate) setFormExchangeRate(String(nextRate));
     const nextAmount = Number(ctx?.summary?.nextAmount || 0);
     const nextLabel = String(ctx?.summary?.nextConceptLabel || '').toLowerCase();
     if (nextAmount > 0) {
       setAmount(nextAmount);
       setRegCuotaValue(String(nextAmount));
-      const rate = Number(formExchangeRate || exchangeRate || 0);
-      if (rate > 0) setAmountUsd(String(Math.round((nextAmount / rate) * 100) / 100));
+      setAmountUsd(String(Math.round((nextAmount / nextRate) * 100) / 100));
     }
     if (ctx?.summary?.nextDueDate) setDueDate(ctx.summary.nextDueDate);
     if (nextLabel.includes('reserva')) setPayType('reserva');
     else if (nextLabel.includes('inicial')) setPayType('adelanto');
     else if (ctx?.summary?.nextInstallmentNo === 1) setPayType('primera_cuota');
     else setPayType('cuota');
-    if (!formExchangeRate && exchangeRate) setFormExchangeRate(String(exchangeRate));
     if (!reference) setReference(`Lote ${ctx?.lot?.code || fallback.lotCode || fallback.lotId || ctx?.sale?.lotId || ''} - ${ctx?.summary?.nextConceptLabel || 'Pago'}`);
   }
 
@@ -870,7 +905,12 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     setSavingPayment(true);
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
-      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined, exchangeRate: formExchangeRate ? Number(formExchangeRate) : undefined, amountUsd: amountUsd ? Number(amountUsd) : undefined, bankOperationNumber: regBankOp.trim() || undefined, receiptNumber: regReceiptNo.trim() || undefined, receiptValue: regCuotaValue ? Number(regCuotaValue) : undefined });
+      // El TC real del pago: lo que el usuario escribio o el TC global. El monto
+      // en dolares siempre se deriva del monto en soles para que ambos campos
+      // nunca se contradigan (amount y amountUsd deben ser la misma cifra).
+      const usedRate = Number(formExchangeRate) > 0 ? Number(formExchangeRate) : Number(exchangeRate) || DEFAULT_EXCHANGE_RATE;
+      const amountUsdFinal = Number(amount || 0) / usedRate;
+      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined, exchangeRate: usedRate, amountUsd: Number(amountUsdFinal.toFixed(2)), bankOperationNumber: regBankOp.trim() || undefined, receiptNumber: regReceiptNo.trim() || undefined, receiptValue: regCuotaValue ? Number(regCuotaValue) : undefined });
       const attachments = [
         voucher ? uploadFile(`/payments/voucher/${saved?.id}`, voucher) : null,
         regBankOpFile ? uploadFile(`/payments/approval-doc/${saved?.id}`, regBankOpFile) : null,
@@ -1614,7 +1654,18 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                         <span className="rounded-md bg-blue-50 px-2 py-1 text-blue-700">
                           Saldo luego: <b>{show(Math.max(0, Number(activeSale.summary?.balanceAmount || 0) - Number(activeSale.summary?.nextAmount || 0)))}</b>
                         </span>
+                        <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">
+                          TC aplicado: <b>{historyRate.toFixed(4)}</b>
+                        </span>
                       </div>
+                      {/* Aviso de coherencia: si el monto capturado no cuadra con la
+                          cuota que toca, el saldo quedaria descuadrado. */}
+                      {Number(activeSale.summary?.nextAmount || 0) > 0
+                        && Math.abs(Number(amount || 0) - Number(activeSale.summary.nextAmount)) > 0.01 && (
+                        <p className="mt-2 rounded-md px-2 py-1 text-[11px] font-semibold" style={{ background: '#FFF6E4', color: '#B45309' }}>
+                          El monto capturado ({show(amount)}) no coincide con la cuota que le toca ({show(activeSale.summary.nextAmount)}). Se descontara el monto capturado.
+                        </p>
+                      )}
                     </div>
                     <button type="button" className="row-action shrink-0" onClick={() => setShowHistory((v) => !v)}>
                       <FiClock /> {showHistory ? 'Ocultar' : 'Historial'}
@@ -1732,16 +1783,19 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
               </Field>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="TC (opcional)"><input type="number" step="0.0001" className="input" value={formExchangeRate} onChange={(e) => setFormExchangeRate(e.target.value)} placeholder="Ej: 3.75" /></Field>
-                <AmountField
-                  label="Monto US$"
-                  value={amountUsd ? Number(amountUsd) : 0}
-                  onChange={(next) => setAmountUsd(next ? String(next) : '')}
-                  currency="USD"
-                  onToggleCurrency={() => setAmountUsd('')}
-                  rate={Number(formExchangeRate) || exchangeRate}
-                  placeholder="Equivalente en dolares"
-                  helper="Se guarda como monto referencial en dolares."
-                />
+                <Field label="Monto US$">
+                  <div className="flex items-center gap-2 rounded-md border px-3 py-2 tabular-nums" style={{ borderColor: BORDER, background: '#F8FAFC' }}>
+                    <span className="text-xs font-semibold" style={{ color: MUTED }}>US$</span>
+                    <b className="text-sm" style={{ color: INK }}>
+                      {(Number(amount || 0) / (Number(formExchangeRate) || exchangeRate || DEFAULT_EXCHANGE_RATE))
+                        .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </b>
+                  </div>
+                  <p className="mt-1 text-[10px]" style={{ color: MUTED }}>
+                    Referencial en dolares: se calcula del monto en soles con el TC. Cambia el Monto o el TC para ajustarlo.
+                  </p>
+                </Field>
+
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <AmountField
@@ -1775,7 +1829,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   onToggleCurrency={() => setCuotaCurrency((c) => (c === 'PEN' ? 'USD' : 'PEN'))}
                   rate={Number(formExchangeRate) || exchangeRate}
                   placeholder="Se llena solo segun la cuota que le toca"
-                  helper={cuotaCurrency === 'USD' ? `Se guardara ${money(regCuotaValue ? Number(regCuotaValue) : 0)} con TC ${Number(formExchangeRate) || exchangeRate}` : undefined}
+                  helper={`Referencial para la boleta: se autocompleta con la cuota del cronograma. Actual: ${money(regCuotaValue ? Number(regCuotaValue) : 0)}${cuotaCurrency === 'USD' ? ` (equivale a S/ con TC ${Number(formExchangeRate) || exchangeRate})` : ''}`}
                 />
                 <Field label="Adj. op. bancaria (foto)">
                   <div className="flex flex-wrap items-center gap-2">
@@ -1918,21 +1972,29 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                     que ya se registraron y de cada uno puedes descargar su ficha.
                   </p>
                 )}
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                  <MiniMetric label="Precio de venta" value={show(historySale.sale?.salePrice || 0)} />
-                  <MiniMetric label="Reserva" value={historySale.summary?.reservaAmount ? show(historySale.summary.reservaAmount) : 'No aplica'} color={historySale.summary?.reservaAmount ? (historySale.summary?.reservaPaid ? GREEN : AMBER) : MUTED} />
-                  <MiniMetric label="Cuota inicial" value={show(historySale.sale?.cuotaInicial || 0)} color={historySale.summary?.cuotaInicialPaid ? GREEN : AMBER} />
-                </div>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                  <MiniMetric label="Cobrado" value={show(historySale.summary?.collectedAmount || 0)} color={GREEN} />
-                  <MiniMetric label="Saldo" value={show(historySale.summary?.balanceAmount || 0)} color={BLUE_DARK} />
-                  <MiniMetric label="Valor cuota" value={show(historySale.sale?.valorCuota || 0)} />
+                {/* Resumen en tarjetas (2 filas) y todo en US$: los importes se
+                    dividen por el TC de la venta para mostrarlos siempre en dolares. */}
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                  <MiniMetric label="Precio de venta" value={showUsd(historySale.sale?.salePrice || 0)} />
+                  <MiniMetric
+                    label="Reserva"
+                    value={historySale.summary?.reservaAmount ? showUsd(historySale.summary.reservaAmount) : 'No aplica'}
+                    color={historySale.summary?.reservaAmount ? (historySale.summary?.reservaPaid ? GREEN : AMBER) : MUTED}
+                  />
+                  <MiniMetric
+                    label="Cuota inicial"
+                    value={showUsd(historySale.sale?.cuotaInicial || 0)}
+                    color={historySale.summary?.cuotaInicialPaid ? GREEN : AMBER}
+                  />
+                  <MiniMetric label="Cobrado" value={showUsd(historySale.summary?.collectedAmount || 0)} color={GREEN} />
+                  <MiniMetric label="Saldo" value={showUsd(historySale.summary?.balanceAmount || 0)} color={BLUE_DARK} />
+                  <MiniMetric label="Valor cuota" value={showUsd(historySale.sale?.valorCuota || 0)} />
                   <MiniMetric label="Cuotas pagadas" value={`${historySale.summary?.paidCount || 0} de ${historySale.summary?.totalCuotas || 0}`} color={GREEN} />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
                   <MiniMetric label="Le toca pagar" value={historySale.summary?.nextConceptLabel || (historySale.summary?.nextInstallmentNo ? `Cuota ${historySale.summary.nextInstallmentNo}` : 'Todo pagado')} color={AMBER} />
                   <MiniMetric label="Estado del plan" value={String(historySale.sale?.planStatus || 'pendiente')} color={MUTED} />
+                  <MiniMetric label="TC aplicado" value={historyRate.toFixed(4)} color={MUTED} />
                 </div>
+
 
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs font-semibold">Cronograma de cuotas</span>
@@ -1976,7 +2038,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                               {isInitial && <span className="ml-2 rounded-full bg-[#EEF5FF] px-2 py-0.5 text-[10px] font-semibold text-[#1259C4]">Primero</span>}
                             </td>
                             <td className="td-base">{r.dueDate ? formatDate(r.dueDate) : '—'}</td>
-                            <td className="td-base tabular-nums">{show(r.amount)}</td>
+                            <td className="td-base tabular-nums">{showUsd(r.amount)}</td>
                             <td className="td-base">{pay?.exchangeRate != null ? Number(pay.exchangeRate) : '—'}</td>
                             <td className="td-base">{pay?.paidAt ? formatDate(pay.paidAt) : '—'}</td>
                             <td className="td-base tabular-nums">{(() => {

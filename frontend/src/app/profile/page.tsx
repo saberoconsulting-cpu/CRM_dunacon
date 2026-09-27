@@ -10,6 +10,7 @@ import { FiEdit2, FiPhone } from 'react-icons/fi';
 import { FaWhatsapp } from 'react-icons/fa';
 
 const EMPTY = { name: '', phone: '', whatsapp: '', bio: '' };
+const roleLabel = (value?: string) => value === 'admin' ? 'Gerente' : value === 'agent' ? 'Agente' : value === 'superadmin' ? 'Super Admin' : (value || '');
 
 export default function ProfilePage() {
   const [me, setMe] = useState<any>(null);
@@ -156,7 +157,7 @@ export default function ProfilePage() {
 
             <div className="mt-3 flex flex-wrap items-center justify-center sm:justify-start gap-2">
               <span className="badge capitalize bg-brand-50 text-brand-700 font-medium">
-                {me.role === 'superadmin' ? 'Administración' : me.role}
+                {roleLabel(me.role)}
               </span>
               <span className={`badge font-medium ${me.status === 'active' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                 {me.status === 'active' ? 'Activo' : 'Inactivo'}
@@ -264,7 +265,7 @@ export default function ProfilePage() {
           <aside className="space-y-4 xl:mt-[72px] xl:sticky xl:top-8">
             <div className="card">
               <h3 className="font-semibold mb-3">DashBoard</h3>
-              <div className="rounded-lg bg-canvas p-3"><span className="label">Puesto</span><b className="capitalize">{role === 'superadmin' ? 'Administración' : role}</b></div>
+              <div className="rounded-lg bg-canvas p-3"><span className="label">Puesto</span><b>{roleLabel(role)}</b></div>
               {role === 'agent' && (
                 <div className="mt-2 space-y-2 text-sm">
                   <div className="rounded-lg bg-canvas p-3"><span className="label">Comisión</span><b>{Number(me?.commissionRate || 0)}%</b></div>

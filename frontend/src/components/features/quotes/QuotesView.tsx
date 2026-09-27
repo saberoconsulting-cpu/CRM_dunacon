@@ -1,7 +1,7 @@
 'use client';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { FiDownload, FiEye, FiFileText, FiCreditCard, FiDollarSign, FiTrendingUp, FiCheckCircle } from 'react-icons/fi';
+import { FiDownload, FiEye, FiFileText, FiCreditCard, FiDollarSign, FiTrendingUp, FiCheckCircle, FiRefreshCw } from 'react-icons/fi';
 import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
 import { KpiCard, KPI_GRID_6 } from '@/components/ui/Metrics';
 import { PaginationBar } from '@/components/ui/PaginationBar';
@@ -29,11 +29,23 @@ const fmtUsd = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { 
 const fmtPen = (n: number) => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const PAY_LABEL: Record<string, string> = { contado: 'Contado', credito: 'Credito' };
 
-function LotInfoBox({ label, value }: { label: string; value: string }) {
+function calcFixedPayment(principal: number, months: number, teaPct: number) {
+  const p = Math.max(0, Number(principal || 0));
+  const n = Math.max(0, Math.floor(Number(months || 0)));
+  if (p <= 0 || n <= 0) return 0;
+  const monthlyRate = Math.pow(1 + Number(teaPct || 0) / 100, 1 / 12) - 1;
+  if (monthlyRate <= 0) return p / n;
+  const factor = Math.pow(1 + monthlyRate, n);
+  return (p * monthlyRate * factor) / (factor - 1);
+}
+
+function LotInfoBox({ label, value, placeholder = '-' }: { label: string; value: string; placeholder?: string }) {
+  const empty = !value || value === '-';
+  const shown = empty ? placeholder : value;
   return (
     <div className="rounded-md border bg-white px-3 py-2" style={{ borderColor: '#E5E7EB' }}>
       <p className="text-[10px] font-semibold uppercase tracking-[0.06em] text-slate-500">{label}</p>
-      <p className="mt-0.5 truncate text-sm font-semibold" style={{ color: '#111827' }} title={value}>{value}</p>
+      <p className="mt-0.5 truncate text-sm font-semibold" style={{ color: empty ? '#9AA1AB' : '#111827' }} title={shown}>{shown}</p>
     </div>
   );
 }
@@ -100,7 +112,7 @@ function planZoomBox(points: any[], imageW: number, imageH: number) {
   };
 }
 
-function buildPlanHtml(data: any) {
+function buildPlanHtml(data: any, planPrintZoom = 1) {
   const { quote, lot } = data;
   const planData = data?.planData || {};
   const plan = planData?.plan;
@@ -120,6 +132,13 @@ function buildPlanHtml(data: any) {
   const imgX = (SVG_W - imgW) / 2;
   const imgY = (SVG_H - imgH) / 2;
   const selectedCenter = centroid(selectedPoints);
+  const safePlanZoom = Math.min(1.8, Math.max(1, Number(planPrintZoom || 1)));
+  const fullViewW = SVG_W / safePlanZoom;
+  const fullViewH = SVG_H / safePlanZoom;
+  const fullCenterX = imgX + imgW / 2;
+  const fullCenterY = imgY + imgH / 2;
+  const fullViewX = Math.max(0, Math.min(fullCenterX - fullViewW / 2, SVG_W - fullViewW));
+  const fullViewY = Math.max(0, Math.min(fullCenterY - fullViewH / 2, SVG_H - fullViewH));
   const otherLots = lots
     .filter((item: any) => Number(item.id) !== Number(quote?.lotId) && Array.isArray(item.points) && item.points.length)
     .map((item: any) => `<polygon points="${escapeHtml(pointsToAttr(item.points))}" class="lot-muted" />`)
@@ -139,11 +158,15 @@ function buildPlanHtml(data: any) {
     <div class="plan-card">
       <div class="plan-head">
         <div><strong>Plano del proyecto</strong><span>Lote cotizado resaltado y ampliado</span></div>
-        <b>Lote ${lotLabel}</b>
+        <div class="plan-actions">
+          <label for="quote-plan-zoom-range">Zoom plano <strong id="quote-plan-zoom-label">${Math.round(safePlanZoom * 100)}%</strong></label>
+          <input id="quote-plan-zoom-range" type="range" min="1" max="1.8" step="0.05" value="${safePlanZoom}" />
+          <b>Lote ${lotLabel}</b>
+        </div>
       </div>
       <div class="plan-split">
         <div class="plan-full">
-          <svg class="plan-svg" viewBox="0 0 ${SVG_W} ${SVG_H}" role="img" aria-label="Plano completo del proyecto">
+          <svg id="quote-plan-full-svg" class="plan-svg" viewBox="${fullViewX} ${fullViewY} ${fullViewW} ${fullViewH}" data-center-x="${fullCenterX}" data-center-y="${fullCenterY}" role="img" aria-label="Plano completo del proyecto">
             <rect x="0" y="0" width="${SVG_W}" height="${SVG_H}" fill="#F8FAFC" />
             <image href="${escapeHtml(imageUrl)}" x="${imgX}" y="${imgY}" width="${imgW}" height="${imgH}" preserveAspectRatio="xMidYMid meet" />
             ${otherLots}
@@ -168,7 +191,7 @@ function buildPlanHtml(data: any) {
   `;
 }
 
-function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiamiento') {
+function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiamiento', options?: { planPrintZoom?: number }) {
   const { quote, lot, block, project } = data;
   const adminLogoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
   const projectLogoUrl = project?.logoImageUrl || '';
@@ -180,9 +203,34 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
   const dueDate = (m: number) => new Date(start.getFullYear(), start.getMonth() + m, start.getDate()).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const rows: ScheduleRow[] = Array.isArray(plan?.rows) ? plan.rows : [];
   const initialPlan = plan?.initialPlan || null;
+  const totalInstallments = Number(quote.totalCuotas || 0);
+  const firstInstallmentUsd = Number(quote.cuotaInicialUsd || 0);
+  const financingInstallments = Math.max(0, totalInstallments - (firstInstallmentUsd > 0 ? 1 : 0));
+  const savedGraceMonths = Number(quote.graceMonths || 0);
+  const scheduleGraceMonths = Number(plan?.graceMonths || 0);
+  const graceMonths = Math.min(financingInstallments, Math.max(0, savedGraceMonths || scheduleGraceMonths));
+  const interestInstallments = quote.interestType === 'tea'
+    ? Math.max(0, financingInstallments - graceMonths)
+    : 0;
+  const noInterestInstallments = quote.interestType === 'tea' ? graceMonths : financingInstallments;
+  const noInterestCuotaUsd = Number(plan?.graceCuota || 0) || (financingInstallments ? saldo / financingInstallments : 0);
+  const saldoAfterNoInterest = Math.max(0, saldo - noInterestCuotaUsd * noInterestInstallments);
+  const recalculatedInterestCuotaUsd = quote.interestType === 'tea'
+    ? calcFixedPayment(saldoAfterNoInterest, interestInstallments, Number(quote.tea || 0))
+    : (interestInstallments ? saldoAfterNoInterest / interestInstallments : 0);
+  const interestCuotaUsd = recalculatedInterestCuotaUsd || Number(plan?.interestCuota || 0) || Number(quote.valorCuotaUsd || 0);
+  const scheduleTotals = rows.reduce((totals, row) => ({
+    amortizacionCapital: totals.amortizacionCapital + Number(row.amortizacionCapital || 0),
+    amortizacionExtraordinaria: totals.amortizacionExtraordinaria + Number(row.amortizacionExtraordinaria || 0),
+    interes: totals.interes + Number(row.interes || 0),
+    cuota: totals.cuota + Number(row.cuota || 0),
+  }), { amortizacionCapital: 0, amortizacionExtraordinaria: 0, interes: 0, cuota: 0 });
   const scheduleRows = rows.map((r) => `
     <tr><td>${r.month}</td><td>${escapeHtml(dueDate(r.month))}</td><td class="num">${escapeHtml(fmtUsd(r.saldoInicial))}</td><td class="num">${escapeHtml(fmtUsd(r.amortizacionCapital))}</td><td class="num">${escapeHtml(fmtUsd(r.amortizacionExtraordinaria))}</td><td class="num">${escapeHtml(fmtUsd(r.interes))}</td><td class="num strong">${escapeHtml(fmtUsd(r.cuota))}</td><td class="num">${escapeHtml(fmtUsd(r.saldoFinal))}</td></tr>
   `).join('');
+  const scheduleTotalRow = rows.length ? `
+    <tr class="total-row"><td colspan="2">Total</td><td class="num">-</td><td class="num">${escapeHtml(fmtUsd(scheduleTotals.amortizacionCapital))}</td><td class="num">${escapeHtml(fmtUsd(scheduleTotals.amortizacionExtraordinaria))}</td><td class="num">${escapeHtml(fmtUsd(scheduleTotals.interes))}</td><td class="num strong">${escapeHtml(fmtUsd(scheduleTotals.cuota))}</td><td class="num">-</td></tr>
+  ` : '';
   const summaryRows: [string, number][] = [
     ['Precio del lote', Number(quote.lotPriceUsd || 0)],
     ['Bono descuento', -Number(quote.bonoDescuentoUsd || 0)],
@@ -218,7 +266,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
   const isFinancing = docType === 'financiamiento';
   const title = isFinancing ? 'Cronograma de financiamiento' : 'Cotizacion de lote';
   const subtitle = `${project?.name || 'Proyecto'} - Lote ${lot?.code || quote.lotId}`;
-  const planHtml = buildPlanHtml(data);
+  const planHtml = buildPlanHtml(data, options?.planPrintZoom);
 
   return `
     <html>
@@ -227,40 +275,62 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>${escapeHtml(title)} Q${quote.id}</title>
         <style>
-          body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white}
+          body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white;font-size:13px}
           .watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.055;z-index:-1}
           .watermark img{width:560px;max-width:72vw}
           .brand{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}
           .logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}
-          .eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
-          h1{margin:0;font-size:24px;line-height:1.15;color:#111827} h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
-          p{margin:4px 0 0;color:#6B7280;font-size:12px}
-          .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:9px;margin:14px 0 18px}
+          .eyebrow{margin:0 0 5px;color:#1877F2;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+          h1{margin:0;font-size:27px;line-height:1.15;color:#111827} h2{font-size:15px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
+          p{margin:4px 0 0;color:#6B7280;font-size:13px}
+          .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin:14px 0 18px}
           .summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}
-          .summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
-          .summary strong{display:block;margin-top:4px;color:#111827;font-size:12px}
-          .summary-row{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:6px;margin:14px 0 18px}
+          .summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.15}
+          .summary strong{display:block;margin-top:4px;color:#111827;font-size:13px;white-space:nowrap}
+          .summary .head-card{border-color:#B9D2F4;background:#F5F9FF;border-left:4px solid #1877F2}
+          .summary .head-card span{color:#1259C4}
+          .summary .head-card strong{color:#0B2F6E}
+          .summary-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:6px;margin:14px 0 18px}
           .summary-row div{border:1px solid #E5E7EB;background:#F8FAFC;padding:8px 7px;border-radius:6px;min-width:0}
-          .summary-row span{display:block;color:#6B7280;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.2}
-          .summary-row strong{display:block;margin-top:3px;color:#111827;font-size:11px;white-space:nowrap}
+          .summary-row span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.2}
+          .summary-row strong{display:block;margin-top:3px;color:#111827;font-size:13px;white-space:nowrap}
+          .summary-row .finance-highlight{border-color:#1877F2;background:#F5F9FF;border-left:4px solid #1877F2}
+          .summary-row .finance-highlight strong{color:#1259C4}
+          .summary-row .tiny{display:inline;margin-left:3px;color:#64748B;font-size:9px;font-weight:700;text-transform:none;letter-spacing:0}
           .section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:nowrap}
           .section-head h2{margin-bottom:0}
           .summary-aside{display:flex;gap:8px;margin-bottom:10px}
           .summary-aside div{border:1px solid #E5E7EB;background:#F8FAFC;padding:5px 10px;border-radius:6px;text-align:right}
-          .summary-aside span{display:block;color:#6B7280;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
-          .summary-aside strong{display:block;margin-top:2px;color:#1259C4;font-size:11px;font-weight:700;white-space:nowrap}
+          .summary-aside span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+          .summary-aside strong{display:block;margin-top:2px;color:#1259C4;font-size:12px;font-weight:700;white-space:nowrap}
           table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}
-          th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:10px;text-align:left;text-transform:uppercase}
-          td{border:1px solid #E5E7EB;padding:8px 7px;font-size:11px;vertical-align:top}
+          th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:11px;text-align:left;text-transform:uppercase}
+          td{border:1px solid #E5E7EB;padding:8px 7px;font-size:12px;vertical-align:top}
           tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}
-          .num{text-align:right;white-space:nowrap}.strong{font-weight:700;color:#1259C4}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:10px;text-align:right}
+          .total-row td{background:#EAF3FF !important;border-color:#B9D2F4;font-weight:800;color:#0B2F6E}
+          .num{text-align:right;white-space:nowrap}.strong{font-weight:700;color:#1259C4}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:11px;text-align:right}
+          .schedule-table{table-layout:fixed}
+          .schedule-table th,.schedule-table td{padding:6px 4px;font-size:10px;line-height:1.15}
+          .schedule-table .num{font-size:9.5px;letter-spacing:-.01em}
+          .schedule-table th:nth-child(1),.schedule-table td:nth-child(1){width:5%;text-align:center}
+          .schedule-table th:nth-child(2),.schedule-table td:nth-child(2){width:10%}
+          .schedule-table th:nth-child(3),.schedule-table td:nth-child(3){width:14%}
+          .schedule-table th:nth-child(4),.schedule-table td:nth-child(4){width:14%}
+          .schedule-table th:nth-child(5),.schedule-table td:nth-child(5){width:13%}
+          .schedule-table th:nth-child(6),.schedule-table td:nth-child(6){width:11%}
+          .schedule-table th:nth-child(7),.schedule-table td:nth-child(7){width:14%}
+          .schedule-table th:nth-child(8),.schedule-table td:nth-child(8){width:14%}
           .plan-card{border:1px solid #E5E7EB;border-radius:12px;overflow:hidden;margin:8px 0 16px;background:#F8FAFC;break-inside:avoid;box-shadow:0 8px 24px rgba(15,23,42,.06)}
           .plan-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid #E5E7EB;background:white}
           .plan-head strong{display:block;font-size:12px;color:#111827}.plan-head span{display:block;margin-top:2px;font-size:10px;color:#6B7280}.plan-head b{border-radius:999px;background:#EAF3FF;color:#1259C4;padding:5px 10px;font-size:11px}
+          .plan-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+          .plan-actions label{font-size:10px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:.04em}
+          .plan-actions label strong{display:inline;color:#1259C4;font-size:10px}
+          .plan-actions input{width:118px;accent-color:#1877F2}
           .plan-svg{display:block;width:100%;height:auto;background:#EEF2F7;border-radius:10px}
-          .plan-split{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:12px}
+          .plan-split{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:12px;padding:12px}
           .plan-full,.plan-zoom{min-width:0;display:flex;flex-direction:column;gap:6px}
-          .plan-full .plan-svg,.plan-zoom svg{height:230px;border-radius:10px;overflow:hidden;background:#EEF2F7}
+          .plan-full .plan-svg,.plan-zoom svg{height:330px;border-radius:10px;overflow:hidden;background:#EEF2F7}
           .plan-zoom svg{display:block;width:100%}
           .plan-note{margin:0;font-size:9px;font-weight:700;text-align:center;text-transform:uppercase;letter-spacing:.06em;color:#6B7280}
           @media (max-width:640px){.plan-split{grid-template-columns:minmax(0,1fr)}.plan-full .plan-svg,.plan-zoom svg{height:190px}}
@@ -284,13 +354,13 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
             table{table-layout:auto}
             th,td{padding:5px 4px;font-size:9px}
             .plan-split{grid-template-columns:minmax(0,1fr)}
-            .plan-full .plan-svg,.plan-zoom svg{height:170px}
+            .plan-full .plan-svg,.plan-zoom svg{height:190px}
             .watermark img{width:300px}
           }
-          @media print{body{margin:18px}.brand,.summary,.summary-row,.summary-aside,.plan-card{break-inside:avoid}thead{display:table-header-group}.watermark{position:fixed}
-            .plan-split{display:grid !important;grid-template-columns:minmax(0,1fr) minmax(0,1fr) !important;gap:12px !important}
-            .plan-full .plan-svg,.plan-zoom svg{height:200px !important}
-            .summary-row{display:grid !important;grid-template-columns:repeat(6,minmax(0,1fr)) !important}
+          @media print{body{margin:18px}.brand,.summary,.summary-row,.summary-aside,.plan-card{break-inside:avoid}thead{display:table-header-group}.watermark{position:fixed}.plan-actions input,.plan-actions label{display:none !important}
+            .plan-split{display:grid !important;grid-template-columns:minmax(0,3fr) minmax(0,2fr) !important;gap:12px !important}
+            .plan-full .plan-svg,.plan-zoom svg{height:285px !important}
+            .summary-row{display:grid !important;grid-template-columns:repeat(4,minmax(0,1fr)) !important}
             .section-head{display:flex !important;flex-wrap:nowrap !important}
           }
         </style>
@@ -302,11 +372,15 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           <div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div>
         </div>
         <div class="summary">
-          <div><span>Precio final</span><strong>${escapeHtml(fmtUsd(Number(quote.finalPriceUsd || 0)))}</strong></div>
-          <div><span>Cuota inicial</span><strong>${quote.paymentMethod === 'credito' ? escapeHtml(fmtUsd(Number(quote.cuotaInicialUsd || 0))) : 'Contado'}</strong></div>
-          <div><span>Saldo</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
-          <div><span>Cuotas</span><strong>${Number(quote.totalCuotas || 0)}</strong></div>
-        </div>
+          <div class="head-card"><span>Precio final</span><strong>${escapeHtml(fmtUsd(Number(quote.finalPriceUsd || 0)))}</strong></div>
+          <div class="head-card"><span>Saldo</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
+          ${quote.paymentMethod === 'credito' ? `
+              <div class="head-card"><span>Cuota inicial</span><strong>${escapeHtml(fmtUsd(Number(quote.cuotaInicialUsd || 0)))}</strong></div>
+              <div class="head-card"><span>Cuotas s/int.</span><strong>${noInterestInstallments}</strong></div>
+              <div class="head-card"><span>Cuotas c/int.</span><strong>${interestInstallments}</strong></div>
+              <div class="head-card"><span>Total cuotas</span><strong>${totalInstallments}</strong></div>
+            ` : '<div class="head-card"><span>Forma de pago</span><strong>Contado</strong></div>'}
+          </div>
         <h2>Datos de la cotizacion</h2>
         <table><tbody>${detailRows}</tbody></table>
         <div class="section-head">
@@ -318,24 +392,13 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
         ${quote.paymentMethod === 'credito' ? `
           <h2>Financiamiento</h2>
           <div class="summary-row">
-            <div><span>Saldo a financiar</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
-            <div><span>TEA</span><strong>${quote.interestType === 'tea' ? `${Number(quote.tea || 0)}%` : 'Sin intereses'}</strong></div>
-            <div><span>Plazo</span><strong>${Number(quote.totalCuotas || 0)} meses</strong></div>
-            <div><span>Valor de la cuota</span><strong>${escapeHtml(fmtUsd(Number(plan?.graceCuota || 0)))}</strong></div>
-            <div><span>Valor cuota con intereses</span><strong>${escapeHtml(fmtUsd(Number(quote.valorCuotaUsd || 0)))}</strong></div>
-            <div><span>Tipo cambio</span><strong>S/ ${Number(quote.exchangeRate || 0).toFixed(4)}</strong></div>
+            <div class="finance-highlight"><span>Saldo fin.</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
+            <div class="finance-highlight"><span>TEA</span><strong>${quote.interestType === 'tea' ? `${Number(quote.tea || 0)}%` : 'Sin intereses'}</strong></div>
+            <div class="finance-highlight"><span>C. s/int. <em class="tiny">(${noInterestInstallments})</em></span><strong>${escapeHtml(fmtUsd(noInterestCuotaUsd))}</strong></div>
+            <div class="finance-highlight"><span>C. c/int. <em class="tiny">(${interestInstallments})</em></span><strong>${escapeHtml(fmtUsd(interestCuotaUsd))}</strong></div>
+            <div class="finance-highlight"><span>Total cuotas</span><strong>${totalInstallments}</strong></div>
+            <div class="finance-highlight"><span>TC</span><strong>S/ ${Number(quote.exchangeRate || 0).toFixed(4)}</strong></div>
           </div>
-          ${plan?.graceMonths > 0 ? `
-            <h2>Periodo sin intereses</h2>
-            <table><tbody>
-              <tr><td class="label">Meses sin interes</td><td class="num">${plan.graceMonths}</td></tr>
-              <tr><td class="label">Cuota durante la gracia</td><td class="num">${escapeHtml(fmtUsd(plan.graceCuota || 0))}</td></tr>
-              <tr><td class="label">Meses con interes</td><td class="num">${plan.interestMonths}</td></tr>
-              <tr><td class="label">Cuota con interes</td><td class="num">${escapeHtml(fmtUsd(plan.interestCuota || 0))}</td></tr>
-              <tr><td class="label">Saldo al terminar la gracia</td><td class="num">${escapeHtml(fmtUsd(plan.saldoAlFinGracia || 0))}</td></tr>
-              <tr><td class="label">Total de intereses</td><td class="num">${escapeHtml(fmtUsd(plan.totalInteres || 0))}</td></tr>
-            </tbody></table>
-          ` : ''}
           ${initialPlan ? `
             <h2>Cuota inicial (sin intereses)</h2>
             <table><tbody>
@@ -343,9 +406,33 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
               <tr><td class="label">Forma de pago</td><td class="num">${initialPlan.modo === 'partes' ? `${initialPlan.partes} partes de ${escapeHtml(fmtUsd(initialPlan.montoPorParte))}` : 'Pago unico de contado'}</td></tr>
             </tbody></table>
           ` : ''}
-          ${isFinancing ? `<table><thead><tr><th>Mes</th><th>Fecha</th><th>Saldo inicial</th><th>Amort. capital</th><th>Amort. extra</th><th>Interes</th><th>Cuota</th><th>Saldo final</th></tr></thead><tbody>${scheduleRows || '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody></table>` : ''}
+          ${isFinancing ? `<table class="schedule-table"><thead><tr><th>Mes</th><th>Fecha</th><th>Saldo inicial</th><th>Amort. capital</th><th>Amort. extra</th><th>Interes</th><th>Cuota</th><th>Saldo final</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody></table>` : ''}
         ` : ''}
         <div class="footer">Dunacon - CRM Inmobiliario</div>
+        <script>
+          (function () {
+            var input = document.getElementById('quote-plan-zoom-range');
+            var svg = document.getElementById('quote-plan-full-svg');
+            var label = document.getElementById('quote-plan-zoom-label');
+            if (!input) return;
+            function clamp(value, min, max) { return Math.max(min, Math.min(max, value)); }
+            function applyZoom() {
+              var zoom = Number(input.value || 1);
+              if (svg) {
+                var cx = Number(svg.getAttribute('data-center-x') || 500);
+                var cy = Number(svg.getAttribute('data-center-y') || 400);
+                var w = 1000 / zoom;
+                var h = 800 / zoom;
+                var x = clamp(cx - w / 2, 0, 1000 - w);
+                var y = clamp(cy - h / 2, 0, 800 - h);
+                svg.setAttribute('viewBox', x + ' ' + y + ' ' + w + ' ' + h);
+              }
+              if (label) label.textContent = Math.round(zoom * 100) + '%';
+              window.parent && window.parent.postMessage({ type: 'quote-plan-print-zoom', value: zoom }, '*');
+            }
+            input.addEventListener('input', applyZoom);
+          })();
+        </script>
       </body>
     </html>
   `;
@@ -355,6 +442,7 @@ function QuoteDocumentModal({ doc, onClose }: { doc: { id: number; type: 'cotiza
   const [data, setData] = useState<any>(null);
   const [schedule, setSchedule] = useState<any>(null);
   const [error, setError] = useState('');
+  const planPrintZoomRef = useRef(1);
 
   useEffect(() => {
     if (!doc) return;
@@ -375,13 +463,22 @@ function QuoteDocumentModal({ doc, onClose }: { doc: { id: number; type: 'cotiza
     }).catch((e: any) => setError(e.message || 'No se pudo cargar el documento'));
   }, [doc]);
 
-  const html = data ? buildQuoteHtml(data, schedule, doc.type) : '';
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type !== 'quote-plan-print-zoom') return;
+      planPrintZoomRef.current = Math.min(1.8, Math.max(1, Number(event.data.value || 1)));
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  const html = data ? buildQuoteHtml(data, schedule, doc.type, { planPrintZoom: 1 }) : '';
 
   return (
     <Modal open={true} onClose={onClose} title={doc.type === 'financiamiento' ? 'Financiamiento' : 'Cotizacion'} width="max-w-5xl">
       <div className="space-y-3">
         <div className="flex justify-end">
-          <button className="btn-primary !h-8 text-xs" disabled={!data} onClick={() => html && printHtml(html)}>
+          <button className="btn-primary !h-8 text-xs" disabled={!data} onClick={() => data && printHtml(buildQuoteHtml(data, schedule, doc.type, { planPrintZoom: planPrintZoomRef.current }))}>
             <FiDownload /> Descargar PDF
           </button>
         </div>
@@ -444,9 +541,13 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [streetId, setStreetId] = useState(0);
   const [interestType, setInterestType] = useState<'sin_intereses' | 'tea'>('sin_intereses');
   const [tea, setTea] = useState(10);
-  const { currency, setCurrency, exchangeRate: displayExchangeRate, setExchangeRate: setDisplayExchangeRate, format: formatDisplay } = useDisplayCurrency();
+  const { currency, setCurrency, exchangeRate: displayExchangeRate, setExchangeRate: setDisplayExchangeRate } = useDisplayCurrency();
 
-  const formatQuoteAmount = (amountUsd: number | null | undefined) => formatDisplay(Number(amountUsd || 0) * (currency === 'PEN' ? displayExchangeRate : 1));
+  const formatQuoteAmount = (amountUsd: number | null | undefined) => {
+    const usd = Number(amountUsd || 0);
+    const value = currency === 'PEN' ? usd * displayExchangeRate : usd;
+    return `${currency === 'PEN' ? 'S/' : 'US$'} ${value.toLocaleString(currency === 'PEN' ? 'es-PE' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -518,10 +619,27 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     if (lot) {
       const lotStreetId = Number((lot as any).streetId ?? (lot as any).blockId ?? 0);
       if (lotStreetId) setStreetId(lotStreetId);
-      const perM2 = Number(lot.areaM2) > 0 ? Number(lot.salePrice || lot.price || 0) / Number(lot.areaM2) / exchangeRate : 0;
+      const area = Number(lot.areaM2 || 0);
+      const perM2 = Number(lot.price || 0);
+      const total = Number(lot.finalPrice || lot.salePrice || (perM2 * area) || 0);
       setPricePerM2Usd(Number(perM2.toFixed(2)));
-      setLotPriceUsd(Number((perM2 * Number(lot.areaM2)).toFixed(2)));
+      setLotPriceUsd(Number(total.toFixed(2)));
+      setBonoDescuento(0);
+      setBonoEspecial(0);
+      setCuotaInicialUsd(0);
+      setInitialPaymentMode('contado');
+      setInitialParts(3);
     }
+  }
+
+  // Limpia el lote elegido para poder escoger otro sin cerrar el modal.
+  // Deja las cajas de datos del lote visibles (solo se vacian sus valores) y
+  // restablece la lista de lotes (sin filtro de calle) para poder re-elegir.
+  function resetLot() {
+    setLotId(0);
+    setStreetId(0);
+    setPricePerM2Usd(0);
+    setLotPriceUsd(0);
   }
 
   function onPricePerM2Change(v: number) {
@@ -530,7 +648,11 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   }
 
   const finalPrice = Math.max(0, lotPriceUsd - bonoDescuento - bonoEspecial);
-  const saldoAFinanciar = paymentMethod === 'credito' ? Math.max(0, finalPrice - cuotaInicialUsd) : 0;
+  const safeTotalCuotas = Math.max(1, Number(totalCuotas || 0));
+  const primeraCuotaUsd = paymentMethod === 'credito' ? finalPrice / safeTotalCuotas : 0;
+  const saldoAFinanciar = paymentMethod === 'credito' ? Math.max(0, finalPrice - primeraCuotaUsd) : 0;
+  const safeInitialParts = Math.max(2, Number(initialParts || 0));
+  const cuotasFinanciadas = Math.max(0, safeTotalCuotas - 1);
 
   function resetForm() {
     setClientName(''); setClientEmail(''); setClientPhone('');
@@ -551,7 +673,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
         lotId, clientName, clientEmail, clientPhone,
         pricePerM2Usd, lotPriceUsd, bonoDescuentoUsd: bonoDescuento || undefined, bonoEspecialUsd: bonoEspecial || undefined,
         paymentMethod,
-        cuotaInicialUsd: paymentMethod === 'credito' ? cuotaInicialUsd || undefined : undefined,
+        cuotaInicialUsd: paymentMethod === 'credito' ? primeraCuotaUsd || undefined : undefined,
         totalCuotas: paymentMethod === 'credito' ? totalCuotas || undefined : undefined,
         graceMonths: paymentMethod === 'credito' && applyInterest ? graceMonths || undefined : undefined,
         interestType: paymentMethod === 'credito' ? (applyInterest ? 'tea' : 'sin_intereses') : undefined,
@@ -750,41 +872,52 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
               </Field>
             </div>
 
-            <h4 className="font-semibold text-sm text-slate-700 mb-2 mt-4">Lote</h4>
+            <h4 className="font-semibold text-sm text-slate-700 mb-2 mt-4">Calle y lote</h4>
             <div className="grid grid-cols-2 gap-3">
               {streetOptions.length > 0 && (
                 <Field label="Calle">
-                  <select
-                    className="input"
-                    value={streetId}
-                    onChange={(e) => { setStreetId(Number(e.target.value)); setLotId(0); }}
-                  >
-                    <option value={0}>Todas las calles</option>
-                    {streetOptions.map((street) => (
-                      <option key={street.id} value={street.id}>
-                        {street.name}{street.address ? ` - ${street.address}` : ''}
-                      </option>
-                    ))}
-                  </select>
+                  <Select
+                    value={String(streetId)}
+                    onChange={(value) => { setStreetId(Number(value)); setLotId(0); }}
+                    options={[
+                      { value: '0', label: 'Todas las calles' },
+                      ...streetOptions.map((street) => ({ value: String(street.id), label: street.name })),
+                    ]}
+                  />
                 </Field>
               )}
               <Field label="Lote elegido *">
-                <select className="input" value={lotId} onChange={(e) => selectLot(Number(e.target.value))}>
-                  <option value={0}>Selecciona...</option>
-                  {lotsOfStreet.map((l: any) => <option key={l.id} value={l.id}>Lote {l.code}{l.blockAddress ? ` - ${l.blockAddress}` : ''}</option>)}
-                </select>
+                <Select
+                  value={String(lotId)}
+                  onChange={(value) => selectLot(Number(value))}
+                  options={[
+                    { value: '0', label: 'Selecciona...' },
+                    ...lotsOfStreet.map((l: any) => ({ value: String(l.id), label: l.code })),
+                  ]}
+                />
               </Field>
             </div>
             {streetId > 0 && lotsOfStreet.length === 0 && (
               <p className="text-xs text-slate-500 mb-2">Esta calle no tiene lotes disponibles.</p>
             )}
-            {selectedLot && (
-              <div className="grid grid-cols-3 gap-3 mb-3">
-                <LotInfoBox label="Calle" value={(selectedLot as any).streetName || (selectedLot as any).blockName || '-'} />
-                <LotInfoBox label="Direccion" value={selectedLot.blockAddress || '-'} />
-                <LotInfoBox label="Area (m2)" value={String(Number(selectedLot.areaM2 || 0).toLocaleString('es-PE'))} />
-              </div>
-            )}
+            {/* Datos del lote: cajas fijas siempre visibles; solo cambian sus valores al elegir un lote. */}
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-500">Datos del lote</p>
+              <button
+                type="button"
+                className="btn-neutral !h-7 !px-2 text-xs"
+                onClick={resetLot}
+                disabled={!selectedLot}
+                title="Limpiar el lote elegido para escoger otro sin salir del cuadro"
+              >
+                <FiRefreshCw /> Cambiar lote
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mb-3">
+              <LotInfoBox label="Calle" value={(selectedLot as any)?.streetName || (selectedLot as any)?.blockName || '-'} placeholder="Sin lote" />
+              <LotInfoBox label="Direccion" value={selectedLot?.blockAddress || '-'} placeholder="Sin lote" />
+              <LotInfoBox label="Area (m2)" value={selectedLot ? String(Number(selectedLot.areaM2 || 0).toLocaleString('es-PE')) : '-'} placeholder="Sin lote" />
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Precio US$/m2"><input type="number" className="input" value={pricePerM2Usd || ''} onChange={(e) => onPricePerM2Change(Number(e.target.value))} /></Field>
               <Field label="Precio del lote US$"><input type="number" className="input" value={lotPriceUsd || ''} onChange={(e) => setLotPriceUsd(Number(e.target.value))} /></Field>
@@ -799,36 +932,56 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
 
             <h4 className="font-semibold text-sm text-slate-700 mb-2">Forma de pago</h4>
             <Field label="Forma de pago">
-              <select className="input" value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value as any)}>
-                <option value="contado">Contado</option>
-                <option value="credito">Credito</option>
-              </select>
+              <Select
+                value={paymentMethod}
+                onChange={(value) => {
+                  setPaymentMethod(value as any);
+                  if (value === 'contado') {
+                    setCuotaInicialUsd(0);
+                    setInitialPaymentMode('contado');
+                  }
+                }}
+                options={[
+                  { value: 'contado', label: 'Contado' },
+                  { value: 'credito', label: 'Credito' },
+                ]}
+              />
             </Field>
             {paymentMethod === 'credito' && (
               <>
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Cuota inicial US$ (sin interes)"><input type="number" className="input" value={cuotaInicialUsd || ''} onChange={(e) => setCuotaInicialUsd(Number(e.target.value))} /></Field>
-                  <Field label="Plazo total (meses, incluye las cuotas sin interes)"><input type="number" className="input" value={totalCuotas || ''} onChange={(e) => setTotalCuotas(Number(e.target.value))} /></Field>
+                  <Field label="Plazo total (meses, incluye las cuotas sin interes)"><input type="number" className="input" value={totalCuotas || ''} onChange={(e) => setTotalCuotas(Number(e.target.value || 0))} /></Field>
+                  <div className="rounded-lg bg-canvas p-3 text-sm">
+                    <span className="block text-xs text-slate-500">Primera cuota calculada</span>
+                    <b>{fmtUsd(primeraCuotaUsd)}</b>
+                  </div>
                 </div>
+                <p className="-mt-2 mb-3 text-[11px] text-slate-500">
+                  La primera cuota se calcula automaticamente: precio final dividido entre el total de cuotas. Si la pagas en partes, se divide esa primera cuota.
+                </p>
 
                 <div className="rounded-lg border p-3 mb-3" style={{ borderColor: '#E5E7EB' }}>
-                  <p className="text-xs font-semibold text-slate-600 mb-2">1. Cuota inicial (siempre sin interes)</p>
+                  <p className="text-xs font-semibold text-slate-600 mb-2">1. Primera cuota (siempre sin interes)</p>
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="Forma de pago de la inicial">
-                      <select className="input" value={initialPaymentMode} onChange={(e) => setInitialPaymentMode(e.target.value as any)}>
-                        <option value="contado">Pago de contado (1 sola vez)</option>
-                        <option value="partes">En partes iguales</option>
-                      </select>
+                    <Field label="Forma de pago de la primera cuota">
+                      <Select
+                        value={initialPaymentMode}
+                        onChange={(value) => setInitialPaymentMode(value as any)}
+                        options={[
+                          { value: 'contado', label: 'Pago de contado (1 sola vez)' },
+                          { value: 'partes', label: 'En partes iguales' },
+                        ]}
+                      />
                     </Field>
                     {initialPaymentMode === 'partes' && (
                       <Field label="Numero de partes">
-                        <input type="number" min={2} max={24} className="input" value={initialParts} onChange={(e) => setInitialParts(Number(e.target.value))} />
+                        <input type="number" min={2} max={24} className="input" value={initialParts || ''} onChange={(e) => setInitialParts(Number(e.target.value || 0))} />
                       </Field>
                     )}
                   </div>
-                  {initialPaymentMode === 'partes' && cuotaInicialUsd > 0 && (
+                  {initialPaymentMode === 'partes' && primeraCuotaUsd > 0 && (
                     <p className="mt-2 text-xs text-slate-500">
-                      La inicial se paga en <b>{initialParts} partes</b> de <b>{fmtUsd(cuotaInicialUsd / initialParts)}</b> cada una, sin interes.
+                      La primera cuota de <b>{fmtUsd(primeraCuotaUsd)}</b> se paga en <b>{safeInitialParts} partes</b> de <b>{fmtUsd(primeraCuotaUsd / safeInitialParts)}</b> cada una, sin interes.
                     </p>
                   )}
                 </div>
@@ -836,19 +989,23 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                 <div className="rounded-lg border p-3 mb-3" style={{ borderColor: '#E5E7EB' }}>
                   <p className="text-xs font-semibold text-slate-600 mb-2">2. Financiamiento del saldo</p>
                   <Field label="Las primeras cuotas, sin interes?">
-                    <select className="input" value={applyInterest ? 'con' : 'sin'} onChange={(e) => setApplyInterest(e.target.value === 'con')}>
-                      <option value="sin">Todas las cuotas sin interes</option>
-                      <option value="con">Si, las primeras N sin interes y el resto con interes</option>
-                    </select>
+                    <Select
+                      value={applyInterest ? 'con' : 'sin'}
+                      onChange={(value) => setApplyInterest(value === 'con')}
+                      options={[
+                        { value: 'sin', label: 'Todas las cuotas sin interes' },
+                        { value: 'con', label: 'Si, las primeras N sin interes y el resto con interes' },
+                      ]}
+                    />
                   </Field>
                   {applyInterest && (
                     <div className="mt-3 space-y-3">
                       <div className="grid grid-cols-2 gap-3">
                         <Field label="Cuantas cuotas sin interes">
-                          <input type="number" min={0} max={totalCuotas} className="input" value={graceMonths} onChange={(e) => setGraceMonths(Number(e.target.value))} />
+                          <input type="number" min={0} max={totalCuotas} className="input" value={graceMonths || ''} onChange={(e) => setGraceMonths(Number(e.target.value || 0))} />
                         </Field>
                         <Field label="Interes de las siguientes cuotas (TEA %)">
-                          <input type="number" step="0.01" className="input" value={tea || ''} onChange={(e) => setTea(Number(e.target.value))} />
+                          <input type="number" step="0.01" className="input" value={tea || ''} onChange={(e) => setTea(Number(e.target.value || 0))} />
                         </Field>
                       </div>
                       <p className="text-[11px] text-slate-500">Las {totalCuotas} cuotas incluyen esas {graceMonths} sin interes.</p>
@@ -856,33 +1013,41 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                   )}
                 </div>
 
-                <div className="rounded-lg bg-canvas p-3 text-sm flex justify-between mb-2">
-                  <span className="text-slate-600">Saldo a financiar:</span><b>{fmtUsd(saldoAFinanciar)}</b>
+                <div className="rounded-lg bg-canvas p-3 text-sm mb-2">
+                  <div className="flex justify-between gap-3">
+                    <span className="text-slate-600">Saldo a financiar:</span><b>{fmtUsd(saldoAFinanciar)}</b>
+                  </div>
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {fmtUsd(finalPrice)} precio final - {fmtUsd(primeraCuotaUsd)} primera cuota = {fmtUsd(saldoAFinanciar)}.
+                  </p>
                 </div>
 
                 {applyInterest && tea > 0 && graceMonths > 0 && (
                   <div className="rounded-lg border p-3 text-xs text-slate-600 mb-3" style={{ borderColor: '#E5E7EB', background: '#F8FAFC' }}>
                     <p className="font-semibold text-slate-700 mb-1">Como queda el cronograma</p>
-                    <p>Cuotas 1 a {graceMonths}: <b>{fmtUsd(saldoAFinanciar / totalCuotas)}</b> cada una, sin interes.</p>
-                    <p>Cuotas {graceMonths + 1} a {totalCuotas}: cuota con {tea}% TEA aplicada sobre el saldo que quede pendiente.</p>
+                    <p>Primera cuota: <b>{fmtUsd(primeraCuotaUsd)}</b>{initialPaymentMode === 'partes' ? ` en ${safeInitialParts} partes` : ''}, sin interes.</p>
+                    <p>Siguientes cuotas sin interes: <b>{fmtUsd(cuotasFinanciadas ? saldoAFinanciar / cuotasFinanciadas : 0)}</b> cada una.</p>
+                    <p>Luego se aplica {tea}% TEA sobre el saldo que quede pendiente.</p>
                   </div>
                 )}
                 {applyInterest && tea > 0 && graceMonths === 0 && (
                   <div className="rounded-lg border p-3 text-xs text-slate-600 mb-3" style={{ borderColor: '#E5E7EB', background: '#F8FAFC' }}>
                     <p className="font-semibold text-slate-700 mb-1">Como queda el cronograma</p>
-                    <p>Las {totalCuotas} cuotas llevan {tea}% TEA desde el inicio.</p>
+                    <p>Primera cuota: <b>{fmtUsd(primeraCuotaUsd)}</b>{initialPaymentMode === 'partes' ? ` en ${safeInitialParts} partes` : ''}, sin interes.</p>
+                    <p>El saldo de <b>{fmtUsd(saldoAFinanciar)}</b> se financia con {tea}% TEA.</p>
                   </div>
                 )}
                 {!applyInterest && (
                   <div className="rounded-lg border p-3 text-xs text-slate-600 mb-3" style={{ borderColor: '#E5E7EB', background: '#F8FAFC' }}>
                     <p className="font-semibold text-slate-700 mb-1">Como queda el cronograma</p>
-                    <p>Las {totalCuotas} cuotas son de <b>{fmtUsd(saldoAFinanciar / totalCuotas)}</b>, sin interes.</p>
+                    <p>Primera cuota: <b>{fmtUsd(primeraCuotaUsd)}</b>{initialPaymentMode === 'partes' ? ` en ${safeInitialParts} partes` : ''}, sin interes.</p>
+                    <p>Las {cuotasFinanciadas} cuotas restantes son de <b>{fmtUsd(cuotasFinanciadas ? saldoAFinanciar / cuotasFinanciadas : 0)}</b>, sin interes.</p>
                   </div>
                 )}
               </>
             )}
 
-            <Field label="Tipo de cambio (S/ por US$)"><input type="number" step="0.01" className="input" value={exchangeRate} onChange={(e) => setExchangeRate(Number(e.target.value))} /></Field>
+            <Field label="Tipo de cambio (S/ por US$)"><input type="number" step="0.01" className="input" value={exchangeRate || ''} onChange={(e) => setExchangeRate(Number(e.target.value || 0))} /></Field>
 
             <div className="flex justify-end gap-2 pt-4 mt-1 border-t">
               <button className="btn-neutral" onClick={() => setOpen(false)}>Cancelar</button>

@@ -52,7 +52,7 @@ function KpiTile({ label, value, helper, icon, accent }: { label: string; value:
         <p className="min-w-0 truncate text-[11px] font-semibold uppercase" style={{ color: MUTED }}>{label}</p>
         <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md" style={{ background: `${accent}12`, color: accent }}>{icon}</span>
       </div>
-      <p className="mt-2 truncate text-xl font-bold tabular-nums" style={{ color: INK }}>{value}</p>
+      <p className="mt-2 truncate text-center text-xl font-bold tabular-nums" style={{ color: INK }}>{value}</p>
       <p className="mt-0.5 truncate text-[11px]" style={{ color: MUTED }}>{helper}</p>
     </div>
   );
