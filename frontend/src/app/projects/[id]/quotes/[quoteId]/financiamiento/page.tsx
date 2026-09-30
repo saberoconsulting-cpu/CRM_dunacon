@@ -12,15 +12,41 @@ type Row = {
   amortizacionExtraordinaria: number; cuota: number; saldoFinal: number;
 };
 
+type InitialPart = { numero: number; monto: number; fecha: string };
+
+type InitialPlan = {
+  cuotaInicialTotal: number;
+  modo: 'contado' | 'partes';
+  partes: number;
+  montoPorParte: number;
+  totalPagado: number;
+  saldoAFinanciar: number;
+  partesDetalle: InitialPart[];
+};
+
+/** Fecha ISO (YYYY-MM-DD) -> dd/mm/aaaa. */
+function fmtDate(iso?: string) {
+  if (!iso) return '—';
+  const [y, m, d] = String(iso).split('T')[0].split('-');
+  return y && m && d ? `${d}/${m}/${y}` : '—';
+}
+
 export default function FinanciamientoDocPage() {
   const { quoteId } = useParams<{ id: string; quoteId: string }>();
   const [data, setData] = useState<any>(null);
   const [rows, setRows] = useState<Row[]>([]);
+  const [initialPlan, setInitialPlan] = useState<InitialPlan | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    Promise.all([api.get<any>(`/quotes/${quoteId}`), api.get<Row[]>(`/quotes/${quoteId}/schedule`)])
-      .then(([d, sched]) => { setData(d); setRows(sched || []); })
+    // El endpoint /schedule devuelve un OBJETO { rows, initialPlan, ... }, no un
+    // arreglo: leerlo como Row[] dejaba la tabla de cuotas vacia.
+    Promise.all([api.get<any>(`/quotes/${quoteId}`), api.get<any>(`/quotes/${quoteId}/schedule`)])
+      .then(([d, sched]) => {
+        setData(d);
+        setRows(Array.isArray(sched?.rows) ? sched.rows : []);
+        setInitialPlan(sched?.initialPlan || null);
+      })
       .catch((e: any) => setError(e.message || 'No se pudo cargar el financiamiento'));
   }, [quoteId]);
 
@@ -36,7 +62,17 @@ export default function FinanciamientoDocPage() {
 
   return (
     <div className="min-h-screen bg-white py-8 px-4 print:py-0">
-      <style>{`@media print { .no-print { display: none !important; } body { background: #fff; } }`}</style>
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: #fff; font-family: Arial, Helvetica, sans-serif !important; font-size: 12px !important; }
+          body * { font-family: Arial, Helvetica, sans-serif !important; }
+          p, span, b, strong, table, th, td, div { font-size: 12px !important; line-height: 1.35 !important; }
+          h1 { font-size: 22px !important; line-height: 1.2 !important; }
+          table { page-break-inside: auto; }
+          tr { page-break-inside: avoid; page-break-after: auto; }
+        }
+      `}</style>
       <div className="max-w-4xl mx-auto">
         <div className="no-print flex justify-end mb-4">
           <button onClick={() => window.print()} className="btn-primary">Imprimir / Guardar PDF</button>
@@ -64,6 +100,49 @@ export default function FinanciamientoDocPage() {
           <div><span className="text-slate-500 block text-xs">Plazo (meses)</span><b>{quote.totalCuotas}</b></div>
         </div>
 
+        {initialPlan && initialPlan.partesDetalle.length > 0 && (
+          <div className="mb-4 overflow-hidden rounded-2xl border" style={{ borderColor: '#E5E7EB' }}>
+            <div className="border-b px-4 py-2" style={{ borderColor: '#E5E7EB', background: '#F4F9FF' }}>
+              <h3 className="text-sm font-bold" style={{ color: '#1259C4' }}>Cuota inicial (sin intereses)</h3>
+            </div>
+            <div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3">
+              <div><span className="block text-xs text-slate-500">Total</span><b>{fmtUsd(initialPlan.cuotaInicialTotal)}</b></div>
+              <div><span className="block text-xs text-slate-500">Modalidad</span><b>{initialPlan.modo === 'partes' ? 'En partes' : 'Contado'}</b></div>
+              <div><span className="block text-xs text-slate-500">N° de partes</span><b>{initialPlan.partes}</b></div>
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-500">
+                  <th className="px-4 py-1 font-semibold">Parte</th>
+                  <th className="px-4 py-1 text-right font-semibold">Monto US$</th>
+                  <th className="px-4 py-1 text-right font-semibold">Fecha</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y" style={{ borderColor: '#F0F1F3' }}>
+                {initialPlan.partesDetalle.map((parte) => (
+                  <tr key={parte.numero}>
+                    <td className="px-4 py-1.5">{parte.numero} de {initialPlan.partes}</td>
+                    <td className="px-4 py-1.5 text-right tabular-nums">{fmtUsd(parte.monto)}</td>
+                    <td className="px-4 py-1.5 text-right tabular-nums">{fmtDate(parte.fecha)}</td>
+                  </tr>
+                ))}
+                <tr className="font-semibold" style={{ background: '#F8FAFC' }}>
+                  <td className="px-4 py-1.5">Total inicial</td>
+                  <td className="px-4 py-1.5 text-right tabular-nums">{fmtUsd(initialPlan.totalPagado)}</td>
+                  <td className="px-4 py-1.5 text-right">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+          <h3 className="text-sm font-bold text-slate-700">Financiamiento del saldo</h3>
+          <p className="text-xs text-slate-500">
+            Saldo a financiar <b>{fmtUsd(Number(quote.finalPriceUsd) - Number(quote.cuotaInicialUsd))}</b> —
+            numeración del 1 al {rows.length || quote.totalCuotas}, independiente de la cuota inicial.
+          </p>
+        </div>
         <div className="overflow-x-auto border rounded-2xl" style={{ borderColor: '#E5E7EB' }}>
           <table className="w-full text-sm" style={{ minWidth: 780 }}>
             <thead>

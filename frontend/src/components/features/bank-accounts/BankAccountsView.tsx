@@ -1,28 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  FiAlertCircle,
-  FiCheckCircle,
-  FiChevronLeft,
-  FiChevronRight,
-  FiChevronDown,
-  FiCreditCard,
-  FiArrowDown,
-  FiArrowUp,
-  FiDownload,
-  FiEdit3,
-  FiFilter,
-  FiPlus,
-  FiRefreshCw,
-  FiSearch,
-  FiSave,
-  FiSettings,
-  FiTrash2,
-  FiUploadCloud,
-  FiX,
-} from 'react-icons/fi';
+import { FiAlertCircle, FiArrowDown, FiArrowUp, FiCheckCircle, FiChevronDown, FiChevronLeft, FiChevronRight, FiCreditCard, FiDownload, FiEdit3, FiFilter, FiPlus, FiRefreshCw, FiSearch, FiSave, FiSettings, FiTrash2, FiUploadCloud, FiX } from 'react-icons/fi';
 import { Toaster, toast, Field } from '@/components/ui/ui';
+import { Select } from '@/components/ui/Select';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import AnnualReportPanel from '@/components/features/bank-accounts/AnnualReportPanel';
 import CategoryMasterPanel from '@/components/features/bank-accounts/CategoryMasterPanel';
@@ -179,7 +160,8 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [dataVersion, setDataVersion] = useState(0);
   const [openingBalanceDraft, setOpeningBalanceDraft] = useState('0');
   const [savingOpeningBalance, setSavingOpeningBalance] = useState(false);
-  const [operationAscending, setOperationAscending] = useState(true);
+  const [sortKey, setSortKey] = useState<'date' | 'item'>('date');
+  const [sortAscending, setSortAscending] = useState(true);
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [accountKey, setAccountKey] = useState('GENERAL');
   const [accountModalOpen, setAccountModalOpen] = useState(false);
@@ -308,17 +290,51 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   }
 
   const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
+  // Orden de presentacion. Dos criterios excluyentes: por FECHA (item como
+  // desempate, para que la numeracion del dia se lea 1,2,3...) o por ITEM
+  // (fecha como desempate, para revisar la secuencia completa del Item).
+  // Los saldos ya vienen calculados por el backend en orden cronologico, asi que
+  // reordenar aqui es solo visual y nunca recalcula la cadena de saldos.
   const sortedItems = useMemo(() => [...items].sort((left, right) => {
-    const leftOperation = left.itemNumber ?? Number.MAX_SAFE_INTEGER;
-    const rightOperation = right.itemNumber ?? Number.MAX_SAFE_INTEGER;
-    if (leftOperation !== rightOperation) return operationAscending ? leftOperation - rightOperation : rightOperation - leftOperation;
-    return operationAscending ? left.id - right.id : right.id - left.id;
-  }), [items, operationAscending]);
+    const leftDate = left.movementDate || '';
+    const rightDate = right.movementDate || '';
+    const leftItem = left.itemNumber ?? Number.MAX_SAFE_INTEGER;
+    const rightItem = right.itemNumber ?? Number.MAX_SAFE_INTEGER;
+    // Las filas sin fecha (NULL) van siempre al final, en cualquier criterio.
+    if (!leftDate !== !rightDate) return leftDate ? -1 : 1;
+
+    const byDate = () => {
+      if (leftDate !== rightDate) return sortAscending ? leftDate.localeCompare(rightDate) : rightDate.localeCompare(leftDate);
+      // Dentro de la misma fecha el Item va SIEMPRE de menor a mayor.
+      if (leftItem !== rightItem) return leftItem - rightItem;
+      return sortAscending ? left.id - right.id : right.id - left.id;
+    };
+    const byItem = () => {
+      // El Item vacio (NULL) NO se invierte: siempre va al final, igual que en
+      // el criterio por fecha. Solo se invierten los Items que existen.
+      const leftMissing = left.itemNumber === null || left.itemNumber === undefined;
+      const rightMissing = right.itemNumber === null || right.itemNumber === undefined;
+      if (leftMissing !== rightMissing) return leftMissing ? 1 : -1;
+      if (!leftMissing && leftItem !== rightItem) return sortAscending ? leftItem - rightItem : rightItem - leftItem;
+      if (leftDate !== rightDate) return sortAscending ? leftDate.localeCompare(rightDate) : rightDate.localeCompare(leftDate);
+      return sortAscending ? left.id - right.id : right.id - left.id;
+    };
+    return sortKey === 'item' ? byItem() : byDate();
+  }), [items, sortKey, sortAscending]);
   const pageItems = sortedItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const movementTotals = useMemo(() => ({
     deposits: items.reduce((total, item) => total + num(item.depositAmount), 0),
     charges: items.reduce((total, item) => total + num(item.chargeAmount), 0),
-  }), [items]);
+    // "Saldo contable" es un saldo acumulado: sumarlo no tiene sentido, su total
+    // es el saldo de la ULTIMA fila visible. Asi el pie cuadra con las 3 columnas
+    // que muestra la tabla (abono, cargo y saldo) y no con la cuenta completa.
+    lastBookBalance: (() => {
+      const withBalance = items.filter((item) => item.bookBalance !== null && item.bookBalance !== undefined);
+      if (!withBalance.length) return summary?.saldoFinal ?? null;
+      const last = withBalance[withBalance.length - 1];
+      return num(last.bookBalance);
+    })(),
+  }), [items, summary?.saldoFinal]);
 
   async function handleFile(file?: File | null) {
     if (!file) return;
@@ -372,9 +388,26 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
   function openCreate() {
     setEditing(null);
-    setForm({ projectId, currency, movementDate: '', monthLabel: '', depositAmount: '', chargeAmount: '', eerrClassification: '' });
+    setForm({ projectId, currency, movementDate: '', monthLabel: '', itemNumber: '', depositAmount: '', chargeAmount: '', eerrClassification: '' });
     setFormOpen(true);
     formRef.current?.scrollTo({ top: 0 });
+  }
+
+  /**
+   * Siguiente Item libre de la cuenta activa, solo como sugerencia del boton.
+   */
+  function nextItemNumber(_movementDate?: string) {
+    const used = items.map((item) => Number(item.itemNumber)).filter((value) => Number.isFinite(value) && value > 0);
+    return used.length ? Math.max(...used) + 1 : 1;
+  }
+
+  /** Al cambiar la fecha se refresca el mes; el Item lo decide el usuario. */
+  function pickItemDate(value: string) {
+    setForm((current: any) => ({
+      ...current,
+      movementDate: value,
+      monthLabel: monthLabelFromDate(value),
+    }));
   }
 
   function openEdit(item: Movement) {
@@ -382,6 +415,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     setForm({
       ...item,
       movementDate: item.movementDate ? item.movementDate.slice(0, 10) : '',
+      itemNumber: item.itemNumber ?? '',
       depositAmount: num(item.depositAmount) || '',
       chargeAmount: num(item.chargeAmount) || '',
     });
@@ -390,7 +424,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   }
 
   function pickDate(value: string) {
-    setForm((current: any) => ({ ...current, movementDate: value, monthLabel: monthLabelFromDate(value) }));
+    pickItemDate(value);
   }
 
   async function save() {
@@ -400,10 +434,24 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     if (deposit && charge) return toast('No puede tener abono y cargo a la vez', 'err');
     if (!form.description && !form.counterparty) return toast('Ingresa la descripcion o el proveedor/cliente', 'err');
 
+    // El Item es opcional: si el usuario escribe una posicion, la fila entra
+    // ahi; si lo deja vacio, se guarda NULL y la fila cae al final de su fecha.
+    const rawItem = String(form.itemNumber ?? '').trim();
+    const itemNumber = rawItem === '' ? null : Math.trunc(num(rawItem));
+    if (itemNumber !== null && (!itemNumber || itemNumber < 1)) {
+      return toast('El Item debe ser 1, 2, 3... o dejarlo vacio', 'err');
+    }
+    const duplicated = itemNumber !== null && items.some((row) => row.id !== editing?.id && Number(row.itemNumber) === itemNumber);
+    if (duplicated) {
+      return toast(`Ya existe un movimiento registrado con el Item ${itemNumber}. Usa el Item ${nextItemNumber()}.`, 'err');
+    }
+
     try {
       const payload = {
         ...form,
         projectId,
+        accountKey,
+        itemNumber,
         depositAmount: deposit,
         chargeAmount: charge,
         bookBalance: form.bookBalance === '' || form.bookBalance === null || form.bookBalance === undefined ? null : num(form.bookBalance),
@@ -415,7 +463,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
       applyData(data);
       toast(editing ? 'Movimiento actualizado' : 'Movimiento registrado');
       setEditing(null);
-      setForm({ projectId, currency, movementDate: '', monthLabel: '', depositAmount: '', chargeAmount: '', eerrClassification: '' });
+      setForm({ projectId, currency, movementDate: '', monthLabel: '', itemNumber: '', depositAmount: '', chargeAmount: '', eerrClassification: '' });
       formRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error: any) {
       toast(error?.message || 'No se pudo guardar el movimiento', 'err');
@@ -456,11 +504,13 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const f = (key: string, value: any) => setFilters((current) => ({ ...current, [key]: value }));
   const activeFilters = Object.values(filters).filter(Boolean).length;
 
+  const filtered = Boolean(summary?.filtrado);
+  const scope = filtered ? 'del filtro' : 'del periodo';
   const cards = [
     { label: 'Saldo inicial', value: show(summary?.saldoInicial), color: BRAND.blue, helper: 'Saldo al inicio del periodo' },
-    { label: 'Total ingresos', value: show(summary?.totalAbonos), color: '#16A36A', helper: 'Suma de abonos del periodo' },
-    { label: 'Total egresos', value: show(summary?.totalCargos), color: '#DC2626', helper: 'Suma de cargos del periodo' },
-    { label: 'Saldo final', value: show(summary?.saldoFinal), color: '#0E46A0', helper: 'Saldo al cierre del periodo' },
+    { label: filtered ? 'Ingresos (filtro)' : 'Total ingresos', value: show(summary?.totalAbonos), color: '#16A36A', helper: `Suma de abonos ${scope}` },
+    { label: filtered ? 'Egresos (filtro)' : 'Total egresos', value: show(summary?.totalCargos), color: '#DC2626', helper: `Suma de cargos ${scope}` },
+    { label: 'Saldo final', value: show(summary?.saldoFinal), color: '#0E46A0', helper: filtered ? 'Saldo real de la cuenta (sin filtro)' : 'Saldo al cierre del periodo' },
     { label: 'Movimientos', value: String(summary?.movimientos || 0), color: '#7C3AED', helper: `${summary?.meses || 0} meses con movimiento` },
     { label: 'Saldo en US$ (referencial)', value: `US$ ${salaryToUSD(summary?.saldoFinal, exchangeRate)}`, color: '#D97706', helper: `Tipo de cambio S/ ${Number(exchangeRate || 0).toLocaleString('es-PE', { maximumFractionDigits: 4 })}` },
   ];
@@ -642,7 +692,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   onChange={(event) => f('search', event.target.value)}
                 />
               </div>
-              <button className="btn-neutral !h-9 !px-3 text-xs" onClick={() => setShowFilters((value) => !value)}>
+              <button className="btn-neutral !h-9 !px-3 text-xs" onClick={() => setShowFilters((value) => !value)} aria-expanded={showFilters}>
                 <FiFilter /> Filtros{activeFilters ? ` (${activeFilters})` : ''}
               </button>
               {activeFilters > 0 && (
@@ -650,6 +700,41 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   <FiX /> Limpiar
                 </button>
               )}
+              {/* Orden de la tabla, pegado a la palabra "Filtros": el criterio
+                  (fecha o item) y su flecha de sentido. Reordenar es solo
+                  visual; los saldos siguen viniendo del backend. */}
+              <div className="flex items-center gap-1.5 rounded-xl border bg-[#F8FAFC] px-2 py-1" style={{ borderColor: BORDER }}>
+                <span className="hidden whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide sm:inline" style={{ color: MUTED }}>Ordenar por</span>
+                <button
+                  type="button"
+                  className="rounded-lg px-2 py-1 text-xs font-semibold transition-all"
+                  onClick={() => setSortKey('date')}
+                  aria-pressed={sortKey === 'date'}
+                  title="Ordenar las filas por fecha de abono"
+                  style={sortKey === 'date' ? { background: BRAND.blue, color: '#FFFFFF' } : { color: '#374151' }}
+                >
+                  Fecha
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg px-2 py-1 text-xs font-semibold transition-all"
+                  onClick={() => setSortKey('item')}
+                  aria-pressed={sortKey === 'item'}
+                  title="Ordenar las filas por Item"
+                  style={sortKey === 'item' ? { background: BRAND.blue, color: '#FFFFFF' } : { color: '#374151' }}
+                >
+                  Item
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-[#E5E7EB] bg-white px-1.5 py-1 text-xs font-semibold text-[#374151] transition-all hover:bg-[#F3F4F6]"
+                  onClick={() => setSortAscending((value) => !value)}
+                  aria-label={sortAscending ? 'Orden ascendente' : 'Orden descendente'}
+                  title={sortAscending ? 'De menor a mayor. Clic para invertir' : 'De mayor a menor. Clic para invertir'}
+                >
+                  {sortAscending ? <FiArrowUp /> : <FiArrowDown />}
+                </button>
+              </div>
             </div>
             <p className="text-xs" style={{ color: MUTED }}>
               {items.length} movimientos{preview ? '' : ''}
@@ -661,26 +746,39 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
               <Field label="Desde"><input type="date" className="input !h-9" value={filters.from} onChange={(e) => f('from', e.target.value)} /></Field>
               <Field label="Hasta"><input type="date" className="input !h-9" value={filters.to} onChange={(e) => f('to', e.target.value)} /></Field>
               <Field label="Tipo">
-                <select className="input !h-9" value={filters.movementType} onChange={(e) => f('movementType', e.target.value)}>
-                  <option value="">Todos</option>
-                  <option value="INGRESO">Ingreso (abono)</option>
-                  <option value="GASTO">Gasto (cargo)</option>
-                </select>
+                <Select
+                  value={filters.movementType}
+                  onChange={(value) => f('movementType', value)}
+                  options={[
+                    { value: '', label: 'Todos' },
+                    { value: 'INGRESO', label: 'Ingreso (abono)' },
+                    { value: 'GASTO', label: 'Gasto (cargo)' },
+                  ]}
+                />
               </Field>
               <Field label="Clasificacion EERR">
-                <select className="input !h-9" value={filters.eerrClassification} onChange={(e) => f('eerrClassification', e.target.value)}>
-                  <option value="">Todas</option>
-                  {(facets?.eerrClassifications || []).map((option: any) => (
-                    <option key={option.value} value={option.value}>{option.value} ({option.count})</option>
-                  ))}
-                </select>
+                <Select
+                  value={filters.eerrClassification}
+                  onChange={(value) => f('eerrClassification', value)}
+                  options={[
+                    { value: '', label: 'Todas' },
+                    ...(facets?.eerrClassifications || []).map((option: any) => ({
+                      value: option.value,
+                      label: `${option.value} (${option.count})`,
+                    })),
+                  ]}
+                />
               </Field>
               <Field label="Moneda">
-                <select className="input !h-9" value={filters.currency} onChange={(e) => f('currency', e.target.value)}>
-                  <option value="">S/ y US$</option>
-                  <option value="PEN">Soles (S/)</option>
-                  <option value="USD">Dolares (US$)</option>
-                </select>
+                <Select
+                  value={filters.currency}
+                  onChange={(value) => f('currency', value)}
+                  options={[
+                    { value: '', label: 'S/ y US$' },
+                    { value: 'PEN', label: 'Soles (S/)' },
+                    { value: 'USD', label: 'Dolares (US$)' },
+                  ]}
+                />
               </Field>
             </div>
           )}
@@ -699,15 +797,13 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between gap-2 border-b bg-white px-4 py-2" style={{ borderColor: BORDER }}>
-                <p className="text-xs font-semibold" style={{ color: MUTED }}>Movimientos por operación</p>
-                <button
-                  className="btn-neutral !h-8 !px-2 text-xs"
-                  onClick={() => setOperationAscending((value) => !value)}
-                  title={operationAscending ? 'Ordenar de la última operación a la primera' : 'Ordenar de la primera operación a la última'}
-                >
-                  {operationAscending ? <FiArrowDown /> : <FiArrowUp />} {operationAscending ? 'Última primero' : 'Primera primero'}
-                </button>
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-white px-4 py-2" style={{ borderColor: BORDER }}>
+                <p className="text-xs font-semibold" style={{ color: MUTED }}>
+                  Movimientos ordenados por {sortKey === 'item' ? 'Item' : 'fecha'} ({sortAscending ? 'ascendente' : 'descendente'})
+                </p>
+                <p className="text-xs" style={{ color: MUTED }}>
+                  {pageItems.length} de {items.length} · pagina {page} de {pageCount}
+                </p>
               </div>
               <div className="overflow-x-auto">
                 <table className="table-base">
@@ -769,10 +865,18 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   </tbody>
                   <tfoot>
                     <tr className="border-t bg-[#F8FAFC] font-bold" style={{ borderColor: BORDER }}>
-                      <td className="td-base text-xs" colSpan={4} style={{ color: INK }}>Totales</td>
-                      <td className="td-base whitespace-nowrap text-right text-xs tabular-nums" style={{ color: '#16A36A' }}>{show(movementTotals.deposits)}</td>
-                      <td className="td-base whitespace-nowrap text-right text-xs tabular-nums" style={{ color: '#DC2626' }}>{show(movementTotals.charges)}</td>
-                      <td className="td-base whitespace-nowrap text-right text-xs tabular-nums" style={{ color: INK }}>{show(num(summary?.saldoFinal))}</td>
+                      {/*
+                        Las columnas del pie deben caer EXACTAMENTE bajo su encabezado:
+                        Item | Fecha | Mes | Descripcion | Proveedor | Abono | Cargo | Saldo | ...
+                        -> 5 columnas de texto, Abono (6), Cargo (7), Saldo contable (8) y 4 al final.
+                        Con colSpan=4 los montos quedaban corridos una columna a la izquierda
+                        (el abono bajo "Proveedor", el cargo bajo "Abono") y no se sabia de quien
+                        era cada total.
+                      */}
+                      <td className="td-base text-xs" colSpan={5} style={{ color: INK }}>Totales</td>
+                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: '#16A36A' }}>{show(movementTotals.deposits)}</td>
+                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: '#DC2626' }}>{show(movementTotals.charges)}</td>
+                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: INK }}>{show(movementTotals.lastBookBalance ?? undefined)}</td>
                       <td className="td-base" colSpan={4} />
                     </tr>
                   </tfoot>
@@ -920,15 +1024,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-3 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setFormOpen(false)} />
           <div ref={formRef} className="relative max-h-[calc(100dvh-2rem)] w-full max-w-2xl overflow-auto rounded-2xl bg-white p-4 shadow-2xl sm:max-h-[92vh] sm:p-6">
-            <div className="mb-4 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="font-semibold" style={{ color: INK, fontSize: 17 }}>
-                  {editing ? 'Modificar movimiento' : 'Registrar movimiento'}
-                </h3>
-                <p className="mt-0.5 text-sm" style={{ color: MUTED }}>
-                  {editing ? `Editando el registro #${editing.id}. Solo se puede actualizar la observación.` : 'Ingreso manual al estado de cuenta bancario.'}
-                </p>
-              </div>
+            <div className="mb-4 flex items-start justify-end gap-3">
               {editing && (
                 <button
                   className="shrink-0 rounded-md border px-3 py-1.5 text-xs font-semibold"
@@ -940,12 +1036,38 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Field label="Item (opcional)">
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  className="input tabular-nums"
+                  placeholder="1, 2, 3..."
+                  title="Escribe la posicion (1, 2, 3...) solo si quieres que la fila entre en ese lugar. Si lo dejas vacio, la fila va al final de su fecha."
+                  value={form.itemNumber ?? ''}
+                  onChange={(event) => setForm((p: any) => ({
+                    ...p,
+                    itemNumber: event.target.value,
+                    itemNumberTouched: true,
+                  }))}
+                />
+              </Field>
               <Field label="Fecha de abono">
                 <input type="date" className="input" readOnly={!!editing} value={form.movementDate || ''} onChange={(event) => pickDate(event.target.value)} />
               </Field>
               <Field label="Mes (automatico)">
                 <input className="input" readOnly placeholder="Se completa con la fecha" value={form.monthLabel || ''} />
+              </Field>
+              <Field label="Siguiente libre (opcional)">
+                <button
+                  type="button"
+                  className="input flex items-center justify-center gap-1 !px-2 text-xs font-semibold tabular-nums"
+                  onClick={() => setForm((p: any) => ({ ...p, itemNumber: nextItemNumber(p.movementDate), itemNumberTouched: true }))}
+                  title="Usar el siguiente Item libre de esta fecha"
+                >
+                  Item {nextItemNumber(form.movementDate)}
+                </button>
               </Field>
             </div>
 

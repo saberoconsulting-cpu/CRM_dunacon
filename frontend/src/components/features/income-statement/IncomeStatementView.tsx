@@ -2,14 +2,14 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { FiActivity, FiAward, FiBarChart2, FiBriefcase, FiCheckCircle, FiChevronDown, FiChevronRight, FiClipboard, FiCreditCard, FiDollarSign, FiDownload, FiEdit3, FiFileText, FiGrid, FiMapPin, FiPackage, FiPercent, FiPieChart, FiPlus, FiRefreshCw, FiTool, FiTrendingUp, FiUsers, FiX } from 'react-icons/fi';
+import { FiBarChart2, FiChevronDown, FiChevronRight, FiDollarSign, FiDownload, FiEdit3, FiFileText, FiGrid, FiMapPin, FiPlus, FiRefreshCw, FiTrendingUp, FiX } from 'react-icons/fi';
 import { Toaster, toast, Field } from '@/components/ui/ui';
 import { Select } from '@/components/ui/Select';
 import { KpiCard as SharedKpiCard } from '@/components/ui/Metrics';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
 import { printHtml } from '@/lib/print';
-import { BRAND, Lot, Project } from '@/lib/types';
+import { Lot, Project } from '@/lib/types';
 import { useDisplayCurrency, formatCurrency } from '@/lib/currency';
 
 type IncomeStatement = {
@@ -64,6 +64,7 @@ type StatementItem = {
 };
 
 type StatementTreeItem = StatementItem & { children: StatementTreeItem[] };
+type StatementTreeItemWithSource = StatementTreeItem & { cashflowRowId?: string; isVirtual?: boolean };
 
 type StatementLineMeta = {
   key: StatementLine;
@@ -101,7 +102,7 @@ const LINES: StatementLineMeta[] = [
   { key: 'financiero', label: 'Gastos financieros', letter: 'E', color: '#7C3AED', soft: '#F5F3FF', parent: null, helper: 'Intereses y comisiones bancarias.' },
   { key: 'impuestos', label: 'Impuesto a la renta referencial', letter: 'F', color: RED, soft: '#FEF2F2', parent: null, helper: 'Referencia gerencial del 29.5% sobre la utilidad.' },
   { key: 'igv', label: 'IGV referencial incluido en ingresos', letter: 'G', color: '#0F766E', soft: '#F0FDFA', parent: null, helper: 'Separacion referencial del IGV contenido en los ingresos.' },
-  { key: 'ajuste', label: 'Utilidad ajustada referencial', letter: 'H', color: BLUE_DARK, soft: BLUE_SOFT, parent: null, helper: 'Ajustes gerenciales que no forman parte del cierre tributario.' },
+  { key: 'ajuste', label: 'Ajustes gerenciales referenciales', letter: 'H', color: BLUE_DARK, soft: BLUE_SOFT, parent: null, helper: 'Ajustes gerenciales que no forman parte del cierre tributario.' },
 ];
 
 const LINE_BY_KEY = Object.fromEntries(LINES.map((line) => [line.key, line])) as Record<StatementLine, StatementLineMeta>;
@@ -131,7 +132,7 @@ type CashflowModel = {
 /** Fila del cuadro: una linea contable fija, una partida editable o un subtotal. */
 type SheetRow =
   | { kind: 'line'; id: string; line: StatementLine; label: string; level: 0; meta: StatementLineMeta }
-  | { kind: 'item'; id: string; line: StatementLine; label: string; level: number; meta: StatementLineMeta; item: StatementTreeItem; hasChildren: boolean }
+  | { kind: 'item'; id: string; line: StatementLine; label: string; level: number; meta: StatementLineMeta; item: StatementTreeItemWithSource; hasChildren: boolean }
   | { kind: 'computed'; id: string; line: StatementLine; label: string; level: 0; meta: StatementLineMeta };
 
 
@@ -156,8 +157,18 @@ function LineIcon({ line, size = 14 }: { line: StatementLine; size?: number }) {
   return <svg {...common}><path d="M20 6 9 17l-5-5" /></svg>;
 }
 
-/** Lineas donde un monto resta para llegar a la utilidad; el resto suma. */
-const CARGO_LINES: StatementLine[] = ['costo', 'ventas_admin', 'financiero', 'impuestos', 'igv'];
+const COST_CASHFLOW_ROWS = [
+  { code: 'C.01', id: 'land', label: 'Costo de Terreno' },
+  { code: 'C.02', id: 'direct', label: 'Costo Directo' },
+  { code: 'C.03', id: 'indirect', label: 'Costo Indirecto' },
+];
+const SALES_ADMIN_CASHFLOW_ROWS = [
+  { code: 'D.01', id: 'sales-plan', label: 'Gastos de planilla' },
+  { code: 'D.02', id: 'marketing', label: 'Marketing y publicidad' },
+  { code: 'D.03', id: 'commission', label: 'Comisión de ventas' },
+  { code: 'D.04', id: 'post-sale', label: 'Gastos post venta' },
+  { code: 'D.05', id: 'discounts', label: 'Descuentos y bonos' },
+];
 
 /** Construye el arbol de partidas (padres con sus subpartidas ordenadas). */
 function buildTree(items: StatementItem[]): StatementTreeItem[] {
@@ -215,6 +226,16 @@ function lotRevenue(lot: Lot) {
   return num(lot.finalPrice || lot.salePrice || lot.price);
 }
 
+function cashflowTotals(model: CashflowModel | null) {
+  const totals = new Map<string, number>();
+  const labels = new Map<string, string>();
+  for (const row of model?.rows || []) {
+    totals.set(row.id, (row.values || []).reduce((sum, value) => sum + num(value), 0));
+    labels.set(row.id, row.label || row.id);
+  }
+  return { totals, labels };
+}
+
 /**
  * Colores de la fila segun su naturaleza: ingresos en verde, costo de venta en
  * el grupo indigo, impuestos/IGV en ambar y los subtotales en gris.
@@ -227,7 +248,6 @@ function rowTone(row: SheetRow) {
   if (line === 'ingreso') return { bg: '#F0FDF4', color: GREEN, border: '#BBF7D0' };
   if (line === 'ajuste') return { bg: BLUE_SOFT, color: BLUE_DARK, border: '#BFDBFE' };
   if (line === 'impuestos' || line === 'igv') return { bg: '#FFF7ED', color: AMBER, border: '#FED7AA' };
-  if (row.kind === 'computed') return { bg: '#F8FAFC', color: INK, border: BORDER };
   return { bg: '#F8FAFC', color: INK, border: BORDER };
 }
 
@@ -391,6 +411,15 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   // Partidas editables del cuadro (con subpartidas), persistidas en backend.
   const [items, setItems] = useState<StatementItem[]>([]);
   const [openItems, setOpenItems] = useState<Record<number, boolean>>({});
+  const [openLines, setOpenLines] = useState<Record<StatementLine, boolean>>({
+    ingreso: false,
+    costo: false,
+    ventas_admin: false,
+    financiero: false,
+    impuestos: false,
+    igv: false,
+    ajuste: false,
+  });
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<StatementItem | null>(null);
   const [saving, setSaving] = useState(false);
@@ -399,6 +428,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   const [printing, setPrinting] = useState(false);
   // Modelo de Flujo de Caja Estático: fuente del Proyectado.
   const [cashflow, setCashflow] = useState<CashflowModel | null>(null);
+  // Modelo de Flujo de Caja Dinámico: fuente del Real cuando existe.
+  const [dynamicCashflow, setDynamicCashflow] = useState<CashflowModel | null>(null);
   const [loading, setLoading] = useState(true);
   const [ruc, setRuc] = useState(DEFAULT_RUC);
   const [labelOverrides, setLabelOverrides] = useState<Record<string, string>>({});
@@ -441,17 +472,19 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [projectData, statementData, lotData, cashflowData, itemsData] = await Promise.all([
+      const [projectData, statementData, lotData, cashflowData, dynamicCashflowData, itemsData] = await Promise.all([
         api.get<Project>(`/projects/${projectId}`),
         api.get<IncomeStatement>(`/finances/income-statement?projectId=${projectId}`),
         loadAllLots(projectId),
         api.get<CashflowModel | null>(`/cashflow/model?projectId=${projectId}&mode=estatico`).catch(() => null),
+        api.get<CashflowModel | null>(`/cashflow/model?projectId=${projectId}&mode=dinamico`).catch(() => null),
         api.get<{ items?: StatementItem[] }>(`/income-statement?projectId=${projectId}`).catch(() => ({ items: [] })),
       ]);
       setProject(projectData);
       setStatement(statementData);
       setLots(lotData);
       setCashflow(cashflowData && Array.isArray(cashflowData.rows) ? cashflowData : null);
+      setDynamicCashflow(dynamicCashflowData && Array.isArray(dynamicCashflowData.rows) ? dynamicCashflowData : null);
       setItems(Array.isArray(itemsData?.items) ? itemsData.items : []);
     } catch (error: any) {
       toast(error?.message || 'No se pudo cargar el estado de resultados', 'err');
@@ -477,11 +510,10 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     // Proyectado: sale del Flujo de Caja Estático del proyecto (modo 'estatico').
     // El total de cada fila es la suma de sus valores por año. Si aún no hay modelo
     // guardado, se cae a la lógica anterior (lotes + presupuesto) como referencia.
-    const cfTotals = new Map<string, number>();
-    for (const row of cashflow?.rows || []) {
-      cfTotals.set(row.id, (row.values || []).reduce((sum, value) => sum + num(value), 0));
-    }
+    const { totals: cfTotals } = cashflowTotals(cashflow);
+    const { totals: dynamicCfTotals } = cashflowTotals(dynamicCashflow);
     const cf = (id: string, fallback: number) => cfTotals.has(id) ? (cfTotals.get(id) ?? 0) : fallback;
+    const dcf = (id: string, fallback: number) => dynamicCfTotals.has(id) ? (dynamicCfTotals.get(id) ?? 0) : fallback;
     const projectedRevenue = cf('income', lots.reduce((sum, lot) => sum + lotRevenue(lot), 0));
     const totalArea = lots.reduce((sum, lot) => sum + num(lot.areaM2), 0);
     const soldLots = lots.filter((lot) => lot.status === 'vendido').length;
@@ -549,18 +581,44 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
       projectedFinanceTax,
       projectedIncomeTax,
       projectedNetProfit,
+      projectedChart: [
+        { name: 'Ingresos', value: projectedRevenue, color: GREEN },
+        { name: 'Costo venta', value: projectedCostOfSales, color: BLUE },
+        { name: 'Ventas/Admin', value: projectedSalesAdmin, color: AMBER },
+        { name: 'Financiero', value: projectedFinanceTax, color: '#7C3AED' },
+        { name: 'Utilidad neta', value: projectedNetProfit, color: projectedNetProfit >= 0 ? BLUE_DARK : RED },
+      ],
       chart: [
-        { name: 'Ingresos', value: realIncome, color: GREEN },
-        { name: 'Costo venta', value: realCostOfSales, color: BLUE },
-        { name: 'Ventas/Admin', value: realSalesAdmin, color: AMBER },
-        { name: 'Financiero', value: realFinance, color: '#7C3AED' },
-        { name: 'Utilidad neta', value: realNetProfit, color: realNetProfit >= 0 ? BLUE_DARK : RED },
+        { name: 'Ingresos', value: dcf('income', realIncome), color: GREEN },
+        { name: 'Costo venta', value: dcf('cost-sales', realCostOfSales), color: BLUE },
+        { name: 'Ventas/Admin', value: dcf('selling', realSalesAdmin), color: AMBER },
+        { name: 'Financiero', value: dcf('financial', realFinance), color: '#7C3AED' },
+        { name: 'Utilidad neta', value: dcf('net', realNetProfit), color: dcf('net', realNetProfit) >= 0 ? BLUE_DARK : RED },
       ],
     };
-  }, [lots, statement, cashflow, labelOverrides, items]);
+  }, [lots, statement, cashflow, dynamicCashflow, items]);
 
   /** Arbol de partidas por linea (padres + subpartidas), ya ordenado. */
   const treeByLine = useMemo(() => {
+    const { labels: projectedLabels } = cashflowTotals(cashflow);
+    const { totals: realTotals } = cashflowTotals(dynamicCashflow);
+    const flowValue = (rowId: string, fallback = 0) => realTotals.has(rowId) ? realTotals.get(rowId) || 0 : fallback;
+    const virtualItem = (line: StatementLine, source: { code: string; id: string; label: string }, index: number): StatementTreeItemWithSource => ({
+      id: -1000 - index - (line === 'ventas_admin' ? 100 : 0),
+      projectId,
+      parentId: null,
+      line,
+      code: source.code,
+      name: projectedLabels.get(source.id) || source.label,
+      description: null,
+      amount: String(flowValue(source.id)),
+      currency: 'PEN',
+      sortOrder: (index + 1) * 10,
+      isActive: true,
+      children: [],
+      cashflowRowId: source.id,
+      isVirtual: true,
+    });
     const tree = buildTree(items);
     const grouped: Record<StatementLine, StatementTreeItem[]> = {
       ingreso: [], costo: [], ventas_admin: [], financiero: [], impuestos: [], igv: [], ajuste: [],
@@ -568,8 +626,10 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     for (const item of tree) {
       if (grouped[item.line]) grouped[item.line].push(item);
     }
+    grouped.costo = (grouped.costo.length ? grouped.costo : COST_CASHFLOW_ROWS.map((item, index) => virtualItem('costo', item, index))) as StatementTreeItem[];
+    grouped.ventas_admin = (grouped.ventas_admin.length ? grouped.ventas_admin : SALES_ADMIN_CASHFLOW_ROWS.map((item, index) => virtualItem('ventas_admin', item, index))) as StatementTreeItem[];
     return grouped;
-  }, [items]);
+  }, [items, cashflow, dynamicCashflow, projectId]);
 
   /**
    * Filas visibles del cuadro: cada linea fija con sus partidas y, despues, los
@@ -594,9 +654,12 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
         if (hasChildren && (printing || openItems[node.id])) walk(line, node.children, depth + 1);
       }
     };
-    const pushItems = (line: StatementLine) => walk(line, treeByLine[line] || [], 1);
+    const pushItems = (line: StatementLine) => {
+      if (!printing && !openLines[line]) return;
+      walk(line, treeByLine[line] || [], 1);
+    };
     const pushLine = (line: StatementLine) => rows.push({
-      kind: 'line', id: `line-${line}`, line, label: LINE_BY_KEY[line].label, level: 0, meta: LINE_BY_KEY[line],
+      kind: 'line', id: `line-${line}`, line, label: labelOverrides[`line-${line}`] || LINE_BY_KEY[line].label, level: 0, meta: LINE_BY_KEY[line],
     });
     const pushComputed = (id: string, label: string, line: StatementLine) => rows.push({
       kind: 'computed', id, line, label: labelOverrides[id] || label, level: 0, meta: LINE_BY_KEY[line],
@@ -622,7 +685,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     pushItems('ajuste');
     pushComputed('adjusted', 'Utilidad ajustada referencial', 'ajuste');
     return rows;
-  }, [treeByLine, labelOverrides, openItems, printing]);
+  }, [treeByLine, labelOverrides, openItems, openLines, printing]);
 
   /**
    * Real de cada fila del cuadro. Las lineas fijas suman sus partidas y los
@@ -646,10 +709,10 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     return totals;
   }, [treeByLine]);
 
-  const hasItems = items.length > 0;
+  const hasItems = items.length > 0 || Boolean(cashflow?.rows?.length || dynamicCashflow?.rows?.length);
 
   /**
-   * Monto proyectado de cada fila. Las partidas creadas por el usuario no
+   * Monto proyectado de cada linea. Las partidas creadas por el usuario no
    * tienen proyectado propio (solo detallan el real), por eso el proyectado se
    * prorratea segun el peso de cada partida dentro de su linea.
    */
@@ -663,9 +726,24 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     ajuste: 0,
   };
 
+  /** Subtotales proyectados en cascada (igual que el real). */
+  const projectedComputed = useMemo(() => {
+    const gross = lineProjected.ingreso - lineProjected.costo;
+    const operating = gross - lineProjected.ventas_admin;
+    const preTax = operating - lineProjected.financiero;
+    const net = preTax - lineProjected.impuestos;
+    const adjusted = net - lineProjected.igv + lineProjected.ajuste;
+    return { gross, operating, 'pre-tax': preTax, net, adjusted } as Record<string, number>;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report]);
+
   function rowProjected(row: SheetRow): number {
-    if (row.kind === 'computed') return report.projectedNetProfit - (row.id === 'adjusted' ? lineProjected.igv : 0);
+    if (row.kind === 'computed') return projectedComputed[row.id] || 0;
     if (row.kind === 'line') return lineProjected[row.line] || 0;
+    if (row.item.cashflowRowId) {
+      const { totals } = cashflowTotals(cashflow);
+      return totals.get(row.item.cashflowRowId) || 0;
+    }
     const itemsInLine = (treeByLine[row.line] || []).reduce((sum, item) => sum + itemRealAmount(item), 0);
     if (!itemsInLine) return 0;
     return (lineProjected[row.line] || 0) * (itemRealAmount(row.item) / itemsInLine);
@@ -694,9 +772,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   /** Nombre del concepto: en linea fija se edita por localStorage, la partida en su modal. */
   function editableConcept(row: SheetRow, color: string) {
     const isChild = row.level > 1;
-    // El concepto usa el mismo tamaño que las columnas de montos (text-xs en
-    // movil / text-sm desde md); antes iba un punto arriba y se veia mas grande.
-    const textClass = `truncate text-xs font-semibold leading-tight md:text-sm ${isChild ? 'font-medium' : ''}`;
+    const textClass = `truncate text-[11px] font-semibold leading-tight md:text-sm ${isChild ? 'font-medium' : ''}`;
     if (row.kind !== 'line') {
       return (
         <p className={textClass} style={{ color }} title={row.label}>
@@ -704,6 +780,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
         </p>
       );
     }
+    const labelKey = `line-${row.line}`;
     if (editingLabel === row.id) {
       return (
         <input
@@ -712,7 +789,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
           defaultValue={row.label}
           onClick={(event) => event.stopPropagation()}
           onDoubleClick={(event) => event.stopPropagation()}
-          onBlur={(event) => saveRowLabel(row.id, event.currentTarget.value)}
+          onBlur={(event) => saveRowLabel(labelKey, event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === 'Enter') {
               event.preventDefault();
@@ -976,7 +1053,9 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
           <KpiCard label="Area vendible" value={`${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 0 })} m2`} helper={project?.location || 'Ubicacion del proyecto'} icon={<FiMapPin />} color="#7C3AED" />
         </div>
 
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]">
+        {/* El cuadro se apila hasta 1023px: en tablets el panel lateral ya no
+            comprime las columnas de la tabla. */}
+        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]">
           <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
             <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BORDER }}>
               <div>
@@ -992,29 +1071,31 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 </button>
               </div>
             </div>
-            <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
-            {/* [container-type:inline-size] permite usar `cqw` (= ancho visible del
-                contenedor). En movil la tabla mide "ancho visible + 352px": la primera
-                columna se ajusta (texto con "...") y deja ver completa la columna
-                Proyectado; el resto se alcanza deslizando. Desde md vuelve a porcentajes. */}
-            <div className="overflow-x-auto [container-type:inline-size]">
-              <table className="w-[calc(100cqw_+_352px)] table-fixed text-[13px] md:w-full md:min-w-[760px] md:text-sm">
+            {/* En movil la tabla es mas ancha que la pantalla: se fija un ancho
+                minimo real (720px) y "Concepto" mantiene 170px para verse
+                completo; el resto de columnas (Proy., Real, % Ingr., Desv.,
+                Acciones) se alcanzan deslizando. A partir de 640px el minimo
+                baja a 480px y las columnas vuelven a porcentajes, de modo que
+                en web la tabla cabe sin scroll. */}
+            <p className="px-4 py-2 text-xs text-slate-400 sm:hidden">Desliza la tabla hacia la derecha para ver las demas columnas.</p>
+            <div className="w-full overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
+              <table className="w-full table-fixed text-[10px] sm:!min-w-[480px] md:text-sm" style={{ minWidth: 720 }}>
                 <colgroup>
-                  <col className="w-[calc(100cqw_-_184px)] md:w-[30%]" />
-                  <col className="w-[132px] md:w-[16%]" />
-                  <col className="w-[130px] md:w-[16%]" />
-                  <col className="w-[86px] md:w-[13%]" />
-                  <col className="w-[84px] md:w-[15%]" />
-                  <col className="w-[52px] md:w-[10%]" />
+                  <col className="w-[170px] sm:w-[32%] md:w-[36%]" />
+                  <col className="w-[92px] sm:w-[19%] md:w-[16%]" />
+                  <col className="w-[92px] sm:w-[17%] md:w-[15%]" />
+                  <col className="w-[70px] sm:w-[12%] md:w-[11%]" />
+                  <col className="w-[80px] sm:w-[13%] md:w-[13%]" />
+                  <col className="w-[56px] sm:w-[7%] md:w-[9%]" />
                 </colgroup>
                 <thead>
-                  <tr className="border-b text-left text-[11px] font-bold uppercase tracking-wide md:text-xs" style={{ borderColor: BORDER, color: MUTED, background: '#F8FAFC' }}>
-                    <th className="px-4 py-3">Concepto</th>
-                    <th className="whitespace-nowrap px-2 py-3 text-right md:px-3">Proyectado {symbol}</th>
-                    <th className="whitespace-nowrap px-2 py-3 text-right md:px-3">Real {symbol}</th>
-                    <th className="px-2 py-3 text-right md:px-3">% Ingreso</th>
-                    <th className="px-2 py-3 text-right md:px-3">Desviaci&oacute;n</th>
-                    <th className="px-2 py-3 text-right md:px-3">
+                  <tr className="border-b text-left text-[8px] font-bold uppercase leading-tight tracking-normal md:text-xs md:tracking-wide" style={{ borderColor: BORDER, color: MUTED, background: '#F8FAFC' }}>
+                    <th className="px-1.5 py-2 md:px-4 md:py-3">Concepto</th>
+                    <th className="px-1 py-2 text-right md:px-3 md:py-3">Proy. {symbol}</th>
+                    <th className="px-1 py-2 text-right md:px-3 md:py-3">Real {symbol}</th>
+                    <th className="px-1 py-2 text-right md:px-3 md:py-3">%&nbsp;Ingr.</th>
+                    <th className="px-1 py-2 text-right md:px-3 md:py-3">Desv.</th>
+                    <th className="px-0.5 py-2 text-right sm:px-1.5 md:px-2">
                       <span className="hidden md:inline">Acciones</span>
                     </th>
                   </tr>
@@ -1022,8 +1103,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 <tbody className="divide-y" style={{ borderColor: BORDER }}>
                   {loading ? (
                     <tr>
-                      <td className="py-10" colSpan={6}>
-                        <div className="sticky left-0 w-[100cqw] text-center text-sm text-slate-400 md:w-full">Cargando estado de resultados...</div>
+                      <td className="py-10 text-center text-sm text-slate-400" colSpan={6}>
+                        Cargando estado de resultados...
                       </td>
                     </tr>
                   ) : sheet.map((row) => {
@@ -1034,19 +1115,25 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                     const share = incomeShare(real, report.realRevenue);
                     const isChild = row.level > 1;
                     const isItem = row.kind === 'item';
+                    const lineHasItems = row.kind === 'line' && (treeByLine[row.line] || []).length > 0;
+                    const lineOpen = row.kind === 'line' ? !!openLines[row.line] : false;
                     const rowBg = row.kind === 'computed'
                       ? 'bg-[#F8FAFC] hover:bg-[#F1F5F9]'
                       : row.line === 'costo'
                         ? (isChild ? 'bg-[#F7F8FF] hover:bg-[#EEF1FF]' : 'bg-[#EEF2FF] hover:bg-[#E6EBFF]')
                         : isChild ? 'bg-[#FAFAFB] hover:bg-slate-50' : 'hover:bg-slate-50';
                     return (
-                      <tr key={row.id} className={`group transition-colors ${rowBg}`}>
-                        <td className="px-4 py-2.5 md:py-3" style={row.kind !== 'computed' && row.line === 'costo' ? { boxShadow: `inset ${isChild ? 3 : 4}px 0 0 ${COST}` } : undefined}>
-                          <div className="flex min-w-0 items-center gap-2 sm:gap-3" style={isChild ? { paddingLeft: 22 } : undefined}>
+                      <tr
+                        key={row.id}
+                        className={`group transition-colors ${rowBg} ${lineHasItems ? 'cursor-pointer' : ''}`}
+                        onClick={() => lineHasItems && setOpenLines((current) => ({ ...current, [row.line]: !current[row.line] }))}
+                      >
+                        <td className="px-1.5 py-2 md:px-4 md:py-3" style={row.kind !== 'computed' && row.line === 'costo' ? { boxShadow: `inset ${isChild ? 3 : 4}px 0 0 ${COST}` } : undefined}>
+                          <div className="flex min-w-0 items-center gap-1 md:gap-3" style={isChild ? { paddingLeft: 8 } : undefined}>
                             {isItem && row.hasChildren ? (
                               <button
                                 type="button"
-                                className="grid h-5 w-5 shrink-0 place-items-center rounded text-slate-500 hover:bg-slate-200/70"
+                                className="grid h-4 w-4 shrink-0 place-items-center rounded text-slate-500 hover:bg-slate-200/70 md:h-5 md:w-5"
                                 title={openItems[Number(row.item.id)] ? 'Ocultar subpartidas' : 'Ver subpartidas'}
                                 aria-expanded={!!openItems[Number(row.item.id)]}
                                 onClick={() => setOpenItems((current) => ({ ...current, [Number(row.item.id)]: !current[Number(row.item.id)] }))}
@@ -1054,18 +1141,27 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                                 {openItems[Number(row.item.id)] ? <FiChevronDown /> : <FiChevronRight />}
                               </button>
                             ) : row.kind === 'line' ? (
-                              <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md" style={{ background: tone.bg, color: tone.color, border: `1px solid ${tone.border}` }}>
-                                <LineIcon line={row.line} />
-                              </span>
-                            ) : <span className="w-4 shrink-0" />}
+                              <button
+                                type="button"
+                                className="grid h-5 w-5 shrink-0 place-items-center rounded-md md:h-7 md:w-7"
+                                style={{ background: tone.bg, color: tone.color, border: `1px solid ${tone.border}` }}
+                                title={lineHasItems ? (lineOpen ? 'Ocultar partidas' : 'Ver partidas') : row.label}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  if (lineHasItems) setOpenLines((current) => ({ ...current, [row.line]: !current[row.line] }));
+                                }}
+                              >
+                                {lineHasItems ? (lineOpen ? <FiChevronDown /> : <FiChevronRight />) : <LineIcon line={row.line} size={12} />}
+                              </button>
+                            ) : <span className="w-1 shrink-0 md:w-4" />}
                             <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                {row.kind === 'item' && (
-                                  <span className="shrink-0 rounded px-1 py-0.5 text-[10px] font-bold" style={{ background: isChild ? '#F8FAFC' : '#EAF3FF', color: isChild ? MUTED : BLUE, border: `1px solid ${isChild ? BORDER : '#BFDBFE'}` }}>{row.item.code}</span>
+                              <div className="flex items-center gap-1 md:gap-2">
+                                {row.kind === 'item' && !row.item.isVirtual && (
+                                  <span className="hidden shrink-0 rounded px-1 py-0.5 text-[10px] font-bold md:inline" style={{ background: isChild ? '#F8FAFC' : '#EAF3FF', color: isChild ? MUTED : BLUE, border: `1px solid ${isChild ? BORDER : '#BFDBFE'}` }}>{row.item.code}</span>
                                 )}
                                 {editableConcept(row, tone.color)}
                                 {row.kind === 'item' && (
-                                  <span className="ml-auto flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+                                  <span className="ml-auto hidden shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 md:flex">
                                     <button type="button" className="grid h-6 w-6 place-items-center rounded text-slate-500 hover:bg-slate-100" title="Agregar subpartida" onClick={() => openCreate(row.line, row.item)}><FiPlus /></button>
                                     <button type="button" className="grid h-6 w-6 place-items-center rounded text-slate-500 hover:bg-slate-100" title="Editar" onClick={() => openEdit(row.item)}><FiEdit3 /></button>
                                   </span>
@@ -1074,18 +1170,20 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                             </div>
                           </div>
                         </td>
-                        <td className="px-2 py-2.5 text-right font-semibold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: INK }}>{show(projected)}</td>
-                        <td className="px-2 py-2.5 text-right font-bold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : INK }}>{show(real)}</td>
-                        <td className="px-2 py-2.5 text-right tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : row.line === 'ingreso' ? GREEN : MUTED, fontWeight: row.line === 'ingreso' || row.kind === 'computed' ? 700 : 500 }}>{pct(share)}</td>
-                        <td className="px-2 py-2.5 text-right md:px-3 md:py-3">
-                          <span className="inline-block rounded-full px-2 py-0.5 text-[11px] font-bold tabular-nums md:text-xs md:px-2.5 md:py-1" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
+                        <td className="whitespace-nowrap px-1 py-2 text-right text-[10px] font-semibold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: INK }}>{show(projected)}</td>
+                        <td className="whitespace-nowrap px-1 py-2 text-right text-[10px] font-bold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : INK }}>{show(real)}</td>
+                        <td className="whitespace-nowrap px-1 py-2 text-right text-[10px] tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : row.line === 'ingreso' ? GREEN : MUTED, fontWeight: row.line === 'ingreso' || row.kind === 'computed' ? 700 : 500 }}>{pct(share)}</td>
+                        <td className="px-0.5 py-2 text-right md:px-3 md:py-3">
+                          <span className="inline-block whitespace-nowrap rounded-full px-1 py-0.5 text-[9px] font-bold tabular-nums md:px-2.5 md:py-1 md:text-xs" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
                             {diff >= 0 ? '+' : ''}{pct(diff)}
                           </span>
                         </td>
-                        <td className="px-1.5 py-2.5 text-right md:px-3 md:py-3">
+                        <td className="px-0.5 py-2 text-right sm:px-1.5 md:px-2">
                           {row.kind === 'line' ? (
-                            <button type="button" className="grid h-7 w-7 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Agregar partida" onClick={() => openCreate(row.line)}><FiPlus /></button>
-                          ) : <span className="block h-7 w-7" />}
+                            <button type="button" className="grid h-5 w-5 place-items-center rounded-md text-slate-500 hover:bg-slate-100 md:h-7 md:w-7" title="Agregar partida" onClick={(event) => { event.stopPropagation(); openCreate(row.line); }}><FiPlus /></button>
+                          ) : row.kind === 'item' ? (
+                            <button type="button" className="grid h-5 w-5 place-items-center rounded-md text-slate-500 hover:bg-slate-100 md:hidden" title="Editar" onClick={() => openEdit(row.item)}><FiEdit3 /></button>
+                          ) : <span className="block h-5 w-5 md:h-7 md:w-7" />}
                         </td>
                       </tr>
                     );
@@ -1105,7 +1203,27 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
           <aside className="space-y-5">
             <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
               <div className="border-b px-5 py-4" style={{ borderColor: BORDER }}>
-                <h3 className="flex items-center gap-2 font-semibold" style={{ color: INK }}><FiBarChart2 /> Composicion real</h3>
+                <h3 className="flex items-center gap-2 font-semibold" style={{ color: INK }}><FiBarChart2 /> Composición Proyectado</h3>
+                <p className="mt-1 text-xs" style={{ color: MUTED }}>Estructura visual de ingresos, costos y utilidad proyectada.</p>
+              </div>
+              <div className="h-[310px] px-3 pt-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={report.projectedChart} layout="vertical" margin={{ left: 8, right: 24, top: 8, bottom: 12 }}>
+                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" horizontal={false} />
+                    <XAxis type="number" tickFormatter={short} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: MUTED }} width={88} axisLine={false} tickLine={false} />
+                    <Tooltip content={<StatementTooltip formatter={show} />} cursor={{ fill: '#F8FAFC' }} />
+                    <Bar dataKey="value" name="Monto" radius={[0, 8, 8, 0]}>
+                      {report.projectedChart.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </section>
+
+            <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
+              <div className="border-b px-5 py-4" style={{ borderColor: BORDER }}>
+                <h3 className="flex items-center gap-2 font-semibold" style={{ color: INK }}><FiBarChart2 /> Composición real</h3>
                 <p className="mt-1 text-xs" style={{ color: MUTED }}>Estructura visual de ingresos, costos y utilidad.</p>
               </div>
               <div className="h-[310px] px-3 pt-4">
@@ -1122,15 +1240,6 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 </ResponsiveContainer>
               </div>
             </section>
-
-            <section className="rounded-md border bg-white p-5 shadow-sm" style={{ borderColor: BORDER }}>
-              <h3 className="font-semibold" style={{ color: INK }}>Criterio contable usado</h3>
-              <div className="mt-3 space-y-3 text-sm" style={{ color: MUTED }}>
-                <p>Los ingresos reales salen de la operación diaria (transacciones registradas). El proyectado de ingresos y costos sale del flujo de caja estático del proyecto.</p>
-                <p>Si el proyecto aún no tiene un flujo de caja estático guardado, el proyectado usa como referencia los lotes registrados y el presupuesto de obra.</p>
-                <p>Impuesto a la renta e IGV se muestran como referencia gerencial, para facilitar lectura contable sin reemplazar cierre tributario.</p>
-              </div>
-            </section>
           </aside>
         </div>
       </div>
@@ -1145,7 +1254,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                   {editing ? 'Actualiza el detalle y el monto de la partida.' : 'Se agrega a la linea contable seleccionada.'}
                 </p>
               </div>
-              <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" onClick={() => { setModalOpen(false); setEditing(null); }}><FiX /></button>
+              <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" onClick={closeModal}><FiX /></button>
             </div>
 
             <div className="space-y-4 px-5 py-4">

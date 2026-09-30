@@ -191,30 +191,61 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [imgUrl]);
 
-  function zoomAt(clientX: number, clientY: number, factor: number) {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const px = clientX - rect.left;
-    const py = clientY - rect.top;
+  /**
+   * Convierte coordenadas de pantalla (clientX/clientY) a coordenadas del
+   * sistema del SVG. Usa getScreenCTM().inverse(), que ya tiene en cuenta el
+   * viewBox activo, el letterboxing de preserveAspectRatio, la relacion de
+   * aspecto del contenedor y la densidad de pixeles.
+   *
+   * Antes se calculaba a mano dividiendo por rect.width / rect.height por
+   * separado, lo que solo era correcto si el contenedor medía exactamente
+   * 1000:800 (1.25). Con otra proporcion el SVG se letterboxea y el punto
+   * dibujado se desviaba del clic.
+   */
+  function toSvg(e: any): Point {
+    const svg = svgRef.current;
+    const ctm = svg?.getScreenCTM();
+    if (!svg || !ctm) return { x: 0, y: 0 };
+    const pt = svg.createSVGPoint();
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+    const p = pt.matrixTransform(ctm.inverse());
+    return { x: p.x, y: p.y };
+  }
+
+  /** Centro del lienzo en coordenadas SVG (para el zoom de los botones + / -). */
+  function svgCenter(): Point | null {
+    const svg = svgRef.current;
+    const ctm = svg?.getScreenCTM();
+    if (!svg || !ctm) return null;
+    const rect = svg.getBoundingClientRect();
+    const pt = svg.createSVGPoint();
+    pt.x = rect.left + rect.width / 2;
+    pt.y = rect.top + rect.height / 2;
+    const p = pt.matrixTransform(ctm.inverse());
+    return { x: p.x, y: p.y };
+  }
+
+  /** Aplica un zoom manteniendo fijo el punto `anchor` dado en coordenadas SVG. */
+  function zoomTo(anchor: Point, factor: number) {
     setViewState((v) => {
       const next = Math.min(6, Math.max(0.4, v.scale * factor));
-      const nx = px - ((px - v.x) / v.scale) * next;
-      const ny = py - ((py - v.y) / v.scale) * next;
-      return { scale: next, x: nx, y: ny };
+      // El punto del SVG bajo el ancla debe seguir bajo el ancla despues del
+      // zoom:  client = anchor*next + x'  =>  x' = -anchor*next  (despejando con
+      // la vista actual)  x' = anchor - anchor*next/v.scale + v.x * next/v.scale.
+      const k = next / v.scale;
+      return { scale: next, x: anchor.x - anchor.x * k + v.x * k, y: anchor.y - anchor.y * k + v.y * k };
     });
   }
 
+  function zoomAt(clientX: number, clientY: number, factor: number) {
+    zoomTo(toSvg({ clientX, clientY }), factor);
+  }
+
   function zoomCentered(factor: number) {
-    const rect = svgRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const px = rect.width / 2;
-    const py = rect.height / 2;
-    setViewState((v) => {
-      const next = Math.min(6, Math.max(0.4, v.scale * factor));
-      const nx = px - ((px - v.x) / v.scale) * next;
-      const ny = py - ((py - v.y) / v.scale) * next;
-      return { scale: next, x: nx, y: ny };
-    });
+    const center = svgCenter();
+    if (!center) return;
+    zoomTo(center, factor);
   }
 
   wheelHandlerRef.current = (e: WheelEvent) => {
@@ -230,17 +261,6 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
     el.addEventListener('wheel', handler, { passive: false });
     return () => el.removeEventListener('wheel', handler);
   }, []);
-
-  function toSvg(e: any): Point {
-    const rect = svgRef.current!.getBoundingClientRect();
-    const vx = -viewState.x / viewState.scale;
-    const vy = -viewState.y / viewState.scale;
-    const vw = SVG_W / viewState.scale;
-    const vh = SVG_H / viewState.scale;
-    const px = e.clientX - rect.left;
-    const py = e.clientY - rect.top;
-    return { x: vx + (px / rect.width) * vw, y: vy + (py / rect.height) * vh };
-  }
 
   function addNode(e: any) {
     if (mode !== 'none') setDraft((points) => [...points, toSvg(e)]);
@@ -494,8 +514,8 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
         </div>
       </div>
 
-      <div className={`grid grid-cols-1 items-stretch gap-4 min-w-0 ${mode === 'none' ? 'lg:grid-cols-3' : 'lg:grid-cols-[7fr_3fr] lg:h-[calc(100vh-260px)]'}`}>
-        <div className={`${mode === 'none' ? 'lg:col-span-2' : 'lg:h-full w-full'} card overflow-hidden !p-0 relative bg-slate-100 min-w-0`} style={mode === 'none' ? { aspectRatio: '1000 / 800' } : undefined}>
+      <div className={`grid grid-cols-1 items-start gap-4 min-w-0 ${mode === 'none' ? 'lg:grid-cols-3' : 'lg:grid-cols-[7fr_3fr]'}`}>
+        <div className={`${mode === 'none' ? 'lg:col-span-2' : 'w-full'} card overflow-hidden !p-0 relative bg-slate-100 min-w-0`} style={{ aspectRatio: '1000 / 800' }}>
           <svg ref={svgRef} viewBox={`${-viewState.x / viewState.scale} ${-viewState.y / viewState.scale} ${SVG_W / viewState.scale} ${SVG_H / viewState.scale}`} className={`w-full h-full ${viewLocked ? 'cursor-crosshair' : 'cursor-zoom-in'}`} onClick={addNode}>
             {displayImgUrl && <image href={displayImgUrl} x={imgX} y={imgY} width={imgW} height={imgH} preserveAspectRatio="xMidYMid meet" />}
             {streets.map((street, index) => {

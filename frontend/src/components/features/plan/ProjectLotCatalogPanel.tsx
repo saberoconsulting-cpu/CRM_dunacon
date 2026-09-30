@@ -8,6 +8,14 @@ const INK = '#0F172A';
 const BORDER = '#CBD5E1';
 const NAVY = '#002060';
 
+// Los precios de la base de lotes se cargan y se muestran en dolares (US$).
+// Se formatean con separador de miles por comas, igual que en PlanEditor.
+function moneyUsd(value: unknown) {
+  const n = Number(value || 0);
+  const safe = Number.isFinite(n) ? n : 0;
+  return `US$ ${safe.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
+
 type LotCatalogRow = {
   id?: number;
   code: string;
@@ -175,7 +183,7 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                 <table className="min-w-[1180px] w-full text-xs">
                   <thead className="sticky top-0">
                     <tr style={{ backgroundColor: NAVY, color: '#FFFFFF' }}>
-                      {['Num. de lote', 'Direccion', 'Tipo', 'Area', 'Dimensiones', 'Precio m2', 'Precio venta', 'Precio final', 'Estado', 'Cliente', 'Accion'].map((head) => (
+                      {['Num. de lote', 'Direccion', 'Tipo', 'Area m2', 'Dimensiones', 'Precio m2 (US$)', 'Precio venta (US$)', 'Precio final (US$)', 'Estado', 'Cliente', 'Accion'].map((head) => (
                         <th key={head} className="th-base !py-2 text-left">{head}</th>
                       ))}
                     </tr>
@@ -188,9 +196,9 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                         <td className="td-base">{row.type || '-'}</td>
                         <td className="td-base tabular-nums">{Number(row.areaM2 || 0).toLocaleString('es-PE')}</td>
                         <td className="td-base">{row.dimensions || '-'}</td>
-                        <td className="td-base tabular-nums">{Number(row.priceM2 || 0).toLocaleString('es-PE')}</td>
-                        <td className="td-base tabular-nums">{Number(row.salePrice || 0).toLocaleString('es-PE')}</td>
-                        <td className="td-base tabular-nums">{Number(row.finalPrice || 0).toLocaleString('es-PE')}</td>
+                        <td className="td-base tabular-nums">{moneyUsd(row.priceM2)}</td>
+                        <td className="td-base tabular-nums font-semibold">{moneyUsd(row.salePrice)}</td>
+                        <td className="td-base tabular-nums font-semibold" style={{ color: '#0F8B5F' }}>{moneyUsd(row.finalPrice)}</td>
                         <td className="td-base">{row.status || '-'}</td>
                         <td className="td-base">{row.client || '-'}</td>
                         <td className="td-base">
@@ -218,11 +226,11 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                   <Field label="Num. de lote"><input autoFocus className="input !h-9" value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} /></Field>
                   <Field label="Direccion"><input className="input !h-9" value={draft.address || ''} onChange={(e) => setDraft({ ...draft, address: e.target.value })} /></Field>
                   <Field label="Tipo"><input className="input !h-9" value={draft.type || ''} onChange={(e) => setDraft({ ...draft, type: e.target.value })} /></Field>
-                  <Field label="Area"><input className="input !h-9" type="number" value={draft.areaM2 || ''} onChange={(e) => setDraft({ ...draft, areaM2: Number(e.target.value) })} /></Field>
+                  <Field label="Area m2"><input className="input !h-9" type="number" value={draft.areaM2 || ''} onChange={(e) => setDraft({ ...draft, areaM2: Number(e.target.value) })} /></Field>
                   <Field label="Dimensiones"><input className="input !h-9" value={draft.dimensions || ''} onChange={(e) => setDraft({ ...draft, dimensions: e.target.value })} /></Field>
-                  <Field label="Precio m2"><input className="input !h-9" type="number" value={draft.priceM2 || ''} onChange={(e) => setDraft({ ...draft, priceM2: Number(e.target.value) })} /></Field>
-                  <Field label="Precio venta"><input className="input !h-9" type="number" value={draft.salePrice || ''} onChange={(e) => setDraft({ ...draft, salePrice: Number(e.target.value) })} /></Field>
-                  <Field label="Precio final"><input className="input !h-9" type="number" value={draft.finalPrice || ''} onChange={(e) => setDraft({ ...draft, finalPrice: Number(e.target.value) })} /></Field>
+                  <Field label="Precio m2 (US$)"><input className="input !h-9" type="number" value={draft.priceM2 || ''} onChange={(e) => setDraft({ ...draft, priceM2: Number(e.target.value) })} /></Field>
+                  <Field label="Precio venta (US$)"><input className="input !h-9" type="number" value={draft.salePrice || ''} onChange={(e) => setDraft({ ...draft, salePrice: Number(e.target.value) })} /></Field>
+                  <Field label="Precio final (US$)"><input className="input !h-9" type="number" value={draft.finalPrice || ''} onChange={(e) => setDraft({ ...draft, finalPrice: Number(e.target.value) })} /></Field>
                   <Field label="Estado"><input className="input !h-9" value={draft.status || ''} onChange={(e) => setDraft({ ...draft, status: e.target.value })} /></Field>
                   <Field label="Cliente"><input className="input !h-9" value={draft.client || ''} onChange={(e) => setDraft({ ...draft, client: e.target.value })} /></Field>
                 </div>

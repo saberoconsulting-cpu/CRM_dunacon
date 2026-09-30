@@ -1,12 +1,12 @@
 // modules/quotes/application/quotes.service.ts
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { QuoteEntity } from '../../../shared/infrastructure/entities/quote.entity';
 import { LotEntity } from '../../../shared/infrastructure/entities/lot.entity';
 import { BlockEntity } from '../../../shared/infrastructure/entities/block.entity';
 import { ProjectEntity } from '../../../shared/infrastructure/entities/project.entity';
-import { calcValorCuota, buildAmortizationSchedule, buildGraceSchedule, buildInitialPlan } from '../../../shared/domain/finance.util';
+import { calcValorCuota, buildAmortizationSchedule, buildGraceSchedule, buildInitialPlan, isValidInitialParts, normalizeInitialParts } from '../../../shared/domain/finance.util';
 import { CreateQuoteDto, RecalculateQuoteDto } from './dto/quote.dto';
 import { ListQuotesDto } from './dto/list-quotes.dto';
 import { buildPaginatedResult, normalizePagination } from '../../../shared/application/dto/pagination.dto';
@@ -33,10 +33,13 @@ export class QuotesService {
     const cuotaInicial = dto.paymentMethod === 'credito' ? Math.max(0, Number(dto.cuotaInicialUsd || 0)) : 0;
     const totalCuotas = dto.paymentMethod === 'credito' ? Math.max(0, Number(dto.totalCuotas || 0)) : 0;
     const saldoAFinanciar = Math.max(0, finalPrice - cuotaInicial);
-    const cuotasFinanciadas = Math.max(0, totalCuotas - (cuotaInicial > 0 ? 1 : 0));
+    const cuotasFinanciadas = Math.max(0, totalCuotas);
     const graceMonths = dto.paymentMethod === 'credito' ? Math.min(cuotasFinanciadas, Math.max(0, Number(dto.graceMonths || 0))) : 0;
     const initialPaymentMode = dto.paymentMethod === 'credito' && dto.initialPaymentMode === 'partes' ? 'partes' : 'contado';
-    const initialParts = initialPaymentMode === 'partes' ? Math.max(2, Math.floor(Number(dto.initialParts || 3))) : 1;
+    const initialParts = normalizeInitialParts(initialPaymentMode, dto.initialParts);
+    if (initialPaymentMode === 'partes' && !isValidInitialParts(dto.initialParts)) {
+      throw new BadRequestException('El numero de partes de la cuota inicial debe ser un entero entre 1 y 3');
+    }
     const gracePlan = buildGraceSchedule({
       principal: saldoAFinanciar,
       totalCuotas: cuotasFinanciadas,
@@ -162,13 +165,16 @@ export class QuotesService {
       if (dto.tea != null) quote.tea = String(quote.interestType === 'tea' ? Number(dto.tea) : 0);
       if (dto.initialPaymentMode != null) quote.initialPaymentMode = dto.initialPaymentMode;
       if (quote.initialPaymentMode === 'partes') {
-        quote.initialParts = Math.max(2, Math.floor(Number(dto.initialParts ?? quote.initialParts ?? 3)));
+        if (dto.initialParts != null && !isValidInitialParts(dto.initialParts)) {
+          throw new BadRequestException('El numero de partes de la cuota inicial debe ser un entero entre 1 y 3');
+        }
+        quote.initialParts = normalizeInitialParts('partes', dto.initialParts ?? quote.initialParts);
       } else {
         quote.initialParts = 1;
       }
 
       const graceMonthsRaw = dto.graceMonths != null ? dto.graceMonths : quote.graceMonths;
-      const cuotasFinanciadas = Math.max(0, quote.totalCuotas - (Number(quote.cuotaInicialUsd) > 0 ? 1 : 0));
+      const cuotasFinanciadas = Math.max(0, quote.totalCuotas);
       quote.graceMonths = Math.min(cuotasFinanciadas, Math.max(0, Math.floor(graceMonthsRaw || 0)));
 
       const saldoAFinanciar = Math.max(0, finalPrice - Number(quote.cuotaInicialUsd));
@@ -205,7 +211,7 @@ export class QuotesService {
     const finalPrice = Math.max(0, Number(quote.finalPriceUsd));
     const cuotaInicial = Math.max(0, Number(quote.cuotaInicialUsd));
     const saldoAFinanciar = Math.max(0, finalPrice - cuotaInicial);
-    const cuotasFinanciadas = Math.max(0, quote.totalCuotas - (cuotaInicial > 0 ? 1 : 0));
+    const cuotasFinanciadas = Math.max(0, quote.totalCuotas);
     try {
       const plan = buildGraceSchedule({
         principal: saldoAFinanciar,
@@ -215,9 +221,17 @@ export class QuotesService {
         teaPct: Number(quote.tea),
       });
       const initialPlan = cuotaInicial > 0
-        ? buildInitialPlan(finalPrice, cuotaInicial, quote.initialPaymentMode === 'partes' ? 'partes' : 'contado', quote.initialParts || 1)
+        ? buildInitialPlan(finalPrice, cuotaInicial, quote.initialPaymentMode === 'partes' ? 'partes' : 'contado', quote.initialParts || 1, quote.createdAt ? new Date(quote.createdAt) : new Date())
         : null;
-      return { ...plan, initialPlan, saldoAFinanciar };
+      return {
+        ...plan,
+        initialPlan,
+        saldoAFinanciar,
+        finalPrice,
+        cuotaInicialTotal: cuotaInicial,
+        totalCuotasFinanciamiento: plan.rows.length,
+        totalPartesInicial: initialPlan ? initialPlan.partes : 0,
+      };
     } catch (error) {
       console.error('Error en schedule:', error);
       return { rows: [], graceMonths: 0, interestMonths: 0, graceCuota: 0, interestCuota: 0, totalInteres: 0, totalPagar: 0, saldoAlFinGracia: saldoAFinanciar, initialPlan: null, saldoAFinanciar };

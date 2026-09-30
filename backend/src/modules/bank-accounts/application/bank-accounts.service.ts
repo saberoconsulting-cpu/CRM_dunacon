@@ -1,7 +1,7 @@
 // modules/bank-accounts/application/bank-accounts.service.ts
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { EntityManager, Repository, SelectQueryBuilder } from 'typeorm';
 import * as XLSX from 'xlsx';
 import { BankAccountMovementEntity } from '../../../shared/infrastructure/entities/bank-account-movement.entity';
 import { BankAccountBalanceEntity } from '../../../shared/infrastructure/entities/bank-account-balance.entity';
@@ -117,7 +117,25 @@ export class BankAccountsService {
     const qb = this.movementRepo.createQueryBuilder('m')
       .where('m.project_id = :projectId', { projectId })
       .andWhere('m.account_key = :accountKey', { accountKey });
+    this.applyFilters(qb, filters);
 
+    const items = await qb
+      .orderBy('m.movement_date', 'ASC', 'NULLS LAST')
+      .addOrderBy('m.item_number', 'ASC', 'NULLS LAST')
+      .addOrderBy('m.id', 'ASC')
+      .getMany();
+
+    // Los totales de las tarjetas se calculan sobre LAS MISMAS filas que muestra
+    // la tabla (respeta filtros de fecha, moneda, clasificacion y busqueda), para
+    // que "Total ingresos/egresos" coincida con lo que el usuario ve abajo.
+    const summary = await this.buildSummary(projectId, accountKey, filters);
+    const facets = await this.buildFacets(projectId, accountKey);
+
+    return { items, summary, facets };
+  }
+
+  /** Filtros compartidos entre la tabla (list) y las tarjetas de totales (summary). */
+  private applyFilters(qb: SelectQueryBuilder<BankAccountMovementEntity>, filters: ListFilters) {
     if (filters.from) qb.andWhere('m.movement_date >= :from', { from: filters.from });
     if (filters.to) qb.andWhere('m.movement_date <= :to', { to: filters.to });
     if (filters.currency) qb.andWhere('m.currency = :currency', { currency: filters.currency });
@@ -129,26 +147,38 @@ export class BankAccountsService {
         { search: `%${filters.search}%` },
       );
     }
+    return qb;
+  }
 
-    const items = await qb
+  private async buildSummary(projectId: number, accountKey: string, filters: ListFilters = {}) {
+    // Los totales describen el mismo conjunto que la tabla: si el usuario filtra
+    // "Enero", las tarjetas muestran Enero y cuadran con las filas visibles.
+    const scopedQb = this.movementRepo.createQueryBuilder('m')
+      .where('m.project_id = :projectId', { projectId })
+      .andWhere('m.account_key = :accountKey', { accountKey });
+    this.applyFilters(scopedQb, filters);
+    const scopedItems = await scopedQb
       .orderBy('m.movement_date', 'ASC', 'NULLS LAST')
       .addOrderBy('m.item_number', 'ASC', 'NULLS LAST')
       .addOrderBy('m.id', 'ASC')
       .getMany();
 
-    const summary = await this.buildSummary(items, projectId, accountKey);
-    const facets = await this.buildFacets(projectId, accountKey);
+    // El saldo inicial/final se conserva a nivel de CUENTA COMPLETA: filtrar no
+    // debe inventar un saldo de apertura distinto (es un dato contable real).
+    const allItems = filters.from || filters.to || filters.currency || filters.movementType
+      || filters.eerrClassification || filters.search
+      ? await this.movementRepo.find({
+        where: { projectId, accountKey },
+        order: { movementDate: 'ASC', itemNumber: 'ASC', id: 'ASC' },
+      })
+      : scopedItems;
 
-    return { items, summary, facets };
-  }
-
-  private async buildSummary(items: BankAccountMovementEntity[], projectId: number, accountKey: string) {
     let depositPEN = 0;
     let chargePEN = 0;
     let depositUSD = 0;
     let chargeUSD = 0;
 
-    for (const item of items) {
+    for (const item of scopedItems) {
       const deposit = Number(item.depositAmount || 0);
       const charge = Number(item.chargeAmount || 0);
       if (item.currency === 'USD') {
@@ -160,24 +190,32 @@ export class BankAccountsService {
       }
     }
 
-    const saldoInicial = await this.getOpeningBalance(projectId, 'PEN', accountKey, items);
+    const saldoInicial = await this.getOpeningBalance(projectId, 'PEN', accountKey, allItems);
 
-    // Saldo Final = Saldo Inicial + Total Abonos - Total Cargos (periodo visible).
-    const saldoFinal = saldoInicial + depositPEN - chargePEN;
+    // Saldo Final de la cuenta completa = Saldo Inicial + Abonos - Cargos de todo
+    // el historial. Coincide con el book_balance de la ultima fila cronologica.
+    const totalAbonosCuenta = allItems.reduce((sum, item) => sum + (item.currency === 'USD' ? 0 : Number(item.depositAmount || 0)), 0);
+    const totalCargosCuenta = allItems.reduce((sum, item) => sum + (item.currency === 'USD' ? 0 : Number(item.chargeAmount || 0)), 0);
+    const saldoFinal = saldoInicial + totalAbonosCuenta - totalCargosCuenta;
 
-    const months = new Set(items.map((item) => item.monthLabel || (item.movementDate ? item.movementDate.slice(0, 7) : '')).filter(Boolean));
+    const months = new Set(scopedItems.map((item) => item.monthLabel || (item.movementDate ? item.movementDate.slice(0, 7) : '')).filter(Boolean));
 
     return {
       saldoInicial: round2(saldoInicial),
       totalAbonos: round2(depositPEN),
       totalCargos: round2(chargePEN),
       saldoFinal: round2(saldoFinal),
-      movimientos: items.length,
+      movimientos: scopedItems.length,
       meses: months.size,
       totalAbonosUSD: round2(depositUSD),
       totalCargosUSD: round2(chargeUSD),
       saldoUSD: round2(depositUSD - chargeUSD),
       netoPEN: round2(depositPEN - chargePEN),
+      // Neto del subconjunto visible: es el que debe cuadrar con la columna
+      // "Saldo" de la tabla cuando hay filtros activos.
+      netoVisible: round2(depositPEN - chargePEN),
+      filtrado: Boolean(filters.from || filters.to || filters.currency || filters.movementType
+        || filters.eerrClassification || filters.search),
     };
   }
 
@@ -245,10 +283,22 @@ export class BankAccountsService {
     // Se usa una transaccion: mantiene una sola conexion del pool durante toda
     // la operacion (el pooler de Supabase castiga las consultas encadenadas).
     await this.movementRepo.manager.transaction(async (manager) => {
+      // El Item define el orden de la fila dentro de su fecha (1, 2, 3, ...).
+      // Si el usuario lo escribe, la fila va a esa posicion; si lo deja vacio,
+      // se guarda NULL y la fila cae al final de su fecha.
+      const itemNumber = await this.resolveItemNumber(
+        manager,
+        dto.projectId,
+        accountKey,
+        normalizeDate(dto.movementDate),
+        dto.itemNumber ?? null,
+      );
+      await this.assertUniqueItemNumber(manager, dto.projectId, accountKey, itemNumber);
+
       await manager.save(manager.create(BankAccountMovementEntity, {
         projectId: dto.projectId,
         accountKey,
-        itemNumber: null,
+        itemNumber,
         movementDate: normalizeDate(dto.movementDate),
         monthLabel: dto.monthLabel || monthLabelFromDate(dto.movementDate),
         description: dto.description || null,
@@ -276,6 +326,43 @@ export class BankAccountsService {
     return this.list(dto.projectId, { accountKey });
   }
 
+  /**
+   * Devuelve el Item que debe guardar la fila.
+   * - Si el usuario lo escribio, se respeta (>= 1) y la fila va a esa posicion.
+   * - Si lo dejo vacio, se guarda NULL y la fila cae al final de su fecha
+   *   (el orden es fecha ASC, item_number ASC NULLS LAST).
+   */
+  private async resolveItemNumber(
+    _manager: EntityManager,
+    _projectId: number,
+    _accountKey: string,
+    _movementDate: string | null,
+    requested: number | null,
+  ): Promise<number | null> {
+    if (requested === null || requested === undefined) return null;
+
+    const parsed = Number(requested);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.max(1, Math.trunc(parsed));
+  }
+
+  private async assertUniqueItemNumber(
+    manager: EntityManager,
+    projectId: number,
+    accountKey: string,
+    itemNumber: number | null,
+    excludeId?: number,
+  ) {
+    if (itemNumber === null || itemNumber === undefined) return;
+    const qb = manager.createQueryBuilder(BankAccountMovementEntity, 'm')
+      .where('m.project_id = :projectId', { projectId })
+      .andWhere('m.account_key = :accountKey', { accountKey })
+      .andWhere('m.item_number = :itemNumber', { itemNumber });
+    if (excludeId) qb.andWhere('m.id <> :excludeId', { excludeId });
+    const exists = await qb.getExists();
+    if (exists) throw new BadRequestException(`Ya existe un movimiento registrado con el Item ${itemNumber}. No se puede crear repetido.`);
+  }
+
   async update(id: number, dto: UpdateBankMovementDto) {
     const item = await this.movementRepo.findOne({ where: { id } });
     if (!item) throw new NotFoundException('Movimiento bancario no encontrado');
@@ -286,7 +373,15 @@ export class BankAccountsService {
       throw new BadRequestException('Un movimiento no puede tener abono y cargo a la vez');
     }
 
+    const nextItemNumber = dto.itemNumber !== undefined
+      ? (dto.itemNumber === null ? null : Math.max(1, Math.trunc(Number(dto.itemNumber) || 0)))
+      : item.itemNumber;
+    await this.assertUniqueItemNumber(this.movementRepo.manager, item.projectId, item.accountKey, nextItemNumber, item.id);
+
     Object.assign(item, {
+      ...(dto.itemNumber !== undefined
+        ? { itemNumber: nextItemNumber }
+        : {}),
       ...(dto.movementDate !== undefined ? { movementDate: normalizeDate(dto.movementDate) } : {}),
       ...(dto.monthLabel !== undefined ? { monthLabel: dto.monthLabel } : {}),
       ...(dto.description !== undefined ? { description: dto.description } : {}),
@@ -1107,6 +1202,13 @@ function isValidYMD(year: number, month: number, day: number) {
     && probe.getUTCMonth() === month - 1
     && probe.getUTCDate() === day;
 }
+/**
+ * Fecha del extracto BCP: SIEMPRE dd/mm/aa (o dd-mm-aaaa / dd.mm.aaaa).
+ * Se resuelve con un unico formato explicito para no depender de heuristicas:
+ *   1) yyyy-mm-dd  -> formato ISO, se respeta tal cual.
+ *   2) dd/mm/aa    -> dia = primer grupo, mes = segundo grupo.
+ * Si ninguna es una fecha valida se intenta el parser nativo como ultimo recurso.
+ */
 function normalizeDate(value: unknown): string | null {
   if (!value) return null;
   if (value instanceof Date && !Number.isNaN(value.getTime())) return toISODate(value);
@@ -1114,24 +1216,25 @@ function normalizeDate(value: unknown): string | null {
   const cleaned = cleanCell(value);
   if (!cleaned) return null;
 
+  // Formato ISO explicito: yyyy-mm-dd. Es el unico en el que el primer grupo es el anio.
   const iso = cleaned.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
   if (iso) {
     const year = Number(iso[1]);
-    const a = Number(iso[2]);
-    const b = Number(iso[3]);
-    if (isValidYMD(year, a, b)) return `${iso[1]}-${pad2(a)}-${pad2(b)}`;
-    if (isValidYMD(year, b, a)) return `${iso[1]}-${pad2(b)}-${pad2(a)}`;
+    const month = Number(iso[2]);
+    const day = Number(iso[3]);
+    if (isValidYMD(year, month, day)) return `${iso[1]}-${pad2(month)}-${pad2(day)}`;
     return null;
   }
 
+  // Formato del extracto BCP: dd/mm/aa con dia primero. No se intenta mm/dd porque
+  // el extracto nunca usa ese orden; probarlo invertia el mes en los dias 01..12.
   const dmy = cleaned.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2,4})/);
   if (dmy) {
-    const a = Number(dmy[1]);
-    const b = Number(dmy[2]);
+    const day = Number(dmy[1]);
+    const month = Number(dmy[2]);
     const rawYear = dmy[3];
     const year = rawYear.length === 2 ? 2000 + Number(rawYear) : Number(rawYear);
-    if (isValidYMD(year, b, a)) return `${year}-${pad2(b)}-${pad2(a)}`;
-    if (isValidYMD(year, a, b)) return `${year}-${pad2(a)}-${pad2(b)}`;
+    if (isValidYMD(year, month, day)) return `${year}-${pad2(month)}-${pad2(day)}`;
     return null;
   }
 
@@ -1170,6 +1273,11 @@ function buildSourceKey(row: BankMovementImportRow, currency: string, accountKey
   const base = [
     accountKey,
     currency,
+    // El Item identifica la fila dentro de su fecha. Sin el, dos movimientos
+    // distintos del mismo dia con igual descripcion/proveedor/monto (p. ej. dos
+    // comisiones identicas) colapsaban en uno y el segundo se perdia como
+    // "duplicado": habia que crearlo a mano y quedaba desordenado.
+    row.itemNumber ?? '',
     row.movementDate || '',
     normalizeHeader(row.description || ''),
     normalizeHeader(row.counterparty || ''),

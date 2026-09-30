@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Toaster, toast, EmptyState } from '@/components/ui/ui';
 import { KpiCard, KPI_GRID_6 } from '@/components/ui/Metrics';
 import { api, uploadFile } from '@/lib/api';
@@ -15,6 +16,7 @@ const PAGE_SIZE = 15;
 const PAGE_SIZE_OPTIONS = [15, 30, 50, 100] as const;
 
 export default function LotsView({ lockedProjectId }: { lockedProjectId?: number }) {
+  const searchParams = useSearchParams();
   const [lots, setLots] = useState<Lot[]>([]);
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
   const [statusFilter, setStatusFilter] = useState('');
@@ -66,6 +68,12 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
   useEffect(() => { load(); }, [statusFilter, search, project, page, pageSize]);
   useEffect(() => { api.get<any>('/projects').then((d) => setProyectos(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {}); }, []);
   useEffect(() => { setPage(1); }, [statusFilter, search, project, pageSize]);
+  useEffect(() => {
+    const rawLotId = searchParams?.get('lotId');
+    if (!rawLotId) return;
+    const focus = searchParams?.get('focus') === 'edit' ? 'edit' : undefined;
+    setSelected({ id: Number(rawLotId), focus });
+  }, [searchParams]);
 
   const coll = new Intl.Collator('es', { numeric: true, sensitivity: 'base' });
   const sortedLots = lots.slice().sort((a, b) => coll.compare(a.code, b.code));

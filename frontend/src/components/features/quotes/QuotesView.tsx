@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { FiDownload, FiEye, FiFileText, FiCreditCard, FiDollarSign, FiTrendingUp, FiCheckCircle, FiRefreshCw } from 'react-icons/fi';
+import { FiAlertTriangle, FiArrowRight, FiDownload, FiEye, FiFileText, FiCreditCard, FiDollarSign, FiTrendingUp, FiCheckCircle, FiRefreshCw } from 'react-icons/fi';
 import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
 import { KpiCard, KPI_GRID_6 } from '@/components/ui/Metrics';
 import { PaginationBar } from '@/components/ui/PaginationBar';
@@ -204,8 +204,19 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
   const rows: ScheduleRow[] = Array.isArray(plan?.rows) ? plan.rows : [];
   const initialPlan = plan?.initialPlan || null;
   const totalInstallments = Number(quote.totalCuotas || 0);
-  const firstInstallmentUsd = Number(quote.cuotaInicialUsd || 0);
-  const financingInstallments = Math.max(0, totalInstallments - (firstInstallmentUsd > 0 ? 1 : 0));
+  // CUOTA INICIAL: pago aparte que se descuenta del precio final. El saldo se
+  // financia en `financingInstallments` cuotas (el cronograma de amortizacion
+  // tiene exactamente esas filas), PERO para el cliente la cuota inicial TAMBIEN
+  // es UNA cuota: el "Total cuotas" que ve en el documento es
+  // financiamiento + 1 (ej. 24 + 1 = 25).
+  const cuotaInicialUsd = Math.max(0, Number(quote.cuotaInicialUsd || 0));
+  const financingInstallments = Math.max(0, totalInstallments);
+  // La cuota inicial cuenta SIEMPRE como 1 sola cuota. Las "partes" (2 o 3) son
+  // un fraccionamiento del PAGO dentro del mes, no cuotas del cronograma: 24
+  // financiadas + inicial (en 1, 2 o 3 partes) = 25. Con inicial 0 no se suma.
+  const initialInstallments = cuotaInicialUsd > 0 ? 1 : 0;
+  // Total que se muestra al cliente: el cronograma mas la cuota inicial.
+  const displayTotalInstallments = financingInstallments + initialInstallments;
   const savedGraceMonths = Number(quote.graceMonths || 0);
   const scheduleGraceMonths = Number(plan?.graceMonths || 0);
   const graceMonths = Math.min(financingInstallments, Math.max(0, savedGraceMonths || scheduleGraceMonths));
@@ -275,25 +286,25 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>${escapeHtml(title)} Q${quote.id}</title>
         <style>
-          body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white;font-size:13px}
+          body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white;font-size:12px}
           .watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.055;z-index:-1}
           .watermark img{width:560px;max-width:72vw}
           .brand{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}
           .logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}
           .eyebrow{margin:0 0 5px;color:#1877F2;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
           h1{margin:0;font-size:27px;line-height:1.15;color:#111827} h2{font-size:15px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
-          p{margin:4px 0 0;color:#6B7280;font-size:13px}
+          p{margin:4px 0 0;color:#6B7280;font-size:12px}
           .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin:14px 0 18px}
           .summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}
           .summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.15}
-          .summary strong{display:block;margin-top:4px;color:#111827;font-size:13px;white-space:nowrap}
+          .summary strong{display:block;margin-top:4px;color:#111827;font-size:12px;white-space:nowrap}
           .summary .head-card{border-color:#B9D2F4;background:#F5F9FF;border-left:4px solid #1877F2}
           .summary .head-card span{color:#1259C4}
           .summary .head-card strong{color:#0B2F6E}
           .summary-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:6px;margin:14px 0 18px}
           .summary-row div{border:1px solid #E5E7EB;background:#F8FAFC;padding:8px 7px;border-radius:6px;min-width:0}
-          .summary-row span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.2}
-          .summary-row strong{display:block;margin-top:3px;color:#111827;font-size:13px;white-space:nowrap}
+          .summary-row span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.2;min-height:24px}
+          .summary-row strong{display:block;margin-top:3px;color:#111827;font-size:12px;white-space:nowrap}
           .summary-row .finance-highlight{border-color:#1877F2;background:#F5F9FF;border-left:4px solid #1877F2}
           .summary-row .finance-highlight strong{color:#1259C4}
           .summary-row .tiny{display:inline;margin-left:3px;color:#64748B;font-size:9px;font-weight:700;text-transform:none;letter-spacing:0}
@@ -304,14 +315,14 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           .summary-aside span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
           .summary-aside strong{display:block;margin-top:2px;color:#1259C4;font-size:12px;font-weight:700;white-space:nowrap}
           table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}
-          th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:11px;text-align:left;text-transform:uppercase}
+          th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:12px;text-align:left;text-transform:uppercase}
           td{border:1px solid #E5E7EB;padding:8px 7px;font-size:12px;vertical-align:top}
           tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}
           .total-row td{background:#EAF3FF !important;border-color:#B9D2F4;font-weight:800;color:#0B2F6E}
           .num{text-align:right;white-space:nowrap}.strong{font-weight:700;color:#1259C4}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:11px;text-align:right}
           .schedule-table{table-layout:fixed}
-          .schedule-table th,.schedule-table td{padding:6px 4px;font-size:10px;line-height:1.15}
-          .schedule-table .num{font-size:9.5px;letter-spacing:-.01em}
+          .schedule-table th,.schedule-table td{padding:6px 4px;font-size:12px;line-height:1.35}
+          .schedule-table .num{font-size:12px;letter-spacing:0}
           .schedule-table th:nth-child(1),.schedule-table td:nth-child(1){width:5%;text-align:center}
           .schedule-table th:nth-child(2),.schedule-table td:nth-child(2){width:10%}
           .schedule-table th:nth-child(3),.schedule-table td:nth-child(3){width:14%}
@@ -339,6 +350,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           .lot-pulse{fill:rgba(255,255,255,.92);stroke:#1877F2;stroke-width:3}
           .lot-code{font-size:18px;font-weight:800;text-anchor:middle;fill:#063B87}
           .lot-area{font-size:12px;font-weight:700;text-anchor:middle;fill:#1259C4}
+          .eyebrow,p,.summary span,.summary strong,.summary-row span,.summary-row strong,.summary-row .tiny,.summary-aside span,.summary-aside strong,th,td,.schedule-table th,.schedule-table td,.schedule-table .num,.plan-head strong,.plan-head span,.plan-head b,.plan-actions label,.plan-actions label strong,.plan-note,.footer{font-size:12px}
           @media (max-width:640px){
             body{margin:12px}
             .brand{flex-direction:column;align-items:flex-start;gap:10px}
@@ -357,7 +369,11 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
             .plan-full .plan-svg,.plan-zoom svg{height:190px}
             .watermark img{width:300px}
           }
-          @media print{body{margin:18px}.brand,.summary,.summary-row,.summary-aside,.plan-card{break-inside:avoid}thead{display:table-header-group}.watermark{position:fixed}.plan-actions input,.plan-actions label{display:none !important}
+          @media print{body{margin:18px;font-family:Arial,Helvetica,sans-serif !important;font-size:12px !important}body *{font-family:Arial,Helvetica,sans-serif !important}.brand,.summary,.summary-row,.summary-aside,.plan-card{break-inside:avoid}thead{display:table-header-group}.watermark{position:fixed}.plan-actions input,.plan-actions label{display:none !important}
+            p,span,b,strong,table,thead,tbody,tr,th,td,div{font-size:12px !important;line-height:1.35 !important}
+            h1{font-size:22px !important;line-height:1.2 !important}
+            h2{font-size:14px !important;line-height:1.3 !important}
+            .eyebrow,p,.summary span,.summary strong,.summary-row span,.summary-row strong,.summary-row .tiny,.summary-aside span,.summary-aside strong,th,td,.schedule-table th,.schedule-table td,.schedule-table .num,.plan-head strong,.plan-head span,.plan-head b,.plan-note,.footer{font-size:12px !important}
             .plan-split{display:grid !important;grid-template-columns:minmax(0,3fr) minmax(0,2fr) !important;gap:12px !important}
             .plan-full .plan-svg,.plan-zoom svg{height:285px !important}
             .summary-row{display:grid !important;grid-template-columns:repeat(4,minmax(0,1fr)) !important}
@@ -375,10 +391,10 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           <div class="head-card"><span>Precio final</span><strong>${escapeHtml(fmtUsd(Number(quote.finalPriceUsd || 0)))}</strong></div>
           <div class="head-card"><span>Saldo</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
           ${quote.paymentMethod === 'credito' ? `
-              <div class="head-card"><span>Cuota inicial</span><strong>${escapeHtml(fmtUsd(Number(quote.cuotaInicialUsd || 0)))}</strong></div>
+              <div class="head-card"><span>Cuota inicial</span><strong>${escapeHtml(fmtUsd(cuotaInicialUsd))}</strong></div>
               <div class="head-card"><span>Cuotas s/int.</span><strong>${noInterestInstallments}</strong></div>
               <div class="head-card"><span>Cuotas c/int.</span><strong>${interestInstallments}</strong></div>
-              <div class="head-card"><span>Total cuotas</span><strong>${totalInstallments}</strong></div>
+              <div class="head-card"><span>Total cuotas</span><strong>${displayTotalInstallments}</strong></div>
             ` : '<div class="head-card"><span>Forma de pago</span><strong>Contado</strong></div>'}
           </div>
         <h2>Datos de la cotizacion</h2>
@@ -392,11 +408,12 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
         ${quote.paymentMethod === 'credito' ? `
           <h2>Financiamiento</h2>
           <div class="summary-row">
-            <div class="finance-highlight"><span>Saldo fin.</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
+            <div class="finance-highlight"><span>Cuota inicial</span><strong>${escapeHtml(fmtUsd(cuotaInicialUsd))}</strong></div>
+            <div class="finance-highlight"><span>Saldo a financiar</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
             <div class="finance-highlight"><span>TEA</span><strong>${quote.interestType === 'tea' ? `${Number(quote.tea || 0)}%` : 'Sin intereses'}</strong></div>
-            <div class="finance-highlight"><span>C. s/int. <em class="tiny">(${noInterestInstallments})</em></span><strong>${escapeHtml(fmtUsd(noInterestCuotaUsd))}</strong></div>
-            <div class="finance-highlight"><span>C. c/int. <em class="tiny">(${interestInstallments})</em></span><strong>${escapeHtml(fmtUsd(interestCuotaUsd))}</strong></div>
-            <div class="finance-highlight"><span>Total cuotas</span><strong>${totalInstallments}</strong></div>
+            <div class="finance-highlight"><span>Cuotas sin interés <em class="tiny">(${noInterestInstallments})</em></span><strong>${escapeHtml(fmtUsd(noInterestCuotaUsd))}</strong></div>
+            <div class="finance-highlight"><span>Cuotas con interés <em class="tiny">(${interestInstallments})</em></span><strong>${escapeHtml(fmtUsd(interestCuotaUsd))}</strong></div>
+            <div class="finance-highlight"><span>Total cuotas</span><strong>${displayTotalInstallments}</strong></div>
             <div class="finance-highlight"><span>TC</span><strong>S/ ${Number(quote.exchangeRate || 0).toFixed(4)}</strong></div>
           </div>
           ${initialPlan ? `
@@ -507,6 +524,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [lots, setLots] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [doc, setDoc] = useState<{ id: number; type: 'cotizacion' | 'financiamiento' } | null>(null);
+  const [missingFinalPriceLot, setMissingFinalPriceLot] = useState<any | null>(null);
   // Paginación server-side + filtros (buenas prácticas: page/limit en URL del API,
   // reset a página 1 cuando cambia un filtro, debounce en búsqueda).
   const [page, setPage] = useState(1);
@@ -533,7 +551,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [exchangeRate, setExchangeRate] = useState(3.75);
   const [paymentMethod, setPaymentMethod] = useState<'contado' | 'credito'>('credito');
   const [cuotaInicialUsd, setCuotaInicialUsd] = useState(0);
-  const [totalCuotas, setTotalCuotas] = useState(60);
+  const [totalCuotas, setTotalCuotas] = useState(36);
   const [initialPaymentMode, setInitialPaymentMode] = useState<'contado' | 'partes'>('contado');
   const [initialParts, setInitialParts] = useState(3);
   const [graceMonths, setGraceMonths] = useState(0);
@@ -629,6 +647,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
       setCuotaInicialUsd(0);
       setInitialPaymentMode('contado');
       setInitialParts(3);
+      if (!Number(lot.finalPrice || 0)) setMissingFinalPriceLot(lot);
     }
   }
 
@@ -640,6 +659,14 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     setStreetId(0);
     setPricePerM2Usd(0);
     setLotPriceUsd(0);
+    setMissingFinalPriceLot(null);
+  }
+
+  function goToLotFile(lot: any) {
+    const projectId = Number(lot?.projectId || lockedProjectId || selectedLot?.projectId || 0);
+    const targetLotId = Number(lot?.id || lotId || 0);
+    if (!projectId || !targetLotId) return;
+    window.location.href = `/projects/${projectId}/lots?lotId=${targetLotId}&focus=edit`;
   }
 
   function onPricePerM2Change(v: number) {
@@ -649,15 +676,16 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
 
   const finalPrice = Math.max(0, lotPriceUsd - bonoDescuento - bonoEspecial);
   const safeTotalCuotas = Math.max(1, Number(totalCuotas || 0));
-  const primeraCuotaUsd = paymentMethod === 'credito' ? finalPrice / safeTotalCuotas : 0;
-  const saldoAFinanciar = paymentMethod === 'credito' ? Math.max(0, finalPrice - primeraCuotaUsd) : 0;
-  const safeInitialParts = Math.max(2, Number(initialParts || 0));
-  const cuotasFinanciadas = Math.max(0, safeTotalCuotas - 1);
+  const safeCuotaInicialUsd = paymentMethod === 'credito' ? Math.min(finalPrice, Math.max(0, Number(cuotaInicialUsd || 0))) : 0;
+  const saldoAFinanciar = paymentMethod === 'credito' ? Math.max(0, finalPrice - safeCuotaInicialUsd) : 0;
+  const safeInitialParts = Math.min(3, Math.max(1, Math.floor(Number(initialParts) || 1)));
+  const initialPartsError = initialPaymentMode === 'partes' && !(Number.isInteger(Number(initialParts)) && Number(initialParts) >= 1 && Number(initialParts) <= 3);
+  const cuotasFinanciadas = paymentMethod === 'credito' ? safeTotalCuotas : 0;
 
   function resetForm() {
     setClientName(''); setClientEmail(''); setClientPhone('');
     setLotId(0); setStreetId(0); setPricePerM2Usd(0); setLotPriceUsd(0); setBonoDescuento(0); setBonoEspecial(0);
-    setPaymentMethod('credito'); setCuotaInicialUsd(0); setInitialPaymentMode('contado'); setInitialParts(3); setTotalCuotas(60); setGraceMonths(0); setApplyInterest(false); setTea(10);
+    setPaymentMethod('credito'); setCuotaInicialUsd(0); setInitialPaymentMode('contado'); setInitialParts(3); setTotalCuotas(36); setGraceMonths(0); setApplyInterest(false); setTea(10);
   }
 
   async function guardar() {
@@ -667,13 +695,16 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail.trim())) return toast('Ingresa un correo valido (debe incluir @ y dominio)', 'err');
     if (clientPhone.length !== 9) return toast('El telefono debe tener exactamente 9 digitos', 'err');
     if (!lotPriceUsd) return toast('Ingresa el precio del lote', 'err');
+    if (paymentMethod === 'credito' && initialPaymentMode === 'partes' && initialPartsError) {
+      return toast('El numero de partes de la cuota inicial debe ser un entero entre 1 y 3', 'err');
+    }
     try {
       await api.post('/quotes', {
         projectId: lockedProjectId || selectedLot?.projectId || 1,
         lotId, clientName, clientEmail, clientPhone,
         pricePerM2Usd, lotPriceUsd, bonoDescuentoUsd: bonoDescuento || undefined, bonoEspecialUsd: bonoEspecial || undefined,
         paymentMethod,
-        cuotaInicialUsd: paymentMethod === 'credito' ? primeraCuotaUsd || undefined : undefined,
+        cuotaInicialUsd: paymentMethod === 'credito' ? safeCuotaInicialUsd || undefined : undefined,
         totalCuotas: paymentMethod === 'credito' ? totalCuotas || undefined : undefined,
         graceMonths: paymentMethod === 'credito' && applyInterest ? graceMonths || undefined : undefined,
         interestType: paymentMethod === 'credito' ? (applyInterest ? 'tea' : 'sin_intereses') : undefined,
@@ -950,20 +981,17 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             {paymentMethod === 'credito' && (
               <>
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="Plazo total (meses, incluye las cuotas sin interes)"><input type="number" className="input" value={totalCuotas || ''} onChange={(e) => setTotalCuotas(Number(e.target.value || 0))} /></Field>
-                  <div className="rounded-lg bg-canvas p-3 text-sm">
-                    <span className="block text-xs text-slate-500">Primera cuota calculada</span>
-                    <b>{fmtUsd(primeraCuotaUsd)}</b>
-                  </div>
+                  <Field label="Cuota inicial US$"><input type="number" className="input" value={cuotaInicialUsd || ''} onChange={(e) => setCuotaInicialUsd(Number(e.target.value || 0))} /></Field>
+                  <Field label="Cuotas de financiamiento"><input type="number" className="input" value={totalCuotas || ''} onChange={(e) => setTotalCuotas(Number(e.target.value || 0))} /></Field>
                 </div>
                 <p className="-mt-2 mb-3 text-[11px] text-slate-500">
-                  La primera cuota se calcula automaticamente: precio final dividido entre el total de cuotas. Si la pagas en partes, se divide esa primera cuota.
+                  La cuota inicial se registra por separado: cuenta como 1 cuota. El saldo se financia en {safeTotalCuotas} cuotas, mas la cuota inicial: {safeTotalCuotas + (safeCuotaInicialUsd > 0 ? 1 : 0)} en total.
                 </p>
 
                 <div className="rounded-lg border p-3 mb-3" style={{ borderColor: '#E5E7EB' }}>
-                  <p className="text-xs font-semibold text-slate-600 mb-2">1. Primera cuota (siempre sin interes)</p>
+                  <p className="text-xs font-semibold text-slate-600 mb-2">1. Cuota inicial (siempre sin interes)</p>
                   <div className="grid grid-cols-2 gap-3">
-                    <Field label="Forma de pago de la primera cuota">
+                    <Field label="Forma de pago de la cuota inicial">
                       <Select
                         value={initialPaymentMode}
                         onChange={(value) => setInitialPaymentMode(value as any)}
@@ -974,15 +1002,44 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                       />
                     </Field>
                     {initialPaymentMode === 'partes' && (
-                      <Field label="Numero de partes">
-                        <input type="number" min={2} max={24} className="input" value={initialParts || ''} onChange={(e) => setInitialParts(Number(e.target.value || 0))} />
+                      <Field label="Numero de partes (1 a 3)">
+                        <input
+                          type="number"
+                          min={1}
+                          max={3}
+                          step={1}
+                          className="input"
+                          value={initialParts || ''}
+                          onChange={(e) => setInitialParts(Number(e.target.value || 0))}
+                        />
                       </Field>
                     )}
                   </div>
-                  {initialPaymentMode === 'partes' && primeraCuotaUsd > 0 && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      La primera cuota de <b>{fmtUsd(primeraCuotaUsd)}</b> se paga en <b>{safeInitialParts} partes</b> de <b>{fmtUsd(primeraCuotaUsd / safeInitialParts)}</b> cada una, sin interes.
+                  {initialPartsError && (
+                    <p className="mt-2 text-xs font-semibold text-red-600">
+                      El numero de partes debe ser un entero entre 1 y 3.
                     </p>
+                  )}
+                  {initialPaymentMode === 'partes' && !initialPartsError && safeCuotaInicialUsd > 0 && (
+                    <div className="mt-2">
+                      <p className="text-xs text-slate-500">
+                        La cuota inicial de <b>{fmtUsd(safeCuotaInicialUsd)}</b> se paga en <b>{safeInitialParts} {safeInitialParts === 1 ? 'parte' : 'partes'}</b>, sin interes. La ultima parte absorbe el ajuste de redondeo.
+                      </p>
+                      <ul className="mt-1 text-xs text-slate-500">
+                        {Array.from({ length: safeInitialParts }, (_, index) => {
+                          const monto = Math.round((safeCuotaInicialUsd / safeInitialParts) * 100) / 100;
+                          const esUltima = index === safeInitialParts - 1;
+                          const valor = esUltima
+                            ? Math.round((safeCuotaInicialUsd - monto * (safeInitialParts - 1)) * 100) / 100
+                            : monto;
+                          return (
+                            <li key={index}>
+                              Parte {index + 1} de {safeInitialParts}: <b>{fmtUsd(valor)}</b>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
                   )}
                 </div>
 
@@ -1008,7 +1065,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                           <input type="number" step="0.01" className="input" value={tea || ''} onChange={(e) => setTea(Number(e.target.value || 0))} />
                         </Field>
                       </div>
-                      <p className="text-[11px] text-slate-500">Las {totalCuotas} cuotas incluyen esas {graceMonths} sin interes.</p>
+                      <p className="text-[11px] text-slate-500">Las {totalCuotas} cuotas del financiamiento incluyen esas {graceMonths} sin interes.</p>
                     </div>
                   )}
                 </div>
@@ -1018,30 +1075,33 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                     <span className="text-slate-600">Saldo a financiar:</span><b>{fmtUsd(saldoAFinanciar)}</b>
                   </div>
                   <p className="mt-1 text-[11px] text-slate-500">
-                    {fmtUsd(finalPrice)} precio final - {fmtUsd(primeraCuotaUsd)} primera cuota = {fmtUsd(saldoAFinanciar)}.
+                    {fmtUsd(finalPrice)} precio final - {fmtUsd(safeCuotaInicialUsd)} cuota inicial = {fmtUsd(saldoAFinanciar)}.
                   </p>
                 </div>
 
                 {applyInterest && tea > 0 && graceMonths > 0 && (
                   <div className="rounded-lg border p-3 text-xs text-slate-600 mb-3" style={{ borderColor: '#E5E7EB', background: '#F8FAFC' }}>
                     <p className="font-semibold text-slate-700 mb-1">Como queda el cronograma</p>
-                    <p>Primera cuota: <b>{fmtUsd(primeraCuotaUsd)}</b>{initialPaymentMode === 'partes' ? ` en ${safeInitialParts} partes` : ''}, sin interes.</p>
-                    <p>Siguientes cuotas sin interes: <b>{fmtUsd(cuotasFinanciadas ? saldoAFinanciar / cuotasFinanciadas : 0)}</b> cada una.</p>
+                    <p>Cuota inicial: <b>{fmtUsd(safeCuotaInicialUsd)}</b>{initialPaymentMode === 'partes' ? ` en ${safeInitialParts} partes` : ' en 1 parte'}, sin interes.</p>
+                    <p>Primeras cuotas sin interes: <b>{fmtUsd(cuotasFinanciadas ? saldoAFinanciar / cuotasFinanciadas : 0)}</b> cada una.</p>
                     <p>Luego se aplica {tea}% TEA sobre el saldo que quede pendiente.</p>
+                    <p className="mt-1 font-semibold text-slate-700">Total de cuotas: {cuotasFinanciadas} de financiamiento + 1 de la inicial = <b>{cuotasFinanciadas + (safeCuotaInicialUsd > 0 ? 1 : 0)}</b>.</p>
                   </div>
                 )}
                 {applyInterest && tea > 0 && graceMonths === 0 && (
                   <div className="rounded-lg border p-3 text-xs text-slate-600 mb-3" style={{ borderColor: '#E5E7EB', background: '#F8FAFC' }}>
                     <p className="font-semibold text-slate-700 mb-1">Como queda el cronograma</p>
-                    <p>Primera cuota: <b>{fmtUsd(primeraCuotaUsd)}</b>{initialPaymentMode === 'partes' ? ` en ${safeInitialParts} partes` : ''}, sin interes.</p>
-                    <p>El saldo de <b>{fmtUsd(saldoAFinanciar)}</b> se financia con {tea}% TEA.</p>
+                    <p>Cuota inicial: <b>{fmtUsd(safeCuotaInicialUsd)}</b>{initialPaymentMode === 'partes' ? ` en ${safeInitialParts} partes` : ' en 1 parte'}, sin interes.</p>
+                    <p>El saldo de <b>{fmtUsd(saldoAFinanciar)}</b> se financia en {cuotasFinanciadas} cuotas con {tea}% TEA.</p>
+                    <p className="mt-1 font-semibold text-slate-700">Total de cuotas: {cuotasFinanciadas} de financiamiento + 1 de la inicial = <b>{cuotasFinanciadas + (safeCuotaInicialUsd > 0 ? 1 : 0)}</b>.</p>
                   </div>
                 )}
                 {!applyInterest && (
                   <div className="rounded-lg border p-3 text-xs text-slate-600 mb-3" style={{ borderColor: '#E5E7EB', background: '#F8FAFC' }}>
                     <p className="font-semibold text-slate-700 mb-1">Como queda el cronograma</p>
-                    <p>Primera cuota: <b>{fmtUsd(primeraCuotaUsd)}</b>{initialPaymentMode === 'partes' ? ` en ${safeInitialParts} partes` : ''}, sin interes.</p>
-                    <p>Las {cuotasFinanciadas} cuotas restantes son de <b>{fmtUsd(cuotasFinanciadas ? saldoAFinanciar / cuotasFinanciadas : 0)}</b>, sin interes.</p>
+                    <p>Cuota inicial: <b>{fmtUsd(safeCuotaInicialUsd)}</b>{initialPaymentMode === 'partes' ? ` en ${safeInitialParts} partes` : ' en 1 parte'}, sin interes.</p>
+                    <p>Las {cuotasFinanciadas} cuotas de financiamiento son de <b>{fmtUsd(cuotasFinanciadas ? saldoAFinanciar / cuotasFinanciadas : 0)}</b>, sin interes.</p>
+                    <p className="mt-1 font-semibold text-slate-700">Total de cuotas: {cuotasFinanciadas} de financiamiento + 1 de la inicial = <b>{cuotasFinanciadas + (safeCuotaInicialUsd > 0 ? 1 : 0)}</b>.</p>
                   </div>
                 )}
               </>
@@ -1056,6 +1116,40 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
           </div>
         </div>
       )}
+
+      <Modal
+        open={!!missingFinalPriceLot}
+        onClose={() => setMissingFinalPriceLot(null)}
+        title="Precio final pendiente"
+        width="max-w-md"
+      >
+        <div className="space-y-4">
+          <div className="flex gap-3">
+            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-amber-50 text-amber-600">
+              <FiAlertTriangle />
+            </span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-slate-800">
+                Lote {missingFinalPriceLot?.code || lotId} sin precio final.
+              </p>
+              <p className="mt-1 text-sm leading-5 text-slate-600">
+                La cotizacion se hara con el precio general de venta. Si ya tienes el monto real, actualiza el precio final en la ficha del lote.
+              </p>
+            </div>
+          </div>
+          <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600" style={{ borderColor: '#E5E7EB' }}>
+            Precio tomado: <b>{fmtUsd(lotPriceUsd)}</b>
+          </div>
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <button type="button" className="btn-neutral" onClick={() => setMissingFinalPriceLot(null)}>
+              Omitir
+            </button>
+            <button type="button" className="btn-primary" onClick={() => goToLotFile(missingFinalPriceLot)}>
+              Ir a ficha <FiArrowRight />
+            </button>
+          </div>
+        </div>
+      </Modal>
       {doc && <QuoteDocumentModal doc={doc} onClose={() => setDoc(null)} />}
     </>
   );

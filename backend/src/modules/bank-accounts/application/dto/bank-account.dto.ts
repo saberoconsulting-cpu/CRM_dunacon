@@ -36,6 +36,10 @@ export class CreateBankMovementDto {
   accountKey?: string;
 
   @IsOptional()
+  @IsNumber()
+  itemNumber?: number | null;
+
+  @IsOptional()
   @IsString()
   movementDate?: string | null;
 
@@ -139,6 +143,10 @@ export class UpdateBankCategoryDto {
 }
 
 export class UpdateBankMovementDto {
+  @IsOptional()
+  @IsNumber()
+  itemNumber?: number | null;
+
   @IsOptional()
   @IsString()
   movementDate?: string | null;

@@ -28,6 +28,10 @@ const INK = '#0F172A';
 const MUTED = '#64748B';
 const BORDER = '#E2E8F0';
 const SOLD_GREEN = '#16A36A';
+// Estados en los que el lote ya tiene una operacion comercial (venta, separacion
+// o alquiler). Bloquean las acciones de cotizar/vender y, ademas, congelan la
+// parte comercial de la ficha: estado y precios no se editan hasta liberar el
+// lote. Debe coincidir con COMMERCIALLY_LOCKED_STATUSES de plan.service.ts.
 const BLOCKED_ACTION_STATUSES = ['vendido', 'alquilado', 'reservado', 'adelanto', 'primera_cuota'];
 
 function formatArea(value: unknown) {
@@ -285,6 +289,10 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
     if (!lot) return;
     if (canEdit && !lotData.code.trim()) return toast('Ingresa el numero de lote', 'err');
     if (canEdit && !lotData.streetId) return toast('Selecciona la calle del lote', 'err');
+    // Defensa en profundidad: si el lote esta vendido/separado no se envian ni el
+    // estado ni los precios. El backend tambien lo rechaza, pero asi el usuario
+    // nunca llega a ver un error de servidor por algo que la UI ya bloquea.
+    if (saleLocked) return toast('Este lote ya está vendido o separado: su estado y sus precios no se editan.', 'err');
     setWorking(true);
     try {
       await api.post(`/plan/lot/update/${lot.id}`, {
@@ -349,8 +357,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
       ['Area', formatArea(lot.areaM2)],
       ['Dimensiones', inferDimensions(lot)],
       ['Precio por m2', pricePerM2 ? money(pricePerM2) : EMPTY],
-      ['Precio de Venta', lot.salePrice ? money(lot.salePrice) : EMPTY],
-      ['Precio Final', lot.finalPrice ? money(lot.finalPrice) : EMPTY],
+      ['Precio de Venta', saleBasePrice ? money(saleBasePrice) : EMPTY],
+      ['Precio Final', needsPrice ? 'Por registrar' : (finalLotPrice ? money(finalLotPrice) : EMPTY)],
       ['Cliente', lot.clientName || '—'],
     ];
     const paymentRows = payments.map((p: any) => `
@@ -433,7 +441,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
           <div class="summary">
             <div><span>Estado</span><strong>${escapeHtml(LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status)}</strong></div>
             <div><span>Area</span><strong>${escapeHtml(formatArea(lot.areaM2))}</strong></div>
-            <div><span>Precio final</span><strong>${escapeHtml(lot.finalPrice ? money(lot.finalPrice) : lot.salePrice ? money(lot.salePrice) : money(Number(lot.price || 0) * Number(lot.areaM2 || 0)))}</strong></div>
+            <div><span>Precio de venta</span><strong>${escapeHtml(saleBasePrice ? money(saleBasePrice) : EMPTY)}</strong></div>
+            <div><span>Precio final</span><strong>${escapeHtml(needsPrice ? 'Por registrar' : money(finalLotPrice))}</strong></div>
           </div>
           <h2>Informacion del lote</h2>
           <table><tbody>
@@ -446,7 +455,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
           </table>
           <h2>Financiamiento del lote</h2>
           <div class="summary">
-            <div><span>Valor del lote</span><strong>${escapeHtml(money(unitPrice))}</strong></div>
+            <div><span>Valor del lote</span><strong>${escapeHtml(saleBasePrice ? money(saleBasePrice) : EMPTY)}</strong></div>
+            <div><span>Precio final</span><strong>${escapeHtml(needsPrice ? 'Por registrar' : money(finalLotPrice))}</strong></div>
             <div><span>Total abonado</span><strong>${escapeHtml(money(amountPaid))}</strong></div>
             <div><span>Saldo por pagar</span><strong>${escapeHtml(money(remaining))}</strong></div>
             <div><span>Avance</span><strong>${donePct}%</strong></div>
@@ -479,14 +489,29 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const amountPaid = paids.filter((p) => p.status === 'pagado').reduce((s: number, p) => s + Number(p.amount || 0), 0);
   const saleFn = fin?.sale;
   const schedule = (fin?.installments || []) as any[];
-  const unitPrice = saleFn?.salePrice != null
-    ? Number(saleFn.financingBase ?? saleFn.salePrice)
-    : Number(lot?.finalPrice || lot?.salePrice || (Number(lot?.price || 0) * Number(lot?.areaM2 || 0)));
+  const isSold = lot?.status === 'vendido';
+  // Precios comerciales del lote:
+  // - Precio de venta / valor del lote: base registrada al crear o vender.
+  // - Precio final: solo el monto final registrado en la ficha. Si no existe,
+  //   no se copia desde el precio de venta ni desde precio/m2.
+  const catalogBasePrice = Number(lot?.price || 0) * Number(lot?.areaM2 || 0);
+  const saleBasePrice = Number(
+    Number(lot?.salePrice || 0)
+    || Number(saleFn?.financingBase ?? saleFn?.salePrice ?? 0)
+    || catalogBasePrice
+    || 0,
+  );
+  const finalLotPrice = Number(lot?.finalPrice || 0);
+  const financeBasePrice = finalLotPrice || saleBasePrice;
   const aheadPayment = Number(saleFn?.valorCuota || (schedule[0]?.amount || 0));
   const closed = schedule.filter((x) => x.status === 'pagado').length;
   const firstDue = schedule[0]?.dueDate || null;
-  const remaining = Math.max(0, unitPrice - amountPaid);
-  const donePct = unitPrice > 0 ? Math.min(100, Math.round((amountPaid / unitPrice) * 100)) : 0;
+  const remaining = Math.max(0, financeBasePrice - amountPaid);
+  const donePct = financeBasePrice > 0 ? Math.min(100, Math.round((amountPaid / financeBasePrice) * 100)) : 0;
+  // Un lote vendido sin venta registrada ni precios en la ficha no tiene un
+  // precio real que mostrar; estimarlo con precio/m2 * area inventaria una cifra
+  // enorme (p.ej. 95,000 * 120 m2). En ese caso la ficha avisa en vez de mentir.
+  const needsPrice = isSold && !saleFn && !Number(lot?.salePrice || 0) && !finalLotPrice;
 
   if (!lotId) return null;
   if (!lot) return null;
@@ -497,6 +522,10 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const statusBadgeColor = lot.status === 'vendido' ? SOLD_GREEN : tableStatusColor;
   const quoteBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status);
   const sellBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status);
+  // `saleLocked` congela la parte comercial de la ficha (estado y precios). El
+  // backend aplica el mismo candado, asi que no es solo cosmético: aunque se
+  // fuerce la peticion, el servidor la rechaza.
+  const saleLocked = BLOCKED_ACTION_STATUSES.includes(lot.status);
   const detailCards = [
     { label: 'Num. de lote', value: lot.code || EMPTY },
     { label: 'Direccion', value: address },
@@ -505,8 +534,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
     { label: 'Area', value: formatArea(lot.areaM2) },
     { label: 'Dimensiones', value: inferDimensions(lot) },
     { label: 'Precio por m2', value: money(pricePerM2) },
-    { label: 'Precio de venta', value: money(lot.salePrice) },
-    { label: 'Precio final', value: money(lot.finalPrice) },
+    { label: 'Precio de venta', value: saleBasePrice ? money(saleBasePrice) : EMPTY },
+    { label: 'Precio final', value: finalLotPrice ? money(finalLotPrice) : EMPTY },
   ];
 
   function focusPlan() {
@@ -605,6 +634,13 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                     </button>
                   </div>
 
+                  {!compact && needsPrice && (
+                    <div className="rounded-[16px] border p-3 text-sm" style={{ borderColor: '#FCD34D', background: '#FFFBEB', color: '#92400E' }}>
+                      <b>Falta el precio de esta venta.</b> El lote figura como vendido o separado pero no tiene una venta registrada ni un precio final en la ficha, por eso el valor del lote aparece como “Por registrar”.
+                      {canEdit && <> Como el lote ya está bloqueado, primero <b>libéralo</b> (vuelve al detalle y usa <b>Registrar venta</b> o cambia el estado desde <b>Historial de estados</b>) y luego registra el precio real de la operación.</>}
+                    </div>
+                  )}
+
                   {canEdit && !compact && (
                     <div id="lot-edit-section" className="rounded-[16px] border bg-white p-4" style={{ borderColor: BORDER }}>
                       <div className="mb-3 flex items-center justify-between gap-2">
@@ -630,16 +666,21 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                         <div className="min-w-32 flex-1"><Field label="Tipo"><input className="input" value={lotData.type} onChange={(e) => setLotData({ ...lotData, type: e.target.value })} placeholder="Ej. Residencial" /></Field></div>
                         <div className="min-w-28 flex-1"><Field label="Area (m2)"><input type="number" className="input" value={lotData.areaM2 || ''} onChange={(e) => setLotData({ ...lotData, areaM2: Number(e.target.value) })} /></Field></div>
                         <div className="min-w-32 flex-1"><Field label="Dimensiones"><input className="input" value={lotData.dimensions} onChange={(e) => setLotData({ ...lotData, dimensions: e.target.value })} placeholder="Ej. 10m x 30m" /></Field></div>
-                        <div className="min-w-32 flex-1"><Field label={`Precio m2 (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotData.price)} onChange={(e) => setLotData({ ...lotData, price: fromEditValue(e.target.value) })} /></Field></div>
+                        <div className="min-w-32 flex-1"><Field label={`Precio m2 (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotData.price)} onChange={(e) => setLotData({ ...lotData, price: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
                       </div>
 
                       <p className="mb-2 mt-1 text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: MUTED }}>Estado y comercial</p>
+                      {saleLocked && (
+                        <div className="mb-2 rounded-xl border p-3 text-xs" style={{ borderColor: '#BFDBFE', background: '#EFF6FF', color: '#1E40AF' }}>
+                          <b>🔒 Lote {LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status}.</b> El estado y los precios de un lote vendido, separado o alquilado están congelados para no alterar la operación ya registrada ni liberar el lote para revenderlo. Si necesitas corregir el monto, libera el lote desde <b>Historial de estados</b> o registra la venta real y el sistema tomará ese monto.
+                        </div>
+                      )}
                       <div className="flex flex-wrap items-end gap-2">
-                        <div className="min-w-36 flex-1"><Field label="Estado"><Select value={lotizacion.status} onChange={(v) => setLotizacion({ ...lotizacion, status: v })} options={Object.entries(LOT_STATUS_LABEL).map(([key, label]) => ({ value: key, label }))} /></Field></div>
-                        <div className="min-w-36 flex-1"><Field label="Fecha de estado"><input type="date" className="input" value={lotizacion.statusDate} onChange={(e) => setLotizacion({ ...lotizacion, statusDate: e.target.value })} /></Field></div>
-                        <div className="min-w-32 flex-1"><Field label={`Precio venta (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotizacion.salePrice)} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: fromEditValue(e.target.value) })} /></Field></div>
-                        <div className="min-w-32 flex-1"><Field label={`Precio final (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotizacion.finalPrice)} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: fromEditValue(e.target.value) })} /></Field></div>
-                        <button onClick={saveLotizacion} disabled={working} className="btn-secondary shrink-0">{working ? 'Guardando...' : 'Guardar'}</button>
+                        <div className="min-w-36 flex-1"><Field label="Estado"><Select value={lotizacion.status} onChange={(v) => setLotizacion({ ...lotizacion, status: v })} disabled={saleLocked} options={Object.entries(LOT_STATUS_LABEL).map(([key, label]) => ({ value: key, label }))} /></Field></div>
+                        <div className="min-w-36 flex-1"><Field label="Fecha de estado"><input type="date" className="input" value={lotizacion.statusDate} onChange={(e) => setLotizacion({ ...lotizacion, statusDate: e.target.value })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
+                        <div className="min-w-32 flex-1"><Field label={`Precio venta (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotizacion.salePrice)} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
+                        <div className="min-w-32 flex-1"><Field label={`Precio final (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotizacion.finalPrice)} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
+                        <button onClick={saveLotizacion} disabled={working || saleLocked} className="btn-secondary shrink-0" title={saleLocked ? 'El lote está bloqueado: libera el lote para editar estado y precios' : undefined}>{working ? 'Guardando...' : saleLocked ? 'Bloqueado' : 'Guardar'}</button>
                       </div>
                       <p className="mt-2 text-[11px]" style={{ color: MUTED }}>
                         Los precios del lote se guardan en dólares. El modo soles solo convierte para visualizar o editar con tipo de cambio referencial.
@@ -655,7 +696,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                       </div>
                       <div className="mb-4 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full" style={{ width: donePct + '%', background: statusColor }} /></div>
                       <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
-                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Valor del lote</div><b>{money(unitPrice)}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Valor del lote</div><b>{saleBasePrice ? money(saleBasePrice) : EMPTY}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Precio final</div><b>{needsPrice ? 'Por registrar' : money(finalLotPrice)}</b></div>
                         <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Total abonado</div><b className="text-emerald-600">{money(amountPaid)}</b></div>
                         <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Saldo por pagar</div><b style={{ color: BLUE_DARK }}>{money(remaining)}</b></div>
                         <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Valor cuota</div><b className="text-slate-700">{money(aheadPayment)}</b></div>

@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
+import { createPortal } from 'react-dom';
 import { FiChevronDown } from 'react-icons/fi';
 
 export type SelectOption = { value: string | number; label: string; hint?: string };
@@ -18,9 +19,19 @@ export function Select({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const current = options.find((o) => String(o.value) === String(value));
+
+  // El menu se pinta en un portal a document.body. Motivo: este componente se usa
+  // dentro de modales cuyo contenedor tiene `transform` (ej. LotDetailModal usa
+  // `-translate-x-1/2 -translate-y-1/2`) y `overflow-hidden`. Un descendiente con
+  // `position: fixed` se posiciona respecto a ese ancestro transformado (no al
+  // viewport) y ademas queda recortado por el `overflow-hidden`: el desplegable
+  // se dibujaba desplazado y se ocultaba al abrirlo o al elegir una opcion.
+  // El portal lo saca de ese contenedor para que `position: fixed` si use el viewport.
+  useEffect(() => { setMounted(true); }, []);
 
   const reposition = () => {
     const rect = rootRef.current?.getBoundingClientRect();
@@ -30,10 +41,13 @@ export function Select({
     const above = rect.top - gap - 12;
     const openUp = below < 160 && above > below;
     const maxHeight = Math.max(140, Math.min(288, openUp ? above : below));
+    // Mantiene el menu dentro del viewport cuando el trigger esta pegado al borde.
+    const width = Math.min(rect.width, window.innerWidth - 16);
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - width - 8));
     setMenuStyle({
       position: 'fixed',
-      left: rect.left,
-      width: rect.width,
+      left,
+      width,
       maxHeight,
       ...(openUp ? { bottom: window.innerHeight - rect.top + gap } : { top: rect.bottom + gap }),
     });
@@ -71,12 +85,16 @@ export function Select({
         <span className="truncate text-[#171717]">{current ? current.label : ''}</span>
         <FiChevronDown className={`shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
-      {open && menuStyle && (
+      {open && mounted && menuStyle && createPortal(
         <>
-          <div className="fixed inset-0 z-[60]" onClick={() => setOpen(false)} />
           <div
-            className="z-[70] overflow-auto rounded-xl border border-[#D1D5DB] bg-white py-1 shadow-xl"
-            style={menuStyle}
+            className="fixed inset-0"
+            style={{ zIndex: 30000 }}
+            onClick={() => setOpen(false)}
+          />
+          <div
+            className="overflow-auto rounded-xl border border-[#D1D5DB] bg-white py-1 shadow-xl"
+            style={{ ...menuStyle, zIndex: 30010 }}
           >
             {options.map((o) => (
               <button
@@ -96,7 +114,8 @@ export function Select({
               </button>
             ))}
           </div>
-        </>
+        </>,
+        document.body,
       )}
     </div>
   );

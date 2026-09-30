@@ -12,7 +12,6 @@ frontend/.next/
 frontend/out/
 frontend/*.tsbuildinfo
 frontend/next-env.d.ts
-.next/cache/
 
 # Entornos y secretos
 .env

@@ -1,5 +1,5 @@
 // modules/quotes/application/dto/quote.dto.ts
-import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Matches } from 'class-validator';
+import { IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, Max, Min } from 'class-validator';
 
 export class CreateQuoteDto {
   @IsNumber()
@@ -57,7 +57,9 @@ export class CreateQuoteDto {
   initialPaymentMode?: 'contado' | 'partes';
 
   @IsOptional()
-  @IsNumber()
+  @IsInt({ message: 'El numero de partes de la cuota inicial debe ser un entero' })
+  @Min(1, { message: 'El numero de partes de la cuota inicial no puede ser menor a 1' })
+  @Max(3, { message: 'El numero de partes de la cuota inicial no puede ser mayor a 3' })
   initialParts?: number;
 
   @IsOptional()
@@ -110,7 +112,9 @@ export class RecalculateQuoteDto {
   initialPaymentMode?: 'contado' | 'partes';
 
   @IsOptional()
-  @IsNumber()
+  @IsInt({ message: 'El numero de partes de la cuota inicial debe ser un entero' })
+  @Min(1, { message: 'El numero de partes de la cuota inicial no puede ser menor a 1' })
+  @Max(3, { message: 'El numero de partes de la cuota inicial no puede ser mayor a 3' })
   initialParts?: number;
 
   @IsOptional()

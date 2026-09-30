@@ -1,23 +1,27 @@
 'use client';
 
 import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FiBriefcase, FiCheck, FiClipboard, FiCreditCard, FiDollarSign, FiDownload, FiEdit3, FiHome, FiLayers, FiMapPin, FiPercent, FiPieChart, FiRefreshCw, FiSave, FiTool, FiTrendingUp, FiZap } from 'react-icons/fi';
-import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { FiBriefcase, FiCheck, FiClipboard, FiCreditCard, FiDollarSign, FiDownload, FiEdit3, FiHome, FiLayers, FiMapPin, FiPercent, FiPieChart, FiPlus, FiRefreshCw, FiSave, FiTool, FiTrendingUp, FiZap } from 'react-icons/fi';
+import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '@/lib/api';
 import { BRAND } from '@/lib/types';
 import { Toaster, toast } from '@/components/ui/ui';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { useDisplayCurrency } from '@/lib/currency';
 
-type Row = { id: string; label: string; group?: boolean; computed?: boolean; values: number[] };
+type Row = { id: string; label: string; group?: boolean; computed?: boolean; values: number[]; parentId?: string; depth?: number };
 type CashflowMode = 'estatico' | 'dinamico';
+type SectionRowDefinition = { id: string; label: string; computed?: boolean; parentId?: string };
 const MODE_LABEL: Record<CashflowMode, string> = { estatico: 'Flujo estático', dinamico: 'Flujo dinámico' };
-const YEARS = Array.from({ length: 11 }, (_, index) => `Año ${index}`);
+const MAX_PROJECTION_YEARS = 15;
+const YEAR_COUNT = MAX_PROJECTION_YEARS + 1;
+const YEARS = Array.from({ length: YEAR_COUNT }, (_, index) => `Año ${index}`);
 // El endpoint /sales valida limit con @Max(100) (pagination.dto.ts): pedir 500
 // devolvía 400 Bad Request y el flujo se generaba sin ventas.
 const SALES_EXPORT_LIMIT = 100;
 const money = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 0 });
-const empty = () => Array(11).fill(0) as number[];
+const empty = () => Array(YEAR_COUNT).fill(0) as number[];
+const normalizeValues = (values?: number[]) => Array.from({ length: YEAR_COUNT }, (_, index) => Number(values?.[index] || 0));
 
 // Columnas fijas de las tablas. `cqw` = ancho visible del contenedor con scroll
 // (se activa con [container-type:inline-size]).
@@ -46,7 +50,16 @@ function computeIRR(flow: number[]): number | null {
     return (low + high) / 2;
 }
 
-const SECTIONS: Array<{ id: string; label: string; tone: string; computed?: boolean; rows: Array<{ id: string; label: string; computed?: boolean }> }> = [
+const CONSTRUCTION_CHILD_ROWS: SectionRowDefinition[] = [
+    { id: 'construction-earthworks', label: 'Movimiento de tierras', parentId: 'construction' },
+    { id: 'construction-sanitation', label: 'Obras de saneamiento', parentId: 'construction' },
+    { id: 'construction-roads', label: 'Pavimentación y vías', parentId: 'construction' },
+    { id: 'construction-electric', label: 'Redes eléctricas y alumbrado público', parentId: 'construction' },
+    { id: 'construction-complementary', label: 'Obras complementarias', parentId: 'construction' },
+];
+const CONSTRUCTION_CHILD_IDS = CONSTRUCTION_CHILD_ROWS.map((item) => item.id);
+
+const SECTIONS: Array<{ id: string; label: string; tone: string; computed?: boolean; rows: SectionRowDefinition[] }> = [
     {
         id: 'income', label: 'Ingreso por venta de lotes', tone: BRAND.blue, rows: [
             { id: 'lots-sold', label: 'Venta de lotes por año' },
@@ -64,7 +77,8 @@ const SECTIONS: Array<{ id: string; label: string; tone: string; computed?: bool
     },
     {
         id: 'direct', label: 'Costo Directo', tone: '#16A36A', rows: [
-            { id: 'construction', label: 'Costos de Construcción' },
+            { id: 'construction', label: 'Costos de Construcción', computed: true },
+            ...CONSTRUCTION_CHILD_ROWS,
             { id: 'supervision', label: 'Supervisión Técnica (4% de CC)' },
             { id: 'services', label: 'Conexión de Servicios Públicos (1% de CC)' },
         ]
@@ -127,6 +141,75 @@ const SECTION_ICONS: Record<string, any> = {
 };
 
 const COST_DETAIL_SECTIONS = new Set(['land', 'direct', 'indirect']);
+const CASCADE_TOTAL_SECTION_IDS = SECTIONS
+    .filter((section) => section.id !== 'income' && section.rows.length > 0)
+    .map((section) => section.id);
+const SECTION_CHILD_ROW_IDS = Object.fromEntries(SECTIONS.map((section) => [section.id, section.rows.map((item) => item.id)])) as Record<string, string[]>;
+
+/**
+ * Calculo puro del flujo: dadas las filas editables devuelve todas las filas con
+ * los totales/subtotales recalculados (ingreso, costos, utilidades, acumulados).
+ * Se usa tanto para pintar la tabla como para persistir el flujo dinamico, de modo
+ * que el Estado de Resultados lea exactamente los mismos ids y valores.
+ */
+function calculateRows(input: Row[]): Row[] {
+    const next = input.map((item) => ({ ...item, values: normalizeValues(item.values) }));
+    const get = (id: string) => next.find((item) => item.id === id)?.values || empty();
+    const set = (id: string, values: number[]) => { const item = next.find((candidate) => candidate.id === id); if (item) item.values = values; };
+    const childrenByParent = next.reduce<Record<string, Row[]>>((map, item) => {
+        if (!item.parentId) return map;
+        map[item.parentId] = [...(map[item.parentId] || []), item];
+        return map;
+    }, {});
+    const sumTree = (id: string): number[] => {
+        const children = childrenByParent[id] || [];
+        if (!children.length) return get(id);
+        const values = empty().map((_, year) => children.reduce((sum, child) => sum + Number(sumTree(child.id)[year] || 0), 0));
+        set(id, values);
+        return values;
+    };
+    const initialFee = sumTree('initial-fee');
+    const financingFee = sumTree('financing-fee');
+    const revenue = initialFee.map((_, year) => initialFee[year] + financingFee[year]);
+    const construction = sumTree('construction');
+    const cascadeTotals = Object.fromEntries(CASCADE_TOTAL_SECTION_IDS.map((id) => [id, sumTree(id)])) as Record<string, number[]>;
+    const land = cascadeTotals.land || empty();
+    const direct = cascadeTotals.direct || empty();
+    const indirect = cascadeTotals.indirect || empty();
+    const costSales = empty().map((_, year) => land[year] + direct[year] + indirect[year]);
+    const selling = cascadeTotals.selling || empty();
+    const financial = (childrenByParent.financial || []).length ? sumTree('financial') : get('financial');
+    const tax = (childrenByParent.tax || []).length ? sumTree('tax') : get('tax');
+    const igv = (childrenByParent.igv || []).length ? sumTree('igv') : get('igv');
+    const gross = revenue.map((value, year) => value - costSales[year]);
+    const operating = gross.map((value, year) => value - selling[year]);
+    const preTax = operating.map((value, year) => value - financial[year]);
+    const net = preTax.map((value, year) => value - tax[year]);
+    const adjusted = net.slice();
+    const accumulate = (values: number[]) => values.reduce<number[]>((totals, value, year) => {
+        totals.push((totals[year - 1] || 0) + value);
+        return totals;
+    }, []);
+    const computedValues: Record<string, number[]> = {
+        income: revenue,
+        ...cascadeTotals,
+        construction,
+        direct,
+        'cost-sales': costSales,
+        gross,
+        operating,
+        financial,
+        'pre-tax': preTax,
+        tax,
+        net,
+        igv,
+        adjusted,
+        'pre-tax-accumulated': accumulate(preTax),
+        'adjusted-accumulated': accumulate(adjusted),
+    };
+    Object.entries(computedValues).forEach(([id, values]) => set(id, values));
+    return next;
+}
 
 function SectionTitle({ section, color, label }: { section: { id: string; label: string }; color: string; label?: ReactNode }) {
     const Icon = SECTION_ICONS[section.id] || FiClipboard;
@@ -138,7 +221,7 @@ function SectionTitle({ section, color, label }: { section: { id: string; label:
                 <Icon size={15} aria-hidden="true" />
             </span>
             <div className="min-w-0">
-                <div className="flex min-w-0 flex-nowrap items-center gap-2 md:flex-wrap">
+                <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden">
                     {isCostDetail && (
                         <span className="shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide" style={{ borderColor: '#0EA5A94D', color: '#0F766E', background: '#ECFEFF' }}>
                             Costo
@@ -157,9 +240,11 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const [manual, setManual] = useState({
         landArea: 0,
         lotArea: 0,
+        totalLots: 0,
         priceM2: 0,
         initialPercent: 10,
         years: 10,
+        startYear: new Date().getFullYear(),
         alcabalaPercent: 3,
         supervisionPercent: 4,
         servicesPercent: 1,
@@ -169,7 +254,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         contingencyPercent: 5,
         discountRate: 10,
     });
-    const projectionYears = Math.max(1, Math.min(10, Math.round(Number(manual.years) || 10)));
+    const projectionYears = Math.max(1, Math.min(MAX_PROJECTION_YEARS, Math.round(Number(manual.years) || 10)));
     const visibleYears = YEARS.slice(0, projectionYears + 1);
     const [project, setProject] = useState<any>(null);
     const [loading, setLoading] = useState(true);
@@ -187,8 +272,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         financial: true,
         tax: true,
     });
+    const rowsRef = useRef<Row[]>([]);
     const editSnapshot = useRef<{ id: string; year: number; value: number } | null>(null);
     const [pendingEdit, setPendingEdit] = useState<{ id: string; year: number; value: number; original: number } | null>(null);
+    const [editingDrafts, setEditingDrafts] = useState<Record<string, string>>({});
+    const autosaveInFlight = useRef(false);
+    const autosaveQueued = useRef(false);
     const [mode, setMode] = useState<CashflowMode>('estatico');
     const [modeSwitchOpen, setModeSwitchOpen] = useState(false);
     const [pendingMode, setPendingMode] = useState<CashflowMode | null>(null);
@@ -196,6 +285,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const [savingModel, setSavingModel] = useState(false);
     const [baseYear, setBaseYear] = useState(new Date().getFullYear());
     const [editingLabel, setEditingLabel] = useState<string | null>(null);
+    const [hidePastYears, setHidePastYears] = useState(false);
+    const [subpartidaModal, setSubpartidaModal] = useState<{ parentId: string; parentLabel: string } | null>(null);
+    const [subpartidaName, setSubpartidaName] = useState('');
 
     async function buildSeedRows(): Promise<{ rows: Row[]; manualFields: Partial<typeof manual>; project: any; baseYear: number }> {
         const [projectData, plan, budget, statement, salesData, paymentsData] = await Promise.all([
@@ -216,6 +308,10 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         const budgetByName = (names: string[]) => budgetItems
             .filter((item: any) => names.some((name) => String(item.name || '').toLowerCase().includes(name)))
             .reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+        // Partidas del presupuesto dentro de una categoria, filtradas por nombre.
+        const budgetInCategory = (category: string, names: string[]) => budgetItems
+            .filter((item: any) => item.category === category && names.some((name) => String(item.name || '').toLowerCase().includes(name)))
+            .reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
         const totalLots = lots.length || Number(projectData?.stats?.total || 0);
         const price = Number(projectData?.referencePrice || 0);
         const lotSaleValue = lots.reduce((sum: number, lot: any) => sum + Number(lot.finalPrice || lot.salePrice || lot.price || 0), 0);
@@ -230,15 +326,22 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         const financing = Number(statement?.egresos_clasificados?.financiamiento || 0);
         const tax = Number(statement?.egresos_clasificados?.impuestos || 0);
         const igv = 0;
+        const TOTAL_ONLY_IDS = ['cost-sales', 'gross', 'operating', 'pre-tax', 'net', 'adjusted', 'accumulated-title', 'pre-tax-accumulated', 'adjusted-accumulated'];
         const seedRows = SECTIONS.flatMap((section) => {
-            if (section.id === 'cost-sales') return [row(section.id, section.label)];
-            if (section.computed || ['gross', 'operating', 'pre-tax', 'net', 'adjusted', 'accumulated-title', 'pre-tax-accumulated', 'adjusted-accumulated'].includes(section.id)) return [row(section.id, section.label, [0], true)];
+            if (TOTAL_ONLY_IDS.includes(section.id)) return [row(section.id, section.label, empty(), true)];
             if (section.id === 'financial') return [row(section.id, section.label, [financing])];
             if (section.id === 'tax') return [row(section.id, section.label, [tax])];
             if (section.id === 'igv') return [row(section.id, section.label, [igv])];
-            return [row(section.id, section.label), ...section.rows.map((item) => row(item.id, item.label))];
+
+            return [
+                row(section.id, section.label, empty(), section.rows.length > 0),
+                ...section.rows.map((item) => ({
+                    ...row(item.id, item.label, empty(), Boolean(item.computed)),
+                    parentId: item.parentId || section.id,
+                    depth: item.parentId ? 2 : 1,
+                })),
+            ];
         });
-        const YEAR_COUNT = 11;
         const yearOf = (rawDate: any): number | null => {
             if (!rawDate) return null;
             const date = new Date(rawDate);
@@ -266,7 +369,6 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             return series.map((_, index) => total * (counts[index] / totalCount));
         };
         const atYearZero = (total: number) => { const series = emptySeries(); series[0] = total; return series; };
-        const initialPercent = 0.1;
 
         const soldLots = sales.length || totalLots;
         const salesYearsList = sales.length
@@ -289,16 +391,72 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         setSeries('land-cost', atYearZero(land));
         setSeries('alcabala', atYearZero(land * 0.03));
         setSeries('legal', atYearZero(landLegal));
-        setSeries('construction', atYearZero(direct));
+        const constructionBreakdown = [
+            { id: 'construction-earthworks', names: ['movimiento de tierras'] },
+            { id: 'construction-sanitation', names: ['saneamiento'] },
+            { id: 'construction-roads', names: ['pavimentacion', 'pavimentación', 'vias', 'vías'] },
+            { id: 'construction-electric', names: ['electricas', 'eléctricas', 'alumbrado'] },
+            { id: 'construction-complementary', names: ['complementarias'] },
+        ];
+        let assignedConstruction = 0;
+        constructionBreakdown.forEach((item) => {
+            const value = budgetByName(item.names);
+            assignedConstruction += value;
+            setSeries(item.id, atYearZero(value));
+        });
+        if (assignedConstruction <= 0) setSeries('construction-earthworks', atYearZero(direct));
         setSeries('supervision', atYearZero(direct * 0.04));
         setSeries('services', atYearZero(direct * 0.01));
         setSeries('design', atYearZero(indirect || direct * 0.03));
         setSeries('indemnity', atYearZero(direct * 0.01));
         setSeries('legal-contingency', atYearZero(direct * 0.05));
         setSeries('management', spreadByDates(soldValue * 0.04, salesYearsList));
-        setSeries('marketing', spreadByDates(sellingAdmin, salesYearsList));
 
-        return { rows: seedRows, manualFields: { landArea, lotArea, priceM2: price }, project: projectData, baseYear: calculatedBaseYear };
+        // Gastos de ventas y administrativos: cada partida sale del presupuesto
+        // (categoria gastos_ventas_admin, filtrando por nombre); Publicidad recibe lo
+        // que no se haya asignado a las demas. Comision y descuentos caen a los datos
+        // de las ventas si el presupuesto no los trae.
+        const sellingCat = 'gastos_ventas_admin';
+        const payrollBudget = budgetInCategory(sellingCat, ['planilla', 'sueldo', 'personal']);
+        const commissionBudget = budgetInCategory(sellingCat, ['comisi'])
+            || sales.reduce((sum: number, sale: any) => sum + Number(sale.commissionAmount || sale.commission || 0), 0);
+        const postSaleBudget = budgetInCategory(sellingCat, ['post venta', 'postventa', 'post-venta']);
+        const discountBudget = budgetInCategory(sellingCat, ['descuento', 'bono'])
+            || sales.reduce((sum: number, sale: any) => sum + Number(sale.discountAmount || sale.discount || 0), 0);
+        const marketingBudget = Math.max(0, sellingAdmin - payrollBudget - commissionBudget - postSaleBudget - discountBudget);
+        setSeries('sales-plan', spreadByDates(payrollBudget, salesYearsList));
+        setSeries('marketing', spreadByDates(marketingBudget, salesYearsList));
+        setSeries('commission', spreadByDates(commissionBudget, salesYearsList));
+        setSeries('post-sale', spreadByDates(postSaleBudget, salesYearsList));
+        setSeries('discounts', spreadByDates(discountBudget, salesYearsList));
+
+        return { rows: seedRows, manualFields: { landArea, lotArea, totalLots, priceM2: price }, project: projectData, baseYear: calculatedBaseYear };
+    }
+
+    /**
+     * El flujo dinamico es siempre una foto de la data real del sistema. Se guarda en
+     * BD cada vez que se reconstruye (al abrir esta pantalla o al pulsar "Actualizar
+     * data") para que el Estado de Resultados lea de ahi su columna "Real".
+     */
+    async function persistDynamic(seed: { rows: Row[]; manualFields: Partial<typeof manual>; baseYear: number }) {
+        try {
+            const dynamicRows = calculateRows(seed.rows).map((item) => ({
+                id: item.id,
+                label: item.label,
+                values: item.values,
+                computed: item.computed,
+                parentId: item.parentId,
+                depth: item.depth,
+            }));
+            await api.post('/cashflow/model', {
+                projectId,
+                mode: 'dinamico',
+                assumptions: { ...seed.manualFields, startYear: seed.baseYear, years: 10 },
+                rows: dynamicRows,
+            });
+        } catch {
+            // Silencioso: es una copia derivada, no debe interrumpir la pantalla.
+        }
     }
 
     const loadModel = useCallback(async (target: CashflowMode) => {
@@ -307,27 +465,66 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             const seed = await buildSeedRows();
             setProject(seed.project);
             setBaseYear(seed.baseYear);
+            // Se persiste siempre, se este viendo el estatico o el dinamico.
+            void persistDynamic(seed);
             if (target === 'dinamico') {
-                const savedModel = await api.get<any>(`/cashflow/model?projectId=${projectId}&mode=dinamico`).catch(() => null);
-                const savedLabels = new Map((savedModel?.rows || []).map((item: any) => [item.id, item.label]));
-                setRows(seed.rows.map((item) => ({ ...item, label: String(savedLabels.get(item.id) || item.label) })));
-                setManual((current) => ({ ...current, ...seed.manualFields, initialPercent: current.initialPercent || 10, years: current.years || 10, discountRate: current.discountRate || 10 }));
-                setHasSavedModel(Boolean(savedModel?.rows?.length));
+                // Dinamico = data real del sistema (nunca el estatico guardado).
+                rowsRef.current = seed.rows;
+                setRows(seed.rows);
+                setManual((current) => ({
+                    ...current,
+                    ...seed.manualFields,
+                    initialPercent: current.initialPercent || 10,
+                    years: current.years || 10,
+                    startYear: seed.baseYear,
+                    discountRate: current.discountRate || 10,
+                }));
+                setHasSavedModel(false);
             } else {
                 const savedModel = await api.get<any>(`/cashflow/model?projectId=${projectId}&mode=estatico`).catch(() => null);
                 if (savedModel?.rows?.length) {
-                    const savedRows: Row[] = savedModel.rows.map((item: any) => ({
-                        id: item.id,
-                        label: item.label,
-                        values: Array.isArray(item.values) ? item.values : empty(),
-                        computed: seed.rows.find((candidate) => candidate.id === item.id)?.computed,
-                    }));
+                    const savedById = new Map((savedModel.rows || []).map((item: any) => [item.id, item]));
+                    const seedIds = new Set(seed.rows.map((item) => item.id));
+                    const savedRows: Row[] = seed.rows.map((seedRow) => {
+                        const item: any = savedById.get(seedRow.id);
+                        return {
+                            id: seedRow.id,
+                            label: item?.label || seedRow.label,
+                            values: normalizeValues(Array.isArray(item?.values) ? item.values : seedRow.values),
+                            computed: item?.computed ?? seedRow.computed,
+                            parentId: item?.parentId ?? seedRow.parentId,
+                            depth: item?.depth ?? seedRow.depth,
+                        };
+                    });
+                    const customRows: Row[] = (savedModel.rows || [])
+                        .filter((item: any) => !seedIds.has(item.id))
+                        .map((item: any) => ({
+                            id: String(item.id),
+                            label: String(item.label || 'Nueva subpartida'),
+                            values: normalizeValues(Array.isArray(item.values) ? item.values : []),
+                            computed: Boolean(item.computed),
+                            parentId: item.parentId ? String(item.parentId) : undefined,
+                            depth: Number(item.depth || 1),
+                        }));
+                    savedRows.push(...customRows);
+                    rowsRef.current = savedRows;
                     setRows(savedRows);
-                    setManual((current) => ({ ...current, ...seed.manualFields, discountRate: current.discountRate || 10, ...(savedModel.assumptions || {}) }));
+                    const savedAssumptions = savedModel.assumptions || {};
+                    const savedStartYear = Number(savedAssumptions.startYear ?? savedAssumptions.baseYear ?? seed.baseYear) || seed.baseYear;
+                    const savedTotalLots = Number(savedAssumptions.totalLots || seed.manualFields.totalLots || 0);
+                    setManual((current) => ({
+                        ...current,
+                        ...seed.manualFields,
+                        discountRate: current.discountRate || 10,
+                        ...savedAssumptions,
+                        startYear: savedStartYear,
+                        totalLots: savedTotalLots,
+                    }));
                     setHasSavedModel(true);
                 } else {
+                    rowsRef.current = seed.rows;
                     setRows(seed.rows);
-                    setManual((current) => ({ ...current, ...seed.manualFields, initialPercent: current.initialPercent || 10, years: current.years || 10, discountRate: current.discountRate || 10 }));
+                    setManual((current) => ({ ...current, ...seed.manualFields, initialPercent: current.initialPercent || 10, years: current.years || 10, startYear: seed.baseYear, discountRate: current.discountRate || 10 }));
                     setHasSavedModel(false);
                 }
             }
@@ -338,87 +535,143 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
 
     useEffect(() => { loadModel(mode); }, [mode, loadModel]);
 
-    const calculated = useMemo(() => {
-        const next = rows.map((item) => ({ ...item, values: [...item.values] }));
-        const get = (id: string) => next.find((item) => item.id === id)?.values || empty();
-        const set = (id: string, values: number[]) => { const item = next.find((candidate) => candidate.id === id); if (item) item.values = values; };
-        const revenue = get('initial-fee').map((_, year) => get('initial-fee')[year] + get('financing-fee')[year]);
-        const gross = revenue.map((value, year) => value
-            - get('cost-sales')[year]
-            - get('land-cost')[year]
-            - get('alcabala')[year]
-            - get('legal')[year]
-            - get('construction')[year]
-            - get('supervision')[year]
-            - get('services')[year]
-            - get('design')[year]
-            - get('management')[year]
-            - get('indemnity')[year]
-            - get('legal-contingency')[year]);
-        const operating = gross.map((value, year) => value - get('sales-plan')[year] - get('marketing')[year] - get('commission')[year] - get('post-sale')[year] - get('discounts')[year]);
-        const preTax = operating.map((value, year) => value - get('financial')[year]);
-        const net = preTax.map((value, year) => value - get('tax')[year]);
-        const adjusted = net.slice();
-        const accumulate = (values: number[]) => values.reduce<number[]>((totals, value, year) => {
-            totals.push((totals[year - 1] || 0) + value);
-            return totals;
-        }, []);
-        const computedValues: Record<string, number[]> = {
-            income: revenue,
-            gross,
-            operating,
-            'pre-tax': preTax,
-            net,
-            adjusted,
-            'pre-tax-accumulated': accumulate(preTax),
-            'adjusted-accumulated': accumulate(adjusted),
-        };
-        Object.entries(computedValues).forEach(([id, values]) => set(id, overrides[id] || values));
-        return next;
-    }, [rows, overrides]);
+    useEffect(() => { rowsRef.current = rows; }, [rows]);
 
-    const displayNumber = (value: number) => Math.round(toDisplay(value));
-    const formatInteger = (value: number) => displayNumber(value).toLocaleString('en-US');
-    const formatPlainInteger = (value: number) => Math.round(Number(value || 0)).toLocaleString('en-US');
-    const displayRowTotal = (values: number[]) => formatInteger(values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0));
-    const displayPlainRowTotal = (values: number[]) => formatPlainInteger(values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0));
     const parseFormattedNumber = (value: string) => Number(String(value || '0').replace(/,/g, '').replace(/\s/g, '')) || 0;
     const baseNumber = (value: string) => {
         const numeric = parseFormattedNumber(value);
         return currency === 'USD' ? numeric * exchangeRate : numeric;
     };
 
+    const calculated = useMemo(() => {
+        // Base: filas con los borradores de edición superpuestos para que los totales
+        // de categorías y las columnas de total se recalculen EN VIVO mientras se tipea.
+        const base = rows.map((item) => ({ ...item, values: normalizeValues(item.values) }));
+        const draftValue = (id: string, value: string) => (id === 'lots-sold' ? parseFormattedNumber(value) : baseNumber(value));
+        Object.entries(editingDrafts).forEach(([key, draft]) => {
+            const [id, rawYear] = key.split(':');
+            const year = Number(rawYear);
+            if (!id || Number.isNaN(year)) return;
+            const item = base.find((candidate) => candidate.id === id);
+            if (!item || item.computed) return;
+            item.values = item.values.map((cell, index) => index === year ? draftValue(id, draft) : cell);
+        });
+        return calculateRows(base);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [rows, overrides, editingDrafts]);
+
+    const childRowsByParent = useMemo(() => calculated.reduce<Record<string, Row[]>>((map, item) => {
+        if (!item.parentId) return map;
+        map[item.parentId] = [...(map[item.parentId] || []), item];
+        return map;
+    }, {}), [calculated]);
+
+    const displayNumber = (value: number) => Math.round(toDisplay(value));
+    const formatInteger = (value: number) => displayNumber(value).toLocaleString('en-US');
+    const formatPlainInteger = (value: number) => Math.round(Number(value || 0)).toLocaleString('en-US');
+    const displayRowTotal = (values: number[]) => formatInteger(values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0));
+    const displayPlainRowTotal = (values: number[]) => formatPlainInteger(values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0));
+    const canEditRow = (item?: Row) => !item?.computed;
+    const writeCellValue = (id: string, year: number, numeric: number) => {
+        const apply = (current: Row[]) => current.map((candidate) => candidate.id !== id ? candidate : { ...candidate, values: normalizeValues(candidate.values).map((cell, index) => index === year ? numeric : cell) });
+        rowsRef.current = apply(rowsRef.current.length ? rowsRef.current : rows);
+        setRows(() => rowsRef.current);
+    };
+
+    const cellKey = (id: string, year: number) => `${id}:${year}`;
+
     function editCell(id: string, year: number, value: string) {
+        // onChange mientras el usuario escribe: solo conservamos el TEXTO CRUDO.
+        // Ninguna conversion/parseo aqui para no romper el cursor ni el tipeo.
         setSaved(false);
         setHasSavedModel(false);
-        const numeric = id === 'lots-sold' ? parseFormattedNumber(value) : baseNumber(value);
-        const item = rows.find((candidate) => candidate.id === id);
-        if (item?.computed) return;
-        setRows((current) => current.map((candidate) => candidate.id !== id ? candidate : { ...candidate, values: candidate.values.map((cell, index) => index === year ? numeric : cell) }));
+        setEditingDrafts((current) => ({ ...current, [cellKey(id, year)]: value }));
     }
 
-    function beginCellEdit(id: string, year: number, value: number) { editSnapshot.current = { id, year, value }; }
+    function beginCellEdit(id: string, year: number, value: number) {
+        editSnapshot.current = { id, year, value };
+        setEditingDrafts((current) => ({
+            ...current,
+            [cellKey(id, year)]: id === 'lots-sold' ? (value ? formatPlainInteger(value) : '') : (value ? formatInteger(value) : ''),
+        }));
+    }
 
     function finishCellEdit(id: string, year: number, value: string) {
         const snapshot = editSnapshot.current;
         editSnapshot.current = null;
+        setEditingDrafts((current) => {
+            const next = { ...current };
+            delete next[cellKey(id, year)];
+            return next;
+        });
         const baseValue = id === 'lots-sold' ? parseFormattedNumber(value) : baseNumber(value);
-        if (!snapshot || snapshot.id !== id || snapshot.year !== year || snapshot.value === baseValue) return;
-        setPendingEdit({ id, year, value: baseValue, original: snapshot.value });
+        const item = rows.find((candidate) => candidate.id === id);
+        if (!item?.computed) writeCellValue(id, year, baseValue);
+        if (snapshot && snapshot.id === id && snapshot.year === year && snapshot.value === baseValue) return;
+        setSaved(false);
+        setHasSavedModel(false);
+        scheduleAutosave();
     }
 
     function cancelCellEdit() {
         if (!pendingEdit) return;
         const item = rows.find((candidate) => candidate.id === pendingEdit.id);
-        if (item?.computed) {
-            setOverrides((current) => ({ ...current, [pendingEdit.id]: (current[pendingEdit.id] || item.values).map((cell, index) => index === pendingEdit.year ? pendingEdit.original : cell) }));
-        } else {
-            setRows((current) => current.map((candidate) => candidate.id !== pendingEdit.id ? candidate : { ...candidate, values: candidate.values.map((cell, index) => index === pendingEdit.year ? pendingEdit.original : cell) }));
-        }
+        if (!item?.computed) writeCellValue(pendingEdit.id, pendingEdit.year, pendingEdit.original);
+        setEditingDrafts((current) => {
+            const next = { ...current };
+            delete next[cellKey(pendingEdit.id, pendingEdit.year)];
+            return next;
+        });
         setPendingEdit(null);
     }
 
-    function applyCellEdit() { setSaved(false); setHasSavedModel(false); setPendingEdit(null); }
+    function applyCellEdit() {
+        if (pendingEdit) {
+            const item = rows.find((candidate) => candidate.id === pendingEdit.id);
+            if (!item?.computed) writeCellValue(pendingEdit.id, pendingEdit.year, pendingEdit.value);
+            setEditingDrafts((current) => {
+                const next = { ...current };
+                delete next[cellKey(pendingEdit.id, pendingEdit.year)];
+                return next;
+            });
+        }
+        setSaved(false);
+        setHasSavedModel(false);
+        setPendingEdit(null);
+    }
+
+    function materializedEditableRows() {
+        const sourceRows = rowsRef.current.length ? rowsRef.current : rows;
+        const next = sourceRows.map((item) => ({ ...item, values: normalizeValues(item.values) }));
+        const write = (id: string, year: number, numeric: number) => {
+            const item = next.find((candidate) => candidate.id === id);
+            if (!item || item.computed) return;
+            item.values = item.values.map((cell, index) => index === year ? numeric : cell);
+        };
+        Object.entries(editingDrafts).forEach(([key, draft]) => {
+            const [id, rawYear] = key.split(':');
+            const year = Number(rawYear);
+            if (!id || Number.isNaN(year)) return;
+            write(id, year, id === 'lots-sold' ? parseFormattedNumber(draft) : baseNumber(draft));
+        });
+        if (pendingEdit) write(pendingEdit.id, pendingEdit.year, pendingEdit.value);
+        return next;
+    }
+
+    function payloadRows(labelPatch?: { id: string; label: string }) {
+        const editableById = new Map(materializedEditableRows().map((item) => [item.id, item]));
+        return calculated.map((item) => {
+            const editable = editableById.get(item.id);
+            return {
+                id: item.id,
+                label: labelPatch?.id === item.id ? labelPatch.label : (editable?.label || item.label),
+                values: editable && !editable.computed ? editable.values : item.values,
+                computed: editable?.computed ?? item.computed,
+                parentId: editable?.parentId ?? item.parentId,
+                depth: editable?.depth ?? item.depth,
+            };
+        });
+    }
 
     function toggleSection(sectionId: string) { setExpanded((current) => ({ ...current, [sectionId]: !(current[sectionId] ?? true) })); }
 
@@ -431,16 +684,14 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         setSaved(false);
         setHasSavedModel(false);
         setEditingLabel(null);
+        // El dinamico se regenera desde el sistema: solo el estatico guarda nombres.
+        if (mode === 'dinamico') return;
         try {
             await api.post('/cashflow/model', {
                 projectId,
                 mode,
                 assumptions: { ...manual, overrides },
-                rows: calculated.map((item) => ({
-                    id: item.id,
-                    label: item.id === id ? nextLabel : item.label,
-                    values: item.values,
-                })),
+                rows: payloadRows({ id, label: nextLabel }),
             });
             setHasSavedModel(true);
             setSaved(true);
@@ -488,24 +739,152 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         );
     }
 
+    function openSubpartidaModal(parentId: string, parentLabel: string) {
+        if (!canAddSubpartida(parentId)) return;
+        setSubpartidaModal({ parentId, parentLabel });
+        setSubpartidaName('');
+    }
+
+    function closeSubpartidaModal() {
+        setSubpartidaModal(null);
+        setSubpartidaName('');
+    }
+
+    function addSubpartida() {
+        if (mode === 'dinamico') return;
+        const parentId = subpartidaModal?.parentId;
+        const parentLabel = subpartidaModal?.parentLabel;
+        if (!parentId || !parentLabel) return;
+        if (!canAddSubpartida(parentId)) return;
+        const nextLabel = subpartidaName.trim();
+        if (!nextLabel) return;
+        const sourceRows = rowsRef.current.length ? rowsRef.current : rows;
+        const parent = sourceRows.find((item) => item.id === parentId) || calculated.find((item) => item.id === parentId);
+        const newRow: Row = {
+            id: `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            label: nextLabel,
+            values: empty(),
+            parentId,
+            depth: Math.min(4, Number(parent?.depth || 0) + 1),
+        };
+        rowsRef.current = [
+            ...sourceRows.map((item) => item.id === parentId ? { ...item, computed: true } : item),
+            newRow,
+        ];
+        setRows(rowsRef.current);
+        setExpanded((current) => ({ ...current, [parentId]: true }));
+        closeSubpartidaModal();
+        setSaved(false);
+        setHasSavedModel(false);
+        window.setTimeout(() => scheduleAutosave(), 0);
+        toast('Subpartida agregada');
+    }
+
+    function canAddSubpartida(parentId: string) {
+        if (mode === 'dinamico') return false;
+        const noAdd = new Set([
+            'lots-sold', 'cost-sales', 'gross', 'operating', 'pre-tax', 'tax', 'net', 'igv', 'adjusted',
+            'accumulated-title', 'pre-tax-accumulated', 'adjusted-accumulated',
+            // Filas que ya vienen definidas (no requieren crear subpartidas):
+            'alcabala',
+            'initial-fee',
+            'supervision',
+            'services',
+            ...CONSTRUCTION_CHILD_IDS,
+            // Filas de formula fija: su monto sale de un % del modelo, agregarle
+            // subpartidas descuadraria el flujo. Tampoco aplican a financiamiento
+            // (por eso tambien se quitan en el boton "+" de cada grupo).
+            'financing-fee',
+            'design', 'management', 'indemnity', 'legal-contingency',
+            'sales-plan', 'marketing', 'commission', 'post-sale', 'discounts',
+        ]);
+        return !noAdd.has(parentId);
+    }
+
+    function addSubpartidaButton(parentId: string, parentLabel: string) {
+        if (!canAddSubpartida(parentId)) return null;
+        return (
+            <button
+                type="button"
+                className="cashflow-no-print grid h-6 w-6 shrink-0 place-items-center rounded border bg-white text-[#1259C4] transition hover:bg-[#EAF2FD]"
+                title={`Agregar subpartida a ${parentLabel}`}
+                onClick={(event) => {
+                    event.stopPropagation();
+                    openSubpartidaModal(parentId, parentLabel);
+                }}
+            >
+                <FiPlus size={13} aria-hidden="true" />
+            </button>
+        );
+    }
+
     function openAssumptions() { setDraftManual(manual); setAssumptionsOpen(true); }
 
     async function saveModel() {
+        // Solo el estatico se guarda a mano; el dinamico se regenera desde el sistema.
+        if (mode !== 'estatico') return;
         setSavingModel(true);
         try {
-            const payloadRows = calculated.map((item) => ({ id: item.id, label: item.label, values: item.values }));
+            if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+            if (pendingEdit) {
+                const item = rowsRef.current.find((candidate) => candidate.id === pendingEdit.id);
+                if (!item?.computed) writeCellValue(pendingEdit.id, pendingEdit.year, pendingEdit.value);
+            }
+            const sentRows = payloadRows();
             await api.post('/cashflow/model', {
                 projectId,
                 mode,
                 assumptions: { ...manual, overrides },
-                rows: payloadRows,
+                rows: sentRows,
             });
+            const nextRows = rowsRef.current.map((item) => {
+                const sent = sentRows.find((candidate) => candidate.id === item.id);
+                return sent ? { ...item, label: sent.label, values: normalizeValues(sent.values) } : item;
+            });
+            rowsRef.current = nextRows;
+            setRows(nextRows);
+            setEditingDrafts({});
+            setPendingEdit(null);
             setHasSavedModel(true);
             setSaved(true);
             toast(`${MODE_LABEL[mode]} guardado`);
         } catch (error: any) {
             toast(error?.message || 'No se pudo guardar el flujo de caja', 'err');
         } finally { setSavingModel(false); }
+    }
+
+    // Guardado automático: al confirmar una celda (Enter/blur) se persiste en BD de
+    // inmediato. Si ya hay una petición en curso se encola la más reciente para no
+    // perder ningún cambio (evita la ventana de debounce que podía perderse al navegar).
+    async function runAutosave() {
+        do {
+            autosaveQueued.current = false;
+            try {
+                const sentRows = payloadRows();
+                await api.post('/cashflow/model', {
+                    projectId,
+                    mode,
+                    assumptions: { ...manual, overrides },
+                    rows: sentRows,
+                });
+                setHasSavedModel(true);
+                setSaved(true);
+            } catch (error: any) {
+                toast(error?.message || 'No se pudo guardar el flujo de caja', 'err');
+            }
+        } while (autosaveQueued.current);
+        autosaveInFlight.current = false;
+    }
+
+    function scheduleAutosave() {
+        // Nunca se autoguarda el dinamico: se reconstruye desde el sistema.
+        if (mode !== 'estatico') return;
+        if (autosaveInFlight.current) {
+            autosaveQueued.current = true;
+            return;
+        }
+        autosaveInFlight.current = true;
+        void runAutosave();
     }
 
     async function refreshDynamic() {
@@ -530,20 +909,27 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         setModeSwitchOpen(false);
     }
     function applyAssumptions() {
-        setManual(draftManual);
-        const saleValue = calculatedValue('income') || draftManual.landArea * draftManual.priceM2;
+        const normalizedManual = {
+            ...draftManual,
+            years: Math.max(1, Math.min(MAX_PROJECTION_YEARS, Math.round(Number(draftManual.years) || 10))),
+            startYear: Math.max(1900, Math.min(9999, Math.round(Number(draftManual.startYear) || new Date().getFullYear()))),
+            totalLots: Math.max(0, Math.round(Number(draftManual.totalLots) || 0)),
+        };
+        setManual(normalizedManual);
+        const saleValue = calculatedRowTotal('income') || draftManual.landArea * draftManual.priceM2;
         const percent = (value: number) => Math.max(0, Math.min(100, Number(value) || 0)) / 100;
-        const initialPercent = percent(draftManual.initialPercent);
+        const initialPercent = percent(normalizedManual.initialPercent);
         setRows((current) => current.map((item) => {
-            if (item.id === 'initial-fee') return { ...item, values: item.values.map((value, year) => year === 0 ? saleValue * initialPercent : value) };
-            if (item.id === 'financing-fee') return { ...item, values: item.values.map((value, year) => year === 0 ? saleValue * (1 - initialPercent) : value) };
-            if (item.id === 'alcabala') return { ...item, values: item.values.map((value, year) => year === 0 ? calculatedValue('land-cost') * percent(draftManual.alcabalaPercent) : value) };
-            if (item.id === 'supervision') return { ...item, values: item.values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(draftManual.supervisionPercent) : value) };
-            if (item.id === 'services') return { ...item, values: item.values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(draftManual.servicesPercent) : value) };
-            if (item.id === 'design') return { ...item, values: item.values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(draftManual.designPercent) : value) };
-            if (item.id === 'management') return { ...item, values: item.values.map((value, year) => year === 0 ? saleValue * percent(draftManual.managementPercent) : value) };
-            if (item.id === 'indemnity') return { ...item, values: item.values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(draftManual.indemnityPercent) : value) };
-            if (item.id === 'legal-contingency') return { ...item, values: item.values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(draftManual.contingencyPercent) : value) };
+            const values = normalizeValues(item.values);
+            if (item.id === 'initial-fee') return { ...item, values: values.map((value, year) => year === 0 ? saleValue * initialPercent : value) };
+            if (item.id === 'financing-fee') return { ...item, values: values.map((value, year) => year === 0 ? saleValue * (1 - initialPercent) : value) };
+            if (item.id === 'alcabala') return { ...item, values: values.map((value, year) => year === 0 ? calculatedValue('land-cost') * percent(normalizedManual.alcabalaPercent) : value) };
+            if (item.id === 'supervision') return { ...item, values: values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(normalizedManual.supervisionPercent) : value) };
+            if (item.id === 'services') return { ...item, values: values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(normalizedManual.servicesPercent) : value) };
+            if (item.id === 'design') return { ...item, values: values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(normalizedManual.designPercent) : value) };
+            if (item.id === 'management') return { ...item, values: values.map((value, year) => year === 0 ? saleValue * percent(normalizedManual.managementPercent) : value) };
+            if (item.id === 'indemnity') return { ...item, values: values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(normalizedManual.indemnityPercent) : value) };
+            if (item.id === 'legal-contingency') return { ...item, values: values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(normalizedManual.contingencyPercent) : value) };
             return item;
         }));
         setAssumptionsOpen(false);
@@ -551,23 +937,26 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         setHasSavedModel(false);
     }
 
-    const calculatedValue = (id: string, year = 0) => calculated.find((item) => item.id === id)?.values[year] || 0;
-    const totalLots = calculatedValue('lots-sold');
     const lotsSoldRow = calculated.find((item) => item.id === 'lots-sold') || row('lots-sold', 'Venta de lotes por año');
-    const saleValue = calculatedValue('income');
+    const calculatedValue = (id: string, year = 0) => calculated.find((item) => item.id === id)?.values[year] || 0;
+    const calculatedRowTotal = (id: string) => (calculated.find((item) => item.id === id)?.values || empty()).reduce((sum, value) => sum + Number(value || 0), 0);
+    const accumulateSeries = (values: number[]) => normalizeValues(values).reduce<number[]>((totals, value, year) => {
+        totals.push((totals[year - 1] || 0) + Number(value || 0));
+        return totals;
+    }, []);
+    const totalLots = Number(manual.totalLots || 0) || lotsSoldRow.values.reduce((sum, value) => sum + Number(value || 0), 0);
+    const saleValue = calculatedRowTotal('income');
+    const landAcquisitionTotal = calculatedRowTotal('land-cost') || calculatedRowTotal('land');
     const averageLotPrice = totalLots > 0 ? saleValue / totalLots : 0;
-    const preTaxAccumulated = calculated.find((item) => item.id === 'pre-tax-accumulated')?.values || empty();
-    const accumulatedProfit = calculated.find((item) => item.id === 'adjusted-accumulated')?.values || empty();
 
     const netProfitSeries = calculated.find((item) => item.id === 'net')?.values || empty();
     const revenueSeries = calculated.find((item) => item.id === 'income')?.values || empty();
-    const totalRevenue = revenueSeries.reduce((sum, value) => sum + value, 0);
+    const preTaxAccumulated = accumulateSeries(calculated.find((item) => item.id === 'pre-tax')?.values || empty());
+    const accumulatedProfit = accumulateSeries(calculated.find((item) => item.id === 'adjusted')?.values || netProfitSeries);
+    const totalRevenue = saleValue;
     const totalNetProfit = netProfitSeries.reduce((sum, value) => sum + value, 0);
     const costRowIds = [
-        'cost-sales', 'land-cost', 'alcabala', 'legal', 'construction', 'supervision', 'services',
-        'design', 'management', 'indemnity', 'legal-contingency',
-        'sales-plan', 'marketing', 'commission', 'post-sale', 'discounts',
-        'financial', 'tax',
+        'cost-sales', 'selling', 'financial', 'tax',
     ];
     const totalCosts = costRowIds.reduce((sum, id) => {
         const values = calculated.find((item) => item.id === id)?.values || [];
@@ -588,6 +977,69 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const firstNegative = cumulativeProfit.findIndex((value) => value < 0);
     const paybackYear = firstNegative === -1 ? -1 : cumulativeProfit.findIndex((value, year) => year > firstNegative && value >= 0);
     const breakEvenLots = averageLotPrice > 0 ? totalCosts / averageLotPrice : null;
+    const startYear = Number(manual.startYear) || baseYear;
+    const calendarYear = new Date().getFullYear();
+    const visibleYearIndexes = visibleYears.map((_, year) => year);
+    const hiddenPastYearIndexes = hidePastYears
+        ? visibleYearIndexes.filter((year) => year > 0 && startYear + year < calendarYear)
+        : [];
+    const displayedYearIndexes = visibleYearIndexes.filter((year) => !hiddenPastYearIndexes.includes(year));
+    const showHistoricalColumn = hiddenPastYearIndexes.length > 0;
+    const historicalTotal = (values: number[]) => hiddenPastYearIndexes.reduce((sum, year) => sum + Number(values[year] || 0), 0);
+    const lastVisibleAccumulated = (values: number[]) => Number(values[visibleYears.length - 1] || 0);
+    const hiddenAccumulated = (values: number[]) => {
+        const lastHiddenIndex = hiddenPastYearIndexes[hiddenPastYearIndexes.length - 1];
+        return Number(values[lastHiddenIndex] || 0);
+    };
+    const renderedYearColumnCount = displayedYearIndexes.length + (showHistoricalColumn ? 1 : 0);
+    const renderChildRows = (parentId: string): ReactNode[] => (childRowsByParent[parentId] || []).flatMap((item) => {
+        if (item.id === 'lots-sold') return [];
+        const childRows = childRowsByParent[item.id] || [];
+        const hasChildren = childRows.length > 0;
+        const isExpanded = expanded[item.id] ?? true;
+        const depth = Math.max(1, Number(item.depth || 1));
+        const conceptPadding = Math.min(72, 20 + depth * 14);
+        const rowNode = (
+            <tr key={item.id} className="hover:bg-slate-50" onClick={() => hasChildren && toggleSection(item.id)}>
+                <td
+                    className={`${CONCEPT_COL} border border-slate-200 bg-white py-2 pr-2 text-slate-700 md:sticky md:left-0 md:z-[1]`}
+                    style={{ paddingLeft: conceptPadding }}
+                >
+                    <div className="flex min-w-0 items-center gap-2">
+                        {addSubpartidaButton(item.id, item.label)}
+                        {hasChildren && (
+                            <span className="w-3 shrink-0 text-center text-slate-400">{isExpanded ? '-' : '+'}</span>
+                        )}
+                        {editableConcept(item.id, item.label)}
+                    </div>
+                </td>
+                <td className="border border-[#B9D2F4] bg-[#F4F8FE] px-2 py-2 text-right tabular-nums text-[#5277A8] md:sticky md:left-[240px] md:z-[1]">{displayRowTotal(item.values)}</td>
+                {showHistoricalColumn && (
+                    <td className="border border-slate-200 bg-[#F1F5F9] px-2 py-2 text-right tabular-nums text-slate-600">{formatInteger(historicalTotal(item.values))}</td>
+                )}
+                {displayedYearIndexes.map((year) => {
+                    const value = item.values[year] || 0;
+                    return (
+                        <td key={`${item.id}-${year}`} className="border border-slate-200 bg-white px-1 py-1">
+                            <input
+                                aria-label={`${item.label} ${YEARS[year]}`}
+                                className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${mode === 'dinamico' ? 'cursor-default' : 'focus:border-[#1877F2] focus:bg-[#F5F9FF]'}`}
+                                value={editingDrafts[cellKey(item.id, year)] ?? (value ? formatInteger(value) : '')}
+                                inputMode="numeric"
+                                readOnly={mode === 'dinamico' || !canEditRow(item)}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={(event) => mode === 'estatico' && editCell(item.id, year, event.target.value)}
+                                onFocus={() => mode === 'estatico' && beginCellEdit(item.id, year, value)}
+                                onBlur={(event) => mode === 'estatico' && finishCellEdit(item.id, year, event.target.value)}
+                                onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+                            />
+                        </td>
+                    );
+                })}
+            </tr>
+        );
+        return isExpanded ? [rowNode, ...renderChildRows(item.id)] : [rowNode];
+    });
 
     if (loading) return <div className="card text-sm text-slate-500">Cargando datos del proyecto...</div>;
     return (
@@ -697,9 +1149,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         )}
                     </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 border-b bg-[#F8FAFC] p-4 lg:grid-cols-5" style={{ borderColor: BRAND.border }}>
-                    {[['Área venta (m²)', 'landArea'], ['Área promedio lote (m²)', 'lotArea'], [`Precio ${currency === 'USD' ? 'US$' : 'S/'}/m²`, 'priceM2'], ['Cuota inicial %', 'initialPercent'], ['Años de proyección', 'years']].map(([label, key]) => {
-                        const editable = key === 'initialPercent' || key === 'years';
+                <div className="grid grid-cols-2 gap-3 border-b bg-[#F8FAFC] p-4 lg:grid-cols-6" style={{ borderColor: BRAND.border }}>
+                    {[['Área venta (m²)', 'landArea'], ['Área promedio lote (m²)', 'lotArea'], [`Precio ${currency === 'USD' ? 'US$' : 'S/'}/m²`, 'priceM2'], ['Cuota inicial %', 'initialPercent'], ['Años de proyección', 'years'], ['Año de inicio', 'startYear']].map(([label, key]) => {
+                        const editable = key === 'initialPercent' || key === 'years' || key === 'startYear';
                         const content = <><p className="text-xs font-semibold text-slate-500">{label}</p><div className="mt-1 flex h-10 items-center justify-between rounded-md border bg-white px-2 text-sm font-semibold tabular-nums sm:px-3" style={{ borderColor: editable ? '#B9D2F4' : BRAND.border, color: BRAND.ink }}><span>{key === 'priceM2' ? formatInteger((manual as any)[key]) : key === 'landArea' || key === 'lotArea' ? formatPlainInteger((manual as any)[key]) : formatPlainInteger((manual as any)[key])}</span>{editable && <FiEdit3 className="text-[#1259C4]" aria-hidden="true" />}</div></>;
                         return editable ? <button type="button" key={key} onClick={openAssumptions} className="min-w-0 text-left">{content}</button> : <div key={key} className="min-w-0">{content}</div>;
                     })}
@@ -733,7 +1185,28 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             </section>
 
             <section className="overflow-hidden rounded-lg border bg-white shadow-sm" style={{ borderColor: BRAND.border }}>
-                <div className="flex items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BRAND.border }}><div><h3 className="font-semibold" style={{ color: BRAND.ink }}>Estado de resultados proyectado</h3><p className="cashflow-no-print text-xs text-slate-500">Valores en US$ · al salir de una celda se te pedirá confirmar el cambio.</p></div><FiEdit3 className="cashflow-no-print" style={{ color: BRAND.blue }} /></div>
+                <div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: BRAND.border }}>
+                    <div>
+                        <h3 className="font-semibold" style={{ color: BRAND.ink }}>Estado de resultados proyectado</h3>
+                        <p className="cashflow-no-print text-xs text-slate-500">Valores en US$ · al salir de una celda se te pedirá confirmar el cambio.</p>
+                    </div>
+                    <div className="cashflow-no-print flex items-center gap-2">
+                        <button
+                            type="button"
+                            className="btn-neutral min-w-0 justify-center whitespace-nowrap px-3 text-xs sm:text-sm"
+                            onClick={() => setHidePastYears((current) => !current)}
+                            title={hidePastYears ? 'Mostrar todos los años de la proyección' : 'Ocultar años anteriores al año actual y agruparlos'}
+                        >
+                            {hidePastYears ? 'Vista completa' : 'Ocultar años pasados'}
+                        </button>
+                        {hiddenPastYearIndexes.length > 0 && (
+                            <span className="hidden text-[11px] font-semibold text-slate-500 sm:inline">
+                                {hiddenPastYearIndexes.length} año(s) en histórico
+                            </span>
+                        )}
+                        <FiEdit3 style={{ color: BRAND.blue }} />
+                    </div>
+                </div>
                 <p className="cashflow-no-print px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver los años.</p>
                 {/* [container-type:inline-size] permite usar `cqw` (ancho visible) en las columnas
                     fijas: en movil Concepto + Total llenan la pantalla y los años se ven al deslizar. */}
@@ -743,15 +1216,23 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                             <tr>
                                 <th className={`${CONCEPT_COL} border border-slate-200 bg-[#F8FAFC] px-3 py-3 text-left text-slate-500 md:sticky md:left-0 md:z-20 md:px-4`}>Concepto</th>
                                 <th className={`${TOTAL_COL} border border-[#0F4C9A] bg-[#1259C4] px-2 py-3 text-right text-sm font-extrabold text-white shadow-sm md:sticky md:left-[240px] md:z-20`}>Total</th>
-                                {visibleYears.map((year) => (
-                                    <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-3 text-center font-semibold`} style={{ background: BRAND.blue, color: '#fff' }}>{year}</th>
+                                {showHistoricalColumn && (
+                                    <th className={`${YEAR_COL} border border-slate-200 px-2 py-3 text-center font-semibold`} style={{ background: '#475569', color: '#fff' }}>Años anteriores</th>
+                                )}
+                                {displayedYearIndexes.map((year) => (
+                                    <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-3 text-center font-semibold`} style={{ background: BRAND.blue, color: '#fff' }}>{YEARS[year]}</th>
                                 ))}
                             </tr>
                             <tr>
                                 <th className={`${CONCEPT_COL} border border-slate-200 bg-[#F8FAFC] px-3 py-2 text-left text-[11px] font-semibold md:sticky md:left-0 md:z-20 md:px-4`} style={{ color: BRAND.muted }}><span className="block truncate md:whitespace-normal">Proyección anual</span></th>
                                 <th className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2 text-right text-[11px] font-bold text-[#1259C4] md:sticky md:left-[240px] md:z-20"></th>
-                                {visibleYears.map((_, year) => (
-                                    <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-2 text-center text-[11px] font-medium`} style={{ background: year === 0 ? '#D3E4FD' : '#EAF7EE', color: year === 0 ? BRAND.blueDark : '#125A3B' }}>{baseYear + year}</th>
+                                {showHistoricalColumn && (
+                                    <th className={`${YEAR_COL} border border-slate-200 px-2 py-2 text-center text-[11px] font-medium`} style={{ background: '#E2E8F0', color: '#334155' }}>
+                                        &lt; {calendarYear}
+                                    </th>
+                                )}
+                                {displayedYearIndexes.map((year) => (
+                                    <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-2 text-center text-[11px] font-medium`} style={{ background: year === 0 ? '#D3E4FD' : '#EAF7EE', color: year === 0 ? BRAND.blueDark : '#125A3B' }}>{startYear + year}</th>
                                 ))}
                             </tr>
                         </thead>
@@ -766,81 +1247,84 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     </div>
                                 </td>
                                 <td className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[240px] md:z-[1]">{displayPlainRowTotal(lotsSoldRow.values)}</td>
-                                {lotsSoldRow.values.slice(0, visibleYears.length).map((value, year) => (
+                                {showHistoricalColumn && (
+                                    <td className="border border-slate-200 bg-[#F1F5F9] px-2 py-2.5 text-right font-semibold tabular-nums text-slate-600">{formatPlainInteger(historicalTotal(lotsSoldRow.values))}</td>
+                                )}
+                                {displayedYearIndexes.map((year) => {
+                                    const value = lotsSoldRow.values[year] || 0;
+                                    return (
                                     <td key={`lots-sold-top-${year}`} className="border border-slate-200 bg-[#F8FAFC] px-1 py-1">
                                         <input
                                             aria-label={`${lotsSoldRow.label} ${YEARS[year]}`}
                                             className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${mode === 'dinamico' ? 'cursor-default' : 'focus:border-[#1877F2] focus:bg-[#F5F9FF]'}`}
-                                            value={value ? formatPlainInteger(value) : ''}
+                                            value={editingDrafts[cellKey('lots-sold', year)] ?? (value ? formatPlainInteger(value) : '')}
+                                            inputMode="numeric"
                                             readOnly={mode === 'dinamico'}
-                                            onFocus={() => mode === 'estatico' && beginCellEdit('lots-sold', year, value)}
+                                            onClick={(event) => event.stopPropagation()}
                                             onChange={(event) => mode === 'estatico' && editCell('lots-sold', year, event.target.value)}
+                                            onFocus={() => mode === 'estatico' && beginCellEdit('lots-sold', year, value)}
                                             onBlur={(event) => mode === 'estatico' && finishCellEdit('lots-sold', year, event.target.value)}
+                                            onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                                         />
                                     </td>
-                                ))}
+                                    );
+                                })}
                             </tr>
                             {SECTIONS.filter((section) => !['accumulated-title', 'pre-tax-accumulated', 'adjusted-accumulated'].includes(section.id)).map((section) => {
                                 const sectionRow = calculated.find((item) => item.id === section.id);
                                 const surface = sectionSurface(section.id, section.computed);
+                                const hasChildren = (childRowsByParent[section.id] || []).some((item) => item.id !== 'lots-sold');
                                 const isExpanded = expanded[section.id] ?? true;
 
                                 return (
                                     <Fragment key={section.id}>
                                         {sectionRow && (
-                                            <tr onClick={() => section.rows.length > 0 && toggleSection(section.id)} className="cursor-pointer">
+                                            <tr onClick={() => hasChildren && toggleSection(section.id)} className={hasChildren ? 'cursor-pointer' : undefined}>
                                                 <td className={`${CONCEPT_COL} border border-slate-200 px-3 py-2.5 font-bold md:sticky md:left-0 md:z-[1] md:px-4`} style={{ background: surface.background, color: surface.color }}>
                                                     <SectionTitle
                                                         section={section}
                                                         color={COST_DETAIL_SECTIONS.has(section.id) ? '#0EA5A9' : surface.color}
-                                                        label={editableConcept(section.id, sectionRow.label, 'truncate')}
+                                                        label={(
+                                                            <>
+                                                                {addSubpartidaButton(section.id, sectionRow.label)}
+                                                                {hasChildren && <span className="w-3 shrink-0 text-center text-slate-400">{isExpanded ? '-' : '+'}</span>}
+                                                                {editableConcept(section.id, sectionRow.label, 'truncate')}
+                                                            </>
+                                                        )}
                                                     />
                                                 </td>
                                                 <td className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[240px] md:z-[1]">{displayRowTotal(sectionRow.values)}</td>
-                                                {sectionRow.values.slice(0, visibleYears.length).map((value, year) => (
+                                                {showHistoricalColumn && (
+                                                    <td className="border border-slate-200 px-2 py-2.5 text-right font-bold tabular-nums text-slate-600" style={{ background: '#F1F5F9' }}>{formatInteger(historicalTotal(sectionRow.values))}</td>
+                                                )}
+                                                {displayedYearIndexes.map((year) => {
+                                                    const value = sectionRow.values[year] || 0;
+                                                    return (
                                                     <td key={year} className="border border-slate-200 px-1 py-1" style={{ background: surface.background }}>
                                                         <input
                                                             aria-label={`${sectionRow.label} ${YEARS[year]}`}
                                                             className={`w-full min-w-[88px] border border-transparent bg-transparent px-1 py-1.5 text-right font-bold tabular-nums outline-none transition ${mode === 'dinamico' ? 'cursor-default' : 'focus:border-[#1877F2] focus:bg-white'}`}
-                                                            value={value ? formatInteger(value) : ''}
-                                                            readOnly={mode === 'dinamico' || Boolean(sectionRow.computed)}
-                                                            onFocus={() => mode === 'estatico' && beginCellEdit(section.id, year, value)}
+                                                            value={editingDrafts[cellKey(section.id, year)] ?? (value ? formatInteger(value) : '')}
+                                                            inputMode="numeric"
+                                                            readOnly={mode === 'dinamico' || !canEditRow(sectionRow)}
+                                                            onClick={(event) => event.stopPropagation()}
                                                             onChange={(event) => mode === 'estatico' && editCell(section.id, year, event.target.value)}
+                                                            onFocus={() => mode === 'estatico' && beginCellEdit(section.id, year, value)}
                                                             onBlur={(event) => mode === 'estatico' && finishCellEdit(section.id, year, event.target.value)}
+                                                            onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                                                         />
                                                     </td>
-                                                ))}
+                                                    );
+                                                })}
                                             </tr>
                                         )}
 
-                                        {section.rows.length > 0 && isExpanded && section.rows.filter((definition) => definition.id !== 'lots-sold').map((definition) => {
-                                            const item = calculated.find((candidate) => candidate.id === definition.id) || row(definition.id, definition.label);
-
-                                            return (
-                                                <tr key={definition.id} className="hover:bg-slate-50">
-                                                    <td className={`${CONCEPT_COL} border border-slate-200 bg-white py-2 pl-6 pr-2 text-slate-700 md:sticky md:left-0 md:z-[1] md:px-8`}>{editableConcept(item.id, item.label)}</td>
-                                                    <td className="border border-[#B9D2F4] bg-[#F4F8FE] px-2 py-2 text-right tabular-nums text-[#5277A8] md:sticky md:left-[240px] md:z-[1]">{displayRowTotal(item.values)}</td>
-                                                    {item.values.slice(0, visibleYears.length).map((value, year) => (
-                                                        <td key={`${definition.id}-${year}`} className="border border-slate-200 bg-white px-1 py-1">
-                                                            <input
-                                                                aria-label={`${item.label} ${YEARS[year]}`}
-                                                                className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${mode === 'dinamico' ? 'cursor-default' : 'focus:border-[#1877F2] focus:bg-[#F5F9FF]'}`}
-                                                                value={value ? formatInteger(value) : ''}
-                                                                readOnly={mode === 'dinamico'}
-                                                                onFocus={() => mode === 'estatico' && beginCellEdit(definition.id, year, value)}
-                                                                onChange={(event) => mode === 'estatico' && editCell(definition.id, year, event.target.value)}
-                                                                onBlur={(event) => mode === 'estatico' && finishCellEdit(definition.id, year, event.target.value)}
-                                                            />
-                                                        </td>
-                                                    ))}
-                                                </tr>
-                                            );
-                                        })}
+                                        {hasChildren && isExpanded && renderChildRows(section.id)}
                                     </Fragment>
                                 );
                             })}
                             <tr>
-                                <td colSpan={2 + visibleYears.length} className="border border-slate-200 bg-white px-4 py-2 text-left text-sm font-bold" style={{ color: BRAND.blue }}>
+                                <td colSpan={2 + renderedYearColumnCount} className="border border-slate-200 bg-white px-4 py-2 text-left text-sm font-bold" style={{ color: BRAND.blue }}>
                                     Utilidad Acumulada
                                 </td>
                             </tr>
@@ -852,10 +1336,16 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     <td className={`${CONCEPT_COL} border border-slate-200 px-3 py-2.5 font-bold md:sticky md:left-0 md:z-[1] md:px-4`} style={{ background: '#D3E4FD', color: item.tone }}>
                                         {editableConcept(item.id, item.label, 'truncate')}
                                     </td>
-                                    <td className={`${TOTAL_COL} border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[240px] md:z-[1]`}>{displayRowTotal(item.values)}</td>
-                                    {item.values.slice(0, visibleYears.length).map((value, year) => (
+                                    <td className={`${TOTAL_COL} border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[240px] md:z-[1]`}>{formatInteger(lastVisibleAccumulated(item.values))}</td>
+                                    {showHistoricalColumn && (
+                                        <td className={`${YEAR_COL} border border-slate-200 bg-[#F1F5F9] px-2 py-2.5 text-right font-bold tabular-nums text-slate-600`}>{formatInteger(hiddenAccumulated(item.values))}</td>
+                                    )}
+                                    {displayedYearIndexes.map((year) => {
+                                        const value = item.values[year] || 0;
+                                        return (
                                         <td key={`${item.id}-${year}`} className={`${YEAR_COL} border border-slate-200 px-2 py-2.5 text-right font-bold tabular-nums`} style={{ background: '#D3E4FD', color: BRAND.ink }}>{formatInteger(value)}</td>
-                                    ))}
+                                        );
+                                    })}
                                 </tr>
                             ))}
                         </tbody>
@@ -871,7 +1361,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     </div>
                     <div className="space-y-2 p-4">
                         {[
-                            { label: `Terreno ${currency === 'USD' ? 'US$' : 'S/'}`, value: show(calculatedValue('land-cost')) },
+                            { label: `Terreno ${currency === 'USD' ? 'US$' : 'S/'}`, value: show(landAcquisitionTotal) },
                             { label: 'Área venta (m²)', value: formatPlainInteger(manual.landArea) },
                             { label: 'Nro. de lotes', value: formatPlainInteger(totalLots) },
                             { label: 'Área promedio por lote (m²)', value: formatPlainInteger(manual.lotArea) },
@@ -900,10 +1390,15 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={visibleYears.map((year, index) => ({ year, value: accumulatedProfit[index] || 0 }))} margin={{ top: 24, right: 10, left: 8, bottom: 4 }}>
                                 <CartesianGrid stroke="#E5E7EB" vertical={false} />
-                                <XAxis dataKey="year" tick={{ fontSize: 10, fill: BRAND.blueDark }} axisLine={false} tickLine={false} />
-                                <YAxis tickFormatter={(value) => show(Number(value))} tick={{ fontSize: 10, fill: BRAND.muted }} axisLine={false} tickLine={false} width={88} />
+                                <ReferenceLine y={0} stroke="#94A3B8" strokeWidth={1.5} />
+                                <XAxis dataKey="year" tick={{ fontSize: 10, fill: BRAND.blueDark }} tickMargin={8} axisLine={false} tickLine={false} />
+                                <YAxis domain={[(min: number) => Math.min(0, min), (max: number) => Math.max(0, max)]} tickFormatter={(value) => show(Number(value))} tick={{ fontSize: 10, fill: BRAND.muted }} axisLine={false} tickLine={false} width={88} />
                                 <Tooltip formatter={(value: number | string) => [show(Number(value)), 'Utilidad acumulada']} />
                                 <Bar dataKey="value" fill={BRAND.blue} radius={[2, 2, 0, 0]}>
+                                    {visibleYears.map((year, index) => {
+                                        const value = accumulatedProfit[index] || 0;
+                                        return <Cell key={`utility-bar-${year}`} fill={value >= 0 ? BRAND.blue : '#DC2626'} />;
+                                    })}
                                     <LabelList dataKey="value" position="top" formatter={(value: number | string) => formatInteger(Number(value))} fill="#DC2626" fontSize={9} />
                                 </Bar>
                             </BarChart>
@@ -934,6 +1429,48 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     </div>
                 </div>
             )}
+            {subpartidaModal && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+                    <div className="absolute inset-0 bg-slate-950/40" onClick={closeSubpartidaModal} />
+                    <div className="relative flex max-h-[90vh] w-full max-w-md flex-col overflow-y-auto rounded-xl border bg-white shadow-2xl" style={{ borderColor: BRAND.border }}>
+                        <div className="border-b px-5 py-4" style={{ borderColor: BRAND.border }}>
+                            <div className="flex items-start gap-3">
+                                <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg" style={{ background: `${BRAND.blue}14`, color: BRAND.blue }}>
+                                    <FiPlus />
+                                </span>
+                                <div className="min-w-0">
+                                    <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: BRAND.blue }}>Nueva subpartida</p>
+                                    <h3 className="mt-1 text-lg font-semibold" style={{ color: BRAND.ink }}>Agregar detalle</h3>
+                                    <p className="mt-1 text-sm text-slate-500">Se creará debajo de <b className="font-semibold text-slate-700">{subpartidaModal.parentLabel}</b>.</p>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="p-5">
+                            <label className="label">
+                                Nombre de la subpartida
+                                <input
+                                    autoFocus
+                                    className="input mt-1"
+                                    value={subpartidaName}
+                                    onChange={(event) => setSubpartidaName(event.target.value)}
+                                    onKeyDown={(event) => {
+                                        if (event.key === 'Enter') {
+                                            event.preventDefault();
+                                            addSubpartida();
+                                        }
+                                        if (event.key === 'Escape') closeSubpartidaModal();
+                                    }}
+                                    placeholder="Ej. Habilitación urbana"
+                                />
+                            </label>
+                        </div>
+                        <div className="flex shrink-0 justify-end gap-2 border-t px-5 py-4" style={{ borderColor: BRAND.border }}>
+                            <button className="btn-neutral" onClick={closeSubpartidaModal}>Cancelar</button>
+                            <button className="btn-primary" onClick={addSubpartida} disabled={!subpartidaName.trim()}><FiPlus /> Agregar subpartida</button>
+                        </div>
+                    </div>
+                </div>
+            )}
             {assumptionsOpen && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-slate-950/40" onClick={() => setAssumptionsOpen(false)} />
@@ -946,6 +1483,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 [`Precio ${currency === 'USD' ? 'US$' : 'S/'}/m²`, 'priceM2'],
                                 ['Cuota inicial %', 'initialPercent'],
                                 ['Años de proyección', 'years'],
+                                ['Año de inicio', 'startYear'],
                                 ['Alcabala %', 'alcabalaPercent'],
                                 ['Supervisión técnica %', 'supervisionPercent'],
                                 ['Servicios públicos %', 'servicesPercent'],

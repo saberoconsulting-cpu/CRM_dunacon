@@ -612,8 +612,16 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const initialPaymentMode = parsedConditions.initialPaymentMode || 'contado';
     const initialParts = Math.max(2, parsedConditions.initialParts || 0 || 2);
     const saldoFin = Math.max(0, financingBase - cuotaInicialPen);
-    // Cuotas: la primera coincide con la cuota inicial cuando ella existe.
-    const financingInstallments = Math.max(0, totalCuotasValue - (cuotaInicialPen > 0 ? 1 : 0));
+    // Cuotas del FINANCIAMIENTO: el cronograma de amortizacion tiene exactamente
+    // estas filas (la cuota inicial se descuenta del precio y no forma parte del
+    // saldo financiado, por eso no se resta 1).
+    const financingInstallments = Math.max(0, totalCuotasValue);
+    // Para el cliente la cuota inicial TAMBIEN es UNA cuota: el "Total cuotas" de
+    // la ficha es financiamiento + 1 (ej. 24 + 1 = 25). Las "partes" (2 o 3) son
+    // un fraccionamiento del pago, NO cuotas: en 2 o en 3 partes sigue siendo 1.
+    // Con inicial 0 no se suma nada.
+    const initialInstallments = cuotaInicialPen > 0 ? 1 : 0;
+    const displayTotalInstallments = financingInstallments + initialInstallments;
     const graceMonths = Math.min(financingInstallments, Math.max(0, graceMonthsSaved));
     const interestInstallments = interestType === 'tea' ? Math.max(0, financingInstallments - graceMonths) : 0;
     const noInterestInstallments = interestType === 'tea' ? graceMonths : financingInstallments;
@@ -662,7 +670,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       ['Precio Venta', usdMoney(salePriceValue)],
       ['Fecha', formatDate(s.saleDate)],
       ['Forma de Pago', formaPago],
-      ['Nro de Cuotas', s.totalCuotas || 0],
+      ['Nro de Cuotas', displayTotalInstallments],
       ['Comision', usdMoney(commission)],
       ['Saldo a Financiar', usdMoney(financingBase)],
       ['Interes', interestType === 'tea' ? `Con TEA = ${teaValue}%` : 'Sin intereses'],
@@ -684,7 +692,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         <div class="finance-highlight"><span>TEA</span><strong>${interestType === 'tea' ? `${teaValue}%` : 'Sin intereses'}</strong></div>
         <div class="finance-highlight"><span>C. s/int. <em class="tiny">(${noInterestInstallments})</em></span><strong>${escapeHtml(usdMoney(noInterestCuotaPen))}</strong></div>
         <div class="finance-highlight"><span>C. c/int. <em class="tiny">(${interestInstallments})</em></span><strong>${escapeHtml(usdMoney(interestCuotaPen))}</strong></div>
-        <div class="finance-highlight"><span>Total cuotas</span><strong>${totalCuotasValue}</strong></div>
+        <div class="finance-highlight"><span>Total cuotas</span><strong>${displayTotalInstallments}</strong></div>
         <div class="finance-highlight"><span>TC</span><strong>S/ ${exchangeRate.toFixed(4)}</strong></div>
       </div>
       ${initialPlan ? `
@@ -707,7 +715,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         <h2>Datos de la venta</h2><table><tbody>${detailRows.map(([label, value]) => `<tr><td class="label">${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join('')}</tbody></table>
         ${financingBlock}
         <h2>Cronograma de cuotas</h2><table><thead><tr><th>Cuota</th><th>Vencimiento</th><th>Monto</th><th>Estado</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="4">Sin cronograma registrado.</td></tr>'}</tbody></table>
-        <div class="summary"><div><span>Cuotas</span><strong>${Number(s.totalCuotas || 0)}</strong></div><div><span>Pagadas</span><strong>${paidInstallments}</strong></div><div><span>Pendientes</span><strong>${Math.max(0, schedule.length - paidInstallments)}</strong></div><div><span>Plan</span><strong>${escapeHtml(s.planStatus || 'pendiente')}</strong></div></div>
+        <div class="summary"><div><span>Cuotas</span><strong>${displayTotalInstallments}</strong></div><div><span>Pagadas</span><strong>${paidInstallments}</strong></div><div><span>Pendientes</span><strong>${Math.max(0, schedule.length - paidInstallments)}</strong></div><div><span>Plan</span><strong>${escapeHtml(s.planStatus || 'pendiente')}</strong></div></div>
         ${isFinancing ? `
           <h2>Total</h2>
           <div class="summary-row">
@@ -1166,14 +1174,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                       <Select value={initialPaymentMode} onChange={(v) => setInitialPaymentMode(v as any)} options={[{ value: 'contado', label: 'Pago de contado (1 sola vez)' }, { value: 'partes', label: 'En partes iguales' }]} />
                     </Field>
                     {initialPaymentMode === 'partes' && (
-                      <Field label="Numero de partes">
-                        <input type="text" inputMode="numeric" className="input tabular-nums" value={initialParts ? groupDigits(String(initialParts)) : ''} onChange={(e) => setInitialParts(Math.min(24, Math.max(2, Math.round(parseGrouped(e.target.value)) || 2)))} />
+                      <Field label="Numero de partes (1 a 3)">
+                        <input type="text" inputMode="numeric" className="input tabular-nums" value={initialParts ? groupDigits(String(initialParts)) : ''} onChange={(e) => setInitialParts(Math.min(3, Math.max(1, Math.round(parseGrouped(e.target.value)) || 1)))} />
                       </Field>
                     )}
                   </div>
                   {initialPaymentMode === 'partes' && cuotaInicial > 0 && (
                     <p className="mt-2 text-xs text-slate-500">
-                      La inicial se paga en <b>{Math.max(2, initialParts)} partes</b> de <b>{formatAmountIn(fromPen(cuotaInicial) / Math.max(2, initialParts), saleCurrency)}</b> cada una, sin interes.
+                      La inicial se paga en <b>{Math.max(1, Math.min(3, initialParts))} partes</b> de <b>{formatAmountIn(fromPen(cuotaInicial) / Math.max(1, Math.min(3, initialParts)), saleCurrency)}</b> cada una, sin interes.
                     </p>
                   )}
                 </div>
@@ -1197,7 +1205,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                           <input type="number" step="0.01" className="input" value={tea || ''} onChange={(e) => setTea(Number(e.target.value))} />
                         </Field>
                       </div>
-                      <p className="text-[11px] text-slate-500">Las {totalCuotas} cuotas incluyen esas {graceMonths} sin interes.</p>
+                      <p className="text-[11px] text-slate-500">Las {totalCuotas} cuotas del financiamiento incluyen esas {graceMonths} sin interes.</p>
                     </div>
                   )}
                 </div>

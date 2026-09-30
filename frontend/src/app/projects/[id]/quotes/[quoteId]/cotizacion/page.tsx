@@ -7,7 +7,14 @@ const DUNACON_LOGO = '/logo/dunacon.png';
 
 const fmtUsd = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtPen = (n: number) => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const PAY_LABEL: Record<string, string> = { contado: 'Contado', credito: 'Crédito' };
+const PAY_LABEL: Record<string, string> = { contado: 'Contado', Crédito: 'Crédito', credito: 'Crédito' };
+
+/** Fecha ISO (YYYY-MM-DD) -> dd/mm/aaaa para los documentos. */
+function fmtDate(iso?: string) {
+  if (!iso) return '—';
+  const [y, m, d] = String(iso).split('T')[0].split('-');
+  return y && m && d ? `${d}/${m}/${y}` : '—';
+}
 
 function pointsToAttr(points: any[]) {
   return (Array.isArray(points) ? points : []).map((point) => `${Number(point.x || 0)},${Number(point.y || 0)}`).join(' ');
@@ -114,13 +121,26 @@ export default function CotizacionDocPage() {
     ['Precio final', Number(quote.finalPriceUsd)],
   ];
   if (quote.paymentMethod === 'credito') {
-    resumen.push(['Cuota inicial', -Number(quote.cuotaInicialUsd)]);
+    // La cuota inicial es un PAGO del cliente, no un descuento: va en positivo y
+    // separada de los bonos (que si son negativos).
+    resumen.push(['Cuota inicial', Number(quote.cuotaInicialUsd)]);
     resumen.push(['Saldo a financiar', saldoAFinanciar]);
   }
 
   return (
     <div className="min-h-screen bg-white flex flex-col items-center py-6 px-3 print:py-0 sm:py-10 sm:px-4">
-      <style>{`@media print { .no-print { display: none !important; } body { background: #fff; } }`}</style>
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          body { background: #fff; font-family: Arial, Helvetica, sans-serif !important; font-size: 12px !important; }
+          body * { font-family: Arial, Helvetica, sans-serif !important; }
+          p, span, b, strong, label, input, button, table, th, td, div { font-size: 12px !important; line-height: 1.35 !important; }
+          h1 { font-size: 22px !important; line-height: 1.2 !important; }
+          h3 { font-size: 13px !important; line-height: 1.3 !important; }
+          table { page-break-inside: auto; }
+          tr { page-break-inside: avoid; page-break-after: auto; }
+        }
+      `}</style>
       <div className="w-full max-w-2xl">
         <div className="no-print flex justify-end mb-4">
           <button onClick={() => window.print()} className="btn-primary">Imprimir / Guardar PDF</button>
@@ -263,13 +283,80 @@ export default function CotizacionDocPage() {
 
           <div className="px-4 pb-6 sm:px-6">
             <h3 className="font-semibold text-sm text-slate-700 mb-2">Cuota inicial (sin intereses)</h3>
-            <p className="text-sm">
-              Monto: <b>{fmtUsd(Number(quote.cuotaInicialUsd || 0))}</b>
-              {initialPlan && initialPlan.modo === 'partes'
-                ? ` — se paga en ${initialPlan.partes} partes de ${fmtUsd(initialPlan.montoPorParte)}.`
-                : ' — pago unico de contado.'}
-            </p>
+            {Number(quote.cuotaInicialUsd || 0) > 0 && initialPlan ? (
+              <>
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                    <span className="block text-[10px] font-bold uppercase text-slate-500">Total</span>
+                    <b className="mt-1 block text-sm">{fmtUsd(initialPlan.cuotaInicialTotal)}</b>
+                  </div>
+                  <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                    <span className="block text-[10px] font-bold uppercase text-slate-500">Modalidad</span>
+                    <b className="mt-1 block text-sm">{initialPlan.modo === 'partes' ? 'En partes' : 'Contado'}</b>
+                  </div>
+                  <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                    <span className="block text-[10px] font-bold uppercase text-slate-500">N° de partes</span>
+                    <b className="mt-1 block text-sm">{initialPlan.partes}</b>
+                  </div>
+                </div>
+                <table className="mt-3 w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-slate-500">
+                      <th className="py-1">Parte</th>
+                      <th className="py-1 text-right">Monto US$</th>
+                      <th className="py-1 text-right">Monto S/</th>
+                      <th className="py-1 text-right">Fecha</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {initialPlan.partesDetalle.map((parte: any) => (
+                      <tr key={parte.numero} className="border-t" style={{ borderColor: '#F0F1F3' }}>
+                        <td className="py-1.5">{parte.numero} de {initialPlan.partes}</td>
+                        <td className="py-1.5 text-right tabular-nums">{fmtUsd(parte.monto)}</td>
+                        <td className="py-1.5 text-right tabular-nums">{fmtPen(toPen(parte.monto))}</td>
+                        <td className="py-1.5 text-right tabular-nums">{fmtDate(parte.fecha)}</td>
+                      </tr>
+                    ))}
+                    <tr className="border-t font-semibold" style={{ borderColor: '#E5E7EB' }}>
+                      <td className="py-1.5">Total inicial</td>
+                      <td className="py-1.5 text-right tabular-nums">{fmtUsd(initialPlan.totalPagado)}</td>
+                      <td className="py-1.5 text-right tabular-nums">{fmtPen(toPen(initialPlan.totalPagado))}</td>
+                      <td className="py-1.5 text-right tabular-nums">—</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </>
+            ) : (
+              <p className="text-sm text-slate-500">Esta cotización no tiene cuota inicial registrada.</p>
+            )}
           </div>
+
+          {quote.paymentMethod === 'credito' && (
+            <div className="px-4 pb-6 sm:px-6">
+              <h3 className="font-semibold text-sm text-slate-700 mb-2">Financiamiento del saldo</h3>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                  <span className="block text-[10px] font-bold uppercase text-slate-500">Saldo</span>
+                  <b className="mt-1 block text-sm">{fmtUsd(saldoAFinanciar)}</b>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                  <span className="block text-[10px] font-bold uppercase text-slate-500">N° de cuotas</span>
+                  <b className="mt-1 block text-sm">{quote.totalCuotas}</b>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                  <span className="block text-[10px] font-bold uppercase text-slate-500">Cuota</span>
+                  <b className="mt-1 block text-sm">{fmtUsd(grace.interestCuota || quote.valorCuotaUsd)}</b>
+                </div>
+                <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
+                  <span className="block text-[10px] font-bold uppercase text-slate-500">Interés</span>
+                  <b className="mt-1 block text-sm">{quote.interestType === 'tea' ? `TCEA ${Number(quote.tea)}%` : 'Sin intereses'}</b>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-slate-400">
+                Las {quote.totalCuotas} cuotas del financiamiento se numeran del 1 al {quote.totalCuotas} y son independientes de la cuota inicial.
+              </p>
+            </div>
+          )}
 
           </div>
 

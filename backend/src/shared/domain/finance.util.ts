@@ -170,6 +170,17 @@ export function buildGraceSchedule(options: GraceScheduleOptions): GraceSchedule
   return { rows, graceMonths, interestMonths, graceCuota, interestCuota, totalInteres, totalPagar, saldoAlFinGracia };
 }
 
+/** Regla de negocio: la inicial se paga en 1, 2 o 3 partes como maximo. */
+export const MAX_INITIAL_PARTS = 3;
+export const MIN_INITIAL_PARTS = 1;
+
+export interface InitialPartRow {
+  numero: number;
+  monto: number;
+  /** Fecha ISO (YYYY-MM-DD) en que vence la parte. */
+  fecha: string;
+}
+
 export interface InitialPlanResult {
   cuotaInicialTotal: number;
   modo: 'contado' | 'partes';
@@ -177,29 +188,86 @@ export interface InitialPlanResult {
   montoPorParte: number;
   totalPagado: number;
   saldoAFinanciar: number;
+  /** Detalle parte por parte (monto y fecha). Con inicial 0 queda vacio. */
+  partesDetalle: InitialPartRow[];
+}
+
+/** Normaliza el numero de partes: entero, entre 1 y 3. `contado` siempre es 1. */
+export function normalizeInitialParts(mode: 'contado' | 'partes', parts?: number): number {
+  if (mode !== 'partes') return MIN_INITIAL_PARTS;
+  const raw = Math.floor(Number(parts || 0));
+  if (!Number.isFinite(raw) || raw < MIN_INITIAL_PARTS) return MIN_INITIAL_PARTS;
+  return Math.min(MAX_INITIAL_PARTS, raw);
+}
+
+/** Valida el numero de partes SIN corregirlo: util para rechazar en el backend. */
+export function isValidInitialParts(parts: unknown): boolean {
+  const raw = Number(parts);
+  return Number.isInteger(raw) && raw >= MIN_INITIAL_PARTS && raw <= MAX_INITIAL_PARTS;
+}
+
+/** Redondeo a 2 decimales evitando el ruido de punto flotante. */
+function round2(value: number): number {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+/** Suma `months` meses a una fecha sin desbordar al mes siguiente. */
+function addMonths(base: Date, months: number): Date {
+  const day = base.getDate();
+  const result = new Date(base.getFullYear(), base.getMonth() + months, 1);
+  const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+  result.setDate(Math.min(day, lastDay));
+  return result;
+}
+
+function toIsoDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
 /**
  * La cuota inicial SIEMPRE es sin intereses. El comprador la paga de contado
  * (una sola vez) o repartida en partes iguales segun lo acordado.
+ *
+ * Reglas:
+ * - Maximo 3 partes (1, 2 o 3). `contado` equivale a 1 parte.
+ * - Los montos se reparten en 2 decimales y la ULTIMA parte absorbe el residuo
+ *   de redondeo para que la suma sea exactamente el total de la inicial.
+ * - Fechas: la parte 1 vence en `startDate` y las siguientes mes a mes.
  */
 export function buildInitialPlan(
   finalPrice: number,
   cuotaInicialTotal: number,
   mode: 'contado' | 'partes' = 'contado',
   parts = 1,
+  startDate: Date = new Date(),
 ): InitialPlanResult {
   const precio = Math.max(0, Number(finalPrice || 0));
-  const inicial = Math.min(precio, Math.max(0, Number(cuotaInicialTotal || 0)));
-  const partes = mode === 'partes' ? Math.max(2, Math.floor(Number(parts || 2))) : 1;
-  const montoPorParte = inicial / partes;
+  const inicial = round2(Math.min(precio, Math.max(0, Number(cuotaInicialTotal || 0))));
+  const partes = normalizeInitialParts(mode, parts);
+  const montoPorParte = round2(inicial / partes);
+
+  // Sin inicial no hay bloques de pago que mostrar; el cronograma no se toca.
+  const partesDetalle: InitialPartRow[] = inicial > 0
+    ? Array.from({ length: partes }, (_, index) => {
+      const numero = index + 1;
+      const esUltima = numero === partes;
+      const monto = esUltima
+        ? round2(inicial - montoPorParte * (partes - 1))
+        : montoPorParte;
+      return { numero, monto, fecha: toIsoDate(addMonths(startDate, index)) };
+    })
+    : [];
 
   return {
     cuotaInicialTotal: inicial,
-    modo: mode,
-    partes,
+    modo: inicial > 0 ? mode : 'contado',
+    partes: inicial > 0 ? partes : MIN_INITIAL_PARTS,
     montoPorParte,
-    totalPagado: montoPorParte * partes,
-    saldoAFinanciar: Math.max(0, precio - inicial),
+    totalPagado: round2(partesDetalle.reduce((sum, row) => sum + row.monto, 0)),
+    saldoAFinanciar: Math.max(0, round2(precio - inicial)),
+    partesDetalle,
   };
 }

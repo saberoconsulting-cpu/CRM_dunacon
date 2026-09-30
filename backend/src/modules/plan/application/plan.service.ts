@@ -15,6 +15,17 @@ import { CreateBlockDto, UpdateBlockDto } from './dto/plan.dto';
 import { CreateLotDto, UpdateLotDto } from './dto/lot.dto';
 import { UpsertProjectLotCatalogDto } from './dto/project-lot-catalog.dto';
 
+// Estados en los que el lote ya tiene una operacion comercial cerrada o en
+// curso. Mismo criterio que BLOCKED_ACTION_STATUSES del frontend: mientras el
+// lote este en uno de estos estados su estado y sus precios no se editan.
+const COMMERCIALLY_LOCKED_STATUSES = ['vendido', 'alquilado', 'reservado', 'adelanto', 'primera_cuota'];
+const LOT_STATUS_LABEL_TEXT: Record<string, string> = {
+  vendido: 'vendido',
+  alquilado: 'alquilado',
+  reservado: 'reservado (separado)',
+  adelanto: 'con adelanto',
+  primera_cuota: 'en primera cuota',
+};
 @Injectable()
 export class PlanService {
   constructor(
@@ -35,6 +46,12 @@ export class PlanService {
 
   async audit(userId: number, action: string, entity?: string, entityId?: number) {
     await this.auditRepo.save({ userId, action, entity, entityId });
+  }
+
+  // Un lote esta comercialmente bloqueado cuando ya se vendio, se separo o se
+  // alquilo. En esos casos la ficha no debe permitir tocar estado ni precios.
+  private isCommerciallyLocked(status?: string | null) {
+    return !!status && COMMERCIALLY_LOCKED_STATUSES.includes(status);
   }
 
   private async getOrCreatePlan(projectId: number) {
@@ -283,6 +300,26 @@ export class PlanService {
   async updateLot(lotId: number, dto: UpdateLotDto, actorId: number) {
     const lot = await this.lotRepo.findOne({ where: { id: lotId } });
     if (!lot) throw new NotFoundException('Lote no encontrado');
+
+    // Un lote vendido, reservado o alquilado ya generó una operación real: sus
+    // datos comerciales (estado, precios) quedan congelados para que nadie
+    // altere lo que el cliente ya pago ni libere el lote para revenderlo.
+    // El resto de la ficha (codigo, calle, area, dimensiones, tipo) sigue
+    // siendo editable porque son datos descriptivos, no comerciales.
+    const lockedMessages: { key: string; label: string }[] = [
+      { key: 'status', label: 'el estado' },
+      { key: 'salePrice', label: 'el precio de venta' },
+      { key: 'finalPrice', label: 'el precio final' },
+    ];
+    const touched = lockedMessages.filter((field) => dto[field.key as keyof UpdateLotDto] !== undefined);
+    if (this.isCommerciallyLocked(lot.status) && touched.length > 0) {
+      const labels = touched.map((field) => field.label).join(', ');
+      throw new BadRequestException(
+        `El lote está ${LOT_STATUS_LABEL_TEXT[lot.status] || lot.status}: no se puede modificar ${labels}. ` +
+        'Para cambiarlo primero hay que liberar el lote desde el estado de la ficha.',
+      );
+    }
+
     if (dto.code !== undefined) lot.code = dto.code;
     if (dto.streetId !== undefined || dto.blockId !== undefined) lot.streetId = dto.streetId ?? dto.blockId ?? null;
     if (dto.points !== undefined) lot.points = dto.points;
