@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/application/guards/roles.guard';
 import { Roles } from '../../../shared/application/decorators/roles.decorator';
@@ -27,5 +27,11 @@ export class IncomeStatementController {
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
   update(@Param('id') id: string, @Body() dto: UpdateIncomeStatementItemDto) {
     return this.statementService.update(Number(id), dto);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  remove(@Param('id') id: string) {
+    return this.statementService.remove(Number(id));
   }
 }

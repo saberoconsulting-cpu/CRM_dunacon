@@ -74,6 +74,13 @@ export class IncomeStatementService {
     return this.statementRepo.save(item);
   }
 
+  async remove(id: number) {
+    const item = await this.statementRepo.findOne({ where: { id } });
+    if (!item) throw new NotFoundException('Partida de estado de resultados no encontrada');
+    item.isActive = false;
+    return this.statementRepo.save(item);
+  }
+
   /**
    * Totales por linea. Cuando una partida tiene subpartidas, su monto propio se
    * ignora y se usa la suma de los hijos (mismo criterio que presupuesto de obra).
