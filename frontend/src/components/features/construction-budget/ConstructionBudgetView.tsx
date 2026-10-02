@@ -56,6 +56,7 @@ const CATEGORIES: Array<{ key: BudgetCategory; label: string; letter: string; co
 const BORDER = '#E2E8F0';
 const INK = '#0F172A';
 const MUTED = '#64748B';
+const CLOSED_CATEGORIES = Object.fromEntries(CATEGORIES.map((cat) => [cat.key, false])) as Record<string, boolean>;
 
 function nextCode(items: BudgetItem[], category: BudgetCategory, excludeId?: number) {
   const meta = CATEGORIES.find((item) => item.key === category);
@@ -127,7 +128,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
   const [cashflow, setCashflow] = useState<CashflowModel | null>(null);
   const [bankMovements, setBankMovements] = useState<BankMovement[]>([]);
   const [loading, setLoading] = useState(true);
-  const [openCats, setOpenCats] = useState<Record<string, boolean>>({});
+  const [openCats, setOpenCats] = useState<Record<string, boolean>>(CLOSED_CATEGORIES);
   const [openItems, setOpenItems] = useState<Record<number, boolean>>({});
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<BudgetItem | null>(null);
@@ -164,7 +165,8 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
       setSummary(data?.summary || { categories: {}, grandTotal: 0 });
       setCashflow(cashflowData && Array.isArray(cashflowData.rows) ? cashflowData : null);
       setBankMovements(Array.isArray(bankData?.items) ? bankData.items : []);
-      setOpenCats((current) => current && Object.keys(current).length ? current : Object.fromEntries(CATEGORIES.map((cat) => [cat.key, true])));
+      setOpenCats(CLOSED_CATEGORIES);
+      setOpenItems({});
     } catch (error: any) {
       toast(error?.message || 'No se pudo cargar el presupuesto', 'err');
     } finally {
@@ -176,7 +178,11 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
 
   useEffect(() => {
     if (!printing) return undefined;
-    const done = () => setPrinting(false);
+    const done = () => {
+      setPrinting(false);
+      setOpenCats(CLOSED_CATEGORIES);
+      setOpenItems({});
+    };
     window.addEventListener('afterprint', done);
     return () => window.removeEventListener('afterprint', done);
   }, [printing]);
@@ -594,7 +600,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                       const categoryProjected = budgetTotals.categories[cat.key]?.projected || 0;
                       const categoryReal = budgetTotals.categories[cat.key]?.real || 0;
                       const categoryAdvance = pct(categoryReal, categoryProjected);
-                      const isOpen = printing || openCats[cat.key];
+                      const isOpen = printing || openCats[cat.key] === true;
                       return (
                         <Fragment key={cat.key}>
                           <tr className="border-b" style={{ borderColor: BORDER, background: '#F8FAFC' }}>
@@ -602,7 +608,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                               <button
                                 type="button"
                                 className="flex w-full min-w-0 items-center gap-2 overflow-hidden text-left sm:gap-3"
-                                onClick={() => setOpenCats((current) => ({ ...current, [cat.key]: !current[cat.key] }))}
+                                onClick={() => setOpenCats((current) => ({ ...current, [cat.key]: current[cat.key] !== true }))}
                               >
                                 <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-sm font-bold text-white sm:h-9 sm:w-9" style={{ background: cat.color }}>{cat.letter}</span>
                                 <span className="min-w-0 flex-1 overflow-hidden">

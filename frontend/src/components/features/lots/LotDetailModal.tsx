@@ -202,8 +202,11 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const [lotizacion, setLotizacion] = useState({ salePrice: 0, finalPrice: 0, status: 'disponible', statusDate: '' });
   // Datos base del lote editables (solo admin). Los montos del lote importado se
   // guardan en US$; el toggle solo los muestra convertidos a soles cuando se pide.
-  const [lotData, setLotData] = useState({ code: '', streetId: 0, type: '', dimensions: '', areaM2: 0, price: 0 });
+  const [lotData, setLotData] = useState({ code: '', streetId: 0, address: '', type: '', dimensions: '', areaM2: 0, price: 0 });
   const [streets, setStreets] = useState<any[]>([]);
+  // Las direcciones del catalogo de lotes del proyecto (project_lot_catalog.address)
+  // son datos reales del cliente: alimentan el datalist del campo "Calle o tramo".
+  const [catalogAddresses, setCatalogAddresses] = useState<string[]>([]);
   const [view, setView] = useState<'detalle' | 'vender'>('detalle');
   const canEdit = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
   // Moneda de la ficha: el cliente pidio que se muestre en dolares por defecto,
@@ -253,6 +256,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
       setLotData({
         code: d.lot?.code || '',
         streetId: Number(d.lot?.streetId ?? d.lot?.blockId ?? 0),
+        address: d.lot?.address || '',
         type: d.lot?.type || '',
         dimensions: d.lot?.dimensions || '',
         areaM2: Number(d.lot?.areaM2 || 0),
@@ -274,6 +278,17 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
     api.get<any>(`/plan/project/${projectId}`)
       .then((d) => { if (active) setStreets(d.streets || d.blocks || []); })
       .catch(() => {});
+    // Calles del catalogo de lotes para el campo "Calle o tramo".
+    api.get<any[]>(`/plan/lot-catalog/${projectId}`)
+      .then((rows) => {
+        if (!active) return;
+        setCatalogAddresses(Array.from(new Set(
+          (Array.isArray(rows) ? rows : [])
+            .map((row: any) => String(row?.address || '').trim())
+            .filter((value) => value.length > 0),
+        )).sort((a, b) => a.localeCompare(b, 'es')));
+      })
+      .catch(() => {});
     return () => { active = false; };
   }, [canEdit, projectId]);
   useEffect(() => {
@@ -288,7 +303,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   async function saveLotizacion() {
     if (!lot) return;
     if (canEdit && !lotData.code.trim()) return toast('Ingresa el numero de lote', 'err');
-    if (canEdit && !lotData.streetId) return toast('Selecciona la calle del lote', 'err');
+    if (canEdit && !lotData.address.trim()) return toast('Indica la calle o tramo del lote', 'err');
     // Defensa en profundidad: si el lote esta vendido/separado no se envian ni el
     // estado ni los precios. El backend tambien lo rechaza, pero asi el usuario
     // nunca llega a ver un error de servidor por algo que la UI ya bloquea.
@@ -299,7 +314,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
         // Datos base del lote (solo admin los edita; el backend tambien los protege).
         ...(canEdit ? {
           code: lotData.code.trim(),
-          streetId: lotData.streetId,
+          streetId: lotData.streetId || undefined,
+          address: lotData.address.trim() || undefined,
           type: lotData.type || undefined,
           dimensions: lotData.dimensions || undefined,
           areaM2: lotData.areaM2 || undefined,
@@ -351,7 +367,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
     const rows = [
       ['Num. Lote', lot.code || '—'],
       ['Calle', block?.name || lot.streetName || lot.blockName || '—'],
-      ['Referencia', block?.address || lot.streetAddress || lot.blockAddress || '—'],
+      ['Referencia', lot.address || block?.address || lot.streetAddress || lot.blockAddress || '—'],
       ['Tipo', lot.type || '—'],
       ['Estado', LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status],
       ['Area', formatArea(lot.areaM2)],
@@ -516,7 +532,10 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   if (!lotId) return null;
   if (!lot) return null;
 
-  const address = block?.address || lot.streetAddress || lot.blockAddress || (block?.name ? `Calle ${block.name}` : EMPTY);
+  // El address propio del lote (cargado desde la lista base en el editor de plano)
+  // tiene prioridad sobre la referencia de la calle dibujada; si no hay ninguno,
+  // se arma con el nombre de la calle para no dejar la ficha en blanco.
+  const address = lot.address || block?.address || lot.streetAddress || lot.blockAddress || (block?.name ? `Calle ${block.name}` : EMPTY);
   const lotType = lot.type || EMPTY;
   const statusLabel = LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status || EMPTY;
   const statusBadgeColor = lot.status === 'vendido' ? SOLD_GREEN : tableStatusColor;
@@ -649,24 +668,50 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                       </div>
 
                       <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: MUTED }}>Datos del lote</p>
-                      <div className="flex flex-wrap items-end gap-2">
-                        <div className="min-w-32 flex-1"><Field label="Num. de lote *"><input className="input" value={lotData.code} onChange={(e) => setLotData({ ...lotData, code: e.target.value })} /></Field></div>
-                        <div className="min-w-36 flex-1">
-                          <Field label="Calle *">
+                      <div className="grid items-start gap-3 md:grid-cols-2">
+                        <div><Field label="Num. de lote *"><input className="input" value={lotData.code} onChange={(e) => setLotData({ ...lotData, code: e.target.value })} /></Field></div>
+                        <div>
+                          <Field label="Calle (plano)">
                             <Select
                               value={String(lotData.streetId || '')}
                               onChange={(v) => setLotData({ ...lotData, streetId: Number(v) })}
                               options={[
-                                { value: '', label: 'Selecciona...' },
+                                { value: '', label: 'Sin calle dibujada' },
                                 ...streets.map((s: any) => ({ value: String(s.id), label: `${s.name}${s.address ? ` - ${s.address}` : ''}` })),
                               ]}
                             />
                           </Field>
                         </div>
-                        <div className="min-w-32 flex-1"><Field label="Tipo"><input className="input" value={lotData.type} onChange={(e) => setLotData({ ...lotData, type: e.target.value })} placeholder="Ej. Residencial" /></Field></div>
-                        <div className="min-w-28 flex-1"><Field label="Area (m2)"><input type="number" className="input" value={lotData.areaM2 || ''} onChange={(e) => setLotData({ ...lotData, areaM2: Number(e.target.value) })} /></Field></div>
-                        <div className="min-w-32 flex-1"><Field label="Dimensiones"><input className="input" value={lotData.dimensions} onChange={(e) => setLotData({ ...lotData, dimensions: e.target.value })} placeholder="Ej. 10m x 30m" /></Field></div>
-                        <div className="min-w-32 flex-1"><Field label={`Precio m2 (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotData.price)} onChange={(e) => setLotData({ ...lotData, price: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
+                        <div>
+                          <Field label="Calle o tramo *">
+                            {/* Misma regla que el plan editor: si el lote ya tiene una
+                                calle dibujada se ofrece esa; si no, se ofrecen las
+                                calles del catalogo de lotes (reales). */}
+                            <input
+                              className="input"
+                              list="lot-address-options"
+                              value={lotData.address}
+                              onChange={(e) => setLotData({ ...lotData, address: e.target.value })}
+                              placeholder="Ej. Las Palmeras - Nro 1"
+                            />
+                            <datalist id="lot-address-options">
+                              {catalogAddresses.map((address) => <option key={address} value={address} />)}
+                            </datalist>
+                            <span className="mt-1 block text-[10px] font-semibold" style={{ color: '#64748b' }}>
+                              {streets.length > 0
+                                ? `Origen: ${streets.length} calle(s) del plano.`
+                                : catalogAddresses.length > 0
+                                  ? `Origen: catalogo de lotes (${catalogAddresses.length} calles).`
+                                  : 'Sin calles en el plano ni en el catalogo: escribe la calle a mano.'}
+                            </span>
+                          </Field>
+                        </div>
+                        <div><Field label="Tipo"><input className="input" value={lotData.type} onChange={(e) => setLotData({ ...lotData, type: e.target.value })} placeholder="Ej. Residencial" /></Field></div>
+                        <div className="grid gap-3 md:col-span-2 md:grid-cols-3">
+                          <Field label="Area (m2)"><input type="number" className="input" value={lotData.areaM2 || ''} onChange={(e) => setLotData({ ...lotData, areaM2: Number(e.target.value) })} /></Field>
+                          <Field label="Dimensiones"><input className="input" value={lotData.dimensions} onChange={(e) => setLotData({ ...lotData, dimensions: e.target.value })} placeholder="Ej. 10m x 30m" /></Field>
+                          <Field label={`Precio m2 (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotData.price)} onChange={(e) => setLotData({ ...lotData, price: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field>
+                        </div>
                       </div>
 
                       <p className="mb-2 mt-1 text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: MUTED }}>Estado y comercial</p>
@@ -675,12 +720,14 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                           <b>🔒 Lote {LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status}.</b> El estado y los precios de un lote vendido, separado o alquilado están congelados para no alterar la operación ya registrada ni liberar el lote para revenderlo. Si necesitas corregir el monto, libera el lote desde <b>Historial de estados</b> o registra la venta real y el sistema tomará ese monto.
                         </div>
                       )}
-                      <div className="flex flex-wrap items-end gap-2">
-                        <div className="min-w-36 flex-1"><Field label="Estado"><Select value={lotizacion.status} onChange={(v) => setLotizacion({ ...lotizacion, status: v })} disabled={saleLocked} options={Object.entries(LOT_STATUS_LABEL).map(([key, label]) => ({ value: key, label }))} /></Field></div>
-                        <div className="min-w-36 flex-1"><Field label="Fecha de estado"><input type="date" className="input" value={lotizacion.statusDate} onChange={(e) => setLotizacion({ ...lotizacion, statusDate: e.target.value })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
-                        <div className="min-w-32 flex-1"><Field label={`Precio venta (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotizacion.salePrice)} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
-                        <div className="min-w-32 flex-1"><Field label={`Precio final (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotizacion.finalPrice)} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
-                        <button onClick={saveLotizacion} disabled={working || saleLocked} className="btn-secondary shrink-0" title={saleLocked ? 'El lote está bloqueado: libera el lote para editar estado y precios' : undefined}>{working ? 'Guardando...' : saleLocked ? 'Bloqueado' : 'Guardar'}</button>
+                      <div className="grid items-start gap-3 md:grid-cols-2">
+                        <div><Field label="Estado"><Select value={lotizacion.status} onChange={(v) => setLotizacion({ ...lotizacion, status: v })} disabled={saleLocked} options={Object.entries(LOT_STATUS_LABEL).map(([key, label]) => ({ value: key, label }))} /></Field></div>
+                        <div><Field label="Fecha de estado"><input type="date" className="input" value={lotizacion.statusDate} onChange={(e) => setLotizacion({ ...lotizacion, statusDate: e.target.value })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
+                        <div><Field label={`Precio venta (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotizacion.salePrice)} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
+                        <div><Field label={`Precio final (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotizacion.finalPrice)} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
+                        <div className="md:col-span-2 md:flex md:justify-end">
+                          <button onClick={saveLotizacion} disabled={working || saleLocked} className="btn-secondary w-full md:w-auto md:min-w-32" title={saleLocked ? 'El lote está bloqueado: libera el lote para editar estado y precios' : undefined}>{working ? 'Guardando...' : saleLocked ? 'Bloqueado' : 'Guardar'}</button>
+                        </div>
                       </div>
                       <p className="mt-2 text-[11px]" style={{ color: MUTED }}>
                         Los precios del lote se guardan en dólares. El modo soles solo convierte para visualizar o editar con tipo de cambio referencial.

@@ -383,14 +383,16 @@ export class PaymentsService {
       .orderBy('1', 'ASC')
       .getRawMany();
 
-    // "Morosidad": monto de cuotas vencidas o pendientes ya pasadas de fecha,
-    // agrupado por mes de vencimiento.
-    const overdueByMonthQb = this.paymentRepo
-      .createQueryBuilder('p')
-      .select("to_char(p.due_date, 'YYYY-MM')", 'month')
-      .addSelect('COALESCE(SUM(p.amount),0)', 'monto')
-      .where("p.status IN ('pendiente','vencido') AND p.due_date < CURRENT_DATE");
-    const overdueByMonth: any = await scopePayments(overdueByMonthQb)
+    // "Morosidad": se toma del cronograma de venta, no de pagos registrados,
+    // porque las cuotas por cobrar existen aunque todavia no haya pago creado.
+    const overdueByMonthQb = this.installmentRepo
+      .createQueryBuilder('i')
+      .innerJoin(SaleEntity, 's', 's.id = i.sale_id')
+      .select("to_char(i.due_date, 'YYYY-MM')", 'month')
+      .addSelect('COALESCE(SUM(i.amount),0)', 'monto')
+      .where("i.status <> 'pagado' AND i.due_date < CURRENT_DATE")
+      .andWhere("s.approval_status IN ('pendiente','aprobada')");
+    const overdueByMonth: any = await scopeSales(overdueByMonthQb)
       .groupBy('1')
       .orderBy('1', 'ASC')
       .getRawMany();
@@ -416,26 +418,32 @@ export class PaymentsService {
       paidCuotas,
       initialPaid,
     ] = await Promise.all([
-      this.paymentRepo.createQueryBuilder('p')
-        .where("p.status IN ('pendiente','vencido')")
-        .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
-        .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
+      this.installmentRepo.createQueryBuilder('i')
+        .innerJoin(SaleEntity, 's', 's.id = i.sale_id')
+        .where("i.status <> 'pagado'")
+        .andWhere("s.approval_status IN ('pendiente','aprobada')")
+        .andWhere(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
+        .andWhere(agentId ? 's.agent_id = :agentId' : '1=1', { agentId })
         .select('COUNT(*)', 'count')
-        .addSelect('COALESCE(SUM(p.amount),0)', 'amount')
+        .addSelect('COALESCE(SUM(i.amount),0)', 'amount')
         .getRawOne(),
-      this.paymentRepo.createQueryBuilder('p')
-        .where("p.status IN ('pendiente','vencido') AND p.due_date < :today", { today })
-        .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
-        .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
+      this.installmentRepo.createQueryBuilder('i')
+        .innerJoin(SaleEntity, 's', 's.id = i.sale_id')
+        .where("i.status <> 'pagado' AND i.due_date < :today", { today })
+        .andWhere("s.approval_status IN ('pendiente','aprobada')")
+        .andWhere(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
+        .andWhere(agentId ? 's.agent_id = :agentId' : '1=1', { agentId })
         .select('COUNT(*)', 'count')
-        .addSelect('COALESCE(SUM(p.amount),0)', 'amount')
+        .addSelect('COALESCE(SUM(i.amount),0)', 'amount')
         .getRawOne(),
-      this.paymentRepo.createQueryBuilder('p')
-        .where("p.status = 'pendiente' AND p.due_date >= :today AND p.due_date <= :plus30", { today, plus30 })
-        .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
-        .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
+      this.installmentRepo.createQueryBuilder('i')
+        .innerJoin(SaleEntity, 's', 's.id = i.sale_id')
+        .where("i.status <> 'pagado' AND i.due_date >= :today AND i.due_date <= :plus30", { today, plus30 })
+        .andWhere("s.approval_status IN ('pendiente','aprobada')")
+        .andWhere(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
+        .andWhere(agentId ? 's.agent_id = :agentId' : '1=1', { agentId })
         .select('COUNT(*)', 'count')
-        .addSelect('COALESCE(SUM(p.amount),0)', 'amount')
+        .addSelect('COALESCE(SUM(i.amount),0)', 'amount')
         .getRawOne(),
       this.saleRepo.createQueryBuilder('s')
         .where("s.approval_status IN ('pendiente','aprobada')")

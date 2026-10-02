@@ -113,6 +113,9 @@ export class BankAccountsService {
   async list(projectId: number, filters: ListFilters = {}) {
     if (!projectId) throw new BadRequestException('Proyecto requerido');
     const accountKey = filters.accountKey || 'GENERAL';
+    await this.normalizeAccountCurrencyToUSD(projectId, accountKey);
+    await this.renumberItemsByDate(projectId, accountKey);
+    await this.recalculateAccountBalances(projectId, accountKey);
 
     const qb = this.movementRepo.createQueryBuilder('m')
       .where('m.project_id = :projectId', { projectId })
@@ -121,7 +124,6 @@ export class BankAccountsService {
 
     const items = await qb
       .orderBy('m.movement_date', 'ASC', 'NULLS LAST')
-      .addOrderBy('m.item_number', 'ASC', 'NULLS LAST')
       .addOrderBy('m.id', 'ASC')
       .getMany();
 
@@ -138,15 +140,6 @@ export class BankAccountsService {
   private applyFilters(qb: SelectQueryBuilder<BankAccountMovementEntity>, filters: ListFilters) {
     if (filters.from) qb.andWhere('m.movement_date >= :from', { from: filters.from });
     if (filters.to) qb.andWhere('m.movement_date <= :to', { to: filters.to });
-    if (filters.currency) qb.andWhere('m.currency = :currency', { currency: filters.currency });
-    if (filters.movementType) qb.andWhere('m.movement_type = :movementType', { movementType: filters.movementType });
-    if (filters.eerrClassification) qb.andWhere('m.eerr_classification = :eerrClassification', { eerrClassification: filters.eerrClassification });
-    if (filters.search) {
-      qb.andWhere(
-        '(m.description ILIKE :search OR m.counterparty ILIKE :search OR m.invoice_number ILIKE :search OR m.observation ILIKE :search)',
-        { search: `%${filters.search}%` },
-      );
-    }
     return qb;
   }
 
@@ -159,63 +152,54 @@ export class BankAccountsService {
     this.applyFilters(scopedQb, filters);
     const scopedItems = await scopedQb
       .orderBy('m.movement_date', 'ASC', 'NULLS LAST')
-      .addOrderBy('m.item_number', 'ASC', 'NULLS LAST')
       .addOrderBy('m.id', 'ASC')
       .getMany();
 
     // El saldo inicial/final se conserva a nivel de CUENTA COMPLETA: filtrar no
     // debe inventar un saldo de apertura distinto (es un dato contable real).
-    const allItems = filters.from || filters.to || filters.currency || filters.movementType
-      || filters.eerrClassification || filters.search
+    const allItems = filters.from || filters.to
       ? await this.movementRepo.find({
         where: { projectId, accountKey },
-        order: { movementDate: 'ASC', itemNumber: 'ASC', id: 'ASC' },
+        order: { movementDate: 'ASC', id: 'ASC' },
       })
       : scopedItems;
+    const accountCurrency = allItems.some((item) => item.currency === 'USD') ? 'USD' : 'PEN';
+    const scopedCurrencyItems = scopedItems.filter((item) => item.currency === accountCurrency);
+    const allCurrencyItems = allItems.filter((item) => item.currency === accountCurrency);
 
-    let depositPEN = 0;
-    let chargePEN = 0;
-    let depositUSD = 0;
-    let chargeUSD = 0;
+    let totalDeposits = 0;
+    let totalCharges = 0;
 
-    for (const item of scopedItems) {
-      const deposit = Number(item.depositAmount || 0);
-      const charge = Number(item.chargeAmount || 0);
-      if (item.currency === 'USD') {
-        depositUSD += deposit;
-        chargeUSD += charge;
-      } else {
-        depositPEN += deposit;
-        chargePEN += charge;
-      }
+    for (const item of scopedCurrencyItems) {
+      totalDeposits += Number(item.depositAmount || 0);
+      totalCharges += Number(item.chargeAmount || 0);
     }
 
-    const saldoInicial = await this.getOpeningBalance(projectId, 'PEN', accountKey, allItems);
+    const saldoInicial = await this.getOpeningBalance(projectId, accountCurrency, accountKey, allCurrencyItems);
 
     // Saldo Final de la cuenta completa = Saldo Inicial + Abonos - Cargos de todo
     // el historial. Coincide con el book_balance de la ultima fila cronologica.
-    const totalAbonosCuenta = allItems.reduce((sum, item) => sum + (item.currency === 'USD' ? 0 : Number(item.depositAmount || 0)), 0);
-    const totalCargosCuenta = allItems.reduce((sum, item) => sum + (item.currency === 'USD' ? 0 : Number(item.chargeAmount || 0)), 0);
+    const totalAbonosCuenta = allCurrencyItems.reduce((sum, item) => sum + Number(item.depositAmount || 0), 0);
+    const totalCargosCuenta = allCurrencyItems.reduce((sum, item) => sum + Number(item.chargeAmount || 0), 0);
     const saldoFinal = saldoInicial + totalAbonosCuenta - totalCargosCuenta;
 
     const months = new Set(scopedItems.map((item) => item.monthLabel || (item.movementDate ? item.movementDate.slice(0, 7) : '')).filter(Boolean));
 
     return {
       saldoInicial: round2(saldoInicial),
-      totalAbonos: round2(depositPEN),
-      totalCargos: round2(chargePEN),
+      totalAbonos: round2(totalDeposits),
+      totalCargos: round2(totalCharges),
       saldoFinal: round2(saldoFinal),
       movimientos: scopedItems.length,
       meses: months.size,
-      totalAbonosUSD: round2(depositUSD),
-      totalCargosUSD: round2(chargeUSD),
-      saldoUSD: round2(depositUSD - chargeUSD),
-      netoPEN: round2(depositPEN - chargePEN),
+      totalAbonosUSD: accountCurrency === 'USD' ? round2(totalDeposits) : 0,
+      totalCargosUSD: accountCurrency === 'USD' ? round2(totalCharges) : 0,
+      saldoUSD: accountCurrency === 'USD' ? round2(totalDeposits - totalCharges) : 0,
+      netoPEN: accountCurrency === 'PEN' ? round2(totalDeposits - totalCharges) : 0,
       // Neto del subconjunto visible: es el que debe cuadrar con la columna
       // "Saldo" de la tabla cuando hay filtros activos.
-      netoVisible: round2(depositPEN - chargePEN),
-      filtrado: Boolean(filters.from || filters.to || filters.currency || filters.movementType
-        || filters.eerrClassification || filters.search),
+      netoVisible: round2(totalDeposits - totalCharges),
+      filtrado: Boolean(filters.from || filters.to),
     };
   }
 
@@ -277,7 +261,7 @@ export class BankAccountsService {
     }
 
     const accountKey = dto.accountKey || 'GENERAL';
-    const currency = dto.currency || 'PEN';
+    const currency = 'USD';
     const map = await this.categoryMap(dto.projectId);
     const resolvedType = dto.movementType || (deposit > 0 ? 'INGRESO' : 'GASTO');
     // Se usa una transaccion: mantiene una sola conexion del pool durante toda
@@ -286,19 +270,10 @@ export class BankAccountsService {
       // El Item define el orden de la fila dentro de su fecha (1, 2, 3, ...).
       // Si el usuario lo escribe, la fila va a esa posicion; si lo deja vacio,
       // se guarda NULL y la fila cae al final de su fecha.
-      const itemNumber = await this.resolveItemNumber(
-        manager,
-        dto.projectId,
-        accountKey,
-        normalizeDate(dto.movementDate),
-        dto.itemNumber ?? null,
-      );
-      await this.assertUniqueItemNumber(manager, dto.projectId, accountKey, itemNumber);
-
       await manager.save(manager.create(BankAccountMovementEntity, {
         projectId: dto.projectId,
         accountKey,
-        itemNumber,
+        itemNumber: null,
         movementDate: normalizeDate(dto.movementDate),
         monthLabel: dto.monthLabel || monthLabelFromDate(dto.movementDate),
         description: dto.description || null,
@@ -320,47 +295,12 @@ export class BankAccountsService {
         sourceRow: null,
         createdBy: actorId || null,
       }));
-      await this.recalculateBalances(dto.projectId, currency, accountKey, manager);
+      await this.normalizeAccountCurrencyToUSD(dto.projectId, accountKey, manager);
+      await this.renumberItemsByDate(dto.projectId, accountKey, manager);
+      await this.recalculateBalances(dto.projectId, 'USD', accountKey, manager);
     });
 
     return this.list(dto.projectId, { accountKey });
-  }
-
-  /**
-   * Devuelve el Item que debe guardar la fila.
-   * - Si el usuario lo escribio, se respeta (>= 1) y la fila va a esa posicion.
-   * - Si lo dejo vacio, se guarda NULL y la fila cae al final de su fecha
-   *   (el orden es fecha ASC, item_number ASC NULLS LAST).
-   */
-  private async resolveItemNumber(
-    _manager: EntityManager,
-    _projectId: number,
-    _accountKey: string,
-    _movementDate: string | null,
-    requested: number | null,
-  ): Promise<number | null> {
-    if (requested === null || requested === undefined) return null;
-
-    const parsed = Number(requested);
-    if (!Number.isFinite(parsed)) return null;
-    return Math.max(1, Math.trunc(parsed));
-  }
-
-  private async assertUniqueItemNumber(
-    manager: EntityManager,
-    projectId: number,
-    accountKey: string,
-    itemNumber: number | null,
-    excludeId?: number,
-  ) {
-    if (itemNumber === null || itemNumber === undefined) return;
-    const qb = manager.createQueryBuilder(BankAccountMovementEntity, 'm')
-      .where('m.project_id = :projectId', { projectId })
-      .andWhere('m.account_key = :accountKey', { accountKey })
-      .andWhere('m.item_number = :itemNumber', { itemNumber });
-    if (excludeId) qb.andWhere('m.id <> :excludeId', { excludeId });
-    const exists = await qb.getExists();
-    if (exists) throw new BadRequestException(`Ya existe un movimiento registrado con el Item ${itemNumber}. No se puede crear repetido.`);
   }
 
   async update(id: number, dto: UpdateBankMovementDto) {
@@ -373,15 +313,7 @@ export class BankAccountsService {
       throw new BadRequestException('Un movimiento no puede tener abono y cargo a la vez');
     }
 
-    const nextItemNumber = dto.itemNumber !== undefined
-      ? (dto.itemNumber === null ? null : Math.max(1, Math.trunc(Number(dto.itemNumber) || 0)))
-      : item.itemNumber;
-    await this.assertUniqueItemNumber(this.movementRepo.manager, item.projectId, item.accountKey, nextItemNumber, item.id);
-
     Object.assign(item, {
-      ...(dto.itemNumber !== undefined
-        ? { itemNumber: nextItemNumber }
-        : {}),
       ...(dto.movementDate !== undefined ? { movementDate: normalizeDate(dto.movementDate) } : {}),
       ...(dto.monthLabel !== undefined ? { monthLabel: dto.monthLabel } : {}),
       ...(dto.description !== undefined ? { description: dto.description } : {}),
@@ -393,11 +325,13 @@ export class BankAccountsService {
       ...(dto.eerrClassification !== undefined ? { eerrClassification: dto.eerrClassification } : {}),
       ...(dto.invoiceNumber !== undefined ? { invoiceNumber: dto.invoiceNumber } : {}),
       ...(dto.observation !== undefined ? { observation: dto.observation } : {}),
-      ...(dto.currency !== undefined ? { currency: dto.currency } : {}),
+      currency: 'USD',
     });
 
     await this.movementRepo.save(item);
-    await this.recalculateBalances(item.projectId, item.currency, item.accountKey);
+    await this.normalizeAccountCurrencyToUSD(item.projectId, item.accountKey);
+    await this.renumberItemsByDate(item.projectId, item.accountKey);
+    await this.recalculateBalances(item.projectId, 'USD', item.accountKey);
     return this.list(item.projectId, { accountKey: item.accountKey });
   }
 
@@ -406,14 +340,15 @@ export class BankAccountsService {
     if (!item) throw new NotFoundException('Movimiento bancario no encontrado');
     const { projectId, currency, accountKey } = item;
     await this.movementRepo.delete(id);
-    await this.recalculateBalances(projectId, currency, accountKey);
+    await this.renumberItemsByDate(projectId, accountKey);
+    await this.recalculateBalances(projectId, 'USD', accountKey);
     return this.list(projectId, { accountKey });
   }
 
   async updateOpeningBalance(dto: UpdateBankOpeningBalanceDto) {
     if (!dto.projectId) throw new BadRequestException('Proyecto requerido');
     const accountKey = dto.accountKey || 'GENERAL';
-    const currency = dto.currency || 'PEN';
+    const currency = 'USD';
     const openingBalance = Number(dto.openingBalance);
     if (!Number.isFinite(openingBalance)) throw new BadRequestException('Saldo inicial no valido');
 
@@ -460,14 +395,17 @@ export class BankAccountsService {
     const availableYears = years.map((row) => Number(row.value)).filter(Boolean);
 
     const selectedYear = Number(year) || availableYears[0] || new Date().getFullYear();
-    const selectedCurrency = (currency || 'PEN').toUpperCase().slice(0, 3);
+    const selectedCurrency = (currency || 'USD').toUpperCase().slice(0, 3);
 
     // Para encadenar los saldos se traen TODOS los movimientos previos al anio
     // (de cualquier fecha anterior), no solo los del anio seleccionado.
-    const items = await this.movementRepo.find({
-      where: { projectId, currency: selectedCurrency, accountKey },
-      order: { movementDate: 'ASC', itemNumber: 'ASC', id: 'ASC' },
-    });
+    const items = await this.movementRepo.createQueryBuilder('m')
+      .where('m.project_id = :projectId', { projectId })
+      .andWhere('m.currency = :selectedCurrency', { selectedCurrency })
+      .andWhere('m.account_key = :accountKey', { accountKey })
+      .orderBy('m.movement_date', 'ASC', 'NULLS LAST')
+      .addOrderBy('m.id', 'ASC')
+      .getMany();
 
     const openingBalance = await this.getOpeningBalance(projectId, selectedCurrency, accountKey, items);
 
@@ -534,10 +472,13 @@ export class BankAccountsService {
 
   private async recalculateBalances(projectId: number, currency: string, accountKey: string, manager?: EntityManager) {
     const repo = manager ? manager.getRepository(BankAccountMovementEntity) : this.movementRepo;
-    const items = await repo.find({
-      where: { projectId, currency, accountKey },
-      order: { movementDate: 'ASC', itemNumber: 'ASC', id: 'ASC' },
-    });
+    const items = await repo.createQueryBuilder('m')
+      .where('m.project_id = :projectId', { projectId })
+      .andWhere('m.currency = :currency', { currency })
+      .andWhere('m.account_key = :accountKey', { accountKey })
+      .orderBy('m.movement_date', 'ASC', 'NULLS LAST')
+      .addOrderBy('m.id', 'ASC')
+      .getMany();
     if (!items.length) return;
 
     const openingBalance = await this.getOpeningBalance(projectId, currency, accountKey, items, manager);
@@ -554,6 +495,41 @@ export class BankAccountsService {
 
     if (!changed.length) return;
     // Se guarda por lotes en una sola sentencia para no saturar el pool.
+    for (let index = 0; index < changed.length; index += 200) {
+      await repo.save(changed.slice(index, index + 200), { chunk: 200 });
+    }
+  }
+
+  private async recalculateAccountBalances(projectId: number, accountKey: string) {
+    await this.recalculateBalances(projectId, 'USD', accountKey);
+  }
+
+  private async normalizeAccountCurrencyToUSD(projectId: number, accountKey: string, manager?: EntityManager) {
+    const repo = manager ? manager.getRepository(BankAccountMovementEntity) : this.movementRepo;
+    await repo.createQueryBuilder()
+      .update(BankAccountMovementEntity)
+      .set({ currency: 'USD' })
+      .where('project_id = :projectId', { projectId })
+      .andWhere('account_key = :accountKey', { accountKey })
+      .andWhere("currency <> 'USD'")
+      .execute();
+  }
+
+  private async renumberItemsByDate(projectId: number, accountKey: string, manager?: EntityManager) {
+    const repo = manager ? manager.getRepository(BankAccountMovementEntity) : this.movementRepo;
+    const items = await repo.createQueryBuilder('m')
+      .where('m.project_id = :projectId', { projectId })
+      .andWhere('m.account_key = :accountKey', { accountKey })
+      .orderBy('m.movement_date', 'ASC', 'NULLS LAST')
+      .addOrderBy('m.id', 'ASC')
+      .getMany();
+    const changed: BankAccountMovementEntity[] = [];
+    items.forEach((item, index) => {
+      const next = index + 1;
+      if (item.itemNumber === next) return;
+      item.itemNumber = next;
+      changed.push(item);
+    });
     for (let index = 0; index < changed.length; index += 200) {
       await repo.save(changed.slice(index, index + 200), { chunk: 200 });
     }
@@ -790,7 +766,7 @@ export class BankAccountsService {
     if (!Array.isArray(rows) || rows.length === 0) throw new BadRequestException('No hay filas para importar');
 
     const accountKey = options.accountKey || 'GENERAL';
-    const defaultCurrency = (options.currency || 'PEN').toUpperCase().slice(0, 3);
+    const defaultCurrency = 'USD';
     const skipDuplicates = options.skipDuplicates !== false;
     const importBatch = options.importBatch || `batch-${Date.now()}`;
 
@@ -819,7 +795,7 @@ export class BankAccountsService {
         continue;
       }
 
-      const currency = (row.currency || defaultCurrency).toUpperCase().slice(0, 3);
+      const currency = 'USD';
       const sourceKey = buildSourceKey(row, currency, accountKey);
       if (skipDuplicates && existingKeys.has(sourceKey)) {
         duplicates += 1;
@@ -830,7 +806,7 @@ export class BankAccountsService {
       pending.push(this.movementRepo.create({
         projectId,
         accountKey,
-        itemNumber: row.itemNumber,
+        itemNumber: null,
         movementDate: normalizeDate(row.movementDate),
         monthLabel: row.monthLabel || monthLabelFromDate(row.movementDate),
         description: row.description,
@@ -866,6 +842,8 @@ export class BankAccountsService {
         for (let index = 0; index < pending.length; index += 200) {
           await manager.save(pending.slice(index, index + 200), { chunk: 200 });
         }
+        await this.normalizeAccountCurrencyToUSD(projectId, accountKey, manager);
+        await this.renumberItemsByDate(projectId, accountKey, manager);
       });
       const currencies = Array.from(new Set(pending.map((item) => item.currency)));
       for (const currency of currencies) {
@@ -878,7 +856,7 @@ export class BankAccountsService {
       await this.recalculateBalances(projectId, defaultCurrency, accountKey);
     }
 
-    const result = await this.list(projectId);
+    const result = await this.list(projectId, { accountKey });
     return {
       ...result,
       imported: pending.length,

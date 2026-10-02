@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { api, uploadFile } from '@/lib/api';
 import { Block, Lot, Point } from '@/lib/types';
 import { toast, Field } from '@/components/ui/ui';
+import { Select } from '@/components/ui/Select';
 import { optimizedPlanImageUrl } from '@/lib/planImage';
 import { FiLock, FiUnlock, FiRotateCcw } from 'react-icons/fi';
 
@@ -72,6 +73,29 @@ function formatUsd(value: unknown) {
   return `US$ ${n.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 }
 
+function normalizeStreetText(value: string) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ');
+}
+
+function streetNameFromAddress(value: unknown) {
+  let text = String(value || '').trim();
+  if (!text) return '';
+  text = text
+    .replace(/\b(?:nro|nº|n°|no\.?|num\.?|numero|mz|manzana|lt|lote)\s*[-:#]?\s*[\w.-]+/gi, '')
+    .replace(/\s*[-–—]\s*(?:\d+|nro|nº|n°|no\.?|num\.?|numero|mz|manzana|lt|lote).*/i, '')
+    .replace(/[#,]\s*(?:\d+|nro|nº|n°|no\.?|num\.?|numero|mz|manzana|lt|lote).*/i, '')
+    .replace(/\s+\d+[\w/-]*$/i, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.-])$/g, '')
+    .trim();
+  return text || String(value || '').trim();
+}
+
 export default function PlanEditor({ projectId }: { projectId: number }) {
   const svgRef = useRef<SVGSVGElement>(null);
   const lotCatalogFileRef = useRef<HTMLInputElement>(null);
@@ -83,6 +107,13 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
   const [draft, setDraft] = useState<Point[]>([]);
   const [selectedStreet, setSelectedStreet] = useState<number | null>(null);
   const [streetsOpen, setStreetsOpen] = useState(true);
+  const [streetAutoFilled, setStreetAutoFilled] = useState(false);
+  const [streetName, setStreetName] = useState('');
+  const [streetSaveModalOpen, setStreetSaveModalOpen] = useState(false);
+  const [streetSaveEditing, setStreetSaveEditing] = useState<Block | null>(null);
+  const [streetSaveName, setStreetSaveName] = useState('');
+  const [streetSaveSelected, setStreetSaveSelected] = useState('');
+  const [streetDeleteTarget, setStreetDeleteTarget] = useState<Block | null>(null);
   const [lotInfo, setLotInfo] = useState({ code: '', address: '', area: 0, dimensions: '', price: 0, type: '', salePrice: 0, discount: 0, finalPrice: 0, catalogStatus: '', client: '' });
   const [lotCatalog, setLotCatalog] = useState<LotCatalogRow[]>([]);
   const [catalogOpen, setCatalogOpen] = useState(false);
@@ -117,7 +148,27 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
 
   const normalizeCode = (value: string) => String(value || '').trim().toUpperCase().replace(/^L-0+(\d+)$/, 'L-$1');
   const catalogByCode = new Map(lotCatalog.map((item) => [normalizeCode(item.code), item]));
+  // Calles disponibles tomadas del catalogo de lotes, pero mostrando solo el
+  // nombre de calle. La direccion completa ya se carga cuando se elige el lote.
+  // El panel "Calles" NO las lista; solo se usan dentro del modal de dibujo.
+  const catalogAddresses = Array.from(
+    lotCatalog.reduce((map, item) => {
+      const streetName = streetNameFromAddress(item.address);
+      if (!streetName) return map;
+      const key = normalizeStreetText(streetName);
+      if (!map.has(key)) map.set(key, streetName);
+      return map;
+    }, new Map<string, string>()).values(),
+  ).sort((a, b) => a.localeCompare(b, 'es'));
 
+  /* Al dibujar el lote/manzana se elige la calle:
+   * - Si el plano ya tiene calles dibujadas, esas mandan.
+   * - Si no hay calles dibujadas, se ofrecen las del catalogo de lotes (reales).
+   * - Si tampoco hay catalogo, el campo queda libre para escribirlo a mano. */
+  const streetOptions = streets.map((street) => ({
+    id: String(street.id),
+    label: street.name,
+  }));
   const load = useCallback(async () => {
     try {
       const pl = await api.get<any>(`/plan/project/${projectId}`).catch(() => ({ plan: { status: 'draft' }, streets: [], blocks: [], lots: [] }));
@@ -269,6 +320,9 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
   function closeShape() {
     if (draft.length < 3) return toast('Dibuja al menos 3 puntos', 'err');
     setMode('none');
+    setStreetAutoFilled(false);
+    setStreetName('');
+    setSelectedStreet(null);
   }
 
   async function uploadImage(file: File) {
@@ -281,25 +335,60 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
 
   async function saveStreet() {
     if (draft.length < 3) return toast('Dibuja una calle o tramo (3+ puntos)', 'err');
-    const name = prompt('Nombre de la calle o tramo:', `Calle ${streets.length + 1}`) || `Calle ${streets.length + 1}`;
-    const address = prompt('Referencia de la calle (opcional):', '') || undefined;
+    const defaultName = streetSaveOptions[0] || `Calle ${streets.length + 1}`;
+    setStreetSaveSelected(catalogAddresses.includes(defaultName) ? defaultName : '');
+    setStreetSaveName(defaultName);
+    setStreetSaveEditing(null);
+    setStreetSaveModalOpen(true);
+  }
+
+  async function confirmSaveStreet() {
+    if (!streetSaveEditing && draft.length < 3) return toast('Dibuja una calle o tramo (3+ puntos)', 'err');
+    const selected = streetSaveSelected.trim();
+    const name = streetNameFromAddress(streetSaveName || selected || `Calle ${streets.length + 1}`);
+    if (!name) return toast('Indica el nombre de la calle', 'err');
+    const nameKey = normalizeStreet(name);
+    const duplicateStreet = streets.some((street) => (
+      Number(street.id) !== Number(streetSaveEditing?.id || 0) && normalizeStreet(street.name) === nameKey
+    ));
+    if (duplicateStreet) return toast('Ya existe una calle con ese nombre', 'err');
+    const address = selected || undefined;
     try {
-      await api.post(`/plan/street/${projectId}`, { name, points: draft, address });
-      toast('Calle guardada');
+      const saved = streetSaveEditing
+        ? await api.post<Block>(`/plan/street/update/${streetSaveEditing.id}`, { name, address })
+        : await api.post<Block>(`/plan/street/${projectId}`, { name, points: draft, address });
+      toast(streetSaveEditing ? 'Calle actualizada' : 'Calle guardada');
+      if (saved?.id) {
+        setStreets((current) => {
+          const withoutSaved = current.filter((street) => Number(street.id) !== Number(saved.id));
+          return [...withoutSaved, saved];
+        });
+        setSelectedStreet(saved.id);
+      }
       setDraft([]);
+      setStreetSaveModalOpen(false);
+      setStreetSaveEditing(null);
+      setStreetSaveSelected('');
+      setStreetSaveName('');
+      setMode('none');
+      setStreetsOpen(true);
       load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
 
   async function saveLot(street: Block | null) {
     if (draft.length < 3) return toast('Dibuja el lote (3+ puntos)', 'err');
-    if (!street) return toast('Primero crea/elige la calle contenedora', 'err');
     if (!lotInfo.code) return toast('Indica el codigo del lote', 'err');
+    if (!street) return toast('Selecciona una calle dibujada en el plano', 'err');
+    if (lots.some((lot) => normalizeCode(lot.code || '') === normalizeCode(lotInfo.code))) {
+      return toast('Ya existe un lote con ese codigo', 'err');
+    }
     try {
       await api.post(`/plan/lot/${projectId}`, {
         code: lotInfo.code,
-        streetId: street.id,
-        blockId: street.id,
+        streetId: street?.id,
+        blockId: street?.id,
+        address: lotInfo.address || streetName.trim(),
         points: draft,
         areaM2: Number(lotInfo.area) || 0,
         price: Number(lotInfo.price) || 0,
@@ -312,11 +401,57 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
       toast('Lote guardado');
       setDraft([]);
       setLotInfo({ code: '', address: '', area: 0, dimensions: '', price: 0, type: '', salePrice: 0, discount: 0, finalPrice: 0, catalogStatus: '', client: '' });
+      setStreetAutoFilled(false);
+      setStreetName('');
+      setSelectedStreet(null);
       load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
 
-  function applyCatalogToLot(code: string) {
+  /**
+   * Normaliza un texto para comparar calles: sin tildes, sin espacios extra y
+   * en minusculas. Permite que "Calle Los Alamos" de la lista base coincida con
+   * la calle dibujada "calle los alamos" o "CALLE  LOS  ALAMOS".
+   */
+  const normalizeStreet = (value: string) =>
+    normalizeStreetText(value);
+
+  const streetSaveOptions = catalogAddresses;
+
+  /**
+   * Busca la calle dibujada que corresponde a la referencia de la lista base.
+   * Primero compara contra el nombre de la calle y luego contra su referencia,
+   * y solo acepta una coincidencia exacta o una que contenga a la otra (para
+   * tolerar prefijos como "Calle" o el numero de la calle).
+   */
+  function matchStreetFromBase(address?: string): Block | null {
+    const target = normalizeStreet(address || '');
+    if (!target) return null;
+    const exact = streets.find(
+      (street) => normalizeStreet(street.name) === target || normalizeStreet(street.address || '') === target,
+    );
+    if (exact) return exact;
+    const partial = streets.find((street) => {
+      const name = normalizeStreet(street.name);
+      const ref = normalizeStreet(street.address || '');
+      return (
+        (name.length >= 3 && (target.includes(name) || name.includes(target))) ||
+        (ref.length >= 3 && (target.includes(ref) || ref.includes(target)))
+      );
+    });
+    return partial || null;
+  }
+
+  /**
+   * Al elegir un codigo de la lista base:
+   * - Se cargan los datos comerciales del lote (area, precio, etc).
+   * - La direccion de la lista base se guarda en el campo Direccion.
+   * - La calle del lote se elige aparte y solo puede venir de calles dibujadas.
+   *
+   * `explicitStreetName` queda por compatibilidad con llamadas anteriores, pero
+   * ya no pisa la calle: calle y direccion son campos distintos.
+   */
+  function applyCatalogToLot(code: string, explicitStreetName?: string) {
     const row = catalogByCode.get(normalizeCode(code));
     if (!row) {
       setLotInfo((current) => ({ ...current, code }));
@@ -335,6 +470,14 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
       catalogStatus: row.status || '',
       client: row.client || '',
     });
+
+    const desired = String(explicitStreetName || '').trim();
+    const matched = desired ? matchStreetFromBase(desired) : matchStreetFromBase(row.address);
+    if (matched && !selectedStreet) {
+      setStreetName(matched.name);
+      setSelectedStreet(matched.id);
+    }
+    setStreetAutoFilled(false);
   }
 
   function startCatalogEdit(row?: LotCatalogRow) {
@@ -389,20 +532,26 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
   }
 
   async function renameStreet(street: Block) {
-    const name = prompt('Nuevo nombre de la calle:', street.name);
-    if (name == null) return;
-    const address = prompt('Referencia de la calle (opcional):', street.address || '');
-    if (address == null) return;
-    try {
-      await api.post(`/plan/street/update/${street.id}`, { name: name || street.name, address });
-      toast('Calle actualizada');
-      load();
-    } catch (e: any) { toast(e.message, 'err'); }
+    const name = streetNameFromAddress(street.name || street.address || '');
+    setStreetSaveEditing(street);
+    setStreetSaveName(name);
+    setStreetSaveSelected(catalogAddresses.includes(name) ? name : '');
+    setStreetSaveModalOpen(true);
   }
 
   async function deleteStreet(street: Block) {
-    if (!confirm(`Eliminar calle ${street.name}? Sus lotes no se borran, quedan sin calle.`)) return;
-    try { await api.post(`/plan/street/delete/${street.id}`); toast('Calle eliminada'); load(); } catch (e: any) { toast(e.message, 'err'); }
+    setStreetDeleteTarget(street);
+  }
+
+  async function confirmDeleteStreet() {
+    if (!streetDeleteTarget) return;
+    try {
+      await api.post(`/plan/street/delete/${streetDeleteTarget.id}`);
+      toast('Calle eliminada');
+      if (Number(selectedStreet) === Number(streetDeleteTarget.id)) setSelectedStreet(null);
+      setStreetDeleteTarget(null);
+      load();
+    } catch (e: any) { toast(e.message, 'err'); }
   }
 
   async function deleteLot(lot: Lot) {
@@ -426,6 +575,9 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
   async function saveEditedLot() {
     if (!editingLot) return;
     if (!editingLot.code.trim()) return toast('Indica el codigo del lote', 'err');
+    if (lots.some((lot) => Number(lot.id) !== Number(editingLot.id) && normalizeCode(lot.code || '') === normalizeCode(editingLot.code))) {
+      return toast('Ya existe un lote con ese codigo', 'err');
+    }
     if (!editingLot.streetId) return toast('Selecciona la calle del lote', 'err');
     try {
       await api.post(`/plan/lot/update/${editingLot.id}`, {
@@ -560,7 +712,10 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
           {mode === 'none' && (
             <>
               <div className="card">
-                <p className="text-xs" style={{ color: '#6B7280' }}>Usa Calle / Lote para dibujar sobre el plano.</p>
+                <p className="text-xs" style={{ color: '#6B7280' }}>
+                  Usa Calle / Lote para dibujar sobre el plano. Las calles del catalogo
+                  se eligen al dibujar el lote.
+                </p>
                 <button className="btn-neutral mt-3 w-full justify-center" onClick={() => setStreetsOpen((value) => !value)}>
                   Calles ({streets.length})
                 </button>
@@ -572,6 +727,7 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
                     <button className="btn-neutral !h-7 !px-2 text-xs" onClick={() => setStreetsOpen(false)}>Cerrar</button>
                   </div>
                   <ul className="max-h-[460px] space-y-2 overflow-y-auto pr-1 text-sm">
+                    {/* Solo se listan las calles dibujadas en el plano. */}
                     {streets.map((street, index) => {
                       const tone = streetTone(index, selectedStreet === street.id);
                       const lotsCount = countLotsIn(street);
@@ -593,7 +749,14 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
                         </li>
                       );
                     })}
-                    {streets.length === 0 && <li className="text-xs" style={{ color: '#94a3b8' }}>Aun no hay calles dibujadas.</li>}
+                    {/* Solo se listan las calles DIBUJADAS en el plano. El catalogo
+                        de lotes no se lista aqui: se usa unicamente en el modal de
+                        dibujo para elegir la calle del lote. */}
+                    {streets.length === 0 && (
+                      <li className="text-xs" style={{ color: '#94a3b8' }}>
+                        Aun no hay calles dibujadas. Dibuja una calle o un lote para verlas aqui.
+                      </li>
+                    )}
                   </ul>
                 </div>
               )}
@@ -603,18 +766,11 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
             <div className="card lg:h-full lg:overflow-y-auto">
               <h4 className="mb-2 text-sm font-semibold">Guardar {mode === 'street' ? 'calle' : 'lote'}</h4>
               {mode === 'street' ? (
-                <div className="grid grid-cols-2 gap-2">
+                <div>
                   <button className="btn-primary w-full" onClick={saveStreet}>Guardar calle ({draft.length} pts)</button>
-                  <button className="btn-neutral w-full" onClick={closeShape}>Cerrar forma</button>
                 </div>
               ) : (
                 <div className="space-y-2 text-xs">
-                  <Field label="Calle contenedora">
-                    <select className="input !h-9 text-sm" value={selectedStreet || ''} onChange={(e) => setSelectedStreet(Number(e.target.value))}>
-                      <option value="">Selecciona...</option>
-                      {streets.map((street) => <option key={street.id} value={street.id}>{street.name}</option>)}
-                    </select>
-                  </Field>
                   <Field label="Codigo del lote *">
                     <input
                       className="input !h-9 text-sm"
@@ -628,7 +784,41 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
                       {lotCatalog.map((row) => <option key={row.id || row.code} value={row.code}>{row.address || row.type || row.status || ''}</option>)}
                     </datalist>
                   </Field>
-                  <Field label="Direccion"><input className="input !h-9 text-sm" value={lotInfo.address} onChange={(e) => setLotInfo({ ...lotInfo, address: e.target.value })} placeholder="Se llena desde la lista base" /></Field>
+                  <Field label="Nombre de la calle o tramo *">
+                    {streetOptions.length > 0 ? (
+                      <Select
+                        value={selectedStreet ? String(selectedStreet) : ''}
+                        onChange={(v) => {
+                          const street = streets.find((s) => String(s.id) === v);
+                          setStreetName(street?.name || '');
+                          setSelectedStreet(street?.id || null);
+                          setStreetAutoFilled(false);
+                        }}
+                        options={[
+                          { value: '', label: 'Selecciona una calle dibujada...' },
+                          ...streetOptions.map((option) => ({
+                            value: option.id,
+                            label: option.label,
+                          })),
+                        ]}
+                      />
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-[11px] font-semibold text-slate-500">
+                        Primero dibuja y guarda una calle en el plano.
+                      </div>
+                    )}
+                    <span className="mt-1 block text-[10px] font-semibold" style={{ color: '#64748b' }}>
+                      Origen: calles dibujadas en el plano.
+                    </span>
+                  </Field>
+                  <Field label="Direccion">
+                    <input
+                      className="input !h-9 text-sm"
+                      value={lotInfo.address}
+                      onChange={(e) => setLotInfo({ ...lotInfo, address: e.target.value })}
+                      placeholder="Direccion cargada desde la base"
+                    />
+                  </Field>
                   <div className="grid grid-cols-2 gap-2">
                     <Field label="Area m2"><input type="number" className="input !h-9 text-sm" value={lotInfo.area || ''} onChange={(e) => setLotInfo({ ...lotInfo, area: Number(e.target.value) })} /></Field>
                     <Field label="Tipo"><input className="input !h-9 text-sm" value={lotInfo.type} onChange={(e) => setLotInfo({ ...lotInfo, type: e.target.value })} placeholder="Ej: Esquina" /></Field>
@@ -646,7 +836,15 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
                     <Field label="Cliente base"><input className="input !h-9 text-sm" value={lotInfo.client} onChange={(e) => setLotInfo({ ...lotInfo, client: e.target.value })} /></Field>
                   </div>
                   <div className="grid grid-cols-2 gap-2 pt-1">
-                    <button className="btn-primary w-full" onClick={() => saveLot(streets.find((x) => x.id === selectedStreet) || null)}>Guardar lote</button>
+                    <button className="btn-primary w-full" onClick={() => {
+                      // Se resuelve la calle dibujada por nombre; si el campo trae una
+                      // calle del catalogo que no esta dibujada, se guarda solo el
+                      // texto (streetId = undefined) y el lote queda con su address.
+                      const byName = streets.find(
+                        (s) => normalizeStreet(s.name) === normalizeStreet(streetName),
+                      );
+                      saveLot(byName || streets.find((s) => s.id === selectedStreet) || null);
+                    }}>Guardar lote</button>
                     <button className="btn-neutral w-full" onClick={closeShape}>Cerrar forma</button>
                   </div>
                 </div>
@@ -655,6 +853,100 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
           )}
         </div>
       </div>
+
+      {streetSaveModalOpen && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/45 px-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-4">
+              <h3 className="text-lg font-bold text-slate-900">{streetSaveEditing ? 'Renombrar calle' : 'Guardar calle'}</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Elige un nombre de calle de la data cargada o escribe uno manual.
+              </p>
+            </div>
+            <div className="space-y-4">
+              <Field label="Nombres de calles de la data cargada">
+                {streetSaveOptions.length > 0 ? (
+                  <Select
+                    value={streetSaveSelected}
+                    onChange={(value) => {
+                      setStreetSaveSelected(value);
+                      if (value) setStreetSaveName(value);
+                    }}
+                    options={[
+                      { value: '', label: 'Escribir manualmente' },
+                      ...streetSaveOptions.map((address) => ({ value: address, label: address })),
+                    ]}
+                  />
+                ) : (
+                  <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-500">
+                    No hay calles nuevas en la data cargada. Puedes escribirla manualmente.
+                  </div>
+                )}
+              </Field>
+              <Field label="Nombre de la calle o tramo *">
+                <input
+                  className="input"
+                  value={streetSaveName}
+                  onChange={(e) => {
+                    const value = streetNameFromAddress(e.target.value);
+                    setStreetSaveName(value);
+                    if (normalizeStreet(value) !== normalizeStreet(streetSaveSelected)) setStreetSaveSelected('');
+                  }}
+                  placeholder={`Calle ${streets.length + 1}`}
+                  autoFocus
+                />
+              </Field>
+              <div className="rounded-lg bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700">
+                Se muestran nombres limpios, sin numero de lote ni detalle de direccion.
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                className="btn-neutral"
+                onClick={() => {
+                  setStreetSaveModalOpen(false);
+                  setStreetSaveEditing(null);
+                  setStreetSaveSelected('');
+                  setStreetSaveName('');
+                }}
+              >
+                Cancelar
+              </button>
+              <button className="btn-primary" onClick={confirmSaveStreet}>
+                {streetSaveEditing ? 'Actualizar calle' : 'Guardar calle'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {streetDeleteTarget && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/45 px-4">
+          <div className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-4">
+              <div className="mb-3 grid h-11 w-11 place-items-center rounded-full bg-red-50 text-xl font-bold text-red-600">
+                !
+              </div>
+              <h3 className="text-lg font-bold text-slate-900">Eliminar calle</h3>
+              <p className="mt-2 text-sm leading-6 text-slate-600">
+                Vas a eliminar <b className="text-slate-900">{streetDeleteTarget.name}</b>.
+                Los lotes no se borran; solo quedaran sin calle asignada.
+              </p>
+            </div>
+            <div className="rounded-lg bg-red-50 px-3 py-2 text-xs font-semibold text-red-700">
+              Esta accion no elimina lotes ni ventas asociadas.
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button className="btn-neutral" onClick={() => setStreetDeleteTarget(null)}>
+                Cancelar
+              </button>
+              <button className="btn-danger" onClick={confirmDeleteStreet}>
+                Eliminar calle
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

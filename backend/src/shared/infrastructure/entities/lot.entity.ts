@@ -24,6 +24,12 @@ export class LotEntity {
   @Column({ length: 50 })
   code: string;
 
+  // Direccion comercial del lote, tomada de la lista base del proyecto
+  // (project_lot_catalog.address). Es independiente de streetId: un lote puede
+  // tener direccion sin estar asociado a una calle dibujada en el plano.
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  address?: string | null;
+
   @Column({ type: 'jsonb', default: () => "'[]'" })
   points: Array<{ x: number; y: number }>;
 

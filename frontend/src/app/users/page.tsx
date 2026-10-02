@@ -264,8 +264,16 @@ export default function UsersPage() {
             <button className="btn-outline" onClick={() => setOpenAdmin(true)}>Nuevo gerente</button>
           </div>
         </div>
-        <div className="card p-0 overflow-auto">
-          <table className="table-base">
+        <div className="card p-0 overflow-x-auto overflow-y-hidden">
+          <table className="table-base w-full min-w-[1040px] table-fixed">
+            <colgroup>
+              <col className="w-[180px]" />
+              <col className="w-[250px]" />
+              <col className="w-[110px]" />
+              <col className="w-[140px]" />
+              <col className="w-[100px]" />
+              <col className="w-[260px]" />
+            </colgroup>
             <thead><tr>
               <th className="th-base">Nombre</th><th className="th-base">Correo</th><th className="th-base">Rol</th>
               <th className="th-base">Comisión</th><th className="th-base">Estado</th><th className="th-base">Acciones</th>
@@ -273,18 +281,18 @@ export default function UsersPage() {
             <tbody className="divide-y divide-slate-100">
               {rows.map((u) => (
                 <tr key={u.id}>
-                  <td className="td-base font-medium">{u.name}</td>
-                  <td className="td-base">{u.email}</td>
-                  <td className="td-base"><RoleBadge r={u.role} /></td>
+                  <td className="td-base truncate font-medium">{u.name}</td>
+                  <td className="td-base truncate">{u.email}</td>
+                  <td className="td-base whitespace-nowrap"><RoleBadge r={u.role} /></td>
                   <td className="td-base">{u.role === 'agent' ? (
                     <button className="text-[#1877F2] hover:underline text-xs font-medium inline-flex items-center gap-1" onClick={() => editCommission(u)}><FiSettings /> {Number(u.commissionRate || 0)}% editar</button>
                   ) : '-'}</td>
-                  <td className="td-base"><span className="badge" style={{ background: u.status === 'active' ? '#EAF7EE' : '#F1F5F9', color: u.status === 'active' ? '#125A3B' : '#64748B' }}>{u.status}</span></td>
+                  <td className="td-base whitespace-nowrap"><span className="badge" style={{ background: u.status === 'active' ? '#EAF7EE' : '#F1F5F9', color: u.status === 'active' ? '#125A3B' : '#64748B' }}>{u.status}</span></td>
                   <td className="td-base">
-                    <div className="flex flex-wrap gap-1">
-                      <button className="btn-neutral !h-7 text-xs" onClick={() => openEdit(u)}><FiEdit3 /> Editar</button>
-                      <button className="btn-neutral !h-7 text-xs" onClick={() => toggle(u)}>{u.status === 'active' ? 'Desactivar' : 'Activar'}</button>
-                      <button className="btn-outline !h-7 text-xs" onClick={() => reset(u)}>Reset pass</button>
+                    <div className="flex flex-nowrap gap-1">
+                      <button className="btn-neutral !h-7 !px-2 text-xs" onClick={() => openEdit(u)}><FiEdit3 /> Editar</button>
+                      <button className="btn-neutral !h-7 !px-2 text-xs" onClick={() => toggle(u)}>{u.status === 'active' ? 'Desactivar' : 'Activar'}</button>
+                      <button className="btn-outline !h-7 !px-2 text-xs" onClick={() => reset(u)}>Reset pass</button>
                     </div>
                   </td>
                 </tr>

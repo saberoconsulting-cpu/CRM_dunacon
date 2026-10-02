@@ -154,40 +154,42 @@ function buildPlanHtml(data: any, planPrintZoom = 1) {
   const lotLabel = escapeHtml(selected?.code || lot?.code || String(quote?.lotId || ''));
 
   return `
-    <h2>Ubicacion en plano</h2>
-    <div class="plan-card">
-      <div class="plan-head">
-        <div><strong>Plano del proyecto</strong><span>Lote cotizado resaltado y ampliado</span></div>
-        <div class="plan-actions">
-          <label for="quote-plan-zoom-range">Zoom plano <strong id="quote-plan-zoom-label">${Math.round(safePlanZoom * 100)}%</strong></label>
-          <input id="quote-plan-zoom-range" type="range" min="1" max="1.8" step="0.05" value="${safePlanZoom}" />
-          <b>Lote ${lotLabel}</b>
+    <section class="plan-section">
+      <h2 class="plan-title">Ubicacion en plano</h2>
+      <div class="plan-card">
+        <div class="plan-head">
+          <div><strong>Plano del proyecto</strong><span>Lote cotizado resaltado y ampliado</span></div>
+          <div class="plan-actions">
+            <label for="quote-plan-zoom-range">Zoom plano <strong id="quote-plan-zoom-label">${Math.round(safePlanZoom * 100)}%</strong></label>
+            <input id="quote-plan-zoom-range" type="range" min="1" max="1.8" step="0.05" value="${safePlanZoom}" />
+            <b>Lote ${lotLabel}</b>
+          </div>
+        </div>
+        <div class="plan-split">
+          <div class="plan-full">
+            <svg id="quote-plan-full-svg" class="plan-svg" viewBox="${fullViewX} ${fullViewY} ${fullViewW} ${fullViewH}" data-center-x="${fullCenterX}" data-center-y="${fullCenterY}" role="img" aria-label="Plano completo del proyecto">
+              <rect x="0" y="0" width="${SVG_W}" height="${SVG_H}" fill="#F8FAFC" />
+              <image href="${escapeHtml(imageUrl)}" x="${imgX}" y="${imgY}" width="${imgW}" height="${imgH}" preserveAspectRatio="xMidYMid meet" />
+              ${otherLots}
+              <polygon points="${escapeHtml(pointsToAttr(selectedPoints))}" class="lot-selected" />
+            </svg>
+            <p class="plan-note">Proyecto completo</p>
+          </div>
+          <div class="plan-zoom">
+            <svg viewBox="${zoom.x} ${zoom.y} ${zoom.w} ${zoom.h}" role="img" aria-label="Zoom al lote cotizado">
+              <rect x="0" y="0" width="${imageW}" height="${imageH}" fill="#F8FAFC" />
+              <image href="${escapeHtml(imageUrl)}" x="0" y="0" width="${imageW}" height="${imageH}" preserveAspectRatio="xMidYMid meet" />
+              <polygon points="${escapeHtml(pointsToAttr(selectedPoints))}" fill="rgba(220,38,38,0.28)" stroke="#DC2626" stroke-width="${lotStroke}" />
+              <g>
+                <rect x="${labelX}" y="${labelY}" width="${labelW}" height="${labelH}" rx="${labelH * 0.18}" fill="#FFFFFF" stroke="#DC2626" stroke-width="${zoomStretch}" />
+                <text x="${labelX + labelW / 2}" y="${labelY + labelH * 0.68}" text-anchor="middle" font-size="${zoom.w * 0.021}" font-weight="700" fill="#991B1B">${lotLabel}</text>
+              </g>
+            </svg>
+            <p class="plan-note">Zoom al lote ${lotLabel}</p>
+          </div>
         </div>
       </div>
-      <div class="plan-split">
-        <div class="plan-full">
-          <svg id="quote-plan-full-svg" class="plan-svg" viewBox="${fullViewX} ${fullViewY} ${fullViewW} ${fullViewH}" data-center-x="${fullCenterX}" data-center-y="${fullCenterY}" role="img" aria-label="Plano completo del proyecto">
-            <rect x="0" y="0" width="${SVG_W}" height="${SVG_H}" fill="#F8FAFC" />
-            <image href="${escapeHtml(imageUrl)}" x="${imgX}" y="${imgY}" width="${imgW}" height="${imgH}" preserveAspectRatio="xMidYMid meet" />
-            ${otherLots}
-            <polygon points="${escapeHtml(pointsToAttr(selectedPoints))}" class="lot-selected" />
-          </svg>
-          <p class="plan-note">Proyecto completo</p>
-        </div>
-        <div class="plan-zoom">
-          <svg viewBox="${zoom.x} ${zoom.y} ${zoom.w} ${zoom.h}" role="img" aria-label="Zoom al lote cotizado">
-            <rect x="0" y="0" width="${imageW}" height="${imageH}" fill="#F8FAFC" />
-            <image href="${escapeHtml(imageUrl)}" x="0" y="0" width="${imageW}" height="${imageH}" preserveAspectRatio="xMidYMid meet" />
-            <polygon points="${escapeHtml(pointsToAttr(selectedPoints))}" fill="rgba(220,38,38,0.28)" stroke="#DC2626" stroke-width="${lotStroke}" />
-            <g>
-              <rect x="${labelX}" y="${labelY}" width="${labelW}" height="${labelH}" rx="${labelH * 0.18}" fill="#FFFFFF" stroke="#DC2626" stroke-width="${zoomStretch}" />
-              <text x="${labelX + labelW / 2}" y="${labelY + labelH * 0.68}" text-anchor="middle" font-size="${zoom.w * 0.021}" font-weight="700" fill="#991B1B">${lotLabel}</text>
-            </g>
-          </svg>
-          <p class="plan-note">Zoom al lote ${lotLabel}</p>
-        </div>
-      </div>
-    </div>
+    </section>
   `;
 }
 
@@ -202,21 +204,13 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
   const start = new Date(quote.createdAt || Date.now());
   const dueDate = (m: number) => new Date(start.getFullYear(), start.getMonth() + m, start.getDate()).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const rows: ScheduleRow[] = Array.isArray(plan?.rows) ? plan.rows : [];
-  const initialPlan = plan?.initialPlan || null;
   const totalInstallments = Number(quote.totalCuotas || 0);
   // CUOTA INICIAL: pago aparte que se descuenta del precio final. El saldo se
   // financia en `financingInstallments` cuotas (el cronograma de amortizacion
-  // tiene exactamente esas filas), PERO para el cliente la cuota inicial TAMBIEN
-  // es UNA cuota: el "Total cuotas" que ve en el documento es
-  // financiamiento + 1 (ej. 24 + 1 = 25).
+  // tiene exactamente esas filas). La cuota inicial NO se cuenta como cuota a
+  // financiar: "Cuotas a financiar" refleja solo las cuotas del cronograma.
   const cuotaInicialUsd = Math.max(0, Number(quote.cuotaInicialUsd || 0));
   const financingInstallments = Math.max(0, totalInstallments);
-  // La cuota inicial cuenta SIEMPRE como 1 sola cuota. Las "partes" (2 o 3) son
-  // un fraccionamiento del PAGO dentro del mes, no cuotas del cronograma: 24
-  // financiadas + inicial (en 1, 2 o 3 partes) = 25. Con inicial 0 no se suma.
-  const initialInstallments = cuotaInicialUsd > 0 ? 1 : 0;
-  // Total que se muestra al cliente: el cronograma mas la cuota inicial.
-  const displayTotalInstallments = financingInstallments + initialInstallments;
   const savedGraceMonths = Number(quote.graceMonths || 0);
   const scheduleGraceMonths = Number(plan?.graceMonths || 0);
   const graceMonths = Math.min(financingInstallments, Math.max(0, savedGraceMonths || scheduleGraceMonths));
@@ -262,7 +256,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
       <div><span>Tipo de cambio</span><strong>S/ ${rate.toFixed(4)}</strong></div>
     </div>
   `;
-  const detailRows = [
+  const detailEntries = [
     ['Cliente', quote.clientName],
     ['Correo', quote.clientEmail || '-'],
     ['Telefono', quote.clientPhone || '-'],
@@ -273,11 +267,19 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
     ['Precio US$/m2', fmtUsd(Number(quote.pricePerM2Usd || 0))],
     ['Forma de pago', PAY_LABEL[quote.paymentMethod] || quote.paymentMethod],
     ['Tipo de cambio', `S/ ${Number(quote.exchangeRate || 0).toFixed(4)}`],
-  ].map(([label, value]) => `<tr><td class="label">${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join('');
+  ];
+  const detailSplitAt = Math.ceil(detailEntries.length / 2);
+  const detailLeft = detailEntries.slice(0, detailSplitAt);
+  const detailRight = detailEntries.slice(detailSplitAt);
+  const detailRows = detailLeft.map(([leftLabel, leftValue], index) => {
+    const [rightLabel, rightValue] = detailRight[index] || ['', ''];
+    return `<tr><td class="label">${escapeHtml(leftLabel)}</td><td class="value-cell">${escapeHtml(leftValue)}</td><td class="quote-data-gap"></td><td class="label">${escapeHtml(rightLabel)}</td><td class="value-cell">${escapeHtml(rightValue)}</td></tr>`;
+  }).join('');
   const isFinancing = docType === 'financiamiento';
-  const title = isFinancing ? 'Cronograma de financiamiento' : 'Cotizacion de lote';
+  const title = 'Cotizacion de lote';
   const subtitle = `${project?.name || 'Proyecto'} - Lote ${lot?.code || quote.lotId}`;
   const planHtml = buildPlanHtml(data, options?.planPrintZoom);
+  const bodyClass = isFinancing ? 'doc-financing' : 'doc-quote';
 
   return `
     <html>
@@ -286,26 +288,32 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>${escapeHtml(title)} Q${quote.id}</title>
         <style>
-          body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white;font-size:12px}
+          *{box-sizing:border-box}
+          html,body{max-width:100%;overflow-x:hidden}
+          body{font-family:Arial,Helvetica,sans-serif;margin:24px;color:#171717;background:white;font-size:12px}
           .watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.055;z-index:-1}
           .watermark img{width:560px;max-width:72vw}
-          .brand{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}
+          .brand{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;border-bottom:3px solid #1877F2;padding-bottom:12px;margin-bottom:12px}
           .logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}
           .eyebrow{margin:0 0 5px;color:#1877F2;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
-          h1{margin:0;font-size:27px;line-height:1.15;color:#111827} h2{font-size:15px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
+          h1{margin:0;font-size:26px;line-height:1.15;color:#111827} h2{font-size:15px;margin:14px 0 7px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
           p{margin:4px 0 0;color:#6B7280;font-size:12px}
-          .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin:14px 0 18px}
+          .summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin:12px 0 14px}
           .summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}
-          .summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.15}
-          .summary strong{display:block;margin-top:4px;color:#111827;font-size:12px;white-space:nowrap}
-          .summary .head-card{border-color:#B9D2F4;background:#F5F9FF;border-left:4px solid #1877F2}
-          .summary .head-card span{color:#1259C4}
-          .summary .head-card strong{color:#0B2F6E}
+          .summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;line-height:1.15;white-space:normal;overflow-wrap:normal;word-break:normal}
+          .summary strong{display:block;margin-top:4px;color:#111827;font-size:12px;white-space:nowrap;letter-spacing:0}
+          .summary .head-card{border-color:#B9D2F4;background:#F5F9FF;border-left:4px solid #1877F2;text-align:center}
+          .summary .head-card span{color:#1259C4;text-align:center}
+          .summary .head-card strong{color:#0B2F6E;text-align:center}
+          .quote-data-table td{width:24%}
+          .quote-data-table .label{width:24%}
+          .quote-data-table .quote-data-gap{width:4%;border:none;background:white;padding:0}
+          .quote-data-table .value-cell{overflow-wrap:anywhere;word-break:break-word}
           .summary-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:6px;margin:14px 0 18px}
           .summary-row div{border:1px solid #E5E7EB;background:#F8FAFC;padding:8px 7px;border-radius:6px;min-width:0}
           .summary-row span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.2;min-height:24px}
-          .summary-row strong{display:block;margin-top:3px;color:#111827;font-size:12px;white-space:nowrap}
-          .summary-row .finance-highlight{border-color:#1877F2;background:#F5F9FF;border-left:4px solid #1877F2}
+          .summary-row strong{display:block;margin-top:3px;color:#111827;font-size:12px;white-space:nowrap;letter-spacing:0}
+          .summary-row .finance-highlight{border-color:#1877F2;background:#F5F9FF;border-left:4px solid #1877F2;text-align:center}
           .summary-row .finance-highlight strong{color:#1259C4}
           .summary-row .tiny{display:inline;margin-left:3px;color:#64748B;font-size:9px;font-weight:700;text-transform:none;letter-spacing:0}
           .section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:nowrap}
@@ -314,7 +322,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           .summary-aside div{border:1px solid #E5E7EB;background:#F8FAFC;padding:5px 10px;border-radius:6px;text-align:right}
           .summary-aside span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
           .summary-aside strong{display:block;margin-top:2px;color:#1259C4;font-size:12px;font-weight:700;white-space:nowrap}
-          table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}
+          table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:12px;background:white}
           th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:12px;text-align:left;text-transform:uppercase}
           td{border:1px solid #E5E7EB;padding:8px 7px;font-size:12px;vertical-align:top}
           tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}
@@ -331,7 +339,9 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           .schedule-table th:nth-child(6),.schedule-table td:nth-child(6){width:11%}
           .schedule-table th:nth-child(7),.schedule-table td:nth-child(7){width:14%}
           .schedule-table th:nth-child(8),.schedule-table td:nth-child(8){width:14%}
-          .plan-card{border:1px solid #E5E7EB;border-radius:12px;overflow:hidden;margin:8px 0 16px;background:#F8FAFC;break-inside:avoid;box-shadow:0 8px 24px rgba(15,23,42,.06)}
+          .plan-section{margin-top:12px}
+          .plan-title{margin-top:0}
+          .plan-card{border:1px solid #E5E7EB;border-radius:12px;overflow:hidden;margin:8px 0 12px;background:#F8FAFC;break-inside:avoid;box-shadow:0 8px 24px rgba(15,23,42,.06)}
           .plan-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border-bottom:1px solid #E5E7EB;background:white}
           .plan-head strong{display:block;font-size:12px;color:#111827}.plan-head span{display:block;margin-top:2px;font-size:10px;color:#6B7280}.plan-head b{border-radius:999px;background:#EAF3FF;color:#1259C4;padding:5px 10px;font-size:11px}
           .plan-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
@@ -341,7 +351,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           .plan-svg{display:block;width:100%;height:auto;background:#EEF2F7;border-radius:10px}
           .plan-split{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:12px;padding:12px}
           .plan-full,.plan-zoom{min-width:0;display:flex;flex-direction:column;gap:6px}
-          .plan-full .plan-svg,.plan-zoom svg{height:330px;border-radius:10px;overflow:hidden;background:#EEF2F7}
+          .plan-full .plan-svg,.plan-zoom svg{height:300px;border-radius:10px;overflow:hidden;background:#EEF2F7}
           .plan-zoom svg{display:block;width:100%}
           .plan-note{margin:0;font-size:9px;font-weight:700;text-align:center;text-transform:uppercase;letter-spacing:.06em;color:#6B7280}
           @media (max-width:640px){.plan-split{grid-template-columns:minmax(0,1fr)}.plan-full .plan-svg,.plan-zoom svg{height:190px}}
@@ -369,19 +379,95 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
             .plan-full .plan-svg,.plan-zoom svg{height:190px}
             .watermark img{width:300px}
           }
-          @media print{body{margin:18px;font-family:Arial,Helvetica,sans-serif !important;font-size:12px !important}body *{font-family:Arial,Helvetica,sans-serif !important}.brand,.summary,.summary-row,.summary-aside,.plan-card{break-inside:avoid}thead{display:table-header-group}.watermark{position:fixed}.plan-actions input,.plan-actions label{display:none !important}
-            p,span,b,strong,table,thead,tbody,tr,th,td,div{font-size:12px !important;line-height:1.35 !important}
-            h1{font-size:22px !important;line-height:1.2 !important}
-            h2{font-size:14px !important;line-height:1.3 !important}
-            .eyebrow,p,.summary span,.summary strong,.summary-row span,.summary-row strong,.summary-row .tiny,.summary-aside span,.summary-aside strong,th,td,.schedule-table th,.schedule-table td,.schedule-table .num,.plan-head strong,.plan-head span,.plan-head b,.plan-note,.footer{font-size:12px !important}
-            .plan-split{display:grid !important;grid-template-columns:minmax(0,3fr) minmax(0,2fr) !important;gap:12px !important}
-            .plan-full .plan-svg,.plan-zoom svg{height:285px !important}
-            .summary-row{display:grid !important;grid-template-columns:repeat(4,minmax(0,1fr)) !important}
-            .section-head{display:flex !important;flex-wrap:nowrap !important}
+          /* Margen vertical lo da @page; el lateral lo da el padding del body (nunca se pierde) */
+          @page{size:A4 portrait;margin:5mm 0}
+          @media print{
+            html,body{width:auto !important;max-width:none !important;overflow:visible !important}
+            body{
+              margin:0 !important;
+              padding:0 7mm !important;
+              font-family:Arial,Helvetica,sans-serif !important;
+              font-size:13px !important;
+              line-height:1.4 !important;
+              -webkit-print-color-adjust:exact !important;print-color-adjust:exact !important;
+            }
+            body *{font-family:Arial,Helvetica,sans-serif !important;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
+            /* Todo respeta el ancho util, nada se desborda */
+            .brand,.summary,.summary-row,.plan-card,.footer,table{width:100% !important;max-width:100% !important}
+            /* Encabezado */
+            .brand{margin:0 0 8px !important;padding-bottom:8px !important;gap:14px !important}
+            .brand h1,h1{font-size:24px !important;line-height:1.12 !important}
+            .eyebrow{font-size:11px !important;margin:0 0 4px !important}
+            .logos{gap:10px !important;flex:0 0 auto !important}
+            .logos img{height:36px !important;max-width:138px !important}
+            p{font-size:11px !important;margin:3px 0 !important}
+            h2{font-size:14px !important;line-height:1.18 !important;margin:10px 0 6px !important}
+            /* Tablas: mas aire para aprovechar el alto de la hoja */
+            table{margin-bottom:8px !important}
+            th,td{padding:6px 8px !important;font-size:12px !important;line-height:1.22 !important}
+            /* Tarjetas superiores: columnas fijas, sin desborde */
+            .summary{
+              display:grid !important;
+              grid-template-columns:repeat(6,minmax(0,1fr)) !important;
+              grid-auto-flow:row !important;grid-auto-columns:auto !important;
+              gap:8px !important;margin:8px 0 10px !important;
+            }
+            .summary div{min-width:0 !important;overflow:hidden !important;padding:8px 6px !important}
+            .summary span{font-size:11px !important;line-height:1.1 !important}
+            .summary strong{font-size:16px !important;margin-top:3px !important;white-space:nowrap !important;letter-spacing:0 !important}
+            /* Financiamiento: 5 tarjetas fijas */
+            .summary-row{
+              display:grid !important;
+              grid-template-columns:repeat(5,minmax(0,1fr)) !important;
+              grid-auto-flow:row !important;grid-auto-columns:auto !important;
+              gap:8px !important;margin:8px 0 10px !important;
+            }
+            .summary-row div{min-width:0 !important;overflow:hidden !important;padding:8px 6px !important}
+            .summary-row span{font-size:9.5px !important;line-height:1.2 !important;min-height:auto !important}
+            .summary-row .tiny{font-size:9.5px !important}
+            .summary-row strong{font-size:14px !important;margin-top:4px !important;white-space:nowrap !important}
+            /* Fecha / tipo de cambio */
+            .section-head{display:flex !important;flex-wrap:nowrap !important;align-items:center !important}
+            .summary-aside{margin-bottom:9px !important}
+            .summary-aside div{padding:6px 10px !important}
+            .summary-aside span{font-size:9.5px !important}
+            .summary-aside strong{font-size:12px !important}
+            /* Datos de la cotizacion */
+            .quote-data-table{table-layout:fixed !important}
+            .quote-data-table .label{width:18% !important}
+            .quote-data-table .value-cell{width:30% !important}
+            .quote-data-table .quote-data-gap{width:4% !important}
+            /* Plano: mas grande, aprovecha el alto */
+            .plan-section{break-inside:avoid;page-break-before:auto !important;margin-top:8px !important}
+            .plan-card{border-radius:8px !important;margin:6px 0 8px !important;box-shadow:none !important}
+            .plan-head{display:flex !important;flex-wrap:wrap !important;padding:7px 10px !important}
+            .plan-actions input,.plan-actions label{display:none !important}
+            .plan-split{display:grid !important;grid-template-columns:minmax(0,3fr) minmax(0,2fr) !important;gap:10px !important;padding:9px !important}
+            .plan-full .plan-svg,.plan-zoom svg{height:235px !important}
+            .plan-note{font-size:10px !important;margin-top:3px !important}
+            .plan-financing .plan-full .plan-svg,.plan-financing .plan-zoom svg{height:340px !important}
+            .plan-financing .plan-split{gap:14px !important}
+            /* Financiamiento (PDF de financiamiento arranca en hoja nueva) */
+            .page-break-financing{break-before:page !important;page-break-before:always !important}
+            .financing-section{break-inside:auto !important}
+            .financing-section > h2{break-after:avoid !important;page-break-after:avoid !important}
+            .financing-section .summary-row{break-inside:avoid !important;page-break-inside:avoid !important}
+            /* Cronograma */
+            .schedule-table{table-layout:fixed !important}
+            .schedule-table th,.schedule-table td{padding:6px 5px !important;font-size:11.5px !important}
+            thead{display:table-header-group}
+            tr{break-inside:avoid;page-break-inside:avoid}
+            .brand,.summary,.summary-row,.summary-aside{break-inside:avoid}
+            /* Marca de agua mas tenue */
+            .watermark{position:fixed;opacity:.06}
+            .watermark img{width:340px !important}
+            .footer{margin-top:8px !important;padding-top:6px !important;font-size:10px !important}
+            .doc-quote .watermark{display:none !important}
+            .doc-quote .plan-section,.doc-quote .summary-row,.doc-quote .quote-data-table,.doc-quote .section-head,.doc-quote table{break-inside:avoid !important;page-break-inside:avoid !important}
           }
         </style>
       </head>
-      <body>
+      <body class="${bodyClass}">
         <div class="watermark"><img src="${escapeHtml(adminLogoUrl)}" alt="" /></div>
         <div class="brand">
           <div><p class="eyebrow">${escapeHtml(title)}</p><h1>Q${quote.id} - ${escapeHtml(subtitle)}</h1><p>Generado ${escapeHtml(generatedAt)}</p></div>
@@ -389,41 +475,36 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
         </div>
         <div class="summary">
           <div class="head-card"><span>Precio final</span><strong>${escapeHtml(fmtUsd(Number(quote.finalPriceUsd || 0)))}</strong></div>
-          <div class="head-card"><span>Saldo</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
           ${quote.paymentMethod === 'credito' ? `
               <div class="head-card"><span>Cuota inicial</span><strong>${escapeHtml(fmtUsd(cuotaInicialUsd))}</strong></div>
-              <div class="head-card"><span>Cuotas s/int.</span><strong>${noInterestInstallments}</strong></div>
-              <div class="head-card"><span>Cuotas c/int.</span><strong>${interestInstallments}</strong></div>
-              <div class="head-card"><span>Total cuotas</span><strong>${displayTotalInstallments}</strong></div>
+              <div class="head-card"><span>Saldo a financiar</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
+              <div class="head-card"><span>Cuotas a financiar</span><strong>${financingInstallments}</strong></div>
+              <div class="head-card"><span>Cuota sin interes</span><strong>${escapeHtml(fmtUsd(noInterestCuotaUsd))}</strong></div>
+              <div class="head-card"><span>Cuota con interes</span><strong>${escapeHtml(fmtUsd(interestCuotaUsd))}</strong></div>
             ` : '<div class="head-card"><span>Forma de pago</span><strong>Contado</strong></div>'}
           </div>
         <h2>Datos de la cotizacion</h2>
-        <table><tbody>${detailRows}</tbody></table>
+        <table class="quote-data-table"><tbody>${detailRows}</tbody></table>
         <div class="section-head">
           <h2>Resumen comercial</h2>
           ${summaryAside}
         </div>
         <table><thead><tr><th>Concepto</th><th>US$</th><th>S/</th></tr></thead><tbody>${summaryHtml}</tbody></table>
+        <div class="plan-wrap${isFinancing ? ' plan-financing' : ''}">
         ${planHtml}
+        </div>
         ${quote.paymentMethod === 'credito' ? `
+          <div class="financing-section${isFinancing ? ' page-break-financing' : ''}">
           <h2>Financiamiento</h2>
           <div class="summary-row">
-            <div class="finance-highlight"><span>Cuota inicial</span><strong>${escapeHtml(fmtUsd(cuotaInicialUsd))}</strong></div>
             <div class="finance-highlight"><span>Saldo a financiar</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
             <div class="finance-highlight"><span>TEA</span><strong>${quote.interestType === 'tea' ? `${Number(quote.tea || 0)}%` : 'Sin intereses'}</strong></div>
+            <div class="finance-highlight"><span>Cuotas a financiar</span><strong>${financingInstallments}</strong></div>
             <div class="finance-highlight"><span>Cuotas sin interés <em class="tiny">(${noInterestInstallments})</em></span><strong>${escapeHtml(fmtUsd(noInterestCuotaUsd))}</strong></div>
             <div class="finance-highlight"><span>Cuotas con interés <em class="tiny">(${interestInstallments})</em></span><strong>${escapeHtml(fmtUsd(interestCuotaUsd))}</strong></div>
-            <div class="finance-highlight"><span>Total cuotas</span><strong>${displayTotalInstallments}</strong></div>
-            <div class="finance-highlight"><span>TC</span><strong>S/ ${Number(quote.exchangeRate || 0).toFixed(4)}</strong></div>
           </div>
-          ${initialPlan ? `
-            <h2>Cuota inicial (sin intereses)</h2>
-            <table><tbody>
-              <tr><td class="label">Monto de la cuota inicial</td><td class="num">${escapeHtml(fmtUsd(initialPlan.cuotaInicialTotal))}</td></tr>
-              <tr><td class="label">Forma de pago</td><td class="num">${initialPlan.modo === 'partes' ? `${initialPlan.partes} partes de ${escapeHtml(fmtUsd(initialPlan.montoPorParte))}` : 'Pago unico de contado'}</td></tr>
-            </tbody></table>
-          ` : ''}
-          ${isFinancing ? `<table class="schedule-table"><thead><tr><th>Mes</th><th>Fecha</th><th>Saldo inicial</th><th>Amort. capital</th><th>Amort. extra</th><th>Interes</th><th>Cuota</th><th>Saldo final</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody></table>` : ''}
+          ${isFinancing ? `<h2>CRONOGRAMA DEL FINANCIAMIENTO</h2><table class="schedule-table"><thead><tr><th>Mes</th><th>Fecha</th><th>Saldo inicial</th><th>Amort. capital</th><th>Amort. extra</th><th>Interes</th><th>Cuota</th><th>Saldo final</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody></table>` : ''}
+          </div>
         ` : ''}
         <div class="footer">Dunacon - CRM Inmobiliario</div>
         <script>
@@ -651,9 +732,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     }
   }
 
-  // Limpia el lote elegido para poder escoger otro sin cerrar el modal.
-  // Deja las cajas de datos del lote visibles (solo se vacian sus valores) y
-  // restablece la lista de lotes (sin filtro de calle) para poder re-elegir.
+
   function resetLot() {
     setLotId(0);
     setStreetId(0);

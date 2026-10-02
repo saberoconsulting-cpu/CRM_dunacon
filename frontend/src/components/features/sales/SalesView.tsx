@@ -592,7 +592,6 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const formaPago = Number(s.totalCuotas || 0) > 0 ? 'Al credito' : 'Contado';
     const salePriceValue = Number(s.salePrice || 0);
     const commission = Number(s.commission || 0);
-    const financingBase = Number(s.financingBase || salePriceValue);
     const valorCuota = Number(s.valorCuota || schedule[0]?.amount || 0);
     const paidInstallments = schedule.filter((row) => row.status === 'pagado').length;
 
@@ -611,7 +610,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const graceMonthsSaved = parsedConditions.graceMonths;
     const initialPaymentMode = parsedConditions.initialPaymentMode || 'contado';
     const initialParts = Math.max(2, parsedConditions.initialParts || 0 || 2);
-    const saldoFin = Math.max(0, financingBase - cuotaInicialPen);
+    const saldoFin = Math.max(0, salePriceValue - cuotaInicialPen);
     // Cuotas del FINANCIAMIENTO: el cronograma de amortizacion tiene exactamente
     // estas filas (la cuota inicial se descuenta del precio y no forma parte del
     // saldo financiado, por eso no se resta 1).
@@ -639,7 +638,6 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const noInterestCuotaPen = promedio(cuotasSinInteres, noInterestCuotaUsd);
     const interestCuotaPen = promedio(cuotasConInteres, interestCuotaUsd);
     const totalCuotasPen = cuotas.reduce((a, b) => a + b, 0);
-    const totalPagarPen = totalCuotasPen + cuotaInicialPen;
     // --- Moneda de la ficha: TODO el documento se expresa en US$ ---
     // Los importes se guardan en soles en la base; aqui se dividen por el TC
     // (columna de la cotizacion o TC referencial) y se formatean con 2
@@ -672,16 +670,36 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       ['Forma de Pago', formaPago],
       ['Nro de Cuotas', displayTotalInstallments],
       ['Comision', usdMoney(commission)],
-      ['Saldo a Financiar', usdMoney(financingBase)],
+      ['Saldo a Financiar', usdMoney(saldoFin)],
       ['Interes', interestType === 'tea' ? `Con TEA = ${teaValue}%` : 'Sin intereses'],
       ['Estado', s.approvalStatus === 'pendiente' ? 'Pendiente' : 'Aprobada'],
     ];
-    const scheduleRows = schedule.map((row) => `
-      <tr><td>Cuota ${escapeHtml(row.installmentNo || '-')}</td><td>${escapeHtml(formatDate(row.dueDate))}</td><td class="num">${escapeHtml(usdMoney(Number(row.amount || 0)))}</td><td>${escapeHtml(row.status || '-')}</td></tr>
+    const detailSplitAt = Math.ceil(detailRows.length / 2);
+    const detailLeft = detailRows.slice(0, detailSplitAt);
+    const detailRight = detailRows.slice(detailSplitAt);
+    const detailRowsHtml = detailLeft.map(([leftLabel, leftValue], index) => {
+      const [rightLabel, rightValue] = detailRight[index] || ['', ''];
+      return `<tr><td class="label">${escapeHtml(leftLabel)}</td><td class="value-cell">${escapeHtml(leftValue)}</td><td class="sale-data-gap"></td><td class="label">${escapeHtml(rightLabel)}</td><td class="value-cell">${escapeHtml(rightValue)}</td></tr>`;
+    }).join('');
+    const monthlyRate = interestType === 'tea' && teaValue > 0 ? Math.pow(1 + teaValue / 100, 1 / 12) - 1 : 0;
+    let remainingCapital = saldoFin;
+    let totalCapitalPen = 0;
+    let totalInterestPen = 0;
+    const amortizedRows = schedule.map((row, index) => {
+      const amount = Number(row.amount || 0);
+      const interest = monthlyRate > 0 && index >= noInterestInstallments ? Math.max(0, remainingCapital * monthlyRate) : 0;
+      const capital = Math.max(0, Math.min(remainingCapital, amount - interest));
+      remainingCapital = Math.max(0, remainingCapital - capital);
+      totalCapitalPen += capital;
+      totalInterestPen += interest;
+      return { ...row, amount, capital, interest };
+    });
+    const scheduleRows = amortizedRows.map((row) => `
+      <tr><td>Cuota ${escapeHtml(row.installmentNo || '-')}</td><td>${escapeHtml(formatDate(row.dueDate))}</td><td class="num">${escapeHtml(usdMoney(row.capital))}</td><td class="num">${escapeHtml(usdMoney(row.interest))}</td><td class="num">${escapeHtml(usdMoney(row.amount))}</td><td>${escapeHtml(row.status || '-')}</td></tr>
     `).join('');
     // Fila de totales del cronograma (mismo criterio que la cotizacion).
     const scheduleTotalRow = schedule.length ? `
-      <tr class="total-row"><td colspan="2">Total</td><td class="num">${escapeHtml(usdMoney(totalCuotasPen))}</td><td class="num">${paidInstallments}/${schedule.length}</td></tr>
+      <tr class="total-row"><td colspan="2">Total</td><td class="num">${escapeHtml(usdMoney(totalCapitalPen))}</td><td class="num">${escapeHtml(usdMoney(totalInterestPen))}</td><td class="num">${escapeHtml(usdMoney(totalCuotasPen))}</td><td class="num">${paidInstallments}/${schedule.length}</td></tr>
     ` : '';
     // Bloque "Financiamiento" con las mismas tarjetas (finance-highlight) del
     // PDF de financiamiento/cotizacion. Se inserta ANTES del cuadro de cuotas.
@@ -690,9 +708,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       <div class="summary-row">
         <div class="finance-highlight"><span>Saldo fin.</span><strong>${escapeHtml(usdMoney(saldoFin))}</strong></div>
         <div class="finance-highlight"><span>TEA</span><strong>${interestType === 'tea' ? `${teaValue}%` : 'Sin intereses'}</strong></div>
-        <div class="finance-highlight"><span>C. s/int. <em class="tiny">(${noInterestInstallments})</em></span><strong>${escapeHtml(usdMoney(noInterestCuotaPen))}</strong></div>
-        <div class="finance-highlight"><span>C. c/int. <em class="tiny">(${interestInstallments})</em></span><strong>${escapeHtml(usdMoney(interestCuotaPen))}</strong></div>
-        <div class="finance-highlight"><span>Total cuotas</span><strong>${displayTotalInstallments}</strong></div>
+        <div class="finance-highlight"><span>Cuota financiamiento</span><strong>${displayTotalInstallments}</strong></div>
+        <div class="finance-highlight"><span>Cuota sin interes <em class="tiny">(${noInterestInstallments})</em></span><strong>${escapeHtml(usdMoney(noInterestCuotaPen))}</strong></div>
+        <div class="finance-highlight"><span>Cuota con interes <em class="tiny">(${interestInstallments})</em></span><strong>${escapeHtml(usdMoney(interestCuotaPen))}</strong></div>
         <div class="finance-highlight"><span>TC</span><strong>S/ ${exchangeRate.toFixed(4)}</strong></div>
       </div>
       ${initialPlan ? `
@@ -705,24 +723,27 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     ` : '';
     printHtml(`
       <html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Ficha de venta V${s.id}</title><style>
-        body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white}.brand{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}.logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}.eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}h1{margin:0;font-size:24px;line-height:1.15;color:#111827}h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}p{margin:4px 0 0;color:#6B7280;font-size:12px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}.summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}.summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.summary strong{display:block;margin-top:4px;color:#111827;font-size:12px}.summary-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:6px;margin:14px 0 18px}.summary-row div{border:1px solid #E5E7EB;background:#F8FAFC;padding:8px 7px;border-radius:6px;min-width:0}.summary-row span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.2}.summary-row strong{display:block;margin-top:3px;color:#111827;font-size:13px;white-space:nowrap}.summary-row .finance-highlight{border-color:#1877F2;background:#F5F9FF;border-left:4px solid #1877F2}.summary-row .finance-highlight strong{color:#1259C4}.summary-row .tiny{display:inline;margin-left:3px;color:#64748B;font-size:9px;font-weight:700;text-transform:none;letter-spacing:0}table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:11px;text-align:left;text-transform:uppercase}td{border:1px solid #E5E7EB;padding:8px 7px;font-size:12px;vertical-align:top}tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}.total-row td{background:#EAF3FF !important;border-color:#B9D2F4;font-weight:800;color:#0B2F6E}.num{text-align:right;white-space:nowrap;font-weight:700;color:#1259C4}.watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.06;z-index:-1}.watermark img{width:560px;max-width:72vw}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:11px;text-align:right}
+        body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white;font-size:14px}.brand{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}.logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}.eyebrow{margin:0 0 5px;color:#1877F2;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}h1{margin:0;font-size:25px;line-height:1.15;color:#111827}h2{font-size:15px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}p{margin:4px 0 0;color:#6B7280;font-size:13px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}.summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:10px 11px;border-radius:6px}.summary span{display:block;color:#6B7280;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.summary strong{display:block;margin-top:4px;color:#111827;font-size:15px}.sale-data-table td{width:24%}.sale-data-table .label{width:24%}.sale-data-table .sale-data-gap{width:4%;border:none;background:white;padding:0}.sale-data-table .value-cell{overflow-wrap:anywhere;word-break:break-word}.summary-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:6px;margin:14px 0 18px}.summary-row div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 8px;border-radius:6px;min-width:0}.summary-row span{display:block;color:#6B7280;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.2}.summary-row strong{display:block;margin-top:3px;color:#111827;font-size:14px;white-space:nowrap}.summary-row .finance-highlight{border-color:#1877F2;background:#F5F9FF;border-left:4px solid #1877F2}.summary-row .finance-highlight strong{color:#1259C4}.summary-row .tiny{display:inline;margin-left:3px;color:#64748B;font-size:10px;font-weight:700;text-transform:none;letter-spacing:0}table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}th{background:#1877F2;color:white;border:1px solid #1877F2;padding:9px 8px;font-size:13px;text-align:left;text-transform:uppercase}td{border:1px solid #E5E7EB;padding:9px 8px;font-size:14px;vertical-align:top}tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}.total-row td{background:#EAF3FF !important;border-color:#B9D2F4;font-weight:800;color:#0B2F6E}.num{text-align:right;white-space:nowrap;font-weight:700;color:#1259C4}.watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.06;z-index:-1}.watermark img{width:560px;max-width:72vw}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:12px;text-align:right}
         @media (max-width:640px){body{margin:12px}.brand{flex-direction:column;gap:10px}.logos img{height:32px;max-width:120px}h1{font-size:17px}h2{font-size:11px;margin:14px 0 6px}p{font-size:11px}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}.summary-row{grid-template-columns:repeat(2,minmax(0,1fr))}table{table-layout:auto}th,td{padding:5px 4px;font-size:10px}.watermark img{width:300px}}
-        @media print{body{margin:18px}thead{display:table-header-group}.brand,.summary,.summary-row,.total-row{break-inside:avoid}.watermark{position:fixed}}
+        @media print{body{margin:18px;font-size:14px}thead{display:table-header-group}.brand,.summary,.summary-row,.total-row{break-inside:avoid}.summary-row{display:grid !important;grid-auto-flow:column !important;grid-template-columns:none !important;grid-auto-columns:minmax(0,1fr) !important;gap:6px !important}.summary-row span{font-size:10px !important;line-height:1.15 !important}.summary-row strong{font-size:13px !important;white-space:nowrap !important}.watermark{position:fixed}}
       </style></head><body>
         <div class="watermark"><img src="${escapeHtml(adminLogoUrl)}" alt="" /></div>
         <div class="brand"><div><p class="eyebrow">Ficha de venta</p><h1>Venta V${s.id} - ${escapeHtml(s.lotCode || `Lote ${s.lotId}`)}</h1><p>${escapeHtml(project?.name || `Proyecto ${s.projectId}`)} - generado ${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div></div>
         <div class="summary"><div><span>Precio venta</span><strong>${escapeHtml(usdMoney(salePriceValue))}</strong></div><div><span>Comision</span><strong>${escapeHtml(usdMoney(commission))}</strong></div><div><span>Forma de pago</span><strong>${escapeHtml(formaPago)}</strong></div><div><span>Cuota</span><strong>${escapeHtml(valorCuota ? usdMoney(valorCuota) : '-')}</strong></div></div>
-        <h2>Datos de la venta</h2><table><tbody>${detailRows.map(([label, value]) => `<tr><td class="label">${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`).join('')}</tbody></table>
+        <h2>Datos de la venta</h2><table class="sale-data-table"><tbody>${detailRowsHtml}</tbody></table>
         ${financingBlock}
-        <h2>Cronograma de cuotas</h2><table><thead><tr><th>Cuota</th><th>Vencimiento</th><th>Monto</th><th>Estado</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="4">Sin cronograma registrado.</td></tr>'}</tbody></table>
+        <h2>Cronograma de cuotas</h2><table><thead><tr><th>Cuota</th><th>Vencimiento</th><th>Amort Capital</th><th>Intereses</th><th>Monto</th><th>Estado</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="6">Sin cronograma registrado.</td></tr>'}</tbody></table>
         <div class="summary"><div><span>Cuotas</span><strong>${displayTotalInstallments}</strong></div><div><span>Pagadas</span><strong>${paidInstallments}</strong></div><div><span>Pendientes</span><strong>${Math.max(0, schedule.length - paidInstallments)}</strong></div><div><span>Plan</span><strong>${escapeHtml(s.planStatus || 'pendiente')}</strong></div></div>
         ${isFinancing ? `
-          <h2>Total</h2>
+          <h2>Condiciones finales de compra de lote</h2>
           <div class="summary-row">
+            <div class="finance-highlight"><span>Precio final</span><strong>${escapeHtml(usdMoney(salePriceValue))}</strong></div>
             <div class="finance-highlight"><span>Cuota inicial</span><strong>${escapeHtml(usdMoney(cuotaInicialPen))}</strong></div>
-            <div class="finance-highlight"><span>Total cuotas</span><strong>${escapeHtml(usdMoney(totalCuotasPen))}</strong></div>
-            <div class="finance-highlight"><span>Total a pagar</span><strong>${escapeHtml(usdMoney(totalPagarPen))}</strong></div>
-            <div class="finance-highlight"><span>Saldo fin.</span><strong>${escapeHtml(usdMoney(saldoFin))}</strong></div>
+            <div class="finance-highlight"><span>Saldo a financiar</span><strong>${escapeHtml(usdMoney(saldoFin))}</strong></div>
+            <div class="finance-highlight"><span>TEA</span><strong>${interestType === 'tea' ? `${teaValue}%` : 'Sin intereses'}</strong></div>
+            <div class="finance-highlight"><span>Cuotas financiamiento</span><strong>${financingInstallments}</strong></div>
+            <div class="finance-highlight"><span>Cuotas sin int <em class="tiny">(${noInterestInstallments})</em></span><strong>${escapeHtml(usdMoney(noInterestCuotaPen))}</strong></div>
+            <div class="finance-highlight"><span>Cuotas con int <em class="tiny">(${interestInstallments})</em></span><strong>${escapeHtml(usdMoney(interestCuotaPen))}</strong></div>
           </div>
         ` : ''}
         <div class="footer">Dunacon - CRM Inmobiliario</div>

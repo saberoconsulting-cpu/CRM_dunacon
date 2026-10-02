@@ -19,6 +19,10 @@ export class CreateLotDto {
   @IsNumber()
   blockId?: number;
 
+  @IsOptional()
+  @IsString()
+  address?: string;
+
   @IsNotEmpty()
   points!: PointDto[];
 
@@ -70,6 +74,10 @@ export class UpdateLotDto {
   @IsOptional()
   @IsNumber()
   blockId?: number;
+
+  @IsOptional()
+  @IsString()
+  address?: string;
 
   @IsOptional()
   points?: PointDto[];

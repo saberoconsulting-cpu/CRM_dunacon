@@ -77,6 +77,7 @@ export default function AnnualReportPanel({ projectId, accountKey, currency, rat
     try {
       const params = new URLSearchParams({ projectId: String(projectId), accountKey: accountKey || 'GENERAL' });
       if (year) params.set('year', String(year));
+      params.set('currency', 'USD');
       const data = await api.get<AnnualReport>(`/bank-accounts/annual-report?${params.toString()}`);
       setReport(data);
       if (!year && data?.year) setYear(data.year);
@@ -143,34 +144,34 @@ export default function AnnualReportPanel({ projectId, accountKey, currency, rat
             <thead>
               <tr style={{ backgroundColor: HEADER_BG, color: '#000', borderBottom: '2px solid #000' }}>
                 <th style={cellHead}>Mes</th>
-                <th style={cellHead}>Saldo Inicial S/.</th>
-                <th style={cellHead}>Abonos S/.</th>
-                <th style={cellHead}>Pagos S/.</th>
-                <th style={cellHead}>Saldo Final S/.</th>
+                <th style={cellHead}>Saldo Inicial US$</th>
+                <th style={cellHead}>Abonos US$</th>
+                <th style={cellHead}>Pagos US$</th>
+                <th style={cellHead}>Saldo Final US$</th>
               </tr>
             </thead>
             <tbody>
               {(report?.months || []).map((month) => (
                 <tr key={month.month} style={{ backgroundColor: month.movimientos ? '#fff' : '#F8FAFC' }}>
                   <td style={{ border: CELL_BORDER, padding: 3, textAlign: 'left', fontSize: 10, whiteSpace: 'nowrap', color: '#0F172A' }}>{month.name}</td>
-                  <td style={cellBody}>{money(month.saldoInicial, 'S/')}</td>
+                  <td style={cellBody}>{money(month.saldoInicial, 'US$')}</td>
                   <td style={{ ...cellBody, color: month.abonos > 0 ? '#16A36A' : '#94A3B8' }}>
-                    {month.abonos > 0 ? money(month.abonos, 'S/') : '-'}
+                    {month.abonos > 0 ? money(month.abonos, 'US$') : '-'}
                   </td>
                   <td style={{ ...cellBody, color: month.pagos > 0 ? '#DC2626' : '#94A3B8' }}>
-                    {month.pagos > 0 ? money(month.pagos, 'S/') : '-'}
+                    {month.pagos > 0 ? money(month.pagos, 'US$') : '-'}
                   </td>
-                  <td style={{ ...cellBody, fontWeight: 600 }}>{money(month.saldoFinal, 'S/')}</td>
+                  <td style={{ ...cellBody, fontWeight: 600 }}>{money(month.saldoFinal, 'US$')}</td>
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ backgroundColor: HEADER_BG, fontWeight: 'bold' }}>
-                <td style={{ ...cellHead, textAlign: 'center' }}>Totales S/.</td>
-                <td style={cellBody}>{money(report?.openingBalance || 0, 'S/')}</td>
-                <td style={cellBody}>{money(totals?.abonos || 0, 'S/')}</td>
-                <td style={cellBody}>{money(totals?.pagos || 0, 'S/')}</td>
-                <td style={cellBody}>{money(totals?.saldoFinal || 0, 'S/')}</td>
+                <td style={{ ...cellHead, textAlign: 'center' }}>Totales US$</td>
+                <td style={cellBody}>{money(report?.openingBalance || 0, 'US$')}</td>
+                <td style={cellBody}>{money(totals?.abonos || 0, 'US$')}</td>
+                <td style={cellBody}>{money(totals?.pagos || 0, 'US$')}</td>
+                <td style={cellBody}>{money(totals?.saldoFinal || 0, 'US$')}</td>
               </tr>
             </tfoot>
           </table>

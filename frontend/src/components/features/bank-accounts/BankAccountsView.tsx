@@ -1,15 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FiAlertCircle, FiArrowDown, FiArrowUp, FiCheckCircle, FiChevronDown, FiChevronLeft, FiChevronRight, FiCreditCard, FiDownload, FiEdit3, FiFilter, FiPlus, FiRefreshCw, FiSearch, FiSave, FiSettings, FiTrash2, FiUploadCloud, FiX } from 'react-icons/fi';
+import { FiAlertCircle, FiCheckCircle, FiChevronDown, FiChevronLeft, FiChevronRight, FiCreditCard, FiDownload, FiEdit3, FiFilter, FiPlus, FiRefreshCw, FiSave, FiSettings, FiTrash2, FiUploadCloud, FiX } from 'react-icons/fi';
 import { Toaster, toast, Field } from '@/components/ui/ui';
-import { Select } from '@/components/ui/Select';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import AnnualReportPanel from '@/components/features/bank-accounts/AnnualReportPanel';
 import CategoryMasterPanel from '@/components/features/bank-accounts/CategoryMasterPanel';
 import { api, uploadFile } from '@/lib/api';
 import { BRAND } from '@/lib/types';
-import { DEFAULT_EXCHANGE_RATE, useDisplayCurrency } from '@/lib/currency';
+import { useDisplayCurrency } from '@/lib/currency';
 
 type Movement = {
   id: number;
@@ -84,7 +83,7 @@ const INK = '#0F172A';
 const MUTED = '#64748B';
 const PAGE_SIZE = 25;
 
-const emptyFilters = { from: '', to: '', currency: '', movementType: '', eerrClassification: '', search: '' };
+const emptyFilters = { from: '', to: '' };
 
 function num(value: unknown) {
   const parsed = Number(value);
@@ -105,16 +104,20 @@ function prettyDate(value: string | null) {
   return match ? `${match[3]}/${match[2]}/${match[1].slice(-2)}` : value;
 }
 
-function salaryToUSD(value: unknown, rate: number) {
-  const safeRate = Number(rate) > 0 ? Number(rate) : DEFAULT_EXCHANGE_RATE;
-  const converted = Number(value || 0) / safeRate;
-  return converted.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
-}
-
 const MONTH_NAMES = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre',
 ];
+
+function inputAmount(value: number) {
+  const rounded = Math.round(Number(value || 0) * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+function bankMoney(value: unknown, currency: 'PEN' | 'USD') {
+  const symbol = currency === 'USD' ? 'US$' : 'S/';
+  return `${symbol} ${num(value).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
 
 function monthLabelFromDate(value: string | null) {
   if (!value) return '';
@@ -160,8 +163,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [dataVersion, setDataVersion] = useState(0);
   const [openingBalanceDraft, setOpeningBalanceDraft] = useState('0');
   const [savingOpeningBalance, setSavingOpeningBalance] = useState(false);
-  const [sortKey, setSortKey] = useState<'date' | 'item'>('date');
-  const [sortAscending, setSortAscending] = useState(true);
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [accountKey, setAccountKey] = useState('GENERAL');
   const [accountModalOpen, setAccountModalOpen] = useState(false);
@@ -170,7 +171,8 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [savingAccount, setSavingAccount] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLDivElement | null>(null);
-  const { currency, setCurrency, exchangeRate, setExchangeRate, toDisplay, format: show } = useDisplayCurrency();
+  const { currency, setCurrency, exchangeRate, setExchangeRate } = useDisplayCurrency();
+  const money = useCallback((value: unknown) => bankMoney(value, currency), [currency]);
 
   const query = useMemo(() => {
     const params = new URLSearchParams({ projectId: String(projectId), accountKey });
@@ -183,7 +185,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     if (data.items) setItems(data.items);
     if (data.summary) {
       setSummary(data.summary);
-      if (data.summary.saldoInicial !== undefined) setOpeningBalanceDraft(String(data.summary.saldoInicial ?? 0));
     }
     if (data.facets) setFacets(data.facets);
     setDataVersion((value) => value + 1);
@@ -203,6 +204,10 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { setPage(1); }, [query]);
+  useEffect(() => {
+    if (summary?.saldoInicial === undefined) return;
+    setOpeningBalanceDraft(inputAmount(num(summary.saldoInicial)));
+  }, [summary?.saldoInicial]);
 
   useEffect(() => {
     api.get<{ items: BankAccount[] }>(`/bank-accounts/accounts?projectId=${projectId}`)
@@ -290,37 +295,15 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   }
 
   const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
-  // Orden de presentacion. Dos criterios excluyentes: por FECHA (item como
-  // desempate, para que la numeracion del dia se lea 1,2,3...) o por ITEM
-  // (fecha como desempate, para revisar la secuencia completa del Item).
-  // Los saldos ya vienen calculados por el backend en orden cronologico, asi que
-  // reordenar aqui es solo visual y nunca recalcula la cadena de saldos.
+  // Orden unico de presentacion: fecha mas antigua primero. El backend renumera
+  // Item en ese mismo orden cada vez que se importa, crea, edita o elimina.
   const sortedItems = useMemo(() => [...items].sort((left, right) => {
     const leftDate = left.movementDate || '';
     const rightDate = right.movementDate || '';
-    const leftItem = left.itemNumber ?? Number.MAX_SAFE_INTEGER;
-    const rightItem = right.itemNumber ?? Number.MAX_SAFE_INTEGER;
-    // Las filas sin fecha (NULL) van siempre al final, en cualquier criterio.
     if (!leftDate !== !rightDate) return leftDate ? -1 : 1;
-
-    const byDate = () => {
-      if (leftDate !== rightDate) return sortAscending ? leftDate.localeCompare(rightDate) : rightDate.localeCompare(leftDate);
-      // Dentro de la misma fecha el Item va SIEMPRE de menor a mayor.
-      if (leftItem !== rightItem) return leftItem - rightItem;
-      return sortAscending ? left.id - right.id : right.id - left.id;
-    };
-    const byItem = () => {
-      // El Item vacio (NULL) NO se invierte: siempre va al final, igual que en
-      // el criterio por fecha. Solo se invierten los Items que existen.
-      const leftMissing = left.itemNumber === null || left.itemNumber === undefined;
-      const rightMissing = right.itemNumber === null || right.itemNumber === undefined;
-      if (leftMissing !== rightMissing) return leftMissing ? 1 : -1;
-      if (!leftMissing && leftItem !== rightItem) return sortAscending ? leftItem - rightItem : rightItem - leftItem;
-      if (leftDate !== rightDate) return sortAscending ? leftDate.localeCompare(rightDate) : rightDate.localeCompare(leftDate);
-      return sortAscending ? left.id - right.id : right.id - left.id;
-    };
-    return sortKey === 'item' ? byItem() : byDate();
-  }), [items, sortKey, sortAscending]);
+    if (leftDate !== rightDate) return leftDate.localeCompare(rightDate);
+    return left.id - right.id;
+  }), [items]);
   const pageItems = sortedItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const movementTotals = useMemo(() => ({
     deposits: items.reduce((total, item) => total + num(item.depositAmount), 0),
@@ -365,7 +348,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
         projectId,
         rows: preview.rows.filter((row) => row.errors.length === 0),
         accountKey,
-        currency: currency === 'USD' ? 'USD' : 'PEN',
+        currency: 'USD',
         sourceFile: preview.sourceFile,
         importBatch: `batch-${Date.now()}`,
         skipDuplicates: true,
@@ -388,20 +371,12 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
   function openCreate() {
     setEditing(null);
-    setForm({ projectId, currency, movementDate: '', monthLabel: '', itemNumber: '', depositAmount: '', chargeAmount: '', eerrClassification: '' });
+    setForm({ projectId, currency: 'USD', movementDate: '', monthLabel: '', itemNumber: '', depositAmount: '', chargeAmount: '', eerrClassification: '' });
     setFormOpen(true);
     formRef.current?.scrollTo({ top: 0 });
   }
 
-  /**
-   * Siguiente Item libre de la cuenta activa, solo como sugerencia del boton.
-   */
-  function nextItemNumber(_movementDate?: string) {
-    const used = items.map((item) => Number(item.itemNumber)).filter((value) => Number.isFinite(value) && value > 0);
-    return used.length ? Math.max(...used) + 1 : 1;
-  }
-
-  /** Al cambiar la fecha se refresca el mes; el Item lo decide el usuario. */
+  /** Al cambiar la fecha se refresca el mes; el Item se renumera automaticamente por fecha. */
   function pickItemDate(value: string) {
     setForm((current: any) => ({
       ...current,
@@ -434,24 +409,13 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     if (deposit && charge) return toast('No puede tener abono y cargo a la vez', 'err');
     if (!form.description && !form.counterparty) return toast('Ingresa la descripcion o el proveedor/cliente', 'err');
 
-    // El Item es opcional: si el usuario escribe una posicion, la fila entra
-    // ahi; si lo deja vacio, se guarda NULL y la fila cae al final de su fecha.
-    const rawItem = String(form.itemNumber ?? '').trim();
-    const itemNumber = rawItem === '' ? null : Math.trunc(num(rawItem));
-    if (itemNumber !== null && (!itemNumber || itemNumber < 1)) {
-      return toast('El Item debe ser 1, 2, 3... o dejarlo vacio', 'err');
-    }
-    const duplicated = itemNumber !== null && items.some((row) => row.id !== editing?.id && Number(row.itemNumber) === itemNumber);
-    if (duplicated) {
-      return toast(`Ya existe un movimiento registrado con el Item ${itemNumber}. Usa el Item ${nextItemNumber()}.`, 'err');
-    }
-
     try {
       const payload = {
         ...form,
         projectId,
         accountKey,
-        itemNumber,
+        itemNumber: null,
+        currency: 'USD',
         depositAmount: deposit,
         chargeAmount: charge,
         bookBalance: form.bookBalance === '' || form.bookBalance === null || form.bookBalance === undefined ? null : num(form.bookBalance),
@@ -463,7 +427,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
       applyData(data);
       toast(editing ? 'Movimiento actualizado' : 'Movimiento registrado');
       setEditing(null);
-      setForm({ projectId, currency, movementDate: '', monthLabel: '', itemNumber: '', depositAmount: '', chargeAmount: '', eerrClassification: '' });
+      setForm({ projectId, currency: 'USD', movementDate: '', monthLabel: '', itemNumber: '', depositAmount: '', chargeAmount: '', eerrClassification: '' });
       formRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error: any) {
       toast(error?.message || 'No se pudo guardar el movimiento', 'err');
@@ -489,7 +453,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
       const data = await api.patch<any>('/bank-accounts/opening-balance', {
         projectId,
         accountKey,
-        currency: 'PEN',
+        currency: 'USD',
         openingBalance: value,
       });
       applyData(data);
@@ -507,12 +471,11 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const filtered = Boolean(summary?.filtrado);
   const scope = filtered ? 'del filtro' : 'del periodo';
   const cards = [
-    { label: 'Saldo inicial', value: show(summary?.saldoInicial), color: BRAND.blue, helper: 'Saldo al inicio del periodo' },
-    { label: filtered ? 'Ingresos (filtro)' : 'Total ingresos', value: show(summary?.totalAbonos), color: '#16A36A', helper: `Suma de abonos ${scope}` },
-    { label: filtered ? 'Egresos (filtro)' : 'Total egresos', value: show(summary?.totalCargos), color: '#DC2626', helper: `Suma de cargos ${scope}` },
-    { label: 'Saldo final', value: show(summary?.saldoFinal), color: '#0E46A0', helper: filtered ? 'Saldo real de la cuenta (sin filtro)' : 'Saldo al cierre del periodo' },
+    { label: 'Saldo inicial', value: money(summary?.saldoInicial), color: BRAND.blue, helper: 'Saldo al inicio del periodo' },
+    { label: filtered ? 'Ingresos (filtro)' : 'Total ingresos', value: money(summary?.totalAbonos), color: '#16A36A', helper: `Suma de abonos ${scope}` },
+    { label: filtered ? 'Egresos (filtro)' : 'Total egresos', value: money(summary?.totalCargos), color: '#DC2626', helper: `Suma de cargos ${scope}` },
+    { label: 'Saldo final', value: money(summary?.saldoFinal), color: '#0E46A0', helper: filtered ? 'Saldo real de la cuenta (sin filtro)' : 'Saldo al cierre del periodo' },
     { label: 'Movimientos', value: String(summary?.movimientos || 0), color: '#7C3AED', helper: `${summary?.meses || 0} meses con movimiento` },
-    { label: 'Saldo en US$ (referencial)', value: `US$ ${salaryToUSD(summary?.saldoFinal, exchangeRate)}`, color: '#D97706', helper: `Tipo de cambio S/ ${Number(exchangeRate || 0).toLocaleString('es-PE', { maximumFractionDigits: 4 })}` },
   ];
 
   return (
@@ -683,15 +646,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
         <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
           <div className="flex flex-col gap-2 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between" style={{ borderColor: BORDER }}>
             <div className="flex min-w-0 items-center gap-2">
-              <div className="relative min-w-0 flex-1 lg:w-80">
-                <FiSearch className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  className="input !h-9 !pl-8 text-sm"
-                  placeholder="Buscar descripcion, proveedor o factura"
-                  value={filters.search}
-                  onChange={(event) => f('search', event.target.value)}
-                />
-              </div>
               <button className="btn-neutral !h-9 !px-3 text-xs" onClick={() => setShowFilters((value) => !value)} aria-expanded={showFilters}>
                 <FiFilter /> Filtros{activeFilters ? ` (${activeFilters})` : ''}
               </button>
@@ -700,41 +654,9 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   <FiX /> Limpiar
                 </button>
               )}
-              {/* Orden de la tabla, pegado a la palabra "Filtros": el criterio
-                  (fecha o item) y su flecha de sentido. Reordenar es solo
-                  visual; los saldos siguen viniendo del backend. */}
-              <div className="flex items-center gap-1.5 rounded-xl border bg-[#F8FAFC] px-2 py-1" style={{ borderColor: BORDER }}>
-                <span className="hidden whitespace-nowrap text-[11px] font-semibold uppercase tracking-wide sm:inline" style={{ color: MUTED }}>Ordenar por</span>
-                <button
-                  type="button"
-                  className="rounded-lg px-2 py-1 text-xs font-semibold transition-all"
-                  onClick={() => setSortKey('date')}
-                  aria-pressed={sortKey === 'date'}
-                  title="Ordenar las filas por fecha de abono"
-                  style={sortKey === 'date' ? { background: BRAND.blue, color: '#FFFFFF' } : { color: '#374151' }}
-                >
-                  Fecha
-                </button>
-                <button
-                  type="button"
-                  className="rounded-lg px-2 py-1 text-xs font-semibold transition-all"
-                  onClick={() => setSortKey('item')}
-                  aria-pressed={sortKey === 'item'}
-                  title="Ordenar las filas por Item"
-                  style={sortKey === 'item' ? { background: BRAND.blue, color: '#FFFFFF' } : { color: '#374151' }}
-                >
-                  Item
-                </button>
-                <button
-                  type="button"
-                  className="rounded-lg border border-[#E5E7EB] bg-white px-1.5 py-1 text-xs font-semibold text-[#374151] transition-all hover:bg-[#F3F4F6]"
-                  onClick={() => setSortAscending((value) => !value)}
-                  aria-label={sortAscending ? 'Orden ascendente' : 'Orden descendente'}
-                  title={sortAscending ? 'De menor a mayor. Clic para invertir' : 'De mayor a menor. Clic para invertir'}
-                >
-                  {sortAscending ? <FiArrowUp /> : <FiArrowDown />}
-                </button>
-              </div>
+              <span className="rounded-lg border bg-[#F8FAFC] px-2 py-1 text-xs font-semibold" style={{ borderColor: BORDER, color: MUTED }}>
+                Orden: fecha ascendente
+              </span>
             </div>
             <p className="text-xs" style={{ color: MUTED }}>
               {items.length} movimientos{preview ? '' : ''}
@@ -742,44 +664,9 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
           </div>
 
           {showFilters && (
-            <div className="grid gap-3 border-b bg-[#F8FAFC] p-4 sm:grid-cols-2 xl:grid-cols-5" style={{ borderColor: BORDER }}>
+            <div className="grid gap-3 border-b bg-[#F8FAFC] p-4 sm:grid-cols-2 xl:grid-cols-4" style={{ borderColor: BORDER }}>
               <Field label="Desde"><input type="date" className="input !h-9" value={filters.from} onChange={(e) => f('from', e.target.value)} /></Field>
               <Field label="Hasta"><input type="date" className="input !h-9" value={filters.to} onChange={(e) => f('to', e.target.value)} /></Field>
-              <Field label="Tipo">
-                <Select
-                  value={filters.movementType}
-                  onChange={(value) => f('movementType', value)}
-                  options={[
-                    { value: '', label: 'Todos' },
-                    { value: 'INGRESO', label: 'Ingreso (abono)' },
-                    { value: 'GASTO', label: 'Gasto (cargo)' },
-                  ]}
-                />
-              </Field>
-              <Field label="Clasificacion EERR">
-                <Select
-                  value={filters.eerrClassification}
-                  onChange={(value) => f('eerrClassification', value)}
-                  options={[
-                    { value: '', label: 'Todas' },
-                    ...(facets?.eerrClassifications || []).map((option: any) => ({
-                      value: option.value,
-                      label: `${option.value} (${option.count})`,
-                    })),
-                  ]}
-                />
-              </Field>
-              <Field label="Moneda">
-                <Select
-                  value={filters.currency}
-                  onChange={(value) => f('currency', value)}
-                  options={[
-                    { value: '', label: 'S/ y US$' },
-                    { value: 'PEN', label: 'Soles (S/)' },
-                    { value: 'USD', label: 'Dolares (US$)' },
-                  ]}
-                />
-              </Field>
             </div>
           )}
 
@@ -799,7 +686,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
             <>
               <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-white px-4 py-2" style={{ borderColor: BORDER }}>
                 <p className="text-xs font-semibold" style={{ color: MUTED }}>
-                  Movimientos ordenados por {sortKey === 'item' ? 'Item' : 'fecha'} ({sortAscending ? 'ascendente' : 'descendente'})
+                  Movimientos ordenados por fecha ascendente
                 </p>
                 <p className="text-xs" style={{ color: MUTED }}>
                   {pageItems.length} de {items.length} · pagina {page} de {pageCount}
@@ -842,13 +729,13 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                           <td className="td-base max-w-[240px] truncate" title={item.description || ''}>{item.description || '-'}</td>
                           <td className="td-base max-w-[220px] truncate" title={item.counterparty || ''}>{item.counterparty || '-'}</td>
                           <td className="td-base whitespace-nowrap text-right text-xs font-semibold tabular-nums" style={{ color: deposit ? '#16A36A' : '#CBD5E1' }}>
-                            {deposit ? show(deposit) : '-'}
+                            {deposit ? money(deposit) : '-'}
                           </td>
                           <td className="td-base whitespace-nowrap text-right text-xs font-semibold tabular-nums" style={{ color: charge ? '#DC2626' : '#CBD5E1' }}>
-                            {charge ? show(charge) : '-'}
+                            {charge ? money(charge) : '-'}
                           </td>
                           <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: INK }}>
-                            {item.bookBalance === null ? '-' : show(num(item.bookBalance))}
+                            {item.bookBalance === null ? '-' : money(num(item.bookBalance))}
                           </td>
                           <td className="td-base max-w-[180px] truncate" style={{ color: MUTED }} title={item.eerrClassification || ''}>{item.eerrClassification || '-'}</td>
                           <td className="td-base whitespace-nowrap" style={{ color: MUTED }}>{item.invoiceNumber || '-'}</td>
@@ -874,9 +761,9 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                         era cada total.
                       */}
                       <td className="td-base text-xs" colSpan={5} style={{ color: INK }}>Totales</td>
-                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: '#16A36A' }}>{show(movementTotals.deposits)}</td>
-                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: '#DC2626' }}>{show(movementTotals.charges)}</td>
-                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: INK }}>{show(movementTotals.lastBookBalance ?? undefined)}</td>
+                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: '#16A36A' }}>{money(movementTotals.deposits)}</td>
+                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: '#DC2626' }}>{money(movementTotals.charges)}</td>
+                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: INK }}>{money(movementTotals.lastBookBalance ?? undefined)}</td>
                       <td className="td-base" colSpan={4} />
                     </tr>
                   </tfoot>
@@ -924,10 +811,10 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
             <div className="grid grid-cols-2 gap-2 border-b bg-[#F8FAFC] px-5 py-3 sm:grid-cols-4" style={{ borderColor: BORDER }}>
               {[
-                { label: 'Saldo inicial', value: show(preview.saldoInicial) },
-                { label: 'Total abonos', value: show(preview.totals?.abonos) },
-                { label: 'Total cargos', value: show(preview.totals?.cargos) },
-                { label: 'Saldo final', value: show(preview.saldoFinal) },
+                { label: 'Saldo inicial', value: money(preview.saldoInicial) },
+                { label: 'Total abonos', value: money(preview.totals?.abonos) },
+                { label: 'Total cargos', value: money(preview.totals?.cargos) },
+                { label: 'Saldo final', value: money(preview.saldoFinal) },
               ].map((item) => (
                 <div key={item.label} className="min-w-0">
                   <p className="truncate text-[10px] font-semibold uppercase" style={{ color: MUTED }}>{item.label}</p>
@@ -990,9 +877,9 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                       <td className="td-base whitespace-nowrap tabular-nums">{prettyDate(row.movementDate)}</td>
                       <td className="td-base max-w-[220px] truncate" title={row.description || ''}>{row.description || '-'}</td>
                       <td className="td-base max-w-[200px] truncate" title={row.counterparty || ''}>{row.counterparty || '-'}</td>
-                      <td className="td-base text-right tabular-nums" style={{ color: row.depositAmount ? '#16A36A' : '#CBD5E1' }}>{row.depositAmount ? show(row.depositAmount) : '-'}</td>
-                      <td className="td-base text-right tabular-nums" style={{ color: row.chargeAmount ? '#DC2626' : '#CBD5E1' }}>{row.chargeAmount ? show(row.chargeAmount) : '-'}</td>
-                      <td className="td-base text-right tabular-nums" style={{ color: INK }}>{row.bookBalance === null ? '-' : show(row.bookBalance)}</td>
+                      <td className="td-base text-right tabular-nums" style={{ color: row.depositAmount ? '#16A36A' : '#CBD5E1' }}>{row.depositAmount ? money(row.depositAmount) : '-'}</td>
+                      <td className="td-base text-right tabular-nums" style={{ color: row.chargeAmount ? '#DC2626' : '#CBD5E1' }}>{row.chargeAmount ? money(row.chargeAmount) : '-'}</td>
+                      <td className="td-base text-right tabular-nums" style={{ color: INK }}>{row.bookBalance === null ? '-' : money(row.bookBalance)}</td>
                       <td className="td-base max-w-[160px] truncate" style={{ color: MUTED }}>{row.eerrClassification || '-'}</td>
                       <td className="td-base">
                         {row.errors.length
@@ -1037,37 +924,20 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
             </div>
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-              <Field label="Item (opcional)">
+              <Field label="Item automático">
                 <input
-                  type="number"
-                  min="1"
-                  step="1"
                   className="input tabular-nums"
-                  placeholder="1, 2, 3..."
-                  title="Escribe la posicion (1, 2, 3...) solo si quieres que la fila entre en ese lugar. Si lo dejas vacio, la fila va al final de su fecha."
-                  value={form.itemNumber ?? ''}
-                  onChange={(event) => setForm((p: any) => ({
-                    ...p,
-                    itemNumber: event.target.value,
-                    itemNumberTouched: true,
-                  }))}
+                  readOnly
+                  placeholder="Se asigna por fecha"
+                  title="Se asigna automaticamente: la fecha mas antigua es Item 1."
+                  value={editing ? (form.itemNumber ?? '') : 'Auto'}
                 />
               </Field>
               <Field label="Fecha de abono">
-                <input type="date" className="input" readOnly={!!editing} value={form.movementDate || ''} onChange={(event) => pickDate(event.target.value)} />
+                <input type="date" className="input" value={form.movementDate || ''} onChange={(event) => pickDate(event.target.value)} />
               </Field>
               <Field label="Mes (automatico)">
                 <input className="input" readOnly placeholder="Se completa con la fecha" value={form.monthLabel || ''} />
-              </Field>
-              <Field label="Siguiente libre (opcional)">
-                <button
-                  type="button"
-                  className="input flex items-center justify-center gap-1 !px-2 text-xs font-semibold tabular-nums"
-                  onClick={() => setForm((p: any) => ({ ...p, itemNumber: nextItemNumber(p.movementDate), itemNumberTouched: true }))}
-                  title="Usar el siguiente Item libre de esta fecha"
-                >
-                  Item {nextItemNumber(form.movementDate)}
-                </button>
               </Field>
             </div>
 
@@ -1077,7 +947,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   className="input"
                   list="bank-descriptions"
                   placeholder="Ej. TRAN.CTAS.TERC.BM"
-                  readOnly={!!editing}
                   value={form.description || ''}
                   onChange={(event) => setForm((p: any) => ({ ...p, description: event.target.value }))}
                 />
@@ -1090,7 +959,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   className="input"
                   list="bank-counterparties"
                   placeholder="Escribe para buscar o agregar"
-                  readOnly={!!editing}
                   value={form.counterparty || ''}
                   onChange={(event) => setForm((p: any) => ({ ...p, counterparty: event.target.value }))}
                 />
@@ -1102,14 +970,13 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
             <div className="grid grid-cols-3 gap-2">
               <Field label="Abono">
-                <input type="number" step="0.01" min="0" className="input !px-2 text-xs tabular-nums sm:!px-3 sm:text-sm" readOnly={!!editing} value={form.depositAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, depositAmount: event.target.value, chargeAmount: event.target.value ? '' : p.chargeAmount }))} />
+                <input type="number" step="0.01" min="0" className="input !px-2 text-xs tabular-nums sm:!px-3 sm:text-sm" value={form.depositAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, depositAmount: event.target.value, chargeAmount: event.target.value ? '' : p.chargeAmount }))} />
               </Field>
               <Field label="Cargo">
-                <input type="number" step="0.01" min="0" className="input !px-2 text-xs tabular-nums sm:!px-3 sm:text-sm" readOnly={!!editing} value={form.chargeAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, chargeAmount: event.target.value, depositAmount: event.target.value ? '' : p.depositAmount }))} />
+                <input type="number" step="0.01" min="0" className="input !px-2 text-xs tabular-nums sm:!px-3 sm:text-sm" value={form.chargeAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, chargeAmount: event.target.value, depositAmount: event.target.value ? '' : p.depositAmount }))} />
               </Field>
               <Field label="Moneda">
-                <select className="input !px-2 text-xs font-semibold sm:!px-3 sm:text-sm" disabled={!!editing} value={form.currency || 'PEN'} onChange={(event) => setForm((p: any) => ({ ...p, currency: event.target.value }))}>
-                  <option value="PEN">PEN</option>
+                <select className="input !px-2 text-xs font-semibold sm:!px-3 sm:text-sm" disabled value="USD">
                   <option value="USD">USD</option>
                 </select>
               </Field>
@@ -1122,7 +989,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                     ref={typeInputRef}
                     className="input pr-9"
                     placeholder="Selecciona o escribe el concepto"
-                    readOnly={!!editing}
                     value={form.movementType || ''}
                     onChange={(event) => pickMovementType(event.target.value)}
                     onFocus={() => { if (!editing) setTypeOpen(true); }}
@@ -1179,7 +1045,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
             <div className="grid grid-cols-2 gap-3">
               <Field label="Nro. Factura / Boleta (opcional)">
-                <input className="input" placeholder="Dejar vacio si no aplica" readOnly={!!editing} value={form.invoiceNumber || ''} onChange={(event) => setForm((p: any) => ({ ...p, invoiceNumber: event.target.value }))} />
+                <input className="input" placeholder="Dejar vacio si no aplica" value={form.invoiceNumber || ''} onChange={(event) => setForm((p: any) => ({ ...p, invoiceNumber: event.target.value }))} />
               </Field>
               <Field label="Observacion">
                 <input
@@ -1220,7 +1086,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
             <div className="mt-4 rounded-md border bg-slate-50 p-3" style={{ borderColor: BORDER }}>
               <p className="text-xs font-bold uppercase" style={{ color: MUTED }}>Movimiento seleccionado</p>
               <p className="mt-1 text-sm font-semibold" style={{ color: INK }}>{deleting.description || deleting.counterparty || 'Sin descripcion'}</p>
-              <p className="text-xs" style={{ color: MUTED }}>{prettyDate(deleting.movementDate)} - {show(num(deleting.depositAmount) || num(deleting.chargeAmount))}</p>
+              <p className="text-xs" style={{ color: MUTED }}>{prettyDate(deleting.movementDate)} - {money(num(deleting.depositAmount) || num(deleting.chargeAmount))}</p>
             </div>
             <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button className="btn-neutral justify-center" onClick={() => setDeleting(null)}>Cancelar</button>

@@ -54,6 +54,15 @@ export class PlanService {
     return !!status && COMMERCIALLY_LOCKED_STATUSES.includes(status);
   }
 
+  private streetKey(value?: string | null) {
+    return String(value || '')
+      .trim()
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/\s+/g, ' ');
+  }
+
   private async getOrCreatePlan(projectId: number) {
     let plan = await this.planRepo.findOne({ where: { projectId } });
     if (!plan) {
@@ -98,6 +107,11 @@ export class PlanService {
   // ---------- CALLES ----------
   async createBlock(projectId: number, dto: CreateBlockDto, actorId: number) {
     const plan = await this.getOrCreatePlan(projectId);
+    const nameKey = this.streetKey(dto.name);
+    const streets = await this.blockRepo.find({ where: { projectId } });
+    if (streets.some((street) => this.streetKey(street.name) === nameKey)) {
+      throw new BadRequestException('Ya existe una calle con ese nombre');
+    }
     const street = this.blockRepo.create({
       projectId,
       planId: plan.id,
@@ -113,6 +127,13 @@ export class PlanService {
   async updateBlock(blockId: number, dto: UpdateBlockDto, actorId: number) {
     const street = await this.blockRepo.findOne({ where: { id: blockId } });
     if (!street) throw new NotFoundException('Calle no encontrada');
+    if (dto.name !== undefined) {
+      const nameKey = this.streetKey(dto.name);
+      const streets = await this.blockRepo.find({ where: { projectId: street.projectId } });
+      if (streets.some((item) => item.id !== street.id && this.streetKey(item.name) === nameKey)) {
+        throw new BadRequestException('Ya existe una calle con ese nombre');
+      }
+    }
     if (dto.name !== undefined) street.name = dto.name;
     if (dto.points !== undefined) street.points = dto.points;
     if (dto.address !== undefined) street.address = dto.address;
@@ -276,11 +297,19 @@ export class PlanService {
 
   async createLot(projectId: number, dto: CreateLotDto, actorId: number) {
     const plan = await this.getOrCreatePlan(projectId);
+    const code = String(dto.code || '').trim();
+    if (!code) throw new BadRequestException('Indica el codigo del lote');
+    const codeKey = this.lotCatalogCodeKey(code);
+    const lots = await this.lotRepo.find({ where: { projectId } });
+    if (lots.some((lot) => this.lotCatalogCodeKey(lot.code) === codeKey)) {
+      throw new BadRequestException('Ya existe un lote con ese codigo');
+    }
     const lot = this.lotRepo.create({
       projectId,
       planId: plan.id,
       streetId: dto.streetId ?? dto.blockId,
-      code: dto.code,
+      code,
+      address: dto.address,
       points: dto.points,
       areaM2: String(dto.areaM2 ?? 0),
       price: String(dto.price ?? 0),
@@ -320,7 +349,17 @@ export class PlanService {
       );
     }
 
-    if (dto.code !== undefined) lot.code = dto.code;
+    if (dto.code !== undefined) {
+      const code = String(dto.code || '').trim();
+      if (!code) throw new BadRequestException('Indica el codigo del lote');
+      const codeKey = this.lotCatalogCodeKey(code);
+      const lots = await this.lotRepo.find({ where: { projectId: lot.projectId } });
+      if (lots.some((item) => item.id !== lot.id && this.lotCatalogCodeKey(item.code) === codeKey)) {
+        throw new BadRequestException('Ya existe un lote con ese codigo');
+      }
+      lot.code = code;
+    }
+    if (dto.address !== undefined) lot.address = dto.address;
     if (dto.streetId !== undefined || dto.blockId !== undefined) lot.streetId = dto.streetId ?? dto.blockId ?? null;
     if (dto.points !== undefined) lot.points = dto.points;
     if (dto.areaM2 !== undefined) lot.areaM2 = String(dto.areaM2);

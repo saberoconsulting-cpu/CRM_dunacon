@@ -511,9 +511,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     // El total de cada fila es la suma de sus valores por año. Si aún no hay modelo
     // guardado, se cae a la lógica anterior (lotes + presupuesto) como referencia.
     const { totals: cfTotals } = cashflowTotals(cashflow);
-    const { totals: dynamicCfTotals } = cashflowTotals(dynamicCashflow);
     const cf = (id: string, fallback: number) => cfTotals.has(id) ? (cfTotals.get(id) ?? 0) : fallback;
-    const dcf = (id: string, fallback: number) => dynamicCfTotals.has(id) ? (dynamicCfTotals.get(id) ?? 0) : fallback;
     const projectedRevenue = cf('income', lots.reduce((sum, lot) => sum + lotRevenue(lot), 0));
     const totalArea = lots.reduce((sum, lot) => sum + num(lot.areaM2), 0);
     const soldLots = lots.filter((lot) => lot.status === 'vendido').length;
@@ -589,11 +587,11 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
         { name: 'Utilidad neta', value: projectedNetProfit, color: projectedNetProfit >= 0 ? BLUE_DARK : RED },
       ],
       chart: [
-        { name: 'Ingresos', value: dcf('income', realIncome), color: GREEN },
-        { name: 'Costo venta', value: dcf('cost-sales', realCostOfSales), color: BLUE },
-        { name: 'Ventas/Admin', value: dcf('selling', realSalesAdmin), color: AMBER },
-        { name: 'Financiero', value: dcf('financial', realFinance), color: '#7C3AED' },
-        { name: 'Utilidad neta', value: dcf('net', realNetProfit), color: dcf('net', realNetProfit) >= 0 ? BLUE_DARK : RED },
+        { name: 'Ingresos', value: realIncome, color: GREEN },
+        { name: 'Costo venta', value: realCostOfSales, color: BLUE },
+        { name: 'Ventas/Admin', value: realSalesAdmin, color: AMBER },
+        { name: 'Financiero', value: realFinance, color: '#7C3AED' },
+        { name: 'Utilidad neta', value: realNetProfit, color: realNetProfit >= 0 ? BLUE_DARK : RED },
       ],
     };
   }, [lots, statement, cashflow, dynamicCashflow, items]);
@@ -748,6 +746,21 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     if (!itemsInLine) return 0;
     return (lineProjected[row.line] || 0) * (itemRealAmount(row.item) / itemsInLine);
   }
+
+  const projectedChartData = [
+    { name: 'Ingresos', value: lineProjected.ingreso, color: GREEN },
+    { name: 'Costo venta', value: lineProjected.costo, color: BLUE },
+    { name: 'Ventas/Admin', value: lineProjected.ventas_admin, color: AMBER },
+    { name: 'Financiero', value: lineProjected.financiero, color: '#7C3AED' },
+    { name: 'Utilidad neta', value: projectedComputed.net || 0, color: (projectedComputed.net || 0) >= 0 ? BLUE_DARK : RED },
+  ];
+  const realChartData = [
+    { name: 'Ingresos', value: rowReal['line-ingreso'] || 0, color: GREEN },
+    { name: 'Costo venta', value: rowReal['line-costo'] || 0, color: BLUE },
+    { name: 'Ventas/Admin', value: rowReal['line-ventas_admin'] || 0, color: AMBER },
+    { name: 'Financiero', value: rowReal['line-financiero'] || 0, color: '#7C3AED' },
+    { name: 'Utilidad neta', value: rowReal.net || 0, color: (rowReal.net || 0) >= 0 ? BLUE_DARK : RED },
+  ];
 
   function escapeHtml(value: unknown) {
     return String(value ?? '')
@@ -1079,14 +1092,14 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 en web la tabla cabe sin scroll. */}
             <p className="px-4 py-2 text-xs text-slate-400 sm:hidden">Desliza la tabla hacia la derecha para ver las demas columnas.</p>
             <div className="w-full overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-              <table className="w-full table-fixed text-[10px] sm:!min-w-[480px] md:text-sm" style={{ minWidth: 720 }}>
+              <table className="w-full table-fixed text-[10px] sm:!min-w-[540px] md:text-sm" style={{ minWidth: 780 }}>
                 <colgroup>
-                  <col className="w-[170px] sm:w-[32%] md:w-[36%]" />
+                  <col className="w-[178px] sm:w-[30%] md:w-[34%]" />
                   <col className="w-[92px] sm:w-[19%] md:w-[16%]" />
                   <col className="w-[92px] sm:w-[17%] md:w-[15%]" />
                   <col className="w-[70px] sm:w-[12%] md:w-[11%]" />
                   <col className="w-[80px] sm:w-[13%] md:w-[13%]" />
-                  <col className="w-[56px] sm:w-[7%] md:w-[9%]" />
+                  <col className="w-[84px] sm:w-[9%] md:w-[11%]" />
                 </colgroup>
                 <thead>
                   <tr className="border-b text-left text-[8px] font-bold uppercase leading-tight tracking-normal md:text-xs md:tracking-wide" style={{ borderColor: BORDER, color: MUTED, background: '#F8FAFC' }}>
@@ -1095,9 +1108,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                     <th className="px-1 py-2 text-right md:px-3 md:py-3">Real {symbol}</th>
                     <th className="px-1 py-2 text-right md:px-3 md:py-3">%&nbsp;Ingr.</th>
                     <th className="px-1 py-2 text-right md:px-3 md:py-3">Desv.</th>
-                    <th className="px-0.5 py-2 text-right sm:px-1.5 md:px-2">
-                      <span className="hidden md:inline">Acciones</span>
-                    </th>
+                    <th className="px-1 py-2 text-right sm:px-1.5 md:px-3" aria-label="Acciones"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y" style={{ borderColor: BORDER }}>
@@ -1129,11 +1140,11 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                         onClick={() => lineHasItems && setOpenLines((current) => ({ ...current, [row.line]: !current[row.line] }))}
                       >
                         <td className="px-1.5 py-2 md:px-4 md:py-3" style={row.kind !== 'computed' && row.line === 'costo' ? { boxShadow: `inset ${isChild ? 3 : 4}px 0 0 ${COST}` } : undefined}>
-                          <div className="flex min-w-0 items-center gap-1 md:gap-3" style={isChild ? { paddingLeft: 8 } : undefined}>
+                          <div className="flex min-w-0 items-center gap-2 md:gap-3" style={isChild ? { paddingLeft: 8 } : undefined}>
                             {isItem && row.hasChildren ? (
                               <button
                                 type="button"
-                                className="grid h-4 w-4 shrink-0 place-items-center rounded text-slate-500 hover:bg-slate-200/70 md:h-5 md:w-5"
+                                className="grid h-7 w-7 shrink-0 place-items-center rounded text-slate-500 hover:bg-slate-200/70"
                                 title={openItems[Number(row.item.id)] ? 'Ocultar subpartidas' : 'Ver subpartidas'}
                                 aria-expanded={!!openItems[Number(row.item.id)]}
                                 onClick={() => setOpenItems((current) => ({ ...current, [Number(row.item.id)]: !current[Number(row.item.id)] }))}
@@ -1143,7 +1154,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                             ) : row.kind === 'line' ? (
                               <button
                                 type="button"
-                                className="grid h-5 w-5 shrink-0 place-items-center rounded-md md:h-7 md:w-7"
+                                className="grid h-7 w-7 shrink-0 place-items-center rounded-md"
                                 style={{ background: tone.bg, color: tone.color, border: `1px solid ${tone.border}` }}
                                 title={lineHasItems ? (lineOpen ? 'Ocultar partidas' : 'Ver partidas') : row.label}
                                 onClick={(event) => {
@@ -1153,7 +1164,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                               >
                                 {lineHasItems ? (lineOpen ? <FiChevronDown /> : <FiChevronRight />) : <LineIcon line={row.line} size={12} />}
                               </button>
-                            ) : <span className="w-1 shrink-0 md:w-4" />}
+                            ) : <span className="h-7 w-7 shrink-0" aria-hidden="true" />}
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1 md:gap-2">
                                 {row.kind === 'item' && !row.item.isVirtual && (
@@ -1208,13 +1219,13 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
               </div>
               <div className="h-[310px] px-3 pt-4">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={report.projectedChart} layout="vertical" margin={{ left: 8, right: 24, top: 8, bottom: 12 }}>
+                  <BarChart data={projectedChartData} layout="vertical" margin={{ left: 8, right: 24, top: 8, bottom: 12 }}>
                     <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" horizontal={false} />
                     <XAxis type="number" tickFormatter={short} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: MUTED }} width={88} axisLine={false} tickLine={false} />
                     <Tooltip content={<StatementTooltip formatter={show} />} cursor={{ fill: '#F8FAFC' }} />
                     <Bar dataKey="value" name="Monto" radius={[0, 8, 8, 0]}>
-                      {report.projectedChart.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                      {projectedChartData.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
@@ -1228,13 +1239,13 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
               </div>
               <div className="h-[310px] px-3 pt-4">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={report.chart} layout="vertical" margin={{ left: 8, right: 24, top: 8, bottom: 12 }}>
+                  <BarChart data={realChartData} layout="vertical" margin={{ left: 8, right: 24, top: 8, bottom: 12 }}>
                     <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" horizontal={false} />
                     <XAxis type="number" tickFormatter={short} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: MUTED }} width={88} axisLine={false} tickLine={false} />
                     <Tooltip content={<StatementTooltip formatter={show} />} cursor={{ fill: '#F8FAFC' }} />
                     <Bar dataKey="value" name="Monto" radius={[0, 8, 8, 0]}>
-                      {report.chart.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                      {realChartData.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>

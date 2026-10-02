@@ -92,6 +92,46 @@ function usdMoney(n: number) {
   return `US$ ${Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
+function paymentHistoryInstallmentTotals(sale: any) {
+  const installments = (sale?.plan || sale?.installments || []).filter((item: any) => {
+    const installmentNo = Number(item?.installmentNo || 0);
+    const type = String(item?.type || item?.concept || '').toLowerCase();
+    const label = String(item?.conceptLabel || '').toLowerCase();
+    return installmentNo > 0 || type.includes('cuota') || label.includes('cuota inicial');
+  });
+  const totals = installments.reduce((acc: { paid: number; pending: number; overdue: number }, item: any) => {
+    const amount = Number(item?.amount || 0);
+    if (item?.paid) acc.paid += amount;
+    else if (item?.overdue) acc.overdue += amount;
+    else acc.pending += amount;
+    return acc;
+  }, { paid: 0, pending: 0, overdue: 0 });
+  const balance = Number(sale?.summary?.balanceAmount ?? NaN);
+  if (Number.isFinite(balance)) {
+    totals.pending = Math.max(0, balance - totals.overdue);
+  }
+  return totals;
+}
+
+function paymentHistoryInitialFeeAmount(sale: any) {
+  const fromSale = Number(sale?.sale?.cuotaInicial || 0);
+  if (fromSale > 0) return fromSale;
+  return (sale?.plan || sale?.installments || []).reduce((sum: number, item: any) => {
+    const type = String(item?.type || item?.concept || '').toLowerCase();
+    const label = String(item?.conceptLabel || '').toLowerCase();
+    if (type === 'cuota_inicial' || label.includes('cuota inicial')) return sum + Number(item?.amount || 0);
+    return sum;
+  }, 0);
+}
+
+function paymentHistoryRate(sale: any, fallback = DEFAULT_EXCHANGE_RATE) {
+  return Number(sale?.sale?.exchangeRate || sale?.sale?.currencyRate || sale?.sale?.tipoCambio || fallback || DEFAULT_EXCHANGE_RATE) || DEFAULT_EXCHANGE_RATE;
+}
+
+function paymentHistoryUsd(amount: number | string | null | undefined, rate: number) {
+  return `US$ ${(Number(amount || 0) / (Number(rate) || DEFAULT_EXCHANGE_RATE)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function pct(n: number) {
   if (!Number.isFinite(n)) return '0.0%';
   return `${n.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
@@ -349,10 +389,11 @@ function InstallmentGrid({ sale, compact = false, formatter = money }: { sale: a
 export function PaymentHistoryPdf({ sale }: { sale: any }) {
   const rows = sale?.installments || [];
   if (!rows.length) return;
+  const rate = paymentHistoryRate(sale);
   const bodyRows = rows.map((r: any) => {
     const estado = r.paid ? 'Pagada' : (r.overdue ? 'En mora' : (r.installmentNo === sale.summary?.nextInstallmentNo ? 'Por pagar' : 'Pendiente'));
     const color = r.paid ? '#16A34A' : (r.overdue ? '#DC2626' : (r.installmentNo === sale.summary?.nextInstallmentNo ? '#B45309' : '#64748B'));
-    return `<tr><td>${r.installmentNo}</td><td>${escapeHtml(formatDate(r.dueDate))}</td><td class="num">${escapeHtml(formatMoney(r.amount))}</td><td style="color:${color};font-weight:700">${estado}</td></tr>`;
+    return `<tr><td>${r.installmentNo}</td><td>${escapeHtml(formatDate(r.dueDate))}</td><td class="num">${escapeHtml(paymentHistoryUsd(r.amount, rate))}</td><td style="color:${color};font-weight:700">${estado}</td></tr>`;
   }).join('');
   const generatedAt = new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' });
 
@@ -389,13 +430,13 @@ export function PaymentHistoryPdf({ sale }: { sale: any }) {
           </div>
         </div>
         <div class="summary">
-          <div><span>Precio de venta</span><strong>${escapeHtml(formatMoney(sale?.sale?.salePrice || 0))}</strong></div>
-          <div><span>Valor cuota</span><strong>${escapeHtml(formatMoney(sale?.sale?.valorCuota || 0))}</strong></div>
+          <div><span>Precio de venta US$</span><strong>${escapeHtml(paymentHistoryUsd(sale?.sale?.salePrice || 0, rate))}</strong></div>
+          <div><span>Valor cuota US$</span><strong>${escapeHtml(paymentHistoryUsd(sale?.sale?.valorCuota || 0, rate))}</strong></div>
           <div><span>Cuotas pagadas</span><strong>${sale?.summary?.paidCount || 0} de ${sale?.summary?.totalCuotas || 0}</strong></div>
           <div><span>Cuota que toca</span><strong>${sale?.summary?.nextInstallmentNo ? 'N. ' + sale.summary.nextInstallmentNo : 'Todas pagadas'}</strong></div>
         </div>
         <table>
-          <thead><tr><th>Cuota</th><th>Vence</th><th class="num">Monto</th><th>Estado</th></tr></thead>
+          <thead><tr><th>Cuota</th><th>Vence</th><th class="num">Monto US$</th><th>Estado</th></tr></thead>
           <tbody>${bodyRows}</tbody>
         </table>
       </body>
@@ -414,6 +455,7 @@ const PAYMENT_PDF_STYLE = `
   h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
   p{margin:4px 0 0;color:#6B7280;font-size:12px}
   .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}
+  .history-summary{grid-template-columns:repeat(5,1fr)}
   .summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 10px;border-radius:6px}
   .summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
   .summary strong{display:block;margin-top:4px;color:#111827;font-size:12px}
@@ -528,6 +570,9 @@ export function ClientPaymentHistoryPdf({ sale, projectName }: { sale: any; proj
   const lotCode = sale.lot?.code || sale.lotCode || `Lote ${sale.sale?.lotId ?? ''}`;
   const rows = sale.plan || [...(sale.installments || []), ...(sale.otherPayments || [])];
   const others = (sale.otherPayments || []).filter((p: any) => !rows.includes(p));
+  const rate = paymentHistoryRate(sale);
+  const installmentTotals = paymentHistoryInstallmentTotals(sale);
+  const initialFeeAmount = paymentHistoryInitialFeeAmount(sale);
 
   // Evidencias: una tarjeta por cada pago con boleta o voucher de op. bancaria.
   const evidenceItems: string[] = [];
@@ -579,7 +624,7 @@ export function ClientPaymentHistoryPdf({ sale, projectName }: { sale: any; proj
     return `<tr>
       <td>${escapeHtml(r.conceptLabel || (r.installmentNo ? `Cuota ${r.installmentNo}` : (TYPE_LABEL[r.type] || 'Pago')))}</td>
       <td>${escapeHtml(r.dueDate ? formatDate(r.dueDate) : '-')}</td>
-      <td class="num">${escapeHtml(formatMoney(r.amount))}</td>
+      <td class="num">${escapeHtml(paymentHistoryUsd(r.amount, rate))}</td>
       <td>${tc != null ? escapeHtml(String(tc)) : '-'}</td>
       <td>${pay?.paidAt ? escapeHtml(formatDate(pay.paidAt)) : '-'}</td>
       <td class="num">${usd != null ? 'US$ ' + usd.toFixed(2) : '-'}</td>
@@ -591,7 +636,7 @@ export function ClientPaymentHistoryPdf({ sale, projectName }: { sale: any; proj
   const otherRows = others.map((p: any) => `<tr>
       <td>${escapeHtml(TYPE_LABEL[p.type] || p.type || 'Pago')}</td>
       <td>${escapeHtml(p.dueDate ? formatDate(p.dueDate) : '-')}</td>
-      <td class="num">${escapeHtml(formatMoney(p.amount))}</td>
+      <td class="num">${escapeHtml(paymentHistoryUsd(p.amount, rate))}</td>
       <td>${p.exchangeRate != null ? escapeHtml(String(p.exchangeRate)) : '-'}</td>
       <td>${p.paidAt ? escapeHtml(formatDate(p.paidAt)) : '-'}</td>
       <td class="num">${p.amountUsd != null ? 'US$ ' + Number(p.amountUsd).toFixed(2) : '-'}</td>
@@ -611,22 +656,26 @@ export function ClientPaymentHistoryPdf({ sale, projectName }: { sale: any; proj
         </div>
         <div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div>
       </div>
-      <div class="summary">
-        <div><span>Precio de venta</span><strong>${escapeHtml(formatMoney(sale.sale?.salePrice || 0))}</strong></div>
-        <div><span>Reserva</span><strong>${escapeHtml(formatMoney(sale.summary?.reservaAmount || 0))}</strong></div>
-        <div><span>Cuota inicial</span><strong>${escapeHtml(formatMoney(sale.sale?.cuotaInicial || 0))}</strong></div>
-        <div><span>Cobrado / Saldo</span><strong>${escapeHtml(formatMoney(sale.summary?.collectedAmount || 0))} / ${escapeHtml(formatMoney(sale.summary?.balanceAmount || 0))}</strong></div>
-        <div><span>Cuotas pagadas</span><strong>${sale.summary?.paidCount || 0} de ${sale.summary?.totalCuotas || 0}</strong></div>
+      <div class="summary history-summary">
+        <div><span>Precio de venta US$</span><strong>${escapeHtml(paymentHistoryUsd(sale.sale?.salePrice || 0, rate))}</strong></div>
+        <div><span>Reserva US$</span><strong>${escapeHtml(paymentHistoryUsd(sale.summary?.reservaAmount || 0, rate))}</strong></div>
+        <div><span>Cuota inicial US$</span><strong>${escapeHtml(paymentHistoryUsd(initialFeeAmount, rate))}</strong></div>
+        <div><span>Cobrado US$</span><strong>${escapeHtml(paymentHistoryUsd(sale.summary?.collectedAmount || 0, rate))}</strong></div>
+        <div><span>Saldo US$</span><strong>${escapeHtml(paymentHistoryUsd(sale.summary?.balanceAmount || 0, rate))}</strong></div>
+        <div><span>Cuotas Pagadas US$</span><strong>${escapeHtml(paymentHistoryUsd(installmentTotals.paid, rate))}</strong></div>
+        <div><span>Cuotas por pagar US$</span><strong>${escapeHtml(paymentHistoryUsd(installmentTotals.pending, rate))}</strong></div>
+        <div><span>Cuotas en Atraso US$</span><strong>${escapeHtml(paymentHistoryUsd(installmentTotals.overdue, rate))}</strong></div>
         <div><span>Le toca pagar</span><strong>${escapeHtml(sale.summary?.nextConceptLabel || (sale.summary?.nextInstallmentNo ? 'Cuota ' + sale.summary.nextInstallmentNo : 'Todo pagado'))}</strong></div>
+        <div><span>Valor de la Cuota US$</span><strong>${escapeHtml(paymentHistoryUsd(sale.summary?.nextAmount || 0, rate))}</strong></div>
       </div>
       <h2>Plan de pagos (reserva, cuota inicial y cuotas, en orden)</h2>
       <table>
-        <thead><tr><th>Concepto</th><th>Vence</th><th class="num">Monto</th><th>TC</th><th>Fecha pago</th><th class="num">Pagado US$</th><th>N° Op. Bco</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Concepto</th><th>Vence</th><th class="num">Monto US$</th><th>TC</th><th>Fecha pago</th><th class="num">Pagado US$</th><th>N° Op. Bco</th><th>Estado</th></tr></thead>
         <tbody>${bodyRows || '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody>
       </table>
       ${otherRows ? `<h2>Otros pagos (abonos extra)</h2>
       <table>
-        <thead><tr><th>Concepto</th><th>Vence</th><th class="num">Monto</th><th>TC</th><th>Fecha pago</th><th class="num">Pagado US$</th><th>N° Op. Bco</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Concepto</th><th>Vence</th><th class="num">Monto US$</th><th>TC</th><th>Fecha pago</th><th class="num">Pagado US$</th><th>N° Op. Bco</th><th>Estado</th></tr></thead>
         <tbody>${otherRows}</tbody>
       </table>` : ''}
       ${evidenceSection}
@@ -1966,6 +2015,11 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
             {!historyLoading && historySale && (
               <div className="space-y-4">
+                {(() => {
+                  const installmentTotals = paymentHistoryInstallmentTotals(historySale);
+                  const initialFeeAmount = paymentHistoryInitialFeeAmount(historySale);
+                  return (
+                    <>
                 {!historySale.sale && (
                   <p className="rounded-md border bg-amber-50 px-3 py-2 text-xs" style={{ borderColor: '#FDE68A', color: '#B45309' }}>
                     Este lote aun no tiene una venta o financiamiento registrado. Abajo se listan los pagos
@@ -1983,17 +2037,20 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   />
                   <MiniMetric
                     label="Cuota inicial"
-                    value={showUsd(historySale.sale?.cuotaInicial || 0)}
+                    value={showUsd(initialFeeAmount)}
                     color={historySale.summary?.cuotaInicialPaid ? GREEN : AMBER}
                   />
                   <MiniMetric label="Cobrado" value={showUsd(historySale.summary?.collectedAmount || 0)} color={GREEN} />
                   <MiniMetric label="Saldo" value={showUsd(historySale.summary?.balanceAmount || 0)} color={BLUE_DARK} />
-                  <MiniMetric label="Valor cuota" value={showUsd(historySale.sale?.valorCuota || 0)} />
-                  <MiniMetric label="Cuotas pagadas" value={`${historySale.summary?.paidCount || 0} de ${historySale.summary?.totalCuotas || 0}`} color={GREEN} />
+                  <MiniMetric label="Cuotas Pagadas US$" value={showUsd(installmentTotals.paid)} color={GREEN} />
+                  <MiniMetric label="Cuotas por pagar US$" value={showUsd(installmentTotals.pending)} color={BLUE_DARK} />
+                  <MiniMetric label="Cuotas en Atraso US$" value={showUsd(installmentTotals.overdue)} color={RED} />
                   <MiniMetric label="Le toca pagar" value={historySale.summary?.nextConceptLabel || (historySale.summary?.nextInstallmentNo ? `Cuota ${historySale.summary.nextInstallmentNo}` : 'Todo pagado')} color={AMBER} />
-                  <MiniMetric label="Estado del plan" value={String(historySale.sale?.planStatus || 'pendiente')} color={MUTED} />
-                  <MiniMetric label="TC aplicado" value={historyRate.toFixed(4)} color={MUTED} />
+                  <MiniMetric label="Valor de la Cuota US$" value={showUsd(historySale.summary?.nextAmount || 0)} />
                 </div>
+                    </>
+                  );
+                })()}
 
 
                 <div className="flex flex-wrap items-center justify-between gap-2">

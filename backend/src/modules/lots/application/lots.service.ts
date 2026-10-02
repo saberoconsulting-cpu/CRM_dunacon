@@ -56,7 +56,7 @@ export class LotsService {
       .leftJoinAndSelect(ClientEntity, 'c', 'c.id = l.client_id')
       .leftJoinAndSelect(BlockEntity, 'b', 'b.id = l.street_id')
       .select([
-        'l.id', 'l.projectId', 'l.planId', 'l.streetId', 'l.code',
+        'l.id', 'l.projectId', 'l.planId', 'l.streetId', 'l.code', 'l.address',
         'l.areaM2', 'l.price', 'l.status', 'l.clientId', 'l.agentId',
         'l.planVoucherUrl',
       ])
@@ -91,6 +91,7 @@ export class LotsService {
       streetId: r.l_street_id ? Number(r.l_street_id) : null,
       blockId: r.l_street_id ? Number(r.l_street_id) : null,
       code: r.l_code,
+      address: r.l_address || null,
       areaM2: Number(r.l_area_m2),
       price: Number(r.l_price),
       status: r.l_status,
@@ -105,9 +106,9 @@ export class LotsService {
       finalPrice: r.finalPrice != null ? Number(r.finalPrice) : null,
       planVoucherUrl: r.l_plan_voucher_url || null,
       streetName: r.streetName || null,
-      streetAddress: r.streetAddress || null,
+      streetAddress: r.streetAddress || r.l_address || null,
       blockName: r.streetName || null,
-      blockAddress: r.streetAddress || null,
+      blockAddress: r.streetAddress || r.l_address || null,
     }));
     return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
   }
@@ -163,7 +164,7 @@ export class LotsService {
     const lotWithCatalog = {
       ...lot,
       blockId: lot.streetId,
-      address: catalog?.address || undefined,
+      address: lot.address || catalog?.address || undefined,
       type: lot.type || catalog?.type || undefined,
       dimensions: lot.dimensions || catalog?.dimensions || undefined,
       areaM2: Number(lot.areaM2 || 0) || Number(catalog?.areaM2 || 0),

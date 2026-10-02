@@ -9,7 +9,6 @@ const fmtUsd = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { 
 const fmtPen = (n: number) => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const PAY_LABEL: Record<string, string> = { contado: 'Contado', Crédito: 'Crédito', credito: 'Crédito' };
 
-/** Fecha ISO (YYYY-MM-DD) -> dd/mm/aaaa para los documentos. */
 function fmtDate(iso?: string) {
   if (!iso) return '—';
   const [y, m, d] = String(iso).split('T')[0].split('-');
@@ -52,7 +51,7 @@ function QuotePlanPreview({ planData, quote, lot }: { planData: any; quote: any;
           <span className="text-xs font-semibold text-slate-600">Lote cotizado resaltado</span>
           <span className="rounded-full px-2.5 py-1 text-xs font-bold" style={{ background: '#EAF3FF', color: '#1259C4' }}>Lote {selected?.code || lot?.code}</span>
         </div>
-        <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="block w-full" role="img" aria-label="Plano del lote cotizado">
+        <svg viewBox={`0 0 ${SVG_W} ${SVG_H}`} className="block w-full plan-print-svg" role="img" aria-label="Plano del lote cotizado">
           <rect width={SVG_W} height={SVG_H} fill="#F8FAFC" />
           <image href={plan.imageUrl} x={imgX} y={imgY} width={imgW} height={imgH} preserveAspectRatio="xMidYMid meet" />
           {lots.filter((item: any) => Number(item.id) !== Number(quote?.lotId) && Array.isArray(item.points)).map((item: any) => (
@@ -130,16 +129,70 @@ export default function CotizacionDocPage() {
   return (
     <div className="min-h-screen bg-white flex flex-col items-center py-6 px-3 print:py-0 sm:py-10 sm:px-4">
       <style>{`
+        @page {
+          size: A4 portrait;
+          margin: 9mm 8mm;
+        }
         @media print {
           .no-print { display: none !important; }
-          body { background: #fff; font-family: Arial, Helvetica, sans-serif !important; font-size: 12px !important; }
-          body * { font-family: Arial, Helvetica, sans-serif !important; }
-          p, span, b, strong, label, input, button, table, th, td, div { font-size: 12px !important; line-height: 1.35 !important; }
-          h1 { font-size: 22px !important; line-height: 1.2 !important; }
-          h3 { font-size: 13px !important; line-height: 1.3 !important; }
+          html, body { width: auto !important; max-width: none !important; overflow: visible !important; }
+          body { background: #fff !important; margin: 0 !important; font-family: Arial, Helvetica, sans-serif !important; font-size: 12px !important; line-height: 1.34 !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          body * { font-family: Arial, Helvetica, sans-serif !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+          /* La hoja ocupa TODO el ancho util de la A4: sin desaprovechar el espacio. */
+          .min-h-screen { min-height: 0 !important; padding: 0 !important; display: block !important; }
+          .max-w-2xl { width: 100% !important; max-width: 100% !important; }
+          /* Rejillas a todo el ancho, con separacion elegante y equilibrada. */
+          .grid { gap: 10px !important; row-gap: 10px !important; }
+          .gap-3 { gap: 10px !important; }
+          .gap-5, .gap-6 { gap: 12px !important; }
+          .px-3, .px-4, .px-6 { padding-left: 14px !important; padding-right: 14px !important; }
+          .py-2, .py-3, .py-4, .py-5, .py-6 { padding-top: 7px !important; padding-bottom: 7px !important; }
+          .pb-2, .pb-6 { padding-bottom: 10px !important; }
+          .p-4, .p-3 { padding: 12px !important; }
+          .mb-2 { margin-bottom: 8px !important; }
+          .mt-1, .mt-2, .mt-3, .mt-4, .mt-5, .mt-6 { margin-top: 8px !important; }
+          /* Tipografia legible: el texto ya NO queda diminuto al descargar el PDF. */
+          p { font-size: 12px !important; line-height: 1.36 !important; margin: 2px 0 !important; }
+          span, b, strong, label, div { line-height: 1.34 !important; }
+          .text-xs { font-size: 11px !important; }
+          .text-sm { font-size: 12.5px !important; }
+          h1 { font-size: 22px !important; line-height: 1.18 !important; }
+          h3 { font-size: 13px !important; line-height: 1.28 !important; margin-bottom: 7px !important; }
+          table, th, td { font-size: 12px !important; }
+          th, td { padding: 5px 8px !important; }
           table { page-break-inside: auto; }
           tr { page-break-inside: avoid; page-break-after: auto; }
+          thead { display: table-header-group; }
+          /* Financiamiento siempre en una sola fila al imprimir, a todo el ancho. */
+          .finance-row { width: 100% !important; table-layout: fixed !important; page-break-inside: avoid !important; }
+          .finance-row tr { page-break-inside: avoid !important; }
+          .finance-cell { padding: 9px 10px !important; }
+          .finance-label { font-size: 9.5px !important; letter-spacing: 0 !important; }
+          .finance-value { font-size: 13px !important; }
+          /* Tarjetas de resumen/gracias: legibles y sin aplastarse. */
+          .rounded-lg { border-radius: 8px !important; }
+          /* Controles solo de administrador: no se imprimen. */
+          .rate-control { display: none !important; }
+          /* Plano de ubicacion: aprovecha el ancho de la hoja sin desbordar. */
+          .plan-print-svg { height: 200px !important; width: 100% !important; max-width: 100% !important; margin: 0 auto !important; object-fit: contain !important; }
+          /* Evita partir bloques clave entre hojas. */
+          .rounded-2xl { break-inside: auto; }
+          h1, h3 { break-after: avoid; }
         }
+        .finance-row { table-layout: fixed; }
+        .finance-cell {
+          width: 20%;
+          border: 1px solid #E5E7EB;
+          border-left-width: 0;
+          background: #F8FAFC;
+          padding: 12px;
+          vertical-align: top;
+          word-break: break-word;
+        }
+        .finance-cell:first-child { border-left-width: 1px; border-top-left-radius: 8px; border-bottom-left-radius: 8px; }
+        .finance-cell:last-child { border-top-right-radius: 8px; border-bottom-right-radius: 8px; }
+        .finance-label { display: block; font-size: 10px; font-weight: 700; text-transform: uppercase; color: #64748B; }
+        .finance-value { display: block; margin-top: 4px; font-size: 14px; }
       `}</style>
       <div className="w-full max-w-2xl">
         <div className="no-print flex justify-end mb-4">
@@ -204,33 +257,40 @@ export default function CotizacionDocPage() {
             {quote.paymentMethod === 'credito' && (
               <div className="mt-3">
                 <h3 className="font-semibold text-sm text-slate-700 mb-2">Financiamiento</h3>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-                  <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
-                    <span className="block text-[10px] font-bold uppercase text-slate-500">Saldo a financiar</span>
-                    <b className="mt-1 block text-sm">{fmtUsd(saldoAFinanciar)}</b>
-                  </div>
-                  <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
-                    <span className="block text-[10px] font-bold uppercase text-slate-500">Interes</span>
-                    <b className="mt-1 block text-sm">{quote.interestType === 'tea' ? `TEA ${Number(quote.tea)}%` : 'Sin intereses'}</b>
-                  </div>
-                  <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
-                    <span className="block text-[10px] font-bold uppercase text-slate-500">Plazo</span>
-                    <b className="mt-1 block text-sm">{Number(quote.totalCuotas || 0)} meses</b>
-                  </div>
-                  <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
-                    <span className="block text-[10px] font-bold uppercase text-slate-500">Valor cuota con intereses</span>
-                    <b className="mt-1 block text-sm">{fmtUsd(Number(quote.valorCuotaUsd || 0))}</b>
-                  </div>
-                  <div className="rounded-lg border bg-slate-50 p-3" style={{ borderColor: '#E5E7EB' }}>
-                    <span className="block text-[10px] font-bold uppercase text-slate-500">Tipo cambio</span>
-                    <b className="mt-1 block text-sm">S/ {rate.toFixed(4)}</b>
-                  </div>
-                </div>
+                {/* Una sola fila (tabla de 5 columnas): en pantalla y en el PDF los
+                    indicadores de financiamiento quedan alineados horizontalmente,
+                    sin partirse en varias filas al imprimir. */}
+                <table className="finance-row w-full text-sm" style={{ borderCollapse: 'separate', borderSpacing: 0 }}>
+                  <tbody>
+                    <tr>
+                      <td className="finance-cell">
+                        <span className="finance-label">Saldo a financiar</span>
+                        <b className="finance-value">{fmtUsd(saldoAFinanciar)}</b>
+                      </td>
+                      <td className="finance-cell">
+                        <span className="finance-label">Interes</span>
+                        <b className="finance-value">{quote.interestType === 'tea' ? `TEA ${Number(quote.tea)}%` : 'Sin intereses'}</b>
+                      </td>
+                      <td className="finance-cell">
+                        <span className="finance-label">Plazo</span>
+                        <b className="finance-value">{Number(quote.totalCuotas || 0)} meses</b>
+                      </td>
+                      <td className="finance-cell">
+                        <span className="finance-label">Valor cuota con intereses</span>
+                        <b className="finance-value">{fmtUsd(Number(quote.valorCuotaUsd || 0))}</b>
+                      </td>
+                      <td className="finance-cell">
+                        <span className="finance-label">Tipo cambio</span>
+                        <b className="finance-value">S/ {rate.toFixed(4)}</b>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             )}
             <p className="text-xs text-slate-400 mt-1">Tipo de cambio referencial: S/ {rate.toFixed(4)} por US$ 1.00</p>
 
-          <div className="px-0 pb-6 sm:px-0">
+          <div className="px-0 pb-6 sm:px-0 rate-control">
             <h3 className="font-semibold text-sm text-slate-700 mb-2">Actualizar tipo de cambio</h3>
             <div className="flex flex-wrap items-end gap-2">
               <label className="text-xs text-slate-500">

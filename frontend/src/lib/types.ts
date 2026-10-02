@@ -126,6 +126,7 @@ export interface Lot {
   blockId: number | null;
   streetId?: number | null;
   code: string;
+  address?: string | null;
   points: Point[];
   areaM2: number;
   price: number;

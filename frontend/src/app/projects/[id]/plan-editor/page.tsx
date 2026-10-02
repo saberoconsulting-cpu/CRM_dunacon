@@ -109,7 +109,7 @@ export default function PlanEditorPage() {
 
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
               {/* Resumen del plano */}
-              <div className="rounded-lg border bg-white p-4" style={{ borderColor: '#E5E7EB' }}>
+              <div className="shrink-0 rounded-lg border bg-white p-4" style={{ borderColor: '#E5E7EB' }}>
                 <h3 className="text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: '#111827' }}>Resumen del plano</h3>
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   {summary.map((item) => (
@@ -132,21 +132,27 @@ export default function PlanEditorPage() {
                 </div>
               </div>
 
-              <div className="rounded-lg border bg-white p-4" style={{ borderColor: '#E5E7EB' }}>
-                <h3 className="text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: '#111827' }}>Calles ({streets.length})</h3>
-                <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1 text-sm">
+              <div className="flex min-h-0 flex-col rounded-lg border bg-white p-4" style={{ borderColor: '#E5E7EB' }}>
+                <h3 className="shrink-0 text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: '#111827' }}>
+                  Calles ({streets.length})
+                </h3>
+                <ul className="mt-3 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 text-sm">
                   {streets.map((street, index) => (
                     <li key={street.id} className="rounded-lg border px-3 py-2" style={{ borderColor: selectedBlock === street.id ? '#1877F2' : '#E5E7EB', background: selectedBlock === street.id ? '#E7F0FE' : '#fff' }}>
                       <button type="button" onClick={() => setSelectedBlock(selectedBlock === street.id ? null : street.id)} className="flex w-full items-center gap-2 text-left">
                         <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md bg-[#1259C4] text-xs font-bold text-white">{index + 1}</span>
-                        <span className="min-w-0">
+                        <span className="min-w-0 flex-1">
                           <span className="block truncate font-semibold">{street.name}</span>
-                          <span className="block text-[11px] text-slate-500">{lots.filter((lot) => Number(lot.streetId ?? lot.blockId) === Number(street.id)).length} lotes</span>
                         </span>
+                        <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600">{lots.filter((lot) => Number(lot.streetId ?? lot.blockId) === Number(street.id)).length} lotes</span>
                       </button>
                     </li>
                   ))}
-                  {streets.length === 0 && <li className="text-xs text-slate-400">Aun no hay calles dibujadas.</li>}
+                  {/* Solo se listan las calles DIBUJADAS. El catalogo de lotes no se
+                      lista aqui: se elige al dibujar el lote en el editor. */}
+                  {streets.length === 0 && (
+                    <li className="text-xs text-slate-400">Aun no hay calles dibujadas en el plano.</li>
+                  )}
                 </ul>
               </div>
 
