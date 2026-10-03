@@ -106,6 +106,7 @@ export default function CotizacionDocPage() {
   if (!data) return <div className="p-10 text-center text-slate-400">Cargando…</div>;
 
   const { quote, lot, block, project } = data;
+  const lotAddress = lot?.address || block?.address || lot?.streetAddress || lot?.blockAddress || '—';
   const rate = Number(quote.exchangeRate);
   const toPen = (usd: number) => usd * rate;
   const saldoAFinanciar = Math.max(0, Number(quote.finalPriceUsd) - Number(quote.cuotaInicialUsd));
@@ -225,7 +226,7 @@ export default function CotizacionDocPage() {
               <h3 className="font-semibold text-sm text-slate-700 mb-2">Lote</h3>
               <p className="text-sm"><b>Proyecto:</b> {project?.name}</p>
               <p className="text-sm"><b>Lote elegido:</b> N.° {lot?.code}</p>
-              <p className="text-sm"><b>Dirección del lote:</b> {block?.address || '—'}</p>
+              <p className="text-sm"><b>Dirección del lote:</b> {lotAddress}</p>
               <p className="text-sm"><b>Área del lote (m²):</b> {lot?.areaM2}</p>
               <p className="text-sm"><b>Precio US$/m²:</b> {fmtUsd(quote.pricePerM2Usd)}</p>
             </div>

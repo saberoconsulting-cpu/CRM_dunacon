@@ -116,7 +116,7 @@ const SECTIONS: Array<{ id: string; label: string; tone: string; computed?: bool
     { id: 'pre-tax', label: 'Utilidad antes de Impuesto', tone: '#15803D', rows: [], computed: true },
     { id: 'tax', label: 'Impuesto a la renta', tone: '#64748B', rows: [] },
     { id: 'net', label: 'Utilidad Neta', tone: '#15803D', rows: [], computed: true },
-    { id: 'igv', label: 'IGV Referencial Incluido en Ingresos', tone: '#64748B', rows: [] },
+    { id: 'igv', label: 'IGV Referencial Incluido en Ingresos', tone: '#64748B', rows: [], computed: true },
     { id: 'adjusted', label: 'Utilidad Ajustada Referencial Neta', tone: BRAND.blue, rows: [], computed: true },
     { id: 'accumulated-title', label: 'Utilidad Acumulada', tone: BRAND.blue, rows: [], computed: true },
     { id: 'pre-tax-accumulated', label: 'Utilidad Antes de Imp. Acumulada', tone: '#15803D', rows: [], computed: true },
@@ -191,7 +191,7 @@ function calculateRows(input: Row[]): Row[] {
     const selling = cascadeTotals.selling || empty();
     const financial = (childrenByParent.financial || []).length ? sumTree('financial') : get('financial');
     const tax = (childrenByParent.tax || []).length ? sumTree('tax') : get('tax');
-    const igv = (childrenByParent.igv || []).length ? sumTree('igv') : get('igv');
+    const igv = revenue.map((value) => value > 0 ? value * 18 / 118 : 0);
     const gross = revenue.map((value, year) => value - costSales[year]);
     const operating = gross.map((value, year) => value - selling[year]);
     const preTax = operating.map((value, year) => value - financial[year]);
@@ -339,14 +339,14 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         const sellingAdmin = budgetByCategory('gastos_ventas_admin');
         const financing = Number(statement?.egresos_clasificados?.financiamiento || 0);
         const tax = Number(statement?.egresos_clasificados?.impuestos || 0);
-        const TOTAL_ONLY_IDS = ['cost-sales', 'gross', 'operating', 'pre-tax', 'net', 'adjusted', 'accumulated-title', 'pre-tax-accumulated', 'adjusted-accumulated'];
+        const TOTAL_ONLY_IDS = ['cost-sales', 'gross', 'operating', 'pre-tax', 'net', 'igv', 'adjusted', 'accumulated-title', 'pre-tax-accumulated', 'adjusted-accumulated'];
         const seedRows = SECTIONS.flatMap((section) => {
             if (TOTAL_ONLY_IDS.includes(section.id)) return [row(section.id, section.label, empty(), true)];
             if (section.id === 'financial') return [row(section.id, section.label, [financing])];
             if (section.id === 'tax') return [row(section.id, section.label, [tax])];
 
             return [
-                row(section.id, section.label, empty(), section.rows.length > 0),
+                row(section.id, section.label, empty(), Boolean(section.computed || section.rows.length > 0)),
                 ...section.rows.map((item) => ({
                     ...row(item.id, item.label, empty(), Boolean(item.computed)),
                     parentId: item.parentId || section.id,
@@ -592,7 +592,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                             id: seedRow.id,
                             label: item?.label || seedRow.label,
                             values: normalizeValues(!useSeedValues && Array.isArray(item?.values) ? item.values : seedRow.values),
-                            computed: item?.computed ?? seedRow.computed,
+                            computed: Boolean(seedRow.computed || item?.computed),
                             parentId: item?.parentId ?? seedRow.parentId,
                             depth: item?.depth ?? seedRow.depth,
                         };
@@ -858,7 +858,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 id: item.id,
                 label: labelPatch?.id === item.id ? labelPatch.label : (editable?.label || item.label),
                 values: editable && !editable.computed ? editable.values : item.values,
-                computed: editable?.computed ?? item.computed,
+                computed: Boolean(item.computed || editable?.computed),
                 parentId: editable?.parentId ?? item.parentId,
                 depth: editable?.depth ?? item.depth,
             };

@@ -26,6 +26,7 @@ type ScheduleRow = {
 };
 
 const fmtUsd = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtUsdHeader = (n: number) => '$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtPen = (n: number) => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const PAY_LABEL: Record<string, string> = { contado: 'Contado', credito: 'Credito' };
 
@@ -195,6 +196,7 @@ function buildPlanHtml(data: any, planPrintZoom = 1) {
 
 function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiamiento', options?: { planPrintZoom?: number }) {
   const { quote, lot, block, project } = data;
+  const lotAddress = lot?.address || block?.address || lot?.streetAddress || lot?.blockAddress || '-';
   const adminLogoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
   const projectLogoUrl = project?.logoImageUrl || '';
   const rate = Number(quote.exchangeRate || 0);
@@ -262,7 +264,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
     ['Telefono', quote.clientPhone || '-'],
     ['Proyecto', project?.name || '-'],
     ['Lote', lot?.code || '-'],
-    ['Direccion', block?.address || lot?.blockAddress || '-'],
+    ['Direccion', lotAddress],
     ['Area', `${Number(lot?.areaM2 || 0).toLocaleString('es-PE')} m2`],
     ['Precio US$/m2', fmtUsd(Number(quote.pricePerM2Usd || 0))],
     ['Forma de pago', PAY_LABEL[quote.paymentMethod] || quote.paymentMethod],
@@ -474,13 +476,13 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           <div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div>
         </div>
         <div class="summary">
-          <div class="head-card"><span>Precio final</span><strong>${escapeHtml(fmtUsd(Number(quote.finalPriceUsd || 0)))}</strong></div>
+          <div class="head-card"><span>Precio final</span><strong>${escapeHtml(fmtUsdHeader(Number(quote.finalPriceUsd || 0)))}</strong></div>
           ${quote.paymentMethod === 'credito' ? `
-              <div class="head-card"><span>Cuota inicial</span><strong>${escapeHtml(fmtUsd(cuotaInicialUsd))}</strong></div>
-              <div class="head-card"><span>Saldo a financiar</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
+              <div class="head-card"><span>Cuota inicial</span><strong>${escapeHtml(fmtUsdHeader(cuotaInicialUsd))}</strong></div>
+              <div class="head-card"><span>Saldo a financiar</span><strong>${escapeHtml(fmtUsdHeader(saldo))}</strong></div>
               <div class="head-card"><span>Cuotas a financiar</span><strong>${financingInstallments}</strong></div>
-              <div class="head-card"><span>Cuota sin interes</span><strong>${escapeHtml(fmtUsd(noInterestCuotaUsd))}</strong></div>
-              <div class="head-card"><span>Cuota con interes</span><strong>${escapeHtml(fmtUsd(interestCuotaUsd))}</strong></div>
+              <div class="head-card"><span>Cuota sin interes</span><strong>${escapeHtml(fmtUsdHeader(noInterestCuotaUsd))}</strong></div>
+              <div class="head-card"><span>Cuota con interes</span><strong>${escapeHtml(fmtUsdHeader(interestCuotaUsd))}</strong></div>
             ` : '<div class="head-card"><span>Forma de pago</span><strong>Contado</strong></div>'}
           </div>
         <h2>Datos de la cotizacion</h2>
@@ -1025,7 +1027,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             </div>
             <div className="grid grid-cols-3 gap-3 mb-3">
               <LotInfoBox label="Calle" value={(selectedLot as any)?.streetName || (selectedLot as any)?.blockName || '-'} placeholder="Sin lote" />
-              <LotInfoBox label="Direccion" value={selectedLot?.blockAddress || '-'} placeholder="Sin lote" />
+              <LotInfoBox label="Direccion" value={selectedLot?.address || selectedLot?.streetAddress || selectedLot?.blockAddress || '-'} placeholder="Sin lote" />
               <LotInfoBox label="Area (m2)" value={selectedLot ? String(Number(selectedLot.areaM2 || 0).toLocaleString('es-PE')) : '-'} placeholder="Sin lote" />
             </div>
             <div className="grid grid-cols-2 gap-3">

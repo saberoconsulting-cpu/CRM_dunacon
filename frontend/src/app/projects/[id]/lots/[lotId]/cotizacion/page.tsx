@@ -23,11 +23,12 @@ export default function CotizacionPage() {
   if (!data) return <div className="p-10 text-center text-slate-400">Cargando…</div>;
 
   const { lot, block } = data;
+  const lotAddress = lot?.address || block?.address || lot?.streetAddress || lot?.blockAddress || '—';
   const pricePerM2 = Number(lot.areaM2) > 0 ? Number(lot.price) / Number(lot.areaM2) : 0;
 
   const rows: [string, string][] = [
     ['Proyecto', project?.name || '—'],
-    ['Dirección', block?.address || '—'],
+    ['Dirección', lotAddress],
     ['Tipo', lot.type || '—'],
     ['Estado', LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status],
     ['Área', `${lot.areaM2} m²`],

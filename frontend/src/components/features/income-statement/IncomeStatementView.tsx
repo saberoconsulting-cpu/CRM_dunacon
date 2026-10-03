@@ -907,6 +907,17 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     }
   }
 
+  async function deleteItem(item: StatementItem) {
+    if (!window.confirm(`Eliminar "${item.name}" del estado de resultados?`)) return;
+    try {
+      await api.delete(`/income-statement/${item.id}`);
+      toast('Subpartida eliminada');
+      load();
+    } catch (error: any) {
+      toast(error?.message || 'No se pudo eliminar la subpartida', 'err');
+    }
+  }
+
   /**
    * Exporta las cards (KPI + metricas) y el cuadro completo del Estado de
    * Resultados a PDF usando el mismo helper `printHtml` que el resto del CRM.
@@ -1175,6 +1186,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                                   <span className="ml-auto hidden shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 md:flex">
                                     <button type="button" className="grid h-6 w-6 place-items-center rounded text-slate-500 hover:bg-slate-100" title="Agregar subpartida" onClick={() => openCreate(row.line, row.item)}><FiPlus /></button>
                                     <button type="button" className="grid h-6 w-6 place-items-center rounded text-slate-500 hover:bg-slate-100" title="Editar" onClick={() => openEdit(row.item)}><FiEdit3 /></button>
+                                    <button type="button" className="grid h-6 w-6 place-items-center rounded text-slate-500 hover:bg-red-50 hover:text-red-600" title="Eliminar" onClick={() => deleteItem(row.item)}><FiX /></button>
                                   </span>
                                 )}
                               </div>

@@ -54,6 +54,7 @@ export default function FinanciamientoDocPage() {
   if (!data) return <div className="p-10 text-center text-slate-400">Cargando…</div>;
 
   const { quote, lot, block, project } = data;
+  const lotAddress = lot?.address || block?.address || lot?.streetAddress || lot?.blockAddress || '—';
   const start = new Date(quote.createdAt);
   const dueDate = (m: number) => {
     const d = new Date(start.getFullYear(), start.getMonth() + m, start.getDate());
@@ -95,7 +96,7 @@ export default function FinanciamientoDocPage() {
         </div>
         <div className="border-x border-b rounded-b-2xl p-4 text-sm grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4" style={{ borderColor: '#E5E7EB' }}>
           <div><span className="text-slate-500 block text-xs">Cliente</span><b>{quote.clientName}</b></div>
-          <div><span className="text-slate-500 block text-xs">Dirección del lote</span><b>{block?.address || '—'}</b></div>
+          <div><span className="text-slate-500 block text-xs">Dirección del lote</span><b>{lotAddress}</b></div>
           <div><span className="text-slate-500 block text-xs">Tipo de interés</span><b>{quote.interestType === 'tea' ? `TCEA ${Number(quote.tea)}%` : 'Sin intereses'}</b></div>
           <div><span className="text-slate-500 block text-xs">Plazo (meses)</span><b>{quote.totalCuotas}</b></div>
         </div>
