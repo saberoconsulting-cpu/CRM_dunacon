@@ -1945,8 +1945,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 { id: 'adjusted-accumulated', label: rowLabel('adjusted-accumulated', 'Utilidad Ajustada Referencial Acumulada Neta'), values: accumulatedProfit, tone: BRAND.blue },
                             ].map((item) => (
                                 <tr key={item.id}>
-                                    <td className={`${CONCEPT_COL} border border-slate-200 px-3 py-2.5 font-bold md:sticky md:left-0 md:z-[1] md:px-4`} style={{ background: '#D3E4FD', color: item.tone }}>
-                                        {editableConcept(item.id, item.label, 'truncate')}
+                                    <td className={`${CONCEPT_COL} min-w-0 overflow-hidden border border-slate-200 px-3 py-2.5 font-bold md:sticky md:left-0 md:z-[1] md:px-4`} style={{ background: '#D3E4FD', color: item.tone }}>
+                                        {editableConcept(item.id, item.label)}
                                     </td>
                                     <td className={`${TOTAL_COL} border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[232px] md:z-[1]`}>{formatInteger(lastVisibleAccumulated(item.values))}</td>
                                     {displayedYearIndexesBeforeHistory.map((year) => {

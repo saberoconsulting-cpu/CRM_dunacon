@@ -287,7 +287,10 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
     <html>
       <head>
         <meta charset="utf-8" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <!-- Ancho fijo (no device-width): el documento imprimible siempre se
+             maqueta como escritorio A4 y no hereda el ancho de la ventana/iframe,
+             que era lo que encogia el PDF en la laptop del cliente. -->
+        <meta name="viewport" content="width=800, initial-scale=1" />
         <title>${escapeHtml(title)} Q${quote.id}</title>
         <style>
           *{box-sizing:border-box}
@@ -307,6 +310,8 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           .summary .head-card{border-color:#B9D2F4;background:#F5F9FF;border-left:4px solid #1877F2;text-align:center}
           .summary .head-card span{color:#1259C4;text-align:center}
           .summary .head-card strong{color:#0B2F6E;text-align:center}
+          /* Numero de cuotas entre parentesis, chiquito, junto al titulo de la tarjeta. */
+          .summary .tiny{display:inline;margin-left:3px;color:#64748B;font-size:9px;font-weight:700;text-transform:none;letter-spacing:0}
           .quote-data-table td{width:24%}
           .quote-data-table .label{width:24%}
           .quote-data-table .quote-data-gap{width:4%;border:none;background:white;padding:0}
@@ -356,14 +361,20 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           .plan-full .plan-svg,.plan-zoom svg{height:300px;border-radius:10px;overflow:hidden;background:#EEF2F7}
           .plan-zoom svg{display:block;width:100%}
           .plan-note{margin:0;font-size:9px;font-weight:700;text-align:center;text-transform:uppercase;letter-spacing:.06em;color:#6B7280}
-          @media (max-width:640px){.plan-split{grid-template-columns:minmax(0,1fr)}.plan-full .plan-svg,.plan-zoom svg{height:190px}}
+          /* Solo pantalla: en impresion/PDF el ancho de hoja manda y el layout movil
+             no debe activarse aunque la ventana/iframe sea angosta (evita el PDF
+             comprimido que solo aparecia en la laptop del cliente). */
+          @media screen and (max-width:640px){.plan-split{grid-template-columns:minmax(0,1fr)}.plan-full .plan-svg,.plan-zoom svg{height:190px}}
           .lot-muted{fill:rgba(148,163,184,.20);stroke:#94A3B8;stroke-width:1.2}
           .lot-selected{fill:rgba(24,119,242,.74);stroke:#063B87;stroke-width:4}
           .lot-pulse{fill:rgba(255,255,255,.92);stroke:#1877F2;stroke-width:3}
           .lot-code{font-size:18px;font-weight:800;text-anchor:middle;fill:#063B87}
           .lot-area{font-size:12px;font-weight:700;text-anchor:middle;fill:#1259C4}
           .eyebrow,p,.summary span,.summary strong,.summary-row span,.summary-row strong,.summary-row .tiny,.summary-aside span,.summary-aside strong,th,td,.schedule-table th,.schedule-table td,.schedule-table .num,.plan-head strong,.plan-head span,.plan-head b,.plan-actions label,.plan-actions label strong,.plan-note,.footer{font-size:12px}
-          @media (max-width:640px){
+          /* Solo pantalla: el diseno movil jamas debe aplicarse al imprimir/PDF
+             aunque el ancho efectivo de la ventana sea menor a 640px (causa del
+             PDF comprimido solo en la laptop del cliente). */
+          @media screen and (max-width:640px){
             body{margin:12px}
             .brand{flex-direction:column;align-items:flex-start;gap:10px}
             .logos img{height:32px;max-width:120px}
@@ -481,8 +492,8 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
               <div class="head-card"><span>Cuota inicial</span><strong>${escapeHtml(fmtUsdHeader(cuotaInicialUsd))}</strong></div>
               <div class="head-card"><span>Saldo a financiar</span><strong>${escapeHtml(fmtUsdHeader(saldo))}</strong></div>
               <div class="head-card"><span>Cuotas a financiar</span><strong>${financingInstallments}</strong></div>
-              <div class="head-card"><span>Cuota sin interes</span><strong>${escapeHtml(fmtUsdHeader(noInterestCuotaUsd))}</strong></div>
-              <div class="head-card"><span>Cuota con interes</span><strong>${escapeHtml(fmtUsdHeader(interestCuotaUsd))}</strong></div>
+              <div class="head-card"><span>Cuota sin interes <em class="tiny">(${noInterestInstallments})</em></span><strong>${escapeHtml(fmtUsdHeader(noInterestCuotaUsd))}</strong></div>
+              <div class="head-card"><span>Cuota con interes <em class="tiny">(${interestInstallments})</em></span><strong>${escapeHtml(fmtUsdHeader(interestCuotaUsd))}</strong></div>
             ` : '<div class="head-card"><span>Forma de pago</span><strong>Contado</strong></div>'}
           </div>
         <h2>Datos de la cotizacion</h2>

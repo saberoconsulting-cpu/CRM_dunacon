@@ -474,7 +474,8 @@ const PAYMENT_PDF_STYLE = `
   .evidence-group{margin-bottom:14px;break-inside:avoid}
   .evidence-title{margin:0 0 6px;font-size:11px;font-weight:700;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
   .footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:10px;text-align:right}
-  @media (max-width:640px){body{margin:12px}.brand{flex-direction:column;gap:10px}.logos img{height:32px;max-width:120px}h1{font-size:17px}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}table{table-layout:auto}th,td{padding:5px 4px;font-size:9px}.watermark img{width:300px}.evidence{grid-template-columns:1fr}}
+  /* Solo pantalla: nunca aplicar el layout movil al imprimir/PDF. */
+  @media screen and (max-width:640px){body{margin:12px}.brand{flex-direction:column;gap:10px}.logos img{height:32px;max-width:120px}h1{font-size:17px}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}table{table-layout:auto}th,td{padding:5px 4px;font-size:9px}.watermark img{width:300px}.evidence{grid-template-columns:1fr}}
   @media print{body{margin:18px}thead{display:table-header-group}.brand,.summary,.evidence-item{break-inside:avoid}.watermark{position:fixed}}
 `;
 

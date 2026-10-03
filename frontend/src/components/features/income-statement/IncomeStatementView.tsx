@@ -828,7 +828,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   /** Nombre del concepto: en linea fija se edita por localStorage, la partida en su modal. */
   function editableConcept(row: SheetRow, color: string) {
     const isChild = row.level > 1;
-    const textClass = `truncate text-[11px] font-semibold leading-tight md:text-sm ${isChild ? 'font-medium' : ''}`;
+    const textClass = `truncate text-xs font-semibold leading-tight md:text-sm ${isChild ? 'font-medium' : ''}`;
     if (row.kind !== 'line') {
       return (
         <p className={textClass} style={{ color }} title={row.label}>
@@ -1146,7 +1146,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 en web la tabla cabe sin scroll. */}
             <p className="px-4 py-2 text-xs text-slate-400 sm:hidden">Desliza la tabla hacia la derecha para ver las demas columnas.</p>
             <div className="w-full overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-              <table className="w-full table-fixed text-[10px] sm:!min-w-[540px] md:text-sm" style={{ minWidth: 780 }}>
+              <table className="w-full table-fixed text-[13px] sm:!min-w-[540px] md:text-sm" style={{ minWidth: 780 }}>
                 <colgroup>
                   <col className="w-[200px] sm:w-[33%] md:w-[38%]" />
                   <col className="w-[92px] sm:w-[19%] md:w-[16%]" />
@@ -1156,7 +1156,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                   <col className="w-[62px] sm:w-[8%] md:w-[6%]" />
                 </colgroup>
                 <thead>
-                  <tr className="border-b text-left text-[8px] font-bold uppercase leading-tight tracking-normal md:text-xs md:tracking-wide" style={{ borderColor: BORDER, color: MUTED, background: '#F8FAFC' }}>
+                  <tr className="border-b text-left text-[10px] font-bold uppercase leading-tight tracking-normal md:text-xs md:tracking-wide" style={{ borderColor: BORDER, color: MUTED, background: '#F8FAFC' }}>
                     <th className="px-1.5 py-2 md:px-4 md:py-3">Concepto</th>
                     <th className="px-1 py-2 text-right md:px-3 md:py-3">Proy. {symbol}</th>
                     <th className="px-1 py-2 text-right md:px-3 md:py-3">Real {symbol}</th>
@@ -1222,7 +1222,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                             <div className="min-w-0 flex-1">
                               <div className="flex items-center gap-1 md:gap-2">
                                 {row.kind === 'item' && !row.item.isVirtual && (
-                                  <span className="hidden shrink-0 rounded px-1 py-0.5 text-[10px] font-bold md:inline" style={{ background: isChild ? '#F8FAFC' : '#EAF3FF', color: isChild ? MUTED : BLUE, border: `1px solid ${isChild ? BORDER : '#BFDBFE'}` }}>{row.item.code}</span>
+                                  <span className="hidden shrink-0 rounded px-1 py-0.5 text-[11px] font-bold md:inline" style={{ background: isChild ? '#F8FAFC' : '#EAF3FF', color: isChild ? MUTED : BLUE, border: `1px solid ${isChild ? BORDER : '#BFDBFE'}` }}>{row.item.code}</span>
                                 )}
                                 {editableConcept(row, tone.color)}
                                 {row.kind === 'item' && (
@@ -1236,11 +1236,11 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                             </div>
                           </div>
                         </td>
-                        <td className="whitespace-nowrap px-1 py-2 text-right text-[10px] font-semibold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: INK }}>{show(projected)}</td>
-                        <td className="whitespace-nowrap px-1 py-2 text-right text-[10px] font-bold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : INK }}>{show(real)}</td>
-                        <td className="whitespace-nowrap px-1 py-2 text-right text-[10px] tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : row.line === 'ingreso' ? GREEN : MUTED, fontWeight: row.line === 'ingreso' || row.kind === 'computed' ? 700 : 500 }}>{pct(share)}</td>
+                        <td className="whitespace-nowrap px-1 py-2 text-right text-xs font-semibold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: INK }}>{show(projected)}</td>
+                        <td className="whitespace-nowrap px-1 py-2 text-right text-xs font-bold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : INK }}>{show(real)}</td>
+                        <td className="whitespace-nowrap px-1 py-2 text-right text-xs tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : row.line === 'ingreso' ? GREEN : MUTED, fontWeight: row.line === 'ingreso' || row.kind === 'computed' ? 700 : 500 }}>{pct(share)}</td>
                         <td className="px-0.5 py-2 text-right md:px-1 md:py-3">
-                          <span className="inline-block whitespace-nowrap rounded-full px-1 py-0.5 text-[9px] font-bold tabular-nums md:px-2.5 md:py-1 md:text-xs" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
+                          <span className="inline-block whitespace-nowrap rounded-full px-1 py-0.5 text-[11px] font-bold tabular-nums md:px-2.5 md:py-1 md:text-xs" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
                             {diff >= 0 ? '+' : ''}{pct(diff)}
                           </span>
                         </td>

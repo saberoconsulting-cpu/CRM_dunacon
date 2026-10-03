@@ -144,6 +144,9 @@ export default function CotizacionDocPage() {
           .max-w-2xl { width: 100% !important; max-width: 100% !important; }
           /* Rejillas a todo el ancho, con separacion elegante y equilibrada. */
           .grid { gap: 10px !important; row-gap: 10px !important; }
+          /* Fuerza el layout de escritorio (2 columnas) al imprimir, aunque la
+             ventana sea angosta: evita el PDF comprimido en la laptop del cliente. */
+          .grid.grid-cols-1 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
           .gap-3 { gap: 10px !important; }
           .gap-5, .gap-6 { gap: 12px !important; }
           .px-3, .px-4, .px-6 { padding-left: 14px !important; padding-right: 14px !important; }
