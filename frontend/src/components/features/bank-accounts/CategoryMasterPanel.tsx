@@ -87,7 +87,7 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
   async function saveRow(item: Category) {
     const current = draftOf(item);
     if (!current.movementType.trim()) return toast('Ingresa el TIPO INGRESO/GASTO', 'err');
-    if (!current.eerrClassification.trim()) return toast('Ingresa la CLASIFICACION EERR', 'err');
+    if (!current.eerrClassification.trim()) return toast('Ingresa la CLASIFICACION FC', 'err');
     setSaving(item.id);
     try {
       await api.patch(`/bank-accounts/categories/${item.id}`, {
@@ -122,7 +122,7 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
   async function createRow() {
     if (!newRow) return;
     if (!newRow.movementType.trim()) return toast('Ingresa el TIPO INGRESO/GASTO', 'err');
-    if (!newRow.eerrClassification.trim()) return toast('Ingresa la CLASIFICACION EERR', 'err');
+    if (!newRow.eerrClassification.trim()) return toast('Ingresa la CLASIFICACION FC', 'err');
     setSaving(-1);
     try {
       await api.post('/bank-accounts/categories', {
@@ -173,7 +173,7 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
             <h4 className="m-0 truncate text-sm font-semibold" style={{ color: NAVY }}>
               Categorias
             </h4>
-            <p className="mt-0.5 text-[11px] text-slate-500">Codigos y mapeo EERR</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">Codigos y mapeo FC</p>
           </div>
           <button className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-slate-500 hover:bg-slate-100" onClick={onClose} title="Cerrar">
             <FiX />
@@ -203,7 +203,7 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
             <tr style={{ backgroundColor: NAVY, color: '#FFFFFF' }}>
               <th style={{ padding: 8, width: 58, textAlign: 'left', fontSize: 11 }}>Codigo</th>
               <th style={{ padding: 8, textAlign: 'left', fontSize: 11 }}>Categoria</th>
-              <th style={{ padding: 8, width: 96, textAlign: 'left', fontSize: 11 }}>EERR</th>
+              <th style={{ padding: 8, width: 96, textAlign: 'left', fontSize: 11 }}>FC</th>
               <th style={{ padding: 8, width: 54, textAlign: 'center', fontSize: 11 }}>Acc.</th>
             </tr>
           </thead>
@@ -212,7 +212,7 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
               <tr style={{ borderBottom: '1px solid #E2E8F0', backgroundColor: '#F0FDF4' }}>
                 <td style={{ padding: 6 }}><input type="text" value={newRow.code} placeholder="CO" style={INPUT_STYLE} maxLength={12} onChange={(event) => setNewRow({ ...newRow, code: event.target.value.toUpperCase() })} /></td>
                 <td style={{ padding: 6 }}><input autoFocus type="text" value={newRow.movementType} placeholder="Ej. Costos" style={INPUT_STYLE} onChange={(event) => setNewRow({ ...newRow, movementType: event.target.value, code: newRow.code || makeCode(event.target.value) })} /></td>
-                <td style={{ padding: 6 }}><input type="text" list="bank-eerr-options" value={newRow.eerrClassification} placeholder="EERR" style={INPUT_STYLE} onChange={(event) => setNewRow({ ...newRow, eerrClassification: event.target.value })} /></td>
+                <td style={{ padding: 6 }}><input type="text" list="bank-eerr-options" value={newRow.eerrClassification} placeholder="FC" style={INPUT_STYLE} onChange={(event) => setNewRow({ ...newRow, eerrClassification: event.target.value })} /></td>
                 <td align="center">
                   <button style={{ ...btnIcon, color: '#10B981' }} title="Guardar" onClick={createRow} disabled={saving === -1}><FiSave /></button>
                   <button style={{ ...btnIcon, color: '#64748B' }} title="Cancelar" onClick={() => setNewRow(null)}><FiX /></button>
@@ -264,7 +264,7 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
       )}
 
       <p className="border-t px-4 py-3 text-[11px]" style={{ color: '#64748B', borderColor: BORDER }}>
-        Los conceptos de esta tabla llenan la lista de TIPO INGRESO/GASTO en el formulario de movimientos y autocompletan su CLASIFICACION EERR.
+        Los conceptos de esta tabla llenan la lista de TIPO INGRESO/GASTO en el formulario de movimientos y autocompletan su CLASIFICACION FC.
       </p>
     </aside>
   );

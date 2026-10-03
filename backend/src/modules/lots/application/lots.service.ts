@@ -55,6 +55,7 @@ export class LotsService {
       .leftJoinAndSelect(UserEntity, 'u', 'u.id = l.agent_id')
       .leftJoinAndSelect(ClientEntity, 'c', 'c.id = l.client_id')
       .leftJoinAndSelect(BlockEntity, 'b', 'b.id = l.street_id')
+      .leftJoin(ProjectLotCatalogEntity, 'cat', 'cat.project_id = l.project_id AND cat.code = l.code')
       .select([
         'l.id', 'l.projectId', 'l.planId', 'l.streetId', 'l.code', 'l.address',
         'l.areaM2', 'l.price', 'l.status', 'l.clientId', 'l.agentId',
@@ -66,6 +67,8 @@ export class LotsService {
         'u.name AS "agentName"', 'c.full_name AS "clientName"', 'l.selling_stage AS "sellingStage"',
         'l.type AS "type"', 'l.dimensions AS "dimensions"', 'l.sale_price AS "salePrice"', 'l.final_price AS "finalPrice"',
         'b.name AS "streetName"', 'b.address AS "streetAddress"',
+        'cat.address AS "catalogAddress"', 'cat.type AS "catalogType"', 'cat.dimensions AS "catalogDimensions"',
+        'cat.price_m2 AS "catalogPriceM2"', 'cat.sale_price AS "catalogSalePrice"', 'cat.final_price AS "catalogFinalPrice"',
       ]);
 
     if (filters.projectId) qb.andWhere('l.project_id = :projectId', { projectId: filters.projectId });
@@ -91,24 +94,24 @@ export class LotsService {
       streetId: r.l_street_id ? Number(r.l_street_id) : null,
       blockId: r.l_street_id ? Number(r.l_street_id) : null,
       code: r.l_code,
-      address: r.l_address || null,
+      address: r.l_address || r.catalogAddress || null,
       areaM2: Number(r.l_area_m2),
-      price: Number(r.l_price),
+      price: Number(r.l_price || 0) || Number(r.catalogPriceM2 || 0),
       status: r.l_status,
       sellingStage: r.sellingStage || undefined,
       clientId: r.l_client_id ? Number(r.l_client_id) : null,
       agentId: r.l_agent_id ? Number(r.l_agent_id) : null,
       agentName: r.agentName || null,
       clientName: r.clientName || null,
-      type: r.type || null,
-      dimensions: r.dimensions || null,
-      salePrice: r.salePrice != null ? Number(r.salePrice) : null,
-      finalPrice: r.finalPrice != null ? Number(r.finalPrice) : null,
+      type: r.type || r.catalogType || null,
+      dimensions: r.dimensions || r.catalogDimensions || null,
+      salePrice: r.salePrice != null ? Number(r.salePrice) : (Number(r.catalogSalePrice || 0) || null),
+      finalPrice: r.finalPrice != null ? Number(r.finalPrice) : (Number(r.catalogFinalPrice || 0) || null),
       planVoucherUrl: r.l_plan_voucher_url || null,
       streetName: r.streetName || null,
-      streetAddress: r.streetAddress || r.l_address || null,
+      streetAddress: r.streetAddress || r.l_address || r.catalogAddress || null,
       blockName: r.streetName || null,
-      blockAddress: r.streetAddress || r.l_address || null,
+      blockAddress: r.streetAddress || r.l_address || r.catalogAddress || null,
     }));
     return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
   }

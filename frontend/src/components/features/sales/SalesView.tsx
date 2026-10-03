@@ -543,6 +543,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     }
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
+      const hasFinalPrice = Number(lot?.finalPrice || 0) > 0 || Number(selectedQuote?.finalPriceUsd || 0) > 0;
+      if (!hasFinalPrice) return toast('Este lote no tiene precio final. Registra el precio final antes de venderlo.', 'err');
       const resolvedClientId = clientId || await assignClientByName(false);
       if (!resolvedClientId) return;
       const sale = selectedQuote || null;

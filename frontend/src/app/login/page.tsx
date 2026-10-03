@@ -61,33 +61,32 @@ export default function LoginPage() {
             alt="Dunacon"
             className="h-auto w-80 max-w-full lg:w-[28rem]"
           />
-          <div className="mt-10 max-w-lg">
-            <p
-              className="font-serif italic"
-              style={{ fontSize: 16, letterSpacing: 1.2, color: '#1a56db' }}
-            >
-              Dunacon CRM
-            </p>
+          <div className="mt-10 max-w-2xl">
             <h1
-              className="mt-5 font-serif"
+              className="font-serif"
               style={{
-                fontSize: 'clamp(30px, 4vw, 44px)',
-                fontWeight: 600,
-                lineHeight: 1.35,
-                letterSpacing: '-0.01em',
-                color: '#0B2F6E',
+                fontSize: 'clamp(28px, 3.4vw, 38px)',
+                fontWeight: 700,
+                lineHeight: 1.3,
+                color: '#0000aa',
               }}
             >
-              La precisión de un plano,
+              El CRM inmobiliario que integra
               <br />
-              la elegancia de tu gestión.
+              propiedades, clientes, ventas y
+              <br />
+              finanzas en un solo lugar.
+              <br />
+              <br />
+              Tu negocio inmobiliario, bajo
+              <br />
+              control
             </h1>
             <p
               className="mt-7"
               style={{ fontSize: 16, lineHeight: 1.9, color: '#4B5563' }}
             >
-              El CRM inmobiliario que une planos, clientes, ventas y finanzas en un solo
-              lugar. Construye con orden, decide con certeza.
+              Simplifica tu gestión, controla tus ventas y tomas mejores decisiones.
             </p>
           </div>
         </div>

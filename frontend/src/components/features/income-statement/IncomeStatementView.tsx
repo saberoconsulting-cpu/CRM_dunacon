@@ -169,6 +169,9 @@ const SALES_ADMIN_CASHFLOW_ROWS = [
   { code: 'D.04', id: 'post-sale', label: 'Gastos post venta' },
   { code: 'D.05', id: 'discounts', label: 'Descuentos y bonos' },
 ];
+const IGV_CASHFLOW_ROWS = [
+  { code: 'G.01', id: 'igv', label: 'IGV Referencial Incluido en Ingresos' },
+];
 
 /** Construye el arbol de partidas (padres con sus subpartidas ordenadas). */
 function buildTree(items: StatementItem[]): StatementTreeItem[] {
@@ -209,6 +212,15 @@ function pct(n: number) {
 
 function num(n: unknown) {
   return Number(n || 0);
+}
+
+function normalizeMatch(value: unknown) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 function deviation(real: number, projected: number) {
@@ -511,7 +523,9 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     // El total de cada fila es la suma de sus valores por año. Si aún no hay modelo
     // guardado, se cae a la lógica anterior (lotes + presupuesto) como referencia.
     const { totals: cfTotals } = cashflowTotals(cashflow);
+    const { totals: dynamicCfTotals } = cashflowTotals(dynamicCashflow);
     const cf = (id: string, fallback: number) => cfTotals.has(id) ? (cfTotals.get(id) ?? 0) : fallback;
+    const dynamicCf = (id: string, fallback: number) => dynamicCfTotals.has(id) ? (dynamicCfTotals.get(id) ?? 0) : fallback;
     const projectedRevenue = cf('income', lots.reduce((sum, lot) => sum + lotRevenue(lot), 0));
     const totalArea = lots.reduce((sum, lot) => sum + num(lot.areaM2), 0);
     const soldLots = lots.filter((lot) => lot.status === 'vendido').length;
@@ -534,13 +548,14 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const preTaxProfit = operatingProfit - financeCost;
     const incomeTax = Math.max(0, preTaxProfit * INCOME_TAX_RATE);
     const netProfit = preTaxProfit - Math.max(realTaxRegistered, incomeTax);
-    const igvReference = realRevenue > 0 ? realRevenue * 18 / 118 : 0;
+    const igvReference = dynamicCf('igv', realRevenue > 0 ? realRevenue * 18 / 118 : 0);
     const adjustedProfit = netProfit - igvReference;
     const projectedGrossProfit = projectedRevenue - projectedCostOfSales;
     const projectedOperatingProfit = projectedGrossProfit - projectedSalesAdmin;
     const projectedPreTaxProfit = projectedOperatingProfit - projectedFinanceTax;
     const projectedIncomeTax = cf('tax', Math.max(0, projectedPreTaxProfit * INCOME_TAX_RATE));
     const projectedNetProfit = projectedPreTaxProfit - projectedIncomeTax;
+    const projectedIgv = cf('igv', projectedRevenue > 0 ? projectedRevenue * 18 / 118 : 0);
 
     // Reales por linea: si el proyecto cargo partidas propias, esas mandan;
     // si no, se mantiene la lectura historica de transacciones/egresos.
@@ -578,6 +593,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
       projectedSalesAdmin,
       projectedFinanceTax,
       projectedIncomeTax,
+      projectedIgv,
       projectedNetProfit,
       projectedChart: [
         { name: 'Ingresos', value: projectedRevenue, color: GREEN },
@@ -626,6 +642,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     }
     grouped.costo = (grouped.costo.length ? grouped.costo : COST_CASHFLOW_ROWS.map((item, index) => virtualItem('costo', item, index))) as StatementTreeItem[];
     grouped.ventas_admin = (grouped.ventas_admin.length ? grouped.ventas_admin : SALES_ADMIN_CASHFLOW_ROWS.map((item, index) => virtualItem('ventas_admin', item, index))) as StatementTreeItem[];
+    grouped.igv = (grouped.igv.length ? grouped.igv : IGV_CASHFLOW_ROWS.map((item, index) => virtualItem('igv', item, index))) as StatementTreeItem[];
     return grouped;
   }, [items, cashflow, dynamicCashflow, projectId]);
 
@@ -653,6 +670,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
       }
     };
     const pushItems = (line: StatementLine) => {
+      if (line === 'ingreso') return;
       if (!printing && !openLines[line]) return;
       walk(line, treeByLine[line] || [], 1);
     };
@@ -690,9 +708,34 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
    * subtotales se recalculan en cascada, igual que el PDF.
    */
   const rowReal = useMemo(() => {
+    const { totals: dynamicTotals, labels: dynamicLabels } = cashflowTotals(dynamicCashflow);
+    const dynamicByMatch = new Map<string, number>();
+    for (const [id, value] of dynamicTotals.entries()) {
+      dynamicByMatch.set(normalizeMatch(id), value);
+      dynamicByMatch.set(normalizeMatch(dynamicLabels.get(id) || ''), value);
+    }
+    const realAmount = (item: StatementTreeItemWithSource): number => {
+      if (item.children.length) return item.children.reduce((sum, child) => sum + realAmount(child), 0);
+      if (item.cashflowRowId && dynamicTotals.has(item.cashflowRowId)) return dynamicTotals.get(item.cashflowRowId) || 0;
+      const byCode = dynamicByMatch.get(normalizeMatch(item.code));
+      if (byCode !== undefined) return byCode;
+      const byName = dynamicByMatch.get(normalizeMatch(item.name));
+      if (byName !== undefined) return byName;
+      return num(item.amount);
+    };
     const totals: Record<string, number> = {};
     for (const meta of LINES) {
-      totals[`line-${meta.key}`] = (treeByLine[meta.key] || []).reduce((sum, item) => sum + itemRealAmount(item), 0);
+      totals[`line-${meta.key}`] = (treeByLine[meta.key] || []).reduce((sum, item) => sum + realAmount(item as StatementTreeItemWithSource), 0);
+      // Real por partida: el cuadro pinta cada fila con la clave `item-<id>`, por eso
+      // se replica aqui el mismo valor que aporta a su linea (los hijos suman el padre).
+      const walkItems = (nodes: StatementTreeItem[]) => {
+        for (const node of nodes) {
+          const withSource = node as StatementTreeItemWithSource;
+          totals[`item-${node.id}`] = realAmount(withSource);
+          if (node.children.length) walkItems(node.children);
+        }
+      };
+      walkItems(treeByLine[meta.key] || []);
     }
     const line = (key: StatementLine) => totals[`line-${key}`] || 0;
     const gross = line('ingreso') - line('costo');
@@ -705,7 +748,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     totals.net = net;
     totals.adjusted = net - line('igv') + line('ajuste');
     return totals;
-  }, [treeByLine]);
+  }, [treeByLine, dynamicCashflow]);
 
   const hasItems = items.length > 0 || Boolean(cashflow?.rows?.length || dynamicCashflow?.rows?.length);
 
@@ -720,7 +763,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     ventas_admin: report.projectedSalesAdmin,
     financiero: report.projectedFinanceTax,
     impuestos: report.projectedIncomeTax,
-    igv: report.projectedRevenue > 0 ? report.projectedRevenue * 18 / 118 : 0,
+    igv: report.projectedIgv,
     ajuste: 0,
   };
 
@@ -1105,12 +1148,12 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
             <div className="w-full overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
               <table className="w-full table-fixed text-[10px] sm:!min-w-[540px] md:text-sm" style={{ minWidth: 780 }}>
                 <colgroup>
-                  <col className="w-[178px] sm:w-[30%] md:w-[34%]" />
+                  <col className="w-[200px] sm:w-[33%] md:w-[38%]" />
                   <col className="w-[92px] sm:w-[19%] md:w-[16%]" />
-                  <col className="w-[92px] sm:w-[17%] md:w-[15%]" />
+                  <col className="w-[92px] sm:w-[15%] md:w-[15%]" />
                   <col className="w-[70px] sm:w-[12%] md:w-[11%]" />
-                  <col className="w-[80px] sm:w-[13%] md:w-[13%]" />
-                  <col className="w-[84px] sm:w-[9%] md:w-[11%]" />
+                  <col className="w-[84px] sm:w-[13%] md:w-[14%]" />
+                  <col className="w-[62px] sm:w-[8%] md:w-[6%]" />
                 </colgroup>
                 <thead>
                   <tr className="border-b text-left text-[8px] font-bold uppercase leading-tight tracking-normal md:text-xs md:tracking-wide" style={{ borderColor: BORDER, color: MUTED, background: '#F8FAFC' }}>
@@ -1137,7 +1180,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                     const share = incomeShare(real, report.realRevenue);
                     const isChild = row.level > 1;
                     const isItem = row.kind === 'item';
-                    const lineHasItems = row.kind === 'line' && (treeByLine[row.line] || []).length > 0;
+                    const lineHasItems = row.kind === 'line' && row.line !== 'ingreso' && (treeByLine[row.line] || []).length > 0;
                     const lineOpen = row.kind === 'line' ? !!openLines[row.line] : false;
                     const rowBg = row.kind === 'computed'
                       ? 'bg-[#F8FAFC] hover:bg-[#F1F5F9]'
@@ -1196,7 +1239,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                         <td className="whitespace-nowrap px-1 py-2 text-right text-[10px] font-semibold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: INK }}>{show(projected)}</td>
                         <td className="whitespace-nowrap px-1 py-2 text-right text-[10px] font-bold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : INK }}>{show(real)}</td>
                         <td className="whitespace-nowrap px-1 py-2 text-right text-[10px] tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : row.line === 'ingreso' ? GREEN : MUTED, fontWeight: row.line === 'ingreso' || row.kind === 'computed' ? 700 : 500 }}>{pct(share)}</td>
-                        <td className="px-0.5 py-2 text-right md:px-3 md:py-3">
+                        <td className="px-0.5 py-2 text-right md:px-1 md:py-3">
                           <span className="inline-block whitespace-nowrap rounded-full px-1 py-0.5 text-[9px] font-bold tabular-nums md:px-2.5 md:py-1 md:text-xs" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
                             {diff >= 0 ? '+' : ''}{pct(diff)}
                           </span>

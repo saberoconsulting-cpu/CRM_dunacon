@@ -284,7 +284,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     [items],
   );
 
-  // Al elegir el TIPO se autocompleta su CLASIFICACION EERR segun el mapeo.
+  // Al elegir el TIPO se autocompleta su CLASIFICACION FC segun el mapeo.
   function pickMovementType(value: string) {
     const matched = categoryByLookup.get(value.trim().toUpperCase());
     setForm((current: any) => ({
@@ -457,7 +457,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
         openingBalance: value,
       });
       applyData(data);
-      toast('Saldo inicial actualizado');
+      toast('Saldo registro actualizado');
     } catch (error: any) {
       toast(error?.message || 'No se pudo actualizar el saldo inicial', 'err');
     } finally {
@@ -470,12 +470,29 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
   const filtered = Boolean(summary?.filtrado);
   const scope = filtered ? 'del filtro' : 'del periodo';
+  const yearRange = useMemo(() => {
+    const years = items
+      .map((item) => {
+        const match = item.movementDate?.match(/^(\d{4})/);
+        return match ? Number(match[1]) : null;
+      })
+      .filter((year): year is number => Number.isFinite(year));
+    if (!years.length) return { label: '-', helper: 'Sin movimientos con fecha' };
+    const start = Math.min(...years);
+    const end = Math.max(...years);
+    const count = end - start + 1;
+    return {
+      label: `${start} - ${end}`,
+      helper: `${count} ${count === 1 ? 'año' : 'años'} con movimientos`,
+    };
+  }, [items]);
   const cards = [
-    { label: 'Saldo inicial', value: money(summary?.saldoInicial), color: BRAND.blue, helper: 'Saldo al inicio del periodo' },
+    { label: 'Saldo Registro Nro. 28', value: money(summary?.saldoInicial), color: BRAND.blue, helper: 'Saldo del ultimo registro anterior' },
     { label: filtered ? 'Ingresos (filtro)' : 'Total ingresos', value: money(summary?.totalAbonos), color: '#16A36A', helper: `Suma de abonos ${scope}` },
     { label: filtered ? 'Egresos (filtro)' : 'Total egresos', value: money(summary?.totalCargos), color: '#DC2626', helper: `Suma de cargos ${scope}` },
     { label: 'Saldo final', value: money(summary?.saldoFinal), color: '#0E46A0', helper: filtered ? 'Saldo real de la cuenta (sin filtro)' : 'Saldo al cierre del periodo' },
     { label: 'Movimientos', value: String(summary?.movimientos || 0), color: '#7C3AED', helper: `${summary?.meses || 0} meses con movimiento` },
+    { label: 'Total años', value: yearRange.label, color: '#0000AA', helper: yearRange.helper, accent: true },
   ];
 
   return (
@@ -546,7 +563,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto"
                 onClick={() => setCategoriesOpen((value) => !value)}
                 aria-expanded={categoriesOpen}
-                title="Configuracion de Categorias y Mapeo EERR"
+                title="Configuracion de Categorias y Mapeo FC"
               >
                 <FiSettings /> Categorias{categoryRows ? ` (${categoryRows})` : ''}
               </button>
@@ -555,9 +572,13 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
           <div className="grid grid-cols-2 gap-3 border-t bg-[#F8FAFC] p-4 xl:grid-cols-6" style={{ borderColor: BORDER }}>
             {cards.map((card) => (
-              <div key={card.label} className="min-w-0 rounded-md border bg-white p-3 sm:p-4" style={{ borderColor: BORDER }}>
+              <div
+                key={card.label}
+                className="min-w-0 rounded-md border bg-white p-3 sm:p-4"
+                style={{ borderColor: BORDER }}
+              >
                 <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }} title={card.label}>{card.label}</p>
-                {card.label === 'Saldo inicial' ? (
+                {card.label === 'Saldo Registro Nro. 28' ? (
                   <div className="mt-1 flex min-w-0 items-center gap-1">
                     <input
                       className="input !h-8 min-w-0 flex-1 !px-2 text-center text-sm font-bold tabular-nums"
@@ -565,23 +586,34 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                       step="0.01"
                       value={openingBalanceDraft}
                       onChange={(event) => setOpeningBalanceDraft(event.target.value)}
-                      aria-label="Saldo inicial"
+                      aria-label="Saldo Registro Nro. 28"
                     />
                     <button
                       className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-white"
                       style={{ background: BRAND.blue }}
                       onClick={saveOpeningBalance}
                       disabled={savingOpeningBalance}
-                      title="Guardar saldo inicial"
-                      aria-label="Guardar saldo inicial"
+                      title="Guardar saldo registro"
+                      aria-label="Guardar saldo registro"
                     >
                       <FiSave />
                     </button>
                   </div>
                 ) : (
-                  <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-lg" style={{ color: card.color }} title={card.value}>{card.value}</p>
+                  <p
+                    className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-lg"
+                    style={{ color: card.color }}
+                    title={card.value}
+                  >
+                    {card.value}
+                  </p>
                 )}
-                <p className="mt-0.5 hidden truncate text-[10px] sm:block" style={{ color: '#94A3B8' }}>{card.helper}</p>
+                <p
+                  className="mt-0.5 hidden truncate text-[10px] sm:block"
+                  style={{ color: '#94A3B8' }}
+                >
+                  {card.helper}
+                </p>
               </div>
             ))}
           </div>
@@ -704,7 +736,8 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                       <th className="th-base text-right">Abono</th>
                       <th className="th-base text-right">Cargo</th>
                       <th className="th-base text-right">Saldo contable</th>
-                      <th className="th-base">Clasif. EERR</th>
+                      <th className="th-base">Tipo Ingreso/Gasto</th>
+                      <th className="th-base">Clasificacion FC</th>
                       <th className="th-base">Nro. Factura</th>
                       <th className="th-base">Observacion</th>
                       <th className="th-base text-right">Acciones</th>
@@ -725,7 +758,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                         >
                           <td className="td-base whitespace-nowrap text-center text-xs tabular-nums" style={{ color: MUTED }}>{item.itemNumber ?? '-'}</td>
                           <td className="td-base whitespace-nowrap text-xs tabular-nums">{prettyDate(item.movementDate)}</td>
-                          <td className="td-base whitespace-nowrap" style={{ color: MUTED }}>{item.monthLabel || monthLabel(item.movementDate)}</td>
+                          <td className="td-base whitespace-nowrap" style={{ color: MUTED }}>{monthLabel(item.movementDate)}</td>
                           <td className="td-base max-w-[240px] truncate" title={item.description || ''}>{item.description || '-'}</td>
                           <td className="td-base max-w-[220px] truncate" title={item.counterparty || ''}>{item.counterparty || '-'}</td>
                           <td className="td-base whitespace-nowrap text-right text-xs font-semibold tabular-nums" style={{ color: deposit ? '#16A36A' : '#CBD5E1' }}>
@@ -737,6 +770,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                           <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: INK }}>
                             {item.bookBalance === null ? '-' : money(num(item.bookBalance))}
                           </td>
+                          <td className="td-base max-w-[180px] truncate" style={{ color: MUTED }} title={item.movementType || ''}>{item.movementType || '-'}</td>
                           <td className="td-base max-w-[180px] truncate" style={{ color: MUTED }} title={item.eerrClassification || ''}>{item.eerrClassification || '-'}</td>
                           <td className="td-base whitespace-nowrap" style={{ color: MUTED }}>{item.invoiceNumber || '-'}</td>
                           <td className="td-base max-w-[180px] truncate" style={{ color: MUTED }} title={item.observation || ''}>{item.observation || '-'}</td>
@@ -754,8 +788,8 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                     <tr className="border-t bg-[#F8FAFC] font-bold" style={{ borderColor: BORDER }}>
                       {/*
                         Las columnas del pie deben caer EXACTAMENTE bajo su encabezado:
-                        Item | Fecha | Mes | Descripcion | Proveedor | Abono | Cargo | Saldo | ...
-                        -> 5 columnas de texto, Abono (6), Cargo (7), Saldo contable (8) y 4 al final.
+                         Item | Fecha | Mes | Descripcion | Proveedor | Abono | Cargo | Saldo | ...
+                         -> 5 columnas de texto, Abono (6), Cargo (7), Saldo contable (8) y 5 al final.
                         Con colSpan=4 los montos quedaban corridos una columna a la izquierda
                         (el abono bajo "Proveedor", el cargo bajo "Abono") y no se sabia de quien
                         era cada total.
@@ -764,7 +798,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                       <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: '#16A36A' }}>{money(movementTotals.deposits)}</td>
                       <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: '#DC2626' }}>{money(movementTotals.charges)}</td>
                       <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: INK }}>{money(movementTotals.lastBookBalance ?? undefined)}</td>
-                      <td className="td-base" colSpan={4} />
+                      <td className="td-base" colSpan={5} />
                     </tr>
                   </tfoot>
                 </table>
@@ -811,7 +845,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
             <div className="grid grid-cols-2 gap-2 border-b bg-[#F8FAFC] px-5 py-3 sm:grid-cols-4" style={{ borderColor: BORDER }}>
               {[
-                { label: 'Saldo inicial', value: money(preview.saldoInicial) },
+                { label: 'Saldo Registro Nro. 28', value: money(preview.saldoInicial) },
                 { label: 'Total abonos', value: money(preview.totals?.abonos) },
                 { label: 'Total cargos', value: money(preview.totals?.cargos) },
                 { label: 'Saldo final', value: money(preview.saldoFinal) },
@@ -866,7 +900,8 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                     <th className="th-base text-right">Abono</th>
                     <th className="th-base text-right">Cargo</th>
                     <th className="th-base text-right">Saldo</th>
-                    <th className="th-base">Clasif. EERR</th>
+                    <th className="th-base">Tipo Ingreso/Gasto</th>
+                    <th className="th-base">Clasificacion FC</th>
                     <th className="th-base">Estado</th>
                   </tr>
                 </thead>
@@ -880,6 +915,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                       <td className="td-base text-right tabular-nums" style={{ color: row.depositAmount ? '#16A36A' : '#CBD5E1' }}>{row.depositAmount ? money(row.depositAmount) : '-'}</td>
                       <td className="td-base text-right tabular-nums" style={{ color: row.chargeAmount ? '#DC2626' : '#CBD5E1' }}>{row.chargeAmount ? money(row.chargeAmount) : '-'}</td>
                       <td className="td-base text-right tabular-nums" style={{ color: INK }}>{row.bookBalance === null ? '-' : money(row.bookBalance)}</td>
+                      <td className="td-base max-w-[160px] truncate" style={{ color: MUTED }}>{row.movementType || '-'}</td>
                       <td className="td-base max-w-[160px] truncate" style={{ color: MUTED }}>{row.eerrClassification || '-'}</td>
                       <td className="td-base">
                         {row.errors.length
@@ -1038,7 +1074,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   )}
                 </div>
               </Field>
-              <Field label="Clasificacion EERR (automatico)">
+              <Field label="Clasificacion FC (automatico)">
                 <input className="input" readOnly placeholder="Se completa con el tipo" value={form.eerrClassification || ''} />
               </Field>
             </div>

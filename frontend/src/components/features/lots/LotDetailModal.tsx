@@ -356,6 +356,10 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
       toast('No se puede vender un lote vendido, separado o no disponible.', 'err');
       return;
     }
+    if (!(Number(lot.finalPrice || 0) > 0)) {
+      toast('Este lote no tiene precio final. Registra el precio final antes de venderlo.', 'err');
+      return;
+    }
     // Solo redirigir al apartado de Ventas con el lote precargado.
     // SalesView lee ?lotId= y abre el modal "Registrar venta" ya con este lote.
     window.location.href = `/projects/${lot.projectId}/sales?lotId=${lot.id}`;
@@ -540,7 +544,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const statusLabel = LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status || EMPTY;
   const statusBadgeColor = lot.status === 'vendido' ? SOLD_GREEN : tableStatusColor;
   const quoteBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status);
-  const sellBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status);
+  const missingFinalPrice = !(Number(lot.finalPrice || 0) > 0);
+  const sellBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status) || missingFinalPrice;
   // `saleLocked` congela la parte comercial de la ficha (estado y precios). El
   // backend aplica el mismo candado, asi que no es solo cosmético: aunque se
   // fuerce la peticion, el servidor la rechaza.
@@ -641,7 +646,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                       onClick={vender}
                       className={`group flex min-h-[52px] items-center justify-between gap-4 rounded-md px-4 py-3 text-left text-white transition-colors ${sellBlocked ? 'opacity-60' : ''}`}
                       style={{ background: sellBlocked ? '#64748B' : BLUE_DARK }}
-                      title={sellBlocked ? 'No se puede vender este lote en su estado actual' : 'Vender lote'}
+                      title={missingFinalPrice ? 'Este lote no tiene precio final' : (sellBlocked ? 'No se puede vender este lote en su estado actual' : 'Vender lote')}
                     >
                       <span className="flex min-w-0 items-center gap-3">
                         <span className="min-w-0">

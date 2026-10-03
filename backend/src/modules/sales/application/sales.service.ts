@@ -10,6 +10,7 @@ import { UserEntity } from '../../../shared/infrastructure/entities/user.entity'
 import { PaymentEntity } from '../../../shared/infrastructure/entities/payment.entity';
 import { ProjectEntity } from '../../../shared/infrastructure/entities/project.entity';
 import { QuoteEntity } from '../../../shared/infrastructure/entities/quote.entity';
+import { ProjectLotCatalogEntity } from '../../../shared/infrastructure/entities/project-lot-catalog.entity';
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
 import { buildGraceSchedule, calcValorCuota } from '../../../shared/domain/finance.util';import { CreateSaleDto } from './dto/sale.dto';
@@ -91,6 +92,13 @@ export class SalesService {
     }
     if (lot.sellingStage === 'separado') {
       throw new BadRequestException('El lote ya tiene una separación pendiente de validación');
+    }
+
+    const quote = dto.quoteId ? await this.dataSource.getRepository(QuoteEntity).findOne({ where: { id: dto.quoteId } }) : null;
+    const catalog = await this.dataSource.getRepository(ProjectLotCatalogEntity).findOne({ where: { projectId: lot.projectId, code: lot.code } }).catch(() => null);
+    const hasFinalPrice = Number(lot.finalPrice || 0) > 0 || Number(catalog?.finalPrice || 0) > 0 || Number(quote?.finalPriceUsd || 0) > 0;
+    if (!hasFinalPrice) {
+      throw new BadRequestException('Este lote no tiene precio final. Registra el precio final antes de venderlo.');
     }
 
     const assignedAgentId = Number(dto.agentId || actorId);

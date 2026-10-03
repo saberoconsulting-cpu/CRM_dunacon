@@ -94,7 +94,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
       const key = (l.streetId ?? l.blockId) != null ? String(l.streetId ?? l.blockId) : 'sin-calle';
       let g = groups.find((x) => x.key === key);
       if (!g) {
-        g = { key, blockName: l.streetName || l.blockName || '—', blockAddress: l.streetAddress || l.blockAddress || null, items: [] };
+        g = { key, blockName: l.streetName || l.blockName || '—', blockAddress: l.address || l.streetAddress || l.blockAddress || null, items: [] };
         groups.push(g);
       }
       g.items.push(l);
@@ -117,7 +117,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
     return items.map((l) => `
       <tr>
         <td>${escapeHtml(l.code)}</td>
-        <td>${escapeHtml(l.streetAddress || l.blockAddress || '—')}</td>
+        <td>${escapeHtml(l.address || l.streetAddress || l.blockAddress || '—')}</td>
         <td>${escapeHtml(l.type || '—')}</td>
         <td class="num">${escapeHtml(`${l.areaM2 || 0} m²`)}</td>
         <td class="num">${escapeHtml(l.price ? fmt(l.price) : '—')}</td>
@@ -293,7 +293,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
               {items.map((l) => (
                 <tr key={l.id} onClick={() => setSelected({ id: l.id })} className="cursor-pointer hover:bg-slate-50">
                   <td className="td-base !px-2 font-semibold" style={{ textAlign: 'left' }}>{l.code}</td>
-                  <td className="td-base !px-2 truncate text-slate-500" style={{ textAlign: 'left' }} title={l.streetAddress || l.blockAddress || '—'}>{l.streetAddress || l.blockAddress || '—'}</td>
+                  <td className="td-base !px-2 truncate text-slate-500" style={{ textAlign: 'left' }} title={l.address || l.streetAddress || l.blockAddress || '—'}>{l.address || l.streetAddress || l.blockAddress || '—'}</td>
                   <td className="td-base !px-2 truncate text-slate-500" style={{ textAlign: 'left' }} title={l.type || '—'}>{l.type || '—'}</td>
                   <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'left' }}>{l.areaM2} m²</td>
                   <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'right' }}>{l.price ? fmt(l.price) : '—'}</td>
@@ -415,7 +415,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
             const key = (l.streetId ?? l.blockId) != null ? String(l.streetId ?? l.blockId) : 'sin-calle';
             let g = groups.find((x) => x.key === key);
             if (!g) {
-              g = { key, blockName: l.streetName || l.blockName || '—', blockAddress: l.streetAddress || l.blockAddress || null, items: [] };
+              g = { key, blockName: l.streetName || l.blockName || '—', blockAddress: l.address || l.streetAddress || l.blockAddress || null, items: [] };
               groups.push(g as Group);
             }
             (g as Group).items.push(l);
@@ -475,7 +475,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                       {g.items.map((l) => (
                         <tr key={l.id} onClick={() => setSelected({ id: l.id })} className="cursor-pointer hover:bg-slate-50">
                           <td className="td-base font-semibold" style={{ textAlign: 'left' }}>{l.code}</td>
-                          <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={g.blockAddress || '—'}>{g.blockAddress || '—'}</td>
+                          <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.address || g.blockAddress || '—'}>{l.address || g.blockAddress || '—'}</td>
                           <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.type || '—'}>{l.type || '—'}</td>
                           <td className="td-base" style={{ textAlign: 'left' }}>{l.areaM2} m²</td>
                           <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.price ? fmt(l.price) : '—'}</td>

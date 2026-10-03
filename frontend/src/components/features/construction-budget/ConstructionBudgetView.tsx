@@ -117,6 +117,58 @@ function normalizeMatch(value: unknown) {
     .trim();
 }
 
+/**
+ * Homologacion de cada partida del presupuesto hacia la fila del flujo de caja.
+ * El presupuesto usa codigos propios (A.01, B.01, C.02...) y nombres largos, mientras
+ * que el flujo de caja expone ids tecnicos (land-cost, construction-earthworks, legal...).
+ * Sin este puente ningun partida matchea y tanto Proyectado (flujo estatico) como Real
+ * (flujo dinamico + Cuentas y bancos) caen a su fallback. Se replica el mismo patron que
+ * el mapa EERR de Cuentas y bancos.
+ */
+const BUDGET_CASHFLOW_ROW_MAP: Array<[string[], string]> = [
+  // A) Costo de terreno
+  [['a 02', 'gastos legales', 'notariales', 'notarial', 'asesoria legal', 'legal'], 'legal'],
+  [['a 01', 'adquisicion de terreno', 'terreno bruto', 'fundo matriz', 'compra terreno', 'compra de terreno'], 'land-cost'],
+  [['alcabala'], 'alcabala'],
+  // B) Costo directo (subpartidas de obra)
+  [['b 01', 'movimiento de tierras', 'movimiento de tierra', 'afirmado'], 'construction-earthworks'],
+  [['b 02', 'obras de saneamiento', 'saneamiento', 'cisterna', 'redes de agua', 'redes sanitarias'], 'construction-sanitation'],
+  [['b 03', 'pavimentacion y vias', 'pavimentacion', 'vias', 'veredas', 'pistas', 'sardineles'], 'construction-roads'],
+  [['b 04', 'redes electricas', 'alumbrado publico', 'alumbrado', 'electricas', 'electrico'], 'construction-electric'],
+  [['b 05', 'obras complementarias', 'obras complementaria', 'complementarias'], 'construction-complementary'],
+  [['costos de construccion', 'costo de construccion'], 'construction'],
+  [['supervision tecnica'], 'supervision'],
+  [['conexion de servicios', 'servicios publicos'], 'services'],
+  // C) Costo indirecto
+  [['c 01', 'licencias', 'permisos', 'tasaciones', 'impactos ambientales', 'diseno'], 'design'],
+  [['c 02', 'ingenieria y supervision', 'gerencia de proyectos', 'gerencia'], 'management'],
+  [['c 03', 'gastos generales de campo', 'indemnizacion', 'titulacion'], 'indemnity'],
+  [['imprevistos', 'contingencia'], 'legal-contingency'],
+  // D) Gastos de ventas y administrativos
+  [['d 01', 'comisiones de ventas', 'comision de ventas', 'comision venta'], 'commission'],
+  [['d 02', 'publicidad', 'marketing', 'mkt'], 'marketing'],
+  [['d 03', 'gastos administrativos', 'gastos de administracion', 'planillas'], 'sales-plan'],
+  // E) Gastos financieros e impuestos
+  [['e 01', 'financiamiento de obra', 'intereses', 'interes', 'prestamo'], 'financial'],
+  [['e 02', 'impuesto a la renta', 'impuesto', 'renta', 'igv'], 'tax'],
+];
+
+/**
+ * Fila del flujo de caja asociada a una partida. Se evalua en orden y gana la
+ * primera coincidencia (de lo mas especifico a lo mas generico) para que una
+ * partida no sume dos filas a la vez (p. ej. A.02 solo debe caer en `legal`,
+ * no tambien en `land-cost` por contener la palabra "terreno").
+ */
+function budgetCashflowKey(item: BudgetItem): string | null {
+  const code = normalizeMatch(item.code);
+  const name = normalizeMatch(item.name);
+  const text = `${code} ${name}`.trim();
+  for (const [needles, target] of BUDGET_CASHFLOW_ROW_MAP) {
+    if (needles.some((needle) => text.includes(needle))) return normalizeMatch(target);
+  }
+  return null;
+}
+
 function pct(real: number, projected: number) {
   if (!projected) return real ? 100 : 0;
   return (real / projected) * 100;
@@ -126,6 +178,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
   const [items, setItems] = useState<BudgetItem[]>([]);
   const [summary, setSummary] = useState<any>({ categories: {}, grandTotal: 0 });
   const [cashflow, setCashflow] = useState<CashflowModel | null>(null);
+  const [dynamicCashflow, setDynamicCashflow] = useState<CashflowModel | null>(null);
   const [bankMovements, setBankMovements] = useState<BankMovement[]>([]);
   const [loading, setLoading] = useState(true);
   const [openCats, setOpenCats] = useState<Record<string, boolean>>(CLOSED_CATEGORIES);
@@ -147,9 +200,10 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [data, cashflowData, bankData] = await Promise.all([
+      const [data, cashflowData, dynamicCashflowData, bankData] = await Promise.all([
         api.get<any>(`/construction-budget?projectId=${projectId}`),
         api.get<CashflowModel | null>(`/cashflow/model?projectId=${projectId}&mode=estatico`).catch(() => null),
+        api.get<CashflowModel | null>(`/cashflow/model?projectId=${projectId}&mode=dinamico`).catch(() => null),
         api.get<any>(`/bank-accounts/accounts?projectId=${projectId}`)
           .then(async (accountsData) => {
             const accounts = Array.isArray(accountsData?.items) ? accountsData.items : [];
@@ -164,6 +218,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
       setItems(data?.items || []);
       setSummary(data?.summary || { categories: {}, grandTotal: 0 });
       setCashflow(cashflowData && Array.isArray(cashflowData.rows) ? cashflowData : null);
+      setDynamicCashflow(dynamicCashflowData && Array.isArray(dynamicCashflowData.rows) ? dynamicCashflowData : null);
       setBankMovements(Array.isArray(bankData?.items) ? bankData.items : []);
       setOpenCats(CLOSED_CATEGORIES);
       setOpenItems({});
@@ -243,14 +298,26 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     return totals;
   }, [bankMovements]);
 
+  const dynamicCashflowTotals = useMemo(() => {
+    const totals = new Map<string, number>();
+    for (const row of dynamicCashflow?.rows || []) {
+      const total = (row.values || []).reduce((sum, value) => sum + Number(value || 0), 0);
+      const keys = [row.id, row.label].map(normalizeMatch).filter(Boolean);
+      keys.forEach((key) => totals.set(key, (totals.get(key) || 0) + total));
+    }
+    return totals;
+  }, [dynamicCashflow]);
+
   function matchedTotal(source: Map<string, number>, item: BudgetItem) {
     const code = normalizeMatch(item.code);
     const name = normalizeMatch(item.name);
+    const mappedKey = budgetCashflowKey(item);
     let total = 0;
     for (const [key, value] of source.entries()) {
       if (
         key === code ||
         key === name ||
+        (mappedKey != null && key === mappedKey) ||
         key.startsWith(`${code} `) ||
         key.includes(` ${code} `) ||
         (name.length > 2 && key.includes(name))
@@ -269,7 +336,8 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
 
   function realAmount(item: BudgetTreeItem): number {
     if (item.children.length) return item.children.reduce((sum, child) => sum + realAmount(child), 0);
-    return matchedTotal(bankTotals, item);
+    const fromDynamicCashflow = matchedTotal(dynamicCashflowTotals, item);
+    return fromDynamicCashflow || matchedTotal(bankTotals, item);
   }
 
   const budgetTotals = useMemo(() => {
@@ -283,7 +351,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     const projected = Object.values(categories).reduce((sum, item) => sum + item.projected, 0);
     const real = Object.values(categories).reduce((sum, item) => sum + item.real, 0);
     return { categories, projected, real };
-  }, [itemTree, cashflowTotals, bankTotals]);
+  }, [itemTree, cashflowTotals, dynamicCashflowTotals, bankTotals]);
 
   function revealItem(id: number | null) {
     if (!id) return;

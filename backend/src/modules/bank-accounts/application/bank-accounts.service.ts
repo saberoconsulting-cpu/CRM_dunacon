@@ -126,6 +126,7 @@ export class BankAccountsService {
       .orderBy('m.movement_date', 'ASC', 'NULLS LAST')
       .addOrderBy('m.id', 'ASC')
       .getMany();
+    for (const item of items) item.monthLabel = monthLabelFromDate(item.movementDate);
 
     // Los totales de las tarjetas se calculan sobre LAS MISMAS filas que muestra
     // la tabla (respeta filtros de fecha, moneda, clasificacion y busqueda), para
@@ -183,7 +184,7 @@ export class BankAccountsService {
     const totalCargosCuenta = allCurrencyItems.reduce((sum, item) => sum + Number(item.chargeAmount || 0), 0);
     const saldoFinal = saldoInicial + totalAbonosCuenta - totalCargosCuenta;
 
-    const months = new Set(scopedItems.map((item) => item.monthLabel || (item.movementDate ? item.movementDate.slice(0, 7) : '')).filter(Boolean));
+    const months = new Set(scopedItems.map((item) => item.movementDate ? item.movementDate.slice(0, 7) : '').filter(Boolean));
 
     return {
       saldoInicial: round2(saldoInicial),
@@ -275,7 +276,7 @@ export class BankAccountsService {
         accountKey,
         itemNumber: null,
         movementDate: normalizeDate(dto.movementDate),
-        monthLabel: dto.monthLabel || monthLabelFromDate(dto.movementDate),
+        monthLabel: monthLabelFromDate(dto.movementDate),
         description: dto.description || null,
         counterparty: dto.counterparty || null,
         depositAmount: String(deposit),
@@ -315,7 +316,7 @@ export class BankAccountsService {
 
     Object.assign(item, {
       ...(dto.movementDate !== undefined ? { movementDate: normalizeDate(dto.movementDate) } : {}),
-      ...(dto.monthLabel !== undefined ? { monthLabel: dto.monthLabel } : {}),
+      ...(dto.movementDate !== undefined || dto.monthLabel !== undefined ? { monthLabel: monthLabelFromDate(dto.movementDate ?? item.movementDate) } : {}),
       ...(dto.description !== undefined ? { description: dto.description } : {}),
       ...(dto.counterparty !== undefined ? { counterparty: dto.counterparty } : {}),
       ...(dto.depositAmount !== undefined ? { depositAmount: String(deposit) } : {}),
@@ -770,6 +771,7 @@ export class BankAccountsService {
     const skipDuplicates = options.skipDuplicates !== false;
     const importBatch = options.importBatch || `batch-${Date.now()}`;
 
+    const existingMovementCount = await this.movementRepo.count({ where: { projectId, accountKey } });
     const existing = skipDuplicates
       ? await this.movementRepo.find({ where: { projectId, accountKey }, select: ['id', 'sourceKey'] })
       : [];
@@ -808,7 +810,7 @@ export class BankAccountsService {
         accountKey,
         itemNumber: null,
         movementDate: normalizeDate(row.movementDate),
-        monthLabel: row.monthLabel || monthLabelFromDate(row.movementDate),
+        monthLabel: monthLabelFromDate(row.movementDate),
         description: row.description,
         counterparty: row.counterparty,
         depositAmount: String(depositAmount),
@@ -828,7 +830,7 @@ export class BankAccountsService {
       }));
     }
 
-    const opening = options.openingBalance === undefined || options.openingBalance === null
+    const opening = existingMovementCount > 0 || options.openingBalance === undefined || options.openingBalance === null
       ? null
       : round2(options.openingBalance);
     if (pending.length) {
@@ -889,7 +891,7 @@ export class BankAccountsService {
     if (!sheetName) throw new BadRequestException('El Excel no contiene hojas');
 
     const sheet = workbook.Sheets[sheetName];
-    const grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '', raw: false, blankrows: true });
+    const grid = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: '', raw: true, blankrows: true });
     if (!grid.length) throw new BadRequestException('El Excel esta vacio');
 
     const headerRowIndex = findHeaderRow(grid);
@@ -1035,7 +1037,7 @@ export class BankAccountsService {
       rowNumber: input.rowNumber,
       itemNumber: parseItemNumber(input.itemRaw),
       movementDate,
-      monthLabel: cleanCell(input.monthRaw) || monthLabelFromDate(movementDate),
+      monthLabel: monthLabelFromDate(movementDate),
       description,
       counterparty,
       depositAmount,
@@ -1224,7 +1226,7 @@ function monthLabelFromDate(value: unknown): string | null {
   const iso = normalizeDate(value);
   if (!iso) return null;
   const [year, month] = iso.split('-');
-  return `${month}/${year}`;
+  return `${MONTH_NAMES[Number(month) - 1] || month} ${year}`;
 }
 
 function yearOf(value: string | null): number | null {
