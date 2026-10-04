@@ -96,9 +96,9 @@ export type QuoteAssignedValues = {
   projectId: number;
   lotId: number;
   exchangeRate: number;
-  salePricePen: number;
+  salePriceUsd: number;
   paymentMethod: 'Contado' | 'Al crédito';
-  cuotaInicialPen: number;
+  cuotaInicialUsd: number;
   totalCuotas: number;
   initialPaymentMode: 'contado' | 'partes';
   initialParts: number;
@@ -108,8 +108,8 @@ export type QuoteAssignedValues = {
   saleDate: string;
   clientName: string;
   agentId: number | null;
-  balancePen: number;
-  valorCuotaPen: number;
+  balanceUsd: number;
+  valorCuotaUsd: number;
   cotizacionNote: string;
 };
 
@@ -123,19 +123,19 @@ export function buildQuoteAssignedValues(
   options: { today: string; lockedProjectId?: number; currentProjectId?: number },
 ): QuoteAssignedValues {
   const rate = Number(quote?.exchangeRate || 0) > 0 ? Number(quote.exchangeRate) : 3.75;
-  const usdToPen = (usd: unknown) => Math.round(Number(usd || 0) * rate);
   const isCredit = quote?.paymentMethod === 'credito';
   const totalCuotas = isCredit ? Number(quote?.totalCuotas || 0) : 0;
-  const cuotaInicialPen = isCredit ? usdToPen(quote?.cuotaInicialUsd) : 0;
+  const finalPriceUsd = Number(quote?.finalPriceUsd || 0);
+  const cuotaInicialUsd = isCredit ? Number(quote?.cuotaInicialUsd || 0) : 0;
 
   return {
     quoteId: Number(quote?.id || 0),
     projectId: Number(quote?.projectId || options.lockedProjectId || options.currentProjectId || 0),
     lotId: Number(quote?.lotId || 0),
     exchangeRate: rate,
-    salePricePen: usdToPen(quote?.finalPriceUsd),
+    salePriceUsd: finalPriceUsd,
     paymentMethod: isCredit ? 'Al crédito' : 'Contado',
-    cuotaInicialPen,
+    cuotaInicialUsd,
     totalCuotas,
     initialPaymentMode: quote?.initialPaymentMode === 'partes' ? 'partes' : 'contado',
     initialParts: Math.max(2, Number(quote?.initialParts || 2)),
@@ -145,8 +145,8 @@ export function buildQuoteAssignedValues(
     saleDate: quote?.createdAt ? String(quote.createdAt).slice(0, 10) : options.today,
     clientName: String(quote?.clientName || ''),
     agentId: null,
-    balancePen: Math.max(0, usdToPen(quote?.finalPriceUsd) - cuotaInicialPen),
-    valorCuotaPen: usdToPen(quote?.valorCuotaUsd),
+    balanceUsd: Math.max(0, finalPriceUsd - cuotaInicialUsd),
+    valorCuotaUsd: Number(quote?.valorCuotaUsd || 0),
     cotizacionNote: `Cotizacion Q${Number(quote?.id || 0)}`,
   };
 }

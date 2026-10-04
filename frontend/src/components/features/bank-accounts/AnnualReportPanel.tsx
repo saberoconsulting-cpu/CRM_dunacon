@@ -57,10 +57,11 @@ function short(value: number, symbol: string) {
 const cellHead = { border: CELL_BORDER, padding: 3, fontWeight: 'bold' as const, fontSize: 10, whiteSpace: 'nowrap' as const };
 const cellBody = { border: CELL_BORDER, padding: 2, textAlign: 'right' as const, fontSize: 10, whiteSpace: 'nowrap' as const, fontVariantNumeric: 'tabular-nums' as const };
 
-export default function AnnualReportPanel({ projectId, accountKey, currency, rate, refreshKey = 0 }: {
+export default function AnnualReportPanel({ projectId, accountKey, currency, accountCurrency, rate, refreshKey = 0 }: {
   projectId: number;
   accountKey?: string;
   currency: Currency;
+  accountCurrency: Currency;
   rate: number;
   refreshKey?: number;
 }) {
@@ -77,7 +78,7 @@ export default function AnnualReportPanel({ projectId, accountKey, currency, rat
     try {
       const params = new URLSearchParams({ projectId: String(projectId), accountKey: accountKey || 'GENERAL' });
       if (year) params.set('year', String(year));
-      params.set('currency', 'USD');
+      params.set('currency', accountCurrency);
       const data = await api.get<AnnualReport>(`/bank-accounts/annual-report?${params.toString()}`);
       setReport(data);
       if (!year && data?.year) setYear(data.year);
@@ -86,7 +87,7 @@ export default function AnnualReportPanel({ projectId, accountKey, currency, rat
     } finally {
       setLoading(false);
     }
-  }, [projectId, year, accountKey]);
+  }, [projectId, year, accountKey, accountCurrency]);
 
   useEffect(() => { load(); }, [load, refreshKey]);
 

@@ -191,11 +191,11 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             {loading ? <p className="p-4 text-slate-400">Cargando…</p>
               : txns.length === 0 ? <p className="p-6 text-center text-sm text-slate-400">Aún no hay movimientos.</p>
               : (
-              <table className="table-base">
+              <table className="table-base table-head-plomo">
                 <thead><tr>
                   <th className="th-base">Lote</th><th className="th-base">Cliente</th><th className="th-base">Medio de pago</th>
                   <th className="th-base">Tipo</th><th className="th-base">Categoría</th><th className="th-base">Concepto</th>
-                  <th className="th-base">Monto</th><th className="th-base">Fecha</th>
+                  <th className="th-base">Monto US$</th><th className="th-base">Fecha</th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {txns.map((t) => (

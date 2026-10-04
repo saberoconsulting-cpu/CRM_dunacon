@@ -31,6 +31,12 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
   const [viewMode, setViewMode] = useState<'general' | 'blocks'>('general');
   const { currency, setCurrency, exchangeRate, setExchangeRate, format: fmt } = useDisplayCurrency();
   const moneyLabel = CURRENCY_SYMBOL[currency];
+  const formatLotMoney = (value: unknown) => {
+    const usd = Number(value || 0);
+    if (!usd) return '—';
+    const amount = currency === 'PEN' ? usd * (exchangeRate || 1) : usd;
+    return `${moneyLabel} ${amount.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  };
   // Solo admin/superadmin pueden eliminar lotes (el backend tambien lo exige).
   const canDelete = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
 
@@ -120,9 +126,9 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
         <td>${escapeHtml(l.address || l.streetAddress || l.blockAddress || '—')}</td>
         <td>${escapeHtml(l.type || '—')}</td>
         <td class="num">${escapeHtml(`${l.areaM2 || 0} m²`)}</td>
-        <td class="num">${escapeHtml(l.price ? fmt(l.price) : '—')}</td>
-        <td class="num">${escapeHtml(l.salePrice ? fmt(l.salePrice) : '—')}</td>
-        <td class="num">${escapeHtml(l.finalPrice ? fmt(l.finalPrice) : '—')}</td>
+        <td class="num">${escapeHtml(l.price ? formatLotMoney(l.price) : '—')}</td>
+        <td class="num">${escapeHtml(l.salePrice ? formatLotMoney(l.salePrice) : '—')}</td>
+        <td class="num">${escapeHtml(l.finalPrice ? formatLotMoney(l.finalPrice) : '—')}</td>
         <td>${escapeHtml(LOT_STATUS_LABEL[l.status])}</td>
         <td>${escapeHtml(l.clientName || '—')}</td>
       </tr>
@@ -135,10 +141,10 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
       <tr class="total">
         <td>${items.length}</td>
         <td colspan="2">Totales</td>
-        <td class="num">${t.pricePerM2 ? `${fmt(t.pricePerM2)}/m²` : '—'}</td>
-        <td class="num">${fmt(t.totalPrice)}</td>
-        <td class="num">${fmt(t.totalVenta)}</td>
-        <td class="num">${fmt(t.totalFinal)}</td>
+        <td class="num">${t.pricePerM2 ? `${formatLotMoney(t.pricePerM2)}/m²` : '—'}</td>
+        <td class="num">${formatLotMoney(t.totalPrice)}</td>
+        <td class="num">${formatLotMoney(t.totalVenta)}</td>
+        <td class="num">${formatLotMoney(t.totalFinal)}</td>
         <td colspan="2"></td>
       </tr>
     `;
@@ -211,8 +217,8 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
           <div class="summary">
             <div><span>Lotes</span><strong>${lots.length}</strong></div>
             <div><span>Area total</span><strong>${escapeHtml(`${t.totalArea.toLocaleString('es-PE')} m2`)}</strong></div>
-            <div><span>Precio lista</span><strong>${escapeHtml(fmt(t.totalPrice))}</strong></div>
-            <div><span>Precio final</span><strong>${escapeHtml(fmt(t.totalFinal))}</strong></div>
+            <div><span>Precio lista</span><strong>${escapeHtml(formatLotMoney(t.totalPrice))}</strong></div>
+            <div><span>Precio final</span><strong>${escapeHtml(formatLotMoney(t.totalFinal))}</strong></div>
           </div>
           ${content}
           <div class="footer">Dunacon - CRM Inmobiliario</div>
@@ -264,7 +270,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
         )}
 
         <div className="overflow-x-auto">
-          <table className="table-base text-[12px]" style={{ width: '100%', minWidth: 1068, tableLayout: 'fixed' }}>
+          <table className="table-base table-head-brand text-[12px]" style={{ width: '100%', minWidth: 1068, tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: '68px' }} />
               <col style={{ width: '130px' }} />
@@ -281,10 +287,10 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
               <th className="th-base !px-2" style={{ textAlign: 'left' }}>Lote</th>
               <th className="th-base !px-2" style={{ textAlign: 'left' }}>Dirección</th>
               <th className="th-base !px-2" style={{ textAlign: 'left' }}>Tipo</th>
-              <th className="th-base !px-2" style={{ textAlign: 'left' }}>Dim.</th>
+              <th className="th-base !px-2" style={{ textAlign: 'left' }}>Area</th>
               <th className="th-base !px-2" style={{ textAlign: 'right' }}>{moneyLabel}/m2</th>
-              <th className="th-base !px-2" style={{ textAlign: 'right' }}>Venta {moneyLabel}</th>
-              <th className="th-base !px-2" style={{ textAlign: 'right' }}>Final {moneyLabel}</th>
+              <th className="th-base !px-2" style={{ textAlign: 'right' }}>Precio de venta {moneyLabel}</th>
+              <th className="th-base !px-2" style={{ textAlign: 'right' }}>Precio final {moneyLabel}</th>
               <th className="th-base !px-2" style={{ textAlign: 'center' }}>Estado</th>
               <th className="th-base !px-2" style={{ textAlign: 'left' }}>Cliente</th>
               <th className="th-base !px-2" style={{ textAlign: 'right' }}></th>
@@ -296,9 +302,9 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                   <td className="td-base !px-2 truncate text-slate-500" style={{ textAlign: 'left' }} title={l.address || l.streetAddress || l.blockAddress || '—'}>{l.address || l.streetAddress || l.blockAddress || '—'}</td>
                   <td className="td-base !px-2 truncate text-slate-500" style={{ textAlign: 'left' }} title={l.type || '—'}>{l.type || '—'}</td>
                   <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'left' }}>{l.areaM2} m²</td>
-                  <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'right' }}>{l.price ? fmt(l.price) : '—'}</td>
-                  <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'right' }}>{l.salePrice ? fmt(l.salePrice) : '—'}</td>
-                  <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'right' }}>{l.finalPrice ? fmt(l.finalPrice) : '—'}</td>
+                  <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'right' }}>{l.price ? formatLotMoney(l.price) : '—'}</td>
+                  <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'right' }}>{l.salePrice ? formatLotMoney(l.salePrice) : '—'}</td>
+                  <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'right' }}>{l.finalPrice ? formatLotMoney(l.finalPrice) : '—'}</td>
                   <td className="td-base !px-2" style={{ textAlign: 'center' }}>
                     <span className="badge whitespace-nowrap" style={{ backgroundColor: LOT_STATUS_COLOR[l.status] + '22', color: LOT_STATUS_COLOR[l.status] }}>{LOT_STATUS_LABEL[l.status]}</span>
                   </td>
@@ -331,10 +337,10 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
               <tr style={{ background: '#0B2F6E' }}>
                 <td className="td-base !px-2 font-bold text-white" style={{ textAlign: 'left' }}>{items.length}</td>
                 <td className="td-base !px-2 font-bold text-white" colSpan={2} style={{ textAlign: 'left' }}>Totales</td>
-                <td className="td-base !px-2 font-bold text-white tabular-nums">{t.pricePerM2 ? `${fmt(t.pricePerM2)}/m²` : '—'}</td>
-                <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{fmt(t.totalPrice)}</td>
-                <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{fmt(t.totalVenta)}</td>
-                <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{fmt(t.totalFinal)}</td>
+                <td className="td-base !px-2 font-bold text-white tabular-nums">{t.pricePerM2 ? `${formatLotMoney(t.pricePerM2)}/m²` : '—'}</td>
+                <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatLotMoney(t.totalPrice)}</td>
+                <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatLotMoney(t.totalVenta)}</td>
+                <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatLotMoney(t.totalFinal)}</td>
                 <td className="td-base" colSpan={3}></td>
               </tr>
             </tfoot>
@@ -446,7 +452,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="table-base" style={{ width: '100%', minWidth: 998, tableLayout: 'fixed' }}>
+                  <table className="table-base table-head-brand" style={{ width: '100%', minWidth: 998, tableLayout: 'fixed' }}>
                     <colgroup>
                       <col style={{ width: '70px' }} />
                       <col style={{ width: '130px' }} />
@@ -463,10 +469,10 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                       <th className="th-base" style={{ textAlign: 'left' }}>Nro. Lote</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Dirección</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Tipo</th>
-                      <th className="th-base" style={{ textAlign: 'left' }}>Dimensión</th>
+                      <th className="th-base" style={{ textAlign: 'left' }}>Area</th>
                       <th className="th-base" style={{ textAlign: 'right' }}>Precio {moneyLabel}/m2</th>
-                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Venta {moneyLabel}</th>
-                      <th className="th-base" style={{ textAlign: 'right' }}>Precio Final {moneyLabel}</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio de venta {moneyLabel}</th>
+                      <th className="th-base" style={{ textAlign: 'right' }}>Precio final {moneyLabel}</th>
                       <th className="th-base" style={{ textAlign: 'center' }}>Estado</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Cliente</th>
                       <th className="th-base"></th>
@@ -478,9 +484,9 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                           <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.address || g.blockAddress || '—'}>{l.address || g.blockAddress || '—'}</td>
                           <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.type || '—'}>{l.type || '—'}</td>
                           <td className="td-base" style={{ textAlign: 'left' }}>{l.areaM2} m²</td>
-                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.price ? fmt(l.price) : '—'}</td>
-                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.salePrice ? fmt(l.salePrice) : '—'}</td>
-                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.finalPrice ? fmt(l.finalPrice) : '—'}</td>
+                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.price ? formatLotMoney(l.price) : '—'}</td>
+                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.salePrice ? formatLotMoney(l.salePrice) : '—'}</td>
+                          <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.finalPrice ? formatLotMoney(l.finalPrice) : '—'}</td>
                           <td className="td-base" style={{ textAlign: 'center' }}>
                             <span className="badge whitespace-nowrap" style={{ backgroundColor: LOT_STATUS_COLOR[l.status] + '22', color: LOT_STATUS_COLOR[l.status] }}>{LOT_STATUS_LABEL[l.status]}</span>
                           </td>
@@ -500,10 +506,10 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                       <tr style={{ background: '#0B2F6E' }}>
                         <td className="td-base font-bold text-white" style={{ textAlign: 'left' }}>{g.items.length}</td>
                         <td className="td-base font-bold text-white" colSpan={2} style={{ textAlign: 'left' }}>Totales</td>
-                        <td className="td-base font-bold text-white tabular-nums">{pricePerM2 ? `${fmt(pricePerM2)}/m²` : '—'}</td>
-                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{fmt(totalPrice)}</td>
-                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{fmt(totalVenta)}</td>
-                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{fmt(totalFinal)}</td>
+                        <td className="td-base font-bold text-white tabular-nums">{pricePerM2 ? `${formatLotMoney(pricePerM2)}/m²` : '—'}</td>
+                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatLotMoney(totalPrice)}</td>
+                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatLotMoney(totalVenta)}</td>
+                        <td className="td-base font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatLotMoney(totalFinal)}</td>
                         <td className="td-base" colSpan={3}></td>
                       </tr>
                     </tfoot>

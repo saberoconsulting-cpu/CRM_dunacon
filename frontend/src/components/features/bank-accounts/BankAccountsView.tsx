@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FiAlertCircle, FiCheckCircle, FiChevronDown, FiChevronLeft, FiChevronRight, FiCreditCard, FiDownload, FiEdit3, FiFilter, FiPlus, FiRefreshCw, FiSave, FiSettings, FiTrash2, FiUploadCloud, FiX } from 'react-icons/fi';
+import { FiAlertCircle, FiArrowDown, FiArrowUp, FiCheckCircle, FiChevronDown, FiChevronLeft, FiChevronRight, FiCreditCard, FiDownload, FiEdit3, FiFilter, FiPlus, FiRefreshCw, FiSave, FiSettings, FiTrash2, FiUploadCloud, FiX } from 'react-icons/fi';
 import { Toaster, toast, Field } from '@/components/ui/ui';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import AnnualReportPanel from '@/components/features/bank-accounts/AnnualReportPanel';
@@ -22,6 +22,7 @@ type Movement = {
   depositAmount: string;
   chargeAmount: string;
   bookBalance: string | null;
+  exchangeRate: string | null;
   openingBalance: string | null;
   movementType: string | null;
   eerrClassification: string | null;
@@ -43,6 +44,7 @@ type PreviewRow = {
   depositAmount: number;
   chargeAmount: number;
   bookBalance: number | null;
+  exchangeRate: number | null;
   movementType: string | null;
   eerrClassification: string | null;
   invoiceNumber: string | null;
@@ -59,6 +61,13 @@ type Preview = {
   saldoInicial: number | null;
   saldoFinal: number | null;
   totals: { abonos: number; cargos: number };
+  accountContinuation?: {
+    movementCount: number;
+    itemNumber: number;
+    movementDate: string | null;
+    bookBalance: string | number | null;
+    currency: 'PEN' | 'USD';
+  };
   expectedColumns?: string[];
   sourceFile: string;
 };
@@ -76,6 +85,7 @@ type BankAccount = {
   name: string;
   bank: string | null;
   accountNumber: string | null;
+  currency: 'PEN' | 'USD';
 };
 
 const BORDER = '#E2E8F0';
@@ -145,6 +155,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [filters, setFilters] = useState({ ...emptyFilters });
   const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(1);
+  const [dateSort, setDateSort] = useState<'asc' | 'desc'>('asc');
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Movement | null>(null);
   const [deleting, setDeleting] = useState<Movement | null>(null);
@@ -155,6 +166,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [typeOpen, setTypeOpen] = useState(false);
   const typeInputRef = useRef<HTMLInputElement | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [importCurrency, setImportCurrency] = useState<'PEN' | 'USD'>('USD');
   const [importing, setImporting] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [categoriesOpen, setCategoriesOpen] = useState(false);
@@ -165,14 +177,47 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [savingOpeningBalance, setSavingOpeningBalance] = useState(false);
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [accountKey, setAccountKey] = useState('GENERAL');
+  const [tableCurrency, setTableCurrency] = useState<'USD' | 'PEN'>('USD');
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
-  const [accountForm, setAccountForm] = useState({ name: '', bank: '', accountNumber: '' });
+  const [accountForm, setAccountForm] = useState({ name: '', bank: '', accountNumber: '', currency: 'USD' as 'PEN' | 'USD' });
   const [savingAccount, setSavingAccount] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLDivElement | null>(null);
   const { currency, setCurrency, exchangeRate, setExchangeRate } = useDisplayCurrency();
-  const money = useCallback((value: unknown) => bankMoney(value, currency), [currency]);
+  const [importExchangeRate, setImportExchangeRate] = useState(String(exchangeRate));
+  const selectedAccount = accounts.find((account) => account.accountKey === accountKey);
+  const accountCurrency = selectedAccount?.currency || 'USD';
+  const money = useCallback((value: unknown) => {
+    const amount = num(value);
+    const converted = accountCurrency === currency
+      ? amount
+      : accountCurrency === 'PEN'
+        ? amount / exchangeRate
+        : amount * exchangeRate;
+    return bankMoney(converted, currency);
+  }, [accountCurrency, currency, exchangeRate]);
+  const tableAmount = useCallback((value: unknown, movementRate?: unknown) => {
+    const amount = num(value);
+    const rate = num(movementRate) > 0 ? num(movementRate) : exchangeRate;
+    return accountCurrency === tableCurrency
+      ? amount
+      : accountCurrency === 'PEN'
+        ? amount / rate
+        : amount * rate;
+  }, [accountCurrency, exchangeRate, tableCurrency]);
+  const tableMoney = useCallback((value: unknown, movementRate?: unknown) => (
+    bankMoney(tableAmount(value, movementRate), tableCurrency)
+  ), [tableAmount, tableCurrency]);
+  const previewMoney = useCallback((value: unknown) => {
+    const amount = num(value);
+    const converted = importCurrency === currency
+      ? amount
+      : importCurrency === 'PEN'
+        ? amount / exchangeRate
+        : amount * exchangeRate;
+    return bankMoney(converted, currency);
+  }, [currency, exchangeRate, importCurrency]);
 
   const query = useMemo(() => {
     const params = new URLSearchParams({ projectId: String(projectId), accountKey });
@@ -228,11 +273,12 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
         name: accountForm.name.trim(),
         bank: accountForm.bank.trim() || undefined,
         accountNumber: accountForm.accountNumber.trim() || undefined,
+        currency: accountForm.currency,
       });
       setAccounts(data.items || []);
       const created = data.items?.[data.items.length - 1];
       if (created) setAccountKey(created.accountKey);
-      setAccountForm({ name: '', bank: '', accountNumber: '' });
+      setAccountForm({ name: '', bank: '', accountNumber: '', currency: 'USD' });
       setAccountModalOpen(false);
       toast('Cuenta bancaria agregada');
     } catch (error: any) {
@@ -295,35 +341,39 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   }
 
   const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
-  // Orden unico de presentacion: fecha mas antigua primero. El backend renumera
-  // Item en ese mismo orden cada vez que se importa, crea, edita o elimina.
+  // La numeracion Item permanece cronologica; este selector solo cambia el orden visual.
   const sortedItems = useMemo(() => [...items].sort((left, right) => {
     const leftDate = left.movementDate || '';
     const rightDate = right.movementDate || '';
     if (!leftDate !== !rightDate) return leftDate ? -1 : 1;
-    if (leftDate !== rightDate) return leftDate.localeCompare(rightDate);
-    return left.id - right.id;
-  }), [items]);
+    const direction = dateSort === 'asc' ? 1 : -1;
+    if (leftDate !== rightDate) return leftDate.localeCompare(rightDate) * direction;
+    return (left.id - right.id) * direction;
+  }), [items, dateSort]);
   const pageItems = sortedItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const movementTotals = useMemo(() => ({
-    deposits: items.reduce((total, item) => total + num(item.depositAmount), 0),
-    charges: items.reduce((total, item) => total + num(item.chargeAmount), 0),
+    deposits: items.reduce((total, item) => total + tableAmount(item.depositAmount, item.exchangeRate), 0),
+    charges: items.reduce((total, item) => total + tableAmount(item.chargeAmount, item.exchangeRate), 0),
     // "Saldo contable" es un saldo acumulado: sumarlo no tiene sentido, su total
     // es el saldo de la ULTIMA fila visible. Asi el pie cuadra con las 3 columnas
     // que muestra la tabla (abono, cargo y saldo) y no con la cuenta completa.
     lastBookBalance: (() => {
       const withBalance = items.filter((item) => item.bookBalance !== null && item.bookBalance !== undefined);
-      if (!withBalance.length) return summary?.saldoFinal ?? null;
+      if (!withBalance.length) return summary?.saldoFinal === undefined || summary?.saldoFinal === null
+        ? null
+        : tableAmount(summary.saldoFinal);
       const last = withBalance[withBalance.length - 1];
-      return num(last.bookBalance);
+      return tableAmount(last.bookBalance, last.exchangeRate);
     })(),
-  }), [items, summary?.saldoFinal]);
+  }), [items, summary?.saldoFinal, tableAmount]);
 
   async function handleFile(file?: File | null) {
     if (!file) return;
+    setImportCurrency(accountCurrency);
+    setImportExchangeRate(String(exchangeRate));
     setUploading(true);
     try {
-      const data = await uploadFile('/bank-accounts/import/preview', file);
+      const data = await uploadFile('/bank-accounts/import/preview', file, { projectId, accountKey });
       setPreview(data);
       if (!data?.rows?.length) {
         toast('El Excel no tiene movimientos reconocibles con el formato esperado', 'err');
@@ -342,13 +392,19 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
   async function confirmImport() {
     if (!preview) return;
+    if (importCurrency !== accountCurrency && num(importExchangeRate) <= 0) {
+      toast('Ingresa un tipo de cambio valido para convertir la moneda del Excel', 'err');
+      return;
+    }
     setImporting(true);
     try {
       const data = await api.post<any>('/bank-accounts/import', {
         projectId,
         rows: preview.rows.filter((row) => row.errors.length === 0),
         accountKey,
-        currency: 'USD',
+        currency: accountCurrency,
+        sourceCurrency: importCurrency,
+        defaultExchangeRate: num(importExchangeRate),
         sourceFile: preview.sourceFile,
         importBatch: `batch-${Date.now()}`,
         skipDuplicates: true,
@@ -371,7 +427,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
 
   function openCreate() {
     setEditing(null);
-    setForm({ projectId, currency: 'USD', movementDate: '', monthLabel: '', itemNumber: '', depositAmount: '', chargeAmount: '', eerrClassification: '' });
+    setForm({ projectId, currency: accountCurrency, exchangeRate, movementDate: '', monthLabel: '', itemNumber: '', depositAmount: '', chargeAmount: '', eerrClassification: '' });
     setFormOpen(true);
     formRef.current?.scrollTo({ top: 0 });
   }
@@ -391,6 +447,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
       ...item,
       movementDate: item.movementDate ? item.movementDate.slice(0, 10) : '',
       itemNumber: item.itemNumber ?? '',
+      exchangeRate: item.exchangeRate || String(exchangeRate),
       depositAmount: num(item.depositAmount) || '',
       chargeAmount: num(item.chargeAmount) || '',
     });
@@ -408,6 +465,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     if (!deposit && !charge) return toast('Ingresa un abono o un cargo', 'err');
     if (deposit && charge) return toast('No puede tener abono y cargo a la vez', 'err');
     if (!form.description && !form.counterparty) return toast('Ingresa la descripcion o el proveedor/cliente', 'err');
+    if (num(form.exchangeRate) <= 0) return toast('Ingresa un tipo de cambio valido', 'err');
 
     try {
       const payload = {
@@ -415,7 +473,8 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
         projectId,
         accountKey,
         itemNumber: null,
-        currency: 'USD',
+        currency: accountCurrency,
+        exchangeRate: form.exchangeRate ? num(form.exchangeRate) : exchangeRate,
         depositAmount: deposit,
         chargeAmount: charge,
         bookBalance: form.bookBalance === '' || form.bookBalance === null || form.bookBalance === undefined ? null : num(form.bookBalance),
@@ -427,7 +486,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
       applyData(data);
       toast(editing ? 'Movimiento actualizado' : 'Movimiento registrado');
       setEditing(null);
-      setForm({ projectId, currency: 'USD', movementDate: '', monthLabel: '', itemNumber: '', depositAmount: '', chargeAmount: '', eerrClassification: '' });
+      setForm({ projectId, currency: accountCurrency, exchangeRate, movementDate: '', monthLabel: '', itemNumber: '', depositAmount: '', chargeAmount: '', eerrClassification: '' });
       formRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (error: any) {
       toast(error?.message || 'No se pudo guardar el movimiento', 'err');
@@ -453,7 +512,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
       const data = await api.patch<any>('/bank-accounts/opening-balance', {
         projectId,
         accountKey,
-        currency: 'USD',
+        currency: accountCurrency,
         openingBalance: value,
       });
       applyData(data);
@@ -487,7 +546,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     };
   }, [items]);
   const cards = [
-    { label: 'Saldo Registro Nro. 28', value: money(summary?.saldoInicial), color: BRAND.blue, helper: 'Saldo del ultimo registro anterior' },
+    { label: 'Saldo inicial de la cuenta', value: money(summary?.saldoInicial), color: BRAND.blue, helper: 'Saldo desde el que continúa el historial de esta cuenta' },
     { label: filtered ? 'Ingresos (filtro)' : 'Total ingresos', value: money(summary?.totalAbonos), color: '#16A36A', helper: `Suma de abonos ${scope}` },
     { label: filtered ? 'Egresos (filtro)' : 'Total egresos', value: money(summary?.totalCargos), color: '#DC2626', helper: `Suma de cargos ${scope}` },
     { label: 'Saldo final', value: money(summary?.saldoFinal), color: '#0E46A0', helper: filtered ? 'Saldo real de la cuenta (sin filtro)' : 'Saldo al cierre del periodo' },
@@ -523,7 +582,8 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   {accounts.find((account) => account.accountKey === accountKey)?.bank
                     ? `${accounts.find((account) => account.accountKey === accountKey)?.bank} - `
                     : ''}
-                  {accounts.find((account) => account.accountKey === accountKey)?.name || 'Seleccionar cuenta'}
+                  {selectedAccount?.name || 'Seleccionar cuenta'}
+                  {selectedAccount ? ` (${selectedAccount.currency === 'USD' ? 'US$' : 'S/'})` : ''}
                 </span>
                 <FiChevronDown className={`shrink-0 transition-transform ${accountMenuOpen ? 'rotate-180' : ''}`} />
               </button>
@@ -538,7 +598,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                         className={`flex w-full items-center justify-between rounded px-3 py-2 text-left text-xs transition-colors hover:bg-[#F3F7FC] sm:text-sm ${account.accountKey === accountKey ? 'bg-[#EAF3FF] text-[#1877F2]' : 'text-slate-700'}`}
                         onClick={() => { setAccountKey(account.accountKey); setAccountMenuOpen(false); }}
                       >
-                        <span className="min-w-0 truncate">{account.bank ? `${account.bank} - ` : ''}{account.name}</span>
+                        <span className="min-w-0 truncate">{account.bank ? `${account.bank} - ` : ''}{account.name} · {account.currency === 'USD' ? 'US$' : 'S/'}</span>
                         {account.accountNumber && <span className="ml-2 shrink-0 text-[10px] text-slate-400">...{account.accountNumber.slice(-4)}</span>}
                       </button>
                     ))}
@@ -578,7 +638,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 style={{ borderColor: BORDER }}
               >
                 <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }} title={card.label}>{card.label}</p>
-                {card.label === 'Saldo Registro Nro. 28' ? (
+                {card.label === 'Saldo inicial de la cuenta' ? (
                   <div className="mt-1 flex min-w-0 items-center gap-1">
                     <input
                       className="input !h-8 min-w-0 flex-1 !px-2 text-center text-sm font-bold tabular-nums"
@@ -586,7 +646,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                       step="0.01"
                       value={openingBalanceDraft}
                       onChange={(event) => setOpeningBalanceDraft(event.target.value)}
-                      aria-label="Saldo Registro Nro. 28"
+                      aria-label="Saldo inicial de la cuenta"
                     />
                     <button
                       className="grid h-8 w-8 shrink-0 place-items-center rounded-md text-white"
@@ -647,6 +707,17 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 <Field label="Nombre de la cuenta">
                   <input autoFocus className="input" placeholder="Ej. Cuenta BBVA" value={accountForm.name} onChange={(event) => setAccountForm((current) => ({ ...current, name: event.target.value }))} />
                 </Field>
+                <Field label="Moneda de la cuenta">
+                  <select
+                    className="input"
+                    value={accountForm.currency}
+                    onChange={(event) => setAccountForm((current) => ({ ...current, currency: event.target.value as 'PEN' | 'USD' }))}
+                  >
+                    <option value="USD">Dólares (US$)</option>
+                    <option value="PEN">Soles (S/)</option>
+                  </select>
+                  <p className="mt-1 text-xs" style={{ color: MUTED }}>Los movimientos y saldos de esta cuenta se registrarán en esta moneda.</p>
+                </Field>
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="Banco">
                     <input className="input" placeholder="BBVA" value={accountForm.bank} onChange={(event) => setAccountForm((current) => ({ ...current, bank: event.target.value }))} />
@@ -686,9 +757,19 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   <FiX /> Limpiar
                 </button>
               )}
-              <span className="rounded-lg border bg-[#F8FAFC] px-2 py-1 text-xs font-semibold" style={{ borderColor: BORDER, color: MUTED }}>
-                Orden: fecha ascendente
-              </span>
+              <button
+                type="button"
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg border bg-[#F8FAFC] px-2.5 text-xs font-semibold transition-colors hover:bg-slate-100"
+                style={{ borderColor: BORDER, color: MUTED }}
+                aria-label={`Ordenar por fecha ${dateSort === 'asc' ? 'descendente' : 'ascendente'}`}
+                onClick={() => {
+                  setDateSort((current) => current === 'asc' ? 'desc' : 'asc');
+                  setPage(1);
+                }}
+              >
+                {dateSort === 'asc' ? <FiArrowUp aria-hidden="true" /> : <FiArrowDown aria-hidden="true" />}
+                Orden: fecha {dateSort === 'asc' ? 'ascendente' : 'descendente'}
+              </button>
             </div>
             <p className="text-xs" style={{ color: MUTED }}>
               {items.length} movimientos{preview ? '' : ''}
@@ -717,16 +798,28 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
           ) : (
             <>
               <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-white px-4 py-2" style={{ borderColor: BORDER }}>
-                <p className="text-xs font-semibold" style={{ color: MUTED }}>
-                  Movimientos ordenados por fecha ascendente
-                </p>
-                <p className="text-xs" style={{ color: MUTED }}>
-                  {pageItems.length} de {items.length} · pagina {page} de {pageCount}
-                </p>
+                <p className="text-xs font-semibold" style={{ color: MUTED }}>Movimientos ordenados por fecha ascendente</p>
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="inline-flex items-center rounded-md border p-0.5" style={{ borderColor: BORDER }} aria-label="Moneda de los importes de la tabla">
+                    <button
+                      type="button"
+                      className={`rounded px-2.5 py-1 text-xs font-semibold ${tableCurrency === 'USD' ? 'bg-[#EAF3FF] text-[#1877F2]' : 'text-slate-500'}`}
+                      aria-pressed={tableCurrency === 'USD'}
+                      onClick={() => setTableCurrency('USD')}
+                    >US$</button>
+                    <button
+                      type="button"
+                      className={`rounded px-2.5 py-1 text-xs font-semibold ${tableCurrency === 'PEN' ? 'bg-[#EAF3FF] text-[#1877F2]' : 'text-slate-500'}`}
+                      aria-pressed={tableCurrency === 'PEN'}
+                      onClick={() => setTableCurrency('PEN')}
+                    >S/</button>
+                  </div>
+                  <p className="text-xs" style={{ color: MUTED }}>{pageItems.length} de {items.length} · pagina {page} de {pageCount}</p>
+                </div>
               </div>
               <div className="overflow-x-auto">
-                <table className="table-base">
-                  <thead>
+                <table className="table-base bank-movements-grid">
+                  <thead className="table-head-plomo">
                     <tr className="border-b" style={{ borderColor: BORDER }}>
                       <th className="th-base text-center">Item</th>
                       <th className="th-base">Fecha abono</th>
@@ -736,6 +829,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                       <th className="th-base text-right">Abono</th>
                       <th className="th-base text-right">Cargo</th>
                       <th className="th-base text-right">Saldo contable</th>
+                      <th className="th-base text-right">T. cambio</th>
                       <th className="th-base">Tipo Ingreso/Gasto</th>
                       <th className="th-base">Clasificacion FC</th>
                       <th className="th-base">Nro. Factura</th>
@@ -762,13 +856,16 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                           <td className="td-base max-w-[240px] truncate" title={item.description || ''}>{item.description || '-'}</td>
                           <td className="td-base max-w-[220px] truncate" title={item.counterparty || ''}>{item.counterparty || '-'}</td>
                           <td className="td-base whitespace-nowrap text-right text-xs font-semibold tabular-nums" style={{ color: deposit ? '#16A36A' : '#CBD5E1' }}>
-                            {deposit ? money(deposit) : '-'}
+                            {deposit ? tableMoney(deposit, item.exchangeRate) : '-'}
                           </td>
                           <td className="td-base whitespace-nowrap text-right text-xs font-semibold tabular-nums" style={{ color: charge ? '#DC2626' : '#CBD5E1' }}>
-                            {charge ? money(charge) : '-'}
+                            {charge ? tableMoney(charge, item.exchangeRate) : '-'}
                           </td>
                           <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: INK }}>
-                            {item.bookBalance === null ? '-' : money(num(item.bookBalance))}
+                            {item.bookBalance === null ? '-' : tableMoney(num(item.bookBalance), item.exchangeRate)}
+                          </td>
+                          <td className="td-base whitespace-nowrap text-right text-xs tabular-nums" style={{ color: MUTED }}>
+                            {item.exchangeRate ? num(item.exchangeRate).toFixed(4) : '-'}
                           </td>
                           <td className="td-base max-w-[180px] truncate" style={{ color: MUTED }} title={item.movementType || ''}>{item.movementType || '-'}</td>
                           <td className="td-base max-w-[180px] truncate" style={{ color: MUTED }} title={item.eerrClassification || ''}>{item.eerrClassification || '-'}</td>
@@ -795,10 +892,10 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                         era cada total.
                       */}
                       <td className="td-base text-xs" colSpan={5} style={{ color: INK }}>Totales</td>
-                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: '#16A36A' }}>{money(movementTotals.deposits)}</td>
-                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: '#DC2626' }}>{money(movementTotals.charges)}</td>
-                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: INK }}>{money(movementTotals.lastBookBalance ?? undefined)}</td>
-                      <td className="td-base" colSpan={5} />
+                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: '#16A36A' }}>{bankMoney(movementTotals.deposits, tableCurrency)}</td>
+                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: '#DC2626' }}>{bankMoney(movementTotals.charges, tableCurrency)}</td>
+                      <td className="td-base whitespace-nowrap text-right text-xs font-bold tabular-nums" style={{ color: INK }}>{movementTotals.lastBookBalance === null ? '-' : bankMoney(movementTotals.lastBookBalance, tableCurrency)}</td>
+                      <td className="td-base" colSpan={6} />
                     </tr>
                   </tfoot>
                 </table>
@@ -818,7 +915,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
           )}
         </section>
 
-        <AnnualReportPanel projectId={projectId} accountKey={accountKey} currency={currency} rate={exchangeRate} refreshKey={dataVersion} />
+        <AnnualReportPanel projectId={projectId} accountKey={accountKey} currency={currency} accountCurrency={accountCurrency} rate={exchangeRate} refreshKey={dataVersion} />
 
         {categoriesOpen && (
           <CategoryMasterPanel
@@ -843,18 +940,57 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
               <button className="grid h-8 w-8 place-items-center rounded-md text-slate-500 hover:bg-slate-100" onClick={() => setPreview(null)}><FiX /></button>
             </div>
 
-            <div className="grid grid-cols-2 gap-2 border-b bg-[#F8FAFC] px-5 py-3 sm:grid-cols-4" style={{ borderColor: BORDER }}>
+            <div className="grid grid-cols-2 gap-2 border-b bg-[#F8FAFC] px-5 py-3 sm:grid-cols-3 lg:grid-cols-6" style={{ borderColor: BORDER }}>
               {[
-                { label: 'Saldo Registro Nro. 28', value: money(preview.saldoInicial) },
-                { label: 'Total abonos', value: money(preview.totals?.abonos) },
-                { label: 'Total cargos', value: money(preview.totals?.cargos) },
-                { label: 'Saldo final', value: money(preview.saldoFinal) },
+                {
+                  label: 'Continuará después de',
+                  value: preview.accountContinuation?.movementCount
+                    ? `Item ${preview.accountContinuation.itemNumber} · ${prettyDate(preview.accountContinuation.movementDate)}`
+                    : 'Primera carga de esta cuenta',
+                },
+                {
+                  label: 'Último saldo de esta cuenta',
+                  value: preview.accountContinuation?.movementCount
+                    ? bankMoney(
+                      num(preview.accountContinuation.bookBalance),
+                      preview.accountContinuation.currency,
+                    )
+                    : '-',
+                },
+                { label: 'Saldo inicial del Excel', value: previewMoney(preview.saldoInicial) },
+                { label: 'Total abonos', value: previewMoney(preview.totals?.abonos) },
+                { label: 'Total cargos', value: previewMoney(preview.totals?.cargos) },
+                { label: 'Saldo final', value: previewMoney(preview.saldoFinal) },
               ].map((item) => (
                 <div key={item.label} className="min-w-0">
                   <p className="truncate text-[10px] font-semibold uppercase" style={{ color: MUTED }}>{item.label}</p>
                   <p className="truncate text-sm font-bold tabular-nums" style={{ color: INK }}>{item.value}</p>
                 </div>
               ))}
+            </div>
+
+            <div className="grid gap-3 border-b bg-white px-5 py-3 sm:grid-cols-3" style={{ borderColor: BORDER }}>
+              <Field label="Moneda de los montos en el Excel">
+                <select className="input" value={importCurrency} onChange={(event) => setImportCurrency(event.target.value as 'PEN' | 'USD')}>
+                  <option value="PEN">Soles (PEN)</option>
+                  <option value="USD">Dólares (USD)</option>
+                </select>
+              </Field>
+              <Field label="Tipo de cambio predeterminado (S/ por US$)">
+                <input
+                  type="number"
+                  min="0.0001"
+                  step="0.0001"
+                  className="input tabular-nums"
+                  value={importExchangeRate}
+                  onChange={(event) => setImportExchangeRate(event.target.value)}
+                />
+              </Field>
+              <p className="self-center text-xs leading-relaxed" style={{ color: MUTED }}>
+                {importCurrency === accountCurrency
+                  ? `Los importes se guardarán en ${accountCurrency}.`
+                  : `Los importes se convertirán de ${importCurrency} a ${accountCurrency}; se usa el tipo de cambio de cada fila si el Excel lo incluye.`}
+              </p>
             </div>
 
             {preview.errors.length > 0 && (
@@ -900,6 +1036,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                     <th className="th-base text-right">Abono</th>
                     <th className="th-base text-right">Cargo</th>
                     <th className="th-base text-right">Saldo</th>
+                    <th className="th-base text-right">T. cambio</th>
                     <th className="th-base">Tipo Ingreso/Gasto</th>
                     <th className="th-base">Clasificacion FC</th>
                     <th className="th-base">Estado</th>
@@ -912,9 +1049,10 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                       <td className="td-base whitespace-nowrap tabular-nums">{prettyDate(row.movementDate)}</td>
                       <td className="td-base max-w-[220px] truncate" title={row.description || ''}>{row.description || '-'}</td>
                       <td className="td-base max-w-[200px] truncate" title={row.counterparty || ''}>{row.counterparty || '-'}</td>
-                      <td className="td-base text-right tabular-nums" style={{ color: row.depositAmount ? '#16A36A' : '#CBD5E1' }}>{row.depositAmount ? money(row.depositAmount) : '-'}</td>
-                      <td className="td-base text-right tabular-nums" style={{ color: row.chargeAmount ? '#DC2626' : '#CBD5E1' }}>{row.chargeAmount ? money(row.chargeAmount) : '-'}</td>
-                      <td className="td-base text-right tabular-nums" style={{ color: INK }}>{row.bookBalance === null ? '-' : money(row.bookBalance)}</td>
+                      <td className="td-base text-right tabular-nums" style={{ color: row.depositAmount ? '#16A36A' : '#CBD5E1' }}>{row.depositAmount ? previewMoney(row.depositAmount) : '-'}</td>
+                      <td className="td-base text-right tabular-nums" style={{ color: row.chargeAmount ? '#DC2626' : '#CBD5E1' }}>{row.chargeAmount ? previewMoney(row.chargeAmount) : '-'}</td>
+                      <td className="td-base text-right tabular-nums" style={{ color: INK }}>{row.bookBalance === null ? '-' : previewMoney(row.bookBalance)}</td>
+                      <td className="td-base text-right tabular-nums" style={{ color: MUTED }}>{(row.exchangeRate ?? num(importExchangeRate)).toFixed(4)}</td>
                       <td className="td-base max-w-[160px] truncate" style={{ color: MUTED }}>{row.movementType || '-'}</td>
                       <td className="td-base max-w-[160px] truncate" style={{ color: MUTED }}>{row.eerrClassification || '-'}</td>
                       <td className="td-base">
@@ -1004,7 +1142,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
               </Field>
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
               <Field label="Abono">
                 <input type="number" step="0.01" min="0" className="input !px-2 text-xs tabular-nums sm:!px-3 sm:text-sm" value={form.depositAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, depositAmount: event.target.value, chargeAmount: event.target.value ? '' : p.chargeAmount }))} />
               </Field>
@@ -1012,9 +1150,20 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 <input type="number" step="0.01" min="0" className="input !px-2 text-xs tabular-nums sm:!px-3 sm:text-sm" value={form.chargeAmount ?? ''} onChange={(event) => setForm((p: any) => ({ ...p, chargeAmount: event.target.value, depositAmount: event.target.value ? '' : p.depositAmount }))} />
               </Field>
               <Field label="Moneda">
-                <select className="input !px-2 text-xs font-semibold sm:!px-3 sm:text-sm" disabled value="USD">
+                <select className="input !px-2 text-xs font-semibold sm:!px-3 sm:text-sm" disabled value={accountCurrency}>
+                  <option value="PEN">PEN</option>
                   <option value="USD">USD</option>
                 </select>
+              </Field>
+              <Field label="Tipo de cambio (S/ por US$)">
+                <input
+                  type="number"
+                  min="0.0001"
+                  step="0.0001"
+                  className="input !px-2 text-xs tabular-nums sm:!px-3 sm:text-sm"
+                  value={form.exchangeRate ?? ''}
+                  onChange={(event) => setForm((current: any) => ({ ...current, exchangeRate: event.target.value }))}
+                />
               </Field>
             </div>
 

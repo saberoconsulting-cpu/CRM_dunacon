@@ -7,7 +7,7 @@ import { LOT_STATUS_COLOR, LOT_STATUS_LABEL, LotStatus, formatDate } from '@/lib
 import { Select } from '@/components/ui/Select';
 import { printHtml } from '@/lib/print';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
-import { moneyGlobal, useDisplayCurrency } from '@/lib/currency';
+import { DEFAULT_EXCHANGE_RATE, moneyGlobal, useDisplayCurrency } from '@/lib/currency';
 import {
   FiArrowRight,
   FiCheckCircle,
@@ -232,35 +232,46 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const toEditValue = (valueInUSD: unknown) => {
     const n = Number(valueInUSD || 0);
     if (!n) return '';
-    const displayed = currency === 'PEN' ? n * (exchangeRate || 1) : n;
-    return Number(displayed.toFixed(2));
+    return Number(n.toFixed(2));
   };
   const fromEditValue = (value: unknown) => {
     const n = Number(value || 0);
-    return currency === 'PEN' ? Number((n / (exchangeRate || 1)).toFixed(2)) : n;
+    return n;
   };
 
   async function load() {
     if (!lotId) return;
     try {
       const d = await api.get<any>(`/lots/${lotId}`);
-      setLot(d.lot); setBlock(d.street || d.block || null); setPlan(d.plan || null); setHistory(d.history || []); setPayments(d.payments || []);
+      const rawLot = d.lot || {};
+      const expectedSalePrice = Number(rawLot.price || 0) * Number(rawLot.areaM2 || 0);
+      const looksDividedByRate = (value: number, expected: number) => {
+        if (!(value > 0) || !(expected > 0)) return false;
+        const rate = Number(exchangeRate || DEFAULT_EXCHANGE_RATE);
+        const restored = value * rate;
+        return Math.abs(restored - expected) / expected <= 0.06;
+      };
+      const normalizedSalePrice = looksDividedByRate(Number(rawLot.salePrice || 0), expectedSalePrice)
+        ? Number(expectedSalePrice.toFixed(2))
+        : Number(rawLot.salePrice || 0);
+      const normalizedLot = { ...rawLot, salePrice: normalizedSalePrice || rawLot.salePrice };
+      setLot(normalizedLot); setBlock(d.street || d.block || null); setPlan(d.plan || null); setHistory(d.history || []); setPayments(d.payments || []);
       const lastStatusDate = (d.history || [])[0]?.createdAt || d.lot?.updatedAt || new Date().toISOString();
       setLotizacion({
-        salePrice: Number(d.lot?.salePrice || 0),
-        finalPrice: Number(d.lot?.finalPrice || 0),
-        status: d.lot?.status || 'disponible',
+        salePrice: Number(normalizedLot.salePrice || 0),
+        finalPrice: Number(normalizedLot.finalPrice || 0),
+        status: normalizedLot.status || 'disponible',
         statusDate: toDateInput(lastStatusDate),
       });
       // Precarga los datos base del lote para el formulario de edicion.
       setLotData({
-        code: d.lot?.code || '',
-        streetId: Number(d.lot?.streetId ?? d.lot?.blockId ?? 0),
-        address: d.lot?.address || '',
-        type: d.lot?.type || '',
-        dimensions: d.lot?.dimensions || '',
-        areaM2: Number(d.lot?.areaM2 || 0),
-        price: Number(d.lot?.price || 0),
+        code: normalizedLot.code || '',
+        streetId: Number(normalizedLot.streetId ?? normalizedLot.blockId ?? 0),
+        address: normalizedLot.address || '',
+        type: normalizedLot.type || '',
+        dimensions: normalizedLot.dimensions || '',
+        areaM2: Number(normalizedLot.areaM2 || 0),
+        price: Number(normalizedLot.price || 0),
       });
       const fin = await api.get<any>(`/sales/by-lot/${lotId}`).catch(() => ({ sale: null, installments: [] }));
       setFin(fin);
@@ -715,7 +726,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                         <div className="grid gap-3 md:col-span-2 md:grid-cols-3">
                           <Field label="Area (m2)"><input type="number" className="input" value={lotData.areaM2 || ''} onChange={(e) => setLotData({ ...lotData, areaM2: Number(e.target.value) })} /></Field>
                           <Field label="Dimensiones"><input className="input" value={lotData.dimensions} onChange={(e) => setLotData({ ...lotData, dimensions: e.target.value })} placeholder="Ej. 10m x 30m" /></Field>
-                          <Field label={`Precio m2 (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotData.price)} onChange={(e) => setLotData({ ...lotData, price: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field>
+                          <Field label="Precio m2 (US$)"><input type="number" className="input" value={toEditValue(lotData.price)} onChange={(e) => setLotData({ ...lotData, price: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field>
                         </div>
                       </div>
 
@@ -728,14 +739,14 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                       <div className="grid items-start gap-3 md:grid-cols-2">
                         <div><Field label="Estado"><Select value={lotizacion.status} onChange={(v) => setLotizacion({ ...lotizacion, status: v })} disabled={saleLocked} options={Object.entries(LOT_STATUS_LABEL).map(([key, label]) => ({ value: key, label }))} /></Field></div>
                         <div><Field label="Fecha de estado"><input type="date" className="input" value={lotizacion.statusDate} onChange={(e) => setLotizacion({ ...lotizacion, statusDate: e.target.value })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
-                        <div><Field label={`Precio venta (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotizacion.salePrice)} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
-                        <div><Field label={`Precio final (${currency === 'USD' ? 'US$' : 'S/'})`}><input type="number" className="input" value={toEditValue(lotizacion.finalPrice)} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
+                        <div><Field label="Precio venta (US$)"><input type="number" className="input" value={toEditValue(lotizacion.salePrice)} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
+                        <div><Field label="Precio final (US$)"><input type="number" className="input" value={toEditValue(lotizacion.finalPrice)} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
                         <div className="md:col-span-2 md:flex md:justify-end">
                           <button onClick={saveLotizacion} disabled={working || saleLocked} className="btn-secondary w-full md:w-auto md:min-w-32" title={saleLocked ? 'El lote está bloqueado: libera el lote para editar estado y precios' : undefined}>{working ? 'Guardando...' : saleLocked ? 'Bloqueado' : 'Guardar'}</button>
                         </div>
                       </div>
                       <p className="mt-2 text-[11px]" style={{ color: MUTED }}>
-                        Los precios del lote se guardan en dólares. El modo soles solo convierte para visualizar o editar con tipo de cambio referencial.
+                        Los precios del lote se guardan en dolares.
                       </p>
                     </div>
                   )}

@@ -26,7 +26,7 @@ type ScheduleRow = {
 };
 
 const fmtUsd = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtUsdHeader = (n: number) => '$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtUsdHeader = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtPen = (n: number) => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const PAY_LABEL: Record<string, string> = { contado: 'Contado', credito: 'Credito' };
 
@@ -427,7 +427,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
             }
             .summary div{min-width:0 !important;overflow:hidden !important;padding:8px 6px !important}
             .summary span{font-size:11px !important;line-height:1.1 !important}
-            .summary strong{font-size:16px !important;margin-top:3px !important;white-space:nowrap !important;letter-spacing:0 !important}
+            .summary strong{font-size:12px !important;margin-top:3px !important;white-space:nowrap !important;letter-spacing:0 !important}
             /* Financiamiento: 5 tarjetas fijas */
             .summary-row{
               display:grid !important;
@@ -438,7 +438,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
             .summary-row div{min-width:0 !important;overflow:hidden !important;padding:8px 6px !important}
             .summary-row span{font-size:9.5px !important;line-height:1.2 !important;min-height:auto !important}
             .summary-row .tiny{font-size:9.5px !important}
-            .summary-row strong{font-size:14px !important;margin-top:4px !important;white-space:nowrap !important}
+            .summary-row strong{font-size:12px !important;margin-top:4px !important;white-space:nowrap !important}
             /* Fecha / tipo de cambio */
             .section-head{display:flex !important;flex-wrap:nowrap !important;align-items:center !important}
             .summary-aside{margin-bottom:9px !important}
@@ -508,6 +508,12 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
         </div>
         ${quote.paymentMethod === 'credito' ? `
           <div class="financing-section${isFinancing ? ' page-break-financing' : ''}">
+          ${isFinancing ? `
+          <div class="brand financing-page-brand">
+            <div><p class="eyebrow">${escapeHtml(title)}</p><h1>Q${quote.id} - ${escapeHtml(subtitle)}</h1><p>Generado ${escapeHtml(generatedAt)}</p></div>
+            <div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div>
+          </div>
+          ` : ''}
           <h2>Financiamiento</h2>
           <div class="summary-row">
             <div class="finance-highlight"><span>Saldo a financiar</span><strong>${escapeHtml(fmtUsd(saldo))}</strong></div>
@@ -913,7 +919,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             {loading ? <p className="p-4 text-slate-400">Cargando...</p>
               : rows.length === 0 ? <EmptyState text="Aun no hay cotizaciones generadas." />
                 : (
-                  <table className="table-base" style={{ width: '100%', minWidth: 900 }}>
+                  <table className="table-base table-head-plomo" style={{ width: '100%', minWidth: 900 }}>
                     <thead><tr>
                       <th className="th-base">Id</th>
                       <th className="th-base">Lote</th>

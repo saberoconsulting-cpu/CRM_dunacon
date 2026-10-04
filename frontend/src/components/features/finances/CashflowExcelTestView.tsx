@@ -12,7 +12,7 @@ import { useDisplayCurrency } from '@/lib/currency';
 type Row = { id: string; label: string; group?: boolean; computed?: boolean; values: number[]; parentId?: string; depth?: number };
 type CashflowMode = 'estatico' | 'dinamico';
 type SectionRowDefinition = { id: string; label: string; computed?: boolean; parentId?: string };
-type BankAccount = { accountKey: string };
+type BankAccount = { accountKey: string; currency: 'PEN' | 'USD' };
 type BankMovement = {
     movementDate: string | null;
     description: string | null;
@@ -20,6 +20,8 @@ type BankMovement = {
     eerrClassification: string | null;
     depositAmount: string | number;
     chargeAmount: string | number;
+    exchangeRate: string | number | null;
+    currency: 'PEN' | 'USD';
 };
 const MODE_LABEL: Record<CashflowMode, string> = { estatico: 'Flujo estático', dinamico: 'Flujo dinámico' };
 const MAX_PROJECTION_YEARS = 15;
@@ -360,6 +362,8 @@ function SectionTitle({ section, color, label }: { section: { id: string; label:
 
 export default function CashflowExcelTestView({ projectId }: { projectId: number }) {
     const { currency, setCurrency, exchangeRate, setExchangeRate, toDisplay, format: show } = useDisplayCurrency();
+    const exchangeRateRef = useRef(exchangeRate);
+    useEffect(() => { exchangeRateRef.current = exchangeRate; }, [exchangeRate]);
     const [rows, setRows] = useState<Row[]>([]);
     const [manual, setManual] = useState({
         landArea: 0,
@@ -431,7 +435,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         const bankAccountsData = usesBankCashflow
             ? await api.get<{ items: BankAccount[] }>(`/bank-accounts/accounts?projectId=${projectId}`).catch(() => ({ items: [] }))
             : { items: [] };
-        const bankAccounts = bankAccountsData.items?.length ? bankAccountsData.items : [{ accountKey: 'GENERAL' }];
+        const bankAccounts = bankAccountsData.items?.length ? bankAccountsData.items : [{ accountKey: 'GENERAL', currency: 'USD' as const }];
         const bankMovements = usesBankCashflow
             ? (await Promise.all(bankAccounts.map((account) => {
                 const params = new URLSearchParams({ projectId: String(projectId), accountKey: account.accountKey });
@@ -500,8 +504,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         const earliestAllowedYear = currentYear - 1;
         const dynamicYears = bankYears.length ? bankYears : [...saleYears, ...paymentYears];
         const realYears = (usesBankCashflow ? dynamicYears : [...saleYears, ...paymentYears, ...bankYears]).filter((year) => usesBankCashflow || year >= earliestAllowedYear);
-        const calculatedBaseYear = usesBankCashflow && realYears.length
-            ? Math.min(...realYears)
+        const calculatedBaseYear = usesBankCashflow
+            ? anchorYear || (realYears.length ? Math.min(...realYears) : currentYear)
             : anchorYear
             || (realYears.length ? Math.min(...realYears) : currentYear);
         const baseYear = calculatedBaseYear;
@@ -566,7 +570,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 const deposit = Number(movement.depositAmount || 0);
                 const charge = Number(movement.chargeAmount || 0);
                 const targetRow = cashflowRowFromBankMovement(movement);
-                addToSeries(targetRow, year, deposit > 0 ? deposit : charge);
+                const amount = deposit > 0 ? deposit : charge;
+                const movementRate = Number(movement.exchangeRate) > 0 ? Number(movement.exchangeRate) : exchangeRateRef.current;
+                const amountInUsd = movement.currency === 'PEN' ? amount / movementRate : amount;
+                // El modelo del flujo usa soles como base y el usuario lo visualiza en dolares
+                // o soles mediante el selector global.
+                addToSeries(targetRow, year, amountInUsd * exchangeRateRef.current);
             }
             return { rows: seedRows, manualFields: { landArea, lotArea, totalLots, priceM2: price }, project: projectData, baseYear: calculatedBaseYear, firstDataYear, years: requiredYears };
         }
@@ -635,7 +644,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
      * BD cada vez que se reconstruye (al abrir esta pantalla o al pulsar "Actualizar
      * data") para que el Estado de Resultados lea de ahi su columna "Real".
      */
-    async function persistDynamic(seed: { rows: Row[]; manualFields: Partial<typeof manual>; baseYear: number; firstDataYear: number; years: number }) {
+    async function persistDynamic(seed: { rows: Row[]; manualFields: Partial<typeof manual>; baseYear: number; firstDataYear: number; years: number }, yearCount = projectionYears) {
         try {
             const dynamicRows = calculateRows(seed.rows).map((item) => ({
                 id: item.id,
@@ -645,10 +654,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 parentId: item.parentId,
                 depth: item.depth,
             }));
-            // El historico cargado a mano se guarda aparte del sembrado: asi al
-            // reconstruir el dinamico desde el sistema se puede volver a aplicar
-            // sin reescribir las columnas que si manda el sistema.
-            const historicalValues = collectHistoricalValues(seed.rows, seed.baseYear, seed.firstDataYear);
+            // El IGV es el unico dato manual del flujo dinamico y se conserva al reconstruirlo.
+            const historicalValues = collectHistoricalValues(seed.rows);
             await api.post('/cashflow/model', {
                 projectId,
                 mode: 'dinamico',
@@ -657,7 +664,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     startYear: seed.baseYear,
                     firstDataYear: seed.firstDataYear,
                     historicalValues,
-                    years: Math.max(Number(manual.years) || 10, seed.years),
+                    years: yearCount,
                 },
                 rows: dynamicRows,
             });
@@ -674,13 +681,18 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 // cliente define en 'startYear'. El modelo dinamico guarda ese
                 // startYear, asi que se lee antes de sembrar para no mover la data
                 // de columna.
-                const savedDynamic = await api.get<any>(`/cashflow/model?projectId=${projectId}&mode=dinamico`).catch(() => null);
+                const [savedDynamic, savedStatic] = await Promise.all([
+                    api.get<any>(`/cashflow/model?projectId=${projectId}&mode=dinamico`).catch(() => null),
+                    api.get<any>(`/cashflow/model?projectId=${projectId}&mode=estatico`).catch(() => null),
+                ]);
                 const savedDynamicAssumptions = savedDynamic?.assumptions || {};
-                const savedStartYear = Math.max(1900, Math.min(9999, Math.round(Number(savedDynamicAssumptions.startYear) || new Date().getFullYear())));
+                const staticAssumptions = savedStatic?.assumptions || {};
+                const staticYearCount = Math.max(1, Math.min(MAX_PROJECTION_YEARS, Math.round(Number(staticAssumptions.years) || 10)));
+                const defaultStartYear = Number(staticAssumptions.startYear ?? staticAssumptions.baseYear) || new Date().getFullYear();
+                const savedStartYear = Math.max(1900, Math.min(9999, Math.round(Number(savedDynamicAssumptions.startYear) || defaultStartYear)));
                 const seed = await buildSeedRows(savedStartYear);
-                // El historico (años previos a la data real) lo carga el cliente a
-                // mano: se re-aplica sobre el sembrado para que no se pierda al
-                // reconstruir el dinamico desde el sistema.
+                // Solo se restaura el IGV manual; las demas filas siempre provienen
+                // de las fuentes del sistema.
                 const savedFirstDataYear = Number(savedDynamicAssumptions.firstDataYear || 0) || 0;
                 const historicalValues: Record<string, number[]> = savedDynamicAssumptions.historicalValues || {};
                 const restoredRows = Object.keys(historicalValues).length
@@ -690,11 +702,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         return {
                             ...item,
                             values: normalizeValues(item.values).map((cell, year) => {
-                                // Solo se respetan las columnas historicas: del año
-                                // con data real en adelante manda el sistema.
-                                const calendarYear = seed.baseYear + year;
-                                const limit = savedFirstDataYear || seed.firstDataYear;
-                                return calendarYear < limit && saved[year] !== undefined ? Number(saved[year] || 0) : cell;
+                                return item.id === 'igv' && saved[year] !== undefined
+                                    ? Number(saved[year] || 0)
+                                    : cell;
                             }),
                         };
                     })
@@ -703,7 +713,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 setBaseYear(seed.baseYear);
                 setFirstDataYear(savedFirstDataYear || seed.firstDataYear);
                 // Se persiste siempre, se este viendo el estatico o el dinamico.
-                void persistDynamic({ ...seed, rows: restoredRows });
+                void persistDynamic({ ...seed, rows: restoredRows }, staticYearCount);
                 // Dinamico = data real del sistema (nunca el estatico guardado).
                 rowsRef.current = restoredRows;
                 setRows(restoredRows);
@@ -712,8 +722,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     ...seed.manualFields,
                     ...savedDynamicAssumptions,
                     initialPercent: current.initialPercent || 10,
-                    years: Math.max(Number(savedDynamicAssumptions.years || current.years || 10), seed.years),
-                    startYear: seed.baseYear,
+                    years: staticYearCount,
+                    startYear: savedStartYear,
                     totalLots: Number(seed.manualFields.totalLots || 0),
                     discountRate: current.discountRate || 10,
                 }));
@@ -846,21 +856,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const displayRowTotal = (values: number[]) => formatInteger(values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0));
     const displayPlainRowTotal = (values: number[]) => formatPlainInteger(values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0));
     const canEditRow = (item?: Row) => !item?.computed;
-    /**
-     * Columna historica del dinamico. El sistema es nuevo, asi que los años que
-     * aun no tienen data real (los anteriores al primer año con registros del
-     * sistema) los carga el cliente A MANO. En dinamico solo esas celdas son
-     * editables; desde la primera columna con data real manda el sistema.
-     * En estatico todo es editable.
-     * Se usa `manual.startYear` directamente (no la constante `startYear`) para no
-     * depender del orden de declaracion dentro del render.
-     */
-    const isHistoricalColumn = (year: number) => mode === 'dinamico'
-        && year >= 0
-        && (Number(manual.startYear) || baseYear) + year < firstDataYear;
     const isCellEditable = (item: Row | undefined, year: number) => mode === 'estatico'
         ? canEditRow(item)
-        : Boolean(canEditRow(item) && isHistoricalColumn(year));
+        : Boolean(canEditRow(item) && item?.id === 'igv' && year >= 0);
     const writeCellValue = (id: string, year: number, numeric: number) => {
         const apply = (current: Row[]) => current.map((candidate) => candidate.id !== id ? candidate : { ...candidate, values: normalizeValues(candidate.values).map((cell, index) => index === year ? numeric : cell) });
         rowsRef.current = apply(rowsRef.current.length ? rowsRef.current : rows);
@@ -869,20 +867,13 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
 
     const cellKey = (id: string, year: number) => `${id}:${year}`;
 
-    /**
-     * Extrae del juego de filas SOLO las columnas historicas (las anteriores al
-     * primer año con data real del sistema). Es lo unico que el cliente escribe a
-     * mano en el flujo dinamico, y es lo que se persiste junto al modelo para no
-     * perderlo al reconstruirlo desde el sistema.
-     */
-    function collectHistoricalValues(sourceRows: Row[], anchorYear: number, dataYear: number) {
+    /** Conserva la fila IGV, que se ingresa manualmente en todos los años del dinamico. */
+    function collectHistoricalValues(sourceRows: Row[]) {
         const collected: Record<string, number[]> = {};
         sourceRows.forEach((item) => {
-            if (item.computed) return;
+            if (item.computed || item.id !== 'igv') return;
             const values = normalizeValues(item.values);
             values.forEach((value, year) => {
-                if (anchorYear + year >= dataYear) return;
-                if (!Number(value || 0)) return;
                 collected[item.id] = collected[item.id] || [];
                 collected[item.id][year] = Number(value || 0);
             });
@@ -890,11 +881,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         return collected;
     }
 
-    /**
-     * Guarda el flujo dinamico con el historico cargado a mano. El dinamico se
-     * reconstruye desde el sistema, pero el historico es del cliente: sin esto al
-     * pulsar "Actualizar data" o recargar se perderia lo tecleado.
-     */
+    /** Guarda el IGV manual; las demas filas se reconstruyen desde el sistema. */
     async function saveDynamicModel() {
         if (mode !== 'dinamico') return;
         const sourceRows = rowsRef.current.length ? rowsRef.current : rows;
@@ -1236,10 +1223,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     }
 
     async function refreshDynamic() {
-        // El historico cargado a mano se conserva: se guarda antes de reconstruir
-        // para que el refresco del sistema no borre lo tecleado por el cliente.
+        // Los valores historicos y el IGV manual se conservan al reconstruir.
         const sourceRows = rowsRef.current.length ? rowsRef.current : rows;
-        const historyBackup = collectHistoricalValues(sourceRows, baseYear, firstDataYear);
+        const historyBackup = collectHistoricalValues(sourceRows);
         await loadModel('dinamico');
         if (Object.keys(historyBackup).length) {
             const merged = (rowsRef.current.length ? rowsRef.current : rows).map((item) => {
@@ -1248,7 +1234,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 return {
                     ...item,
                     values: normalizeValues(item.values).map((cell, year) => {
-                        if (baseYear + year >= firstDataYear) return cell;
+                        if (item.id !== 'igv') return cell;
                         return saved[year] !== undefined ? Number(saved[year] || 0) : cell;
                     }),
                 };
@@ -1284,12 +1270,10 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             landArea: normalizedLandArea,
             lotArea: normalizedTotalLots > 0 ? normalizedLandArea / normalizedTotalLots : 0,
             years: Math.max(1, Math.min(MAX_PROJECTION_YEARS, Math.round(Number(draftManual.years) || 10))),
-            startYear: mode === 'dinamico'
-                ? baseYear
-                : Math.max(1900, Math.min(9999, Math.round(Number(draftManual.startYear) || new Date().getFullYear()))),
+            startYear: Math.max(1900, Math.min(9999, Math.round(Number(draftManual.startYear) || new Date().getFullYear()))),
             totalLots: normalizedTotalLots,
         };
-        const anchorChanged = mode !== 'dinamico' && Number(normalizedManual.startYear) !== Number(manual.startYear);
+        const anchorChanged = mode === 'dinamico' && Number(normalizedManual.startYear) !== Number(manual.startYear);
         setManual(normalizedManual);
         const saleValue = calculatedRowTotal('income') || draftManual.landArea * draftManual.priceM2;
         const percent = (value: number) => Math.max(0, Math.min(100, Number(value) || 0)) / 100;
@@ -1313,15 +1297,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         // Si el cliente movio el Año 0, el dinamico se re-siembra contra el nuevo
         // ancla: la data real (ventas, pagos) debe caer en `añoRegistro - startYear`.
         if (mode === 'dinamico' && anchorChanged) {
-            // El historico tecleado a mano se conserva re-anclandolo por AÑO
-            // CALENDARIO (que no cambia) en lugar de por indice de columna.
+            // Solo el IGV manual se conserva por año calendario al mover el inicio.
             const previousRows = rowsRef.current.length ? rowsRef.current : rows;
             const historyByCalendarYear: Record<string, Record<number, number>> = {};
             previousRows.forEach((item) => {
-                if (item.computed) return;
+                if (item.computed || item.id !== 'igv') return;
                 normalizeValues(item.values).forEach((value, year) => {
-                    if (baseYear + year >= firstDataYear) return;
-                    if (!Number(value || 0)) return;
                     historyByCalendarYear[item.id] = historyByCalendarYear[item.id] || {};
                     historyByCalendarYear[item.id][baseYear + year] = Number(value || 0);
                 });
@@ -1335,7 +1316,6 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     ...item,
                     values: normalizeValues(item.values).map((cell, year) => {
                         const calendarYear = rescoped.baseYear + year;
-                        if (calendarYear >= rescoped.firstDataYear) return cell;
                         return saved[calendarYear] !== undefined ? Number(saved[calendarYear] || 0) : cell;
                     }),
                 };
@@ -1446,12 +1426,11 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 {displayedYearIndexesBeforeHistory.map((year) => {
                     const value = item.values[year] || 0;
                     const editable = isCellEditable(item, year);
-                    const historical = isHistoricalColumn(year);
                     return (
                         <td key={`${item.id}-${year}`} className="border border-slate-200 bg-white px-1 py-1">
                             <input
                                 aria-label={`${item.label} ${YEARS[year]}`}
-                                className={`w-full min-w-[88px] rounded border border-transparent px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'} ${historical && mode === 'dinamico' ? 'bg-[#FFFBF0]' : 'bg-white'}`}
+                                className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'}`}
                                 value={editingDrafts[cellKey(item.id, year)] ?? (value ? formatInteger(value) : '')}
                                 inputMode="numeric"
                                 readOnly={!editable}
@@ -1470,12 +1449,11 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 {displayedYearIndexesAfterHistory.map((year) => {
                     const value = item.values[year] || 0;
                     const editable = isCellEditable(item, year);
-                    const historical = isHistoricalColumn(year);
                     return (
                         <td key={`${item.id}-${year}`} className="border border-slate-200 bg-white px-1 py-1">
                             <input
                                 aria-label={`${item.label} ${YEARS[year]}`}
-                                className={`w-full min-w-[88px] rounded border border-transparent px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'} ${historical && mode === 'dinamico' ? 'bg-[#FFFBF0]' : 'bg-white'}`}
+                                className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'}`}
                                 value={editingDrafts[cellKey(item.id, year)] ?? (value ? formatInteger(value) : '')}
                                 inputMode="numeric"
                                 readOnly={!editable}
@@ -1604,7 +1582,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 </div>
                 <div className="grid grid-cols-2 gap-3 border-b bg-[#F8FAFC] p-4 lg:grid-cols-6" style={{ borderColor: BRAND.border }}>
                     {[['Área venta (m²)', 'landArea'], ['Área promedio lote (m²)', 'lotArea'], [`Precio ${currency === 'USD' ? 'US$' : 'S/'}/m²`, 'priceM2'], ['Cuota inicial %', 'initialPercent'], ['Años de proyección', 'years'], ['Año de inicio', 'startYear']].map(([label, key]) => {
-                        const editable = key === 'initialPercent' || key === 'years' || (key === 'startYear' && mode !== 'dinamico');
+                        const editable = key === 'initialPercent' || (key === 'years' && mode === 'estatico') || key === 'startYear';
                         const displayValue = key === 'lotArea'
                             ? formatPlainInteger(averageLotArea)
                             : key === 'priceM2'
@@ -1697,13 +1675,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                           <span className="block whitespace-normal">{mode === 'dinamico' ? 'Flujo de Caja Dinamico' : 'Ppto. de Obra'}</span>
                         </th>
                                 {displayedYearIndexesBeforeHistory.map((year) => {
-                                    const historical = isHistoricalColumn(year);
-                                    return (
-                                        <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-2 text-center text-[11px] font-medium`} style={{ background: historical ? '#FFF4D6' : year === 0 ? '#D3E4FD' : '#EAF7EE', color: historical ? '#8A5A00' : year === 0 ? BRAND.blueDark : '#125A3B' }}>
-                                            {startYear + year}
-                                            {historical && <span className="mt-0.5 block text-[9px] font-bold uppercase tracking-wide">Manual</span>}
-                                        </th>
-                                    );
+                                    return <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-2 text-center text-[11px] font-medium`} style={{ background: year === 0 ? '#D3E4FD' : '#EAF7EE', color: year === 0 ? BRAND.blueDark : '#125A3B' }}>{startYear + year}</th>;
                                 })}
                                 {showHistoricalColumn && (
                                     <th className={`${YEAR_COL} border border-slate-200 px-2 py-2 text-center text-[11px] font-medium`} style={{ background: '#E2E8F0', color: '#334155' }}>
@@ -1711,13 +1683,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     </th>
                                 )}
                                 {displayedYearIndexesAfterHistory.map((year) => {
-                                    const historical = isHistoricalColumn(year);
-                                    return (
-                                        <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-2 text-center text-[11px] font-medium`} style={{ background: historical ? '#FFF4D6' : year === 0 ? '#D3E4FD' : '#EAF7EE', color: historical ? '#8A5A00' : year === 0 ? BRAND.blueDark : '#125A3B' }}>
-                                            {startYear + year}
-                                            {historical && <span className="mt-0.5 block text-[9px] font-bold uppercase tracking-wide">Manual</span>}
-                                        </th>
-                                    );
+                                    return <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-2 text-center text-[11px] font-medium`} style={{ background: year === 0 ? '#D3E4FD' : '#EAF7EE', color: year === 0 ? BRAND.blueDark : '#125A3B' }}>{startYear + year}</th>;
                                 })}
                             </tr>
                         </thead>
@@ -1736,12 +1702,11 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 {displayedYearIndexesBeforeHistory.map((year) => {
                                     const value = lotsSoldRow.values[year] || 0;
                                     const editable = isCellEditable(lotsSoldRow, year);
-                                    const historical = isHistoricalColumn(year);
                                     return (
                                     <td key={`lots-sold-top-${year}`} className="border border-slate-200 bg-[#F8FAFC] px-1 py-1">
                                         <input
                                             aria-label={`${lotsSoldRow.label} ${YEARS[year]}`}
-                                            className={`w-full min-w-[88px] rounded border border-transparent px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'} ${historical && (mode as CashflowMode) === 'dinamico' ? 'bg-[#FFFBF0]' : 'bg-white'}`}
+                                            className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'}`}
                                             value={editingDrafts[cellKey('lots-sold', year)] ?? (value ? formatPlainInteger(value) : '')}
                                             inputMode="numeric"
                                             readOnly={!editable}
@@ -1760,12 +1725,11 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 {displayedYearIndexesAfterHistory.map((year) => {
                                     const value = lotsSoldRow.values[year] || 0;
                                     const editable = isCellEditable(lotsSoldRow, year);
-                                    const historical = isHistoricalColumn(year);
                                     return (
                                     <td key={`lots-sold-top-${year}`} className="border border-slate-200 bg-[#F8FAFC] px-1 py-1">
                                         <input
                                             aria-label={`${lotsSoldRow.label} ${YEARS[year]}`}
-                                            className={`w-full min-w-[88px] rounded border border-transparent px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'} ${historical && (mode as CashflowMode) === 'dinamico' ? 'bg-[#FFFBF0]' : 'bg-white'}`}
+                                            className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'}`}
                                             value={editingDrafts[cellKey('lots-sold', year)] ?? (value ? formatPlainInteger(value) : '')}
                                             inputMode="numeric"
                                             readOnly={!editable}
@@ -1808,13 +1772,11 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                                 {displayedYearIndexesBeforeHistory.map((year) => {
                                                     const value = sectionRow.values[year] || 0;
                                                     const editable = isCellEditable(sectionRow, year);
-                                                    const historical = isHistoricalColumn(year);
                                                     return (
                                                     <td key={year} className="border border-slate-200 px-1 py-1" style={{ background: surface.background }}>
                                                         <input
                                                             aria-label={`${sectionRow.label} ${YEARS[year]}`}
                                                             className={`w-full min-w-[88px] border border-transparent bg-transparent px-1 py-1.5 text-right font-bold tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-white' : 'cursor-default'}`}
-                                                            style={historical && mode === 'dinamico' ? { background: '#FFFBF0' } : undefined}
                                                             value={editingDrafts[cellKey(section.id, year)] ?? (value ? formatInteger(value) : '')}
                                                             inputMode="numeric"
                                                             readOnly={!editable}
@@ -1833,13 +1795,11 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                                 {displayedYearIndexesAfterHistory.map((year) => {
                                                     const value = sectionRow.values[year] || 0;
                                                     const editable = isCellEditable(sectionRow, year);
-                                                    const historical = isHistoricalColumn(year);
                                                     return (
                                                     <td key={year} className="border border-slate-200 px-1 py-1" style={{ background: surface.background }}>
                                                         <input
                                                             aria-label={`${sectionRow.label} ${YEARS[year]}`}
                                                             className={`w-full min-w-[88px] border border-transparent bg-transparent px-1 py-1.5 text-right font-bold tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-white' : 'cursor-default'}`}
-                                                            style={historical && mode === 'dinamico' ? { background: '#FFFBF0' } : undefined}
                                                             value={editingDrafts[cellKey(section.id, year)] ?? (value ? formatInteger(value) : '')}
                                                             inputMode="numeric"
                                                             readOnly={!editable}
@@ -1882,13 +1842,11 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                                         {displayedYearIndexesBeforeHistory.map((year) => {
                                                             const value = childSectionRow.values[year] || 0;
                                                             const editable = isCellEditable(childSectionRow, year);
-                                                            const historical = isHistoricalColumn(year);
                                                             return (
                                                             <td key={year} className="border border-slate-200 px-1 py-1" style={{ background: childSurface.background }}>
                                                                 <input
                                                                     aria-label={`${childSectionRow.label} ${YEARS[year]}`}
                                                                     className={`w-full min-w-[88px] border border-transparent bg-transparent px-1 py-1.5 text-right font-bold tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-white' : 'cursor-default'}`}
-                                                                    style={historical && mode === 'dinamico' ? { background: '#FFFBF0' } : undefined}
                                                                     value={editingDrafts[cellKey(childSection.id, year)] ?? (value ? formatInteger(value) : '')}
                                                                     inputMode="numeric"
                                                                     readOnly={!editable}
@@ -1907,13 +1865,11 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                                         {displayedYearIndexesAfterHistory.map((year) => {
                                                             const value = childSectionRow.values[year] || 0;
                                                             const editable = isCellEditable(childSectionRow, year);
-                                                            const historical = isHistoricalColumn(year);
                                                             return (
                                                             <td key={year} className="border border-slate-200 px-1 py-1" style={{ background: childSurface.background }}>
                                                                 <input
                                                                     aria-label={`${childSectionRow.label} ${YEARS[year]}`}
                                                                     className={`w-full min-w-[88px] border border-transparent bg-transparent px-1 py-1.5 text-right font-bold tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-white' : 'cursor-default'}`}
-                                                                    style={historical && mode === 'dinamico' ? { background: '#FFFBF0' } : undefined}
                                                                     value={editingDrafts[cellKey(childSection.id, year)] ?? (value ? formatInteger(value) : '')}
                                                                     inputMode="numeric"
                                                                     readOnly={!editable}
@@ -2111,13 +2067,13 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 ['Contingencia legal %', 'contingencyPercent'],
                                 ['Tasa de descuento VAN %', 'discountRate'],
                             ].map(([label, key]) => {
-                                const isCalculated = key === 'lotArea' || (mode === 'dinamico' && key === 'startYear');
+                                const isReadOnly = key === 'lotArea' || (mode === 'dinamico' && key === 'years');
                                 const modalTotalLots = Number(totalLots || draftManual.totalLots || 0);
                                 const calculatedLotArea = modalTotalLots > 0
                                     ? Number(draftManual.landArea || 0) / modalTotalLots
                                     : 0;
                                 const rawValue = (draftManual as any)[key];
-                                const visibleValue = isCalculated
+                                const visibleValue = key === 'lotArea'
                                     ? formatPlainInteger(calculatedLotArea)
                                     : key === 'priceM2'
                                     ? formatInteger(rawValue)
@@ -2128,12 +2084,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     <label key={key} className="label">
                                         {label}
                                         <input
-                                            className={`input mt-1 ${isCalculated ? 'cursor-not-allowed bg-slate-100 text-slate-500' : ''}`}
+                                            className={`input mt-1 ${isReadOnly ? 'cursor-not-allowed bg-slate-100 text-slate-500' : ''}`}
                                             inputMode="numeric"
                                             value={visibleValue}
-                                            readOnly={isCalculated}
-                                            disabled={isCalculated}
-                                            onChange={(event) => !isCalculated && setDraftManual((current) => ({ ...current, [key]: key === 'priceM2' ? baseNumber(event.target.value) : parseFormattedNumber(event.target.value) }))}
+                                            readOnly={isReadOnly}
+                                            disabled={isReadOnly}
+                                            onChange={(event) => !isReadOnly && setDraftManual((current) => ({ ...current, [key]: key === 'priceM2' ? baseNumber(event.target.value) : parseFormattedNumber(event.target.value) }))}
                                         />
                                     </label>
                                 );

@@ -140,21 +140,21 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
             : rows.length === 0 ? <p className="p-6 text-slate-400 text-sm text-center">Sin clientes con ese filtro.</p>
             : (
             <div className="overflow-x-auto">
-              <table className="table-base">
+              <table className="table-base table-head-plomo">
                 <thead><tr>
-                  <th className="th-base">Nombre</th><th className="th-base">Contacto</th><th className="th-base">Canal</th>
+                  <th className="th-base">Item</th><th className="th-base">Nombre</th><th className="th-base">Contacto</th><th className="th-base">Canal</th>
                   <th className="th-base">Estado</th><th className="th-base">Etapa contrato</th><th className="th-base">Fecha</th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
-                  {rows.map((c) => {
+                  {rows.map((c, index) => {
                     const ps = (c as any).pipelineStatus || c.pipeline_status || 'nuevo';
                     const pc = PCOLOR[ps] || ['#F3F4F6', '#374151'];
                     const created = (c as any).createdAt || c.created_at;
                     return (
                       <tr key={c.id} className="transition-colors hover:bg-slate-50/80">
+                        <td className="td-base font-semibold text-slate-500">{index + 1}</td>
                         <td className="td-base">
                           <div className="font-semibold text-slate-800">{(c as any).fullName || c.full_name}</div>
-                          <div className="mt-0.5 text-[11px] text-slate-500">#{c.id}</div>
                         </td>
                         <td className="td-base">
                           <div className="font-medium text-slate-700">{c.phone || '—'}</div>

@@ -126,8 +126,9 @@ function compareStatementItems(a: StatementItem, b: StatementItem) {
 }
 
 type CashflowModel = {
-  rows?: Array<{ id: string; label: string; values: number[] }>;
+  rows?: CashflowRow[];
 };
+type CashflowRow = { id: string; label: string; values: number[]; parentId?: string };
 
 /** Fila del cuadro: una linea contable fija, una partida editable o un subtotal. */
 type SheetRow =
@@ -162,16 +163,109 @@ const COST_CASHFLOW_ROWS = [
   { code: 'C.02', id: 'direct', label: 'Costo Directo' },
   { code: 'C.03', id: 'indirect', label: 'Costo Indirecto' },
 ];
-const SALES_ADMIN_CASHFLOW_ROWS = [
-  { code: 'D.01', id: 'sales-plan', label: 'Gastos de planilla' },
-  { code: 'D.02', id: 'marketing', label: 'Marketing y publicidad' },
-  { code: 'D.03', id: 'commission', label: 'Comisión de ventas' },
-  { code: 'D.04', id: 'post-sale', label: 'Gastos post venta' },
-  { code: 'D.05', id: 'discounts', label: 'Descuentos y bonos' },
+const SALES_ADMIN_CASHFLOW_ROWS: Array<{ code: string; id: string; label: string }> = [
+  { code: 'D.01', id: 'sales-plan', label: 'Gastos de Administración (Planilla)' },
+  { code: 'D.02', id: 'marketing', label: 'Marketing Digital (1.5% de Ventas)' },
+  { code: 'D.03', id: 'commission', label: 'Comisión de Ventas (3% de Ventas)' },
+  { code: 'D.04', id: 'maintenance-condominium', label: 'Gastos de Mantenimiento - Condominio' },
+];
+const FINANCIAL_CASHFLOW_ROWS: Array<{ code: string; id: string; label: string }> = [
+  { code: 'E.01', id: 'loan-interest', label: 'Intereses de Prestamos' },
+  { code: 'E.02', id: 'bank-commissions', label: 'Comisiones Bancarias' },
 ];
 const IGV_CASHFLOW_ROWS = [
   { code: 'G.01', id: 'igv', label: 'IGV Referencial Incluido en Ingresos' },
 ];
+
+const LINE_CASHFLOW_TOTAL_ROWS: Record<StatementLine, string[]> = {
+  ingreso: ['income'],
+  costo: ['cost-sales', 'land', 'direct', 'indirect'],
+  ventas_admin: ['selling'],
+  financiero: ['financial'],
+  impuestos: ['tax'],
+  igv: ['igv'],
+  ajuste: ['managerial-adjustment'],
+};
+
+const STATEMENT_CASHFLOW_ROW_MAP: Array<[StatementLine | null, string[], string]> = [
+  ['ingreso', ['ingreso por venta de lotes', 'venta de lotes', 'ventas de lotes'], 'income'],
+  ['costo', ['costo de venta de lotes'], 'cost-sales'],
+  ['costo', ['costo de terreno', 'costos de terreno', 'terreno'], 'land'],
+  ['costo', ['costo directo', 'costos directos'], 'direct'],
+  ['costo', ['costo indirecto', 'costos indirectos'], 'indirect'],
+  ['ventas_admin', ['gastos de ventas y administrativos', 'ventas y administracion'], 'selling'],
+  ['ventas_admin', ['planilla', 'planillas', 'sueldos'], 'sales-plan'],
+  ['ventas_admin', ['marketing', 'publicidad', 'mkt'], 'marketing'],
+  ['ventas_admin', ['comision', 'comisiones'], 'commission'],
+  ['ventas_admin', ['post venta', 'postventa'], 'post-sale'],
+  ['ventas_admin', ['descuento', 'bono'], 'discounts'],
+  ['financiero', ['intereses de prestamos', 'interes de prestamo'], 'loan-interest'],
+  ['financiero', ['comisiones bancarias', 'comision bancaria'], 'bank-commissions'],
+  ['financiero', ['gastos financieros', 'financiero', 'intereses', 'prestamo'], 'financial'],
+  ['impuestos', ['impuesto a la renta', 'impuesto', 'renta'], 'tax'],
+  ['igv', ['igv'], 'igv'],
+  ['ajuste', ['ajuste gerencial', 'ajustes gerenciales'], 'managerial-adjustment'],
+];
+
+const STATEMENT_CASHFLOW_CODE_MAP: Array<[StatementLine, string, string]> = [
+  ['ventas_admin', 'd 01', 'sales-plan'],
+  ['ventas_admin', 'd 02', 'marketing'],
+  ['ventas_admin', 'd 03', 'commission'],
+  ['ventas_admin', 'd 04', 'maintenance-condominium'],
+  ['financiero', 'e 01', 'loan-interest'],
+  ['financiero', 'e 02', 'bank-commissions'],
+  ['ajuste', 'h 01', 'managerial-adjustment'],
+];
+
+const CASHFLOW_ROW_ALIASES: Record<string, string[]> = {
+  'sales-plan': ['planilla', 'planillas', 'sueldos', 'gastos de administracion'],
+  marketing: ['marketing', 'publicidad', 'mkt'],
+  commission: ['comision de ventas', 'comision venta', 'comisiones de ventas'],
+  'maintenance-condominium': ['mantenimiento', 'condominio'],
+  'loan-interest': ['intereses de prestamos', 'interes de prestamo', 'intereses', 'prestamo'],
+  'bank-commissions': ['comisiones bancarias', 'comision bancaria'],
+  'post-sale': ['post venta', 'postventa'],
+  discounts: ['descuentos', 'descuento', 'bonos', 'bono'],
+  financial: ['gastos financieros', 'financiero'],
+  tax: ['impuesto a la renta', 'impuesto', 'renta'],
+  igv: ['igv'],
+  'managerial-adjustment': ['ajuste gerencial', 'ajustes gerenciales'],
+};
+
+function statementCashflowKey(item: Pick<StatementItem, 'line' | 'code' | 'name'>): string | null {
+  const code = normalizeMatch(item.code);
+  const name = normalizeMatch(item.name);
+  const codeMapping = STATEMENT_CASHFLOW_CODE_MAP.find(([line, value]) => line === item.line && code === value);
+  if (codeMapping) return codeMapping[2];
+  const text = `${code} ${name}`.trim();
+  for (const [line, needles, target] of STATEMENT_CASHFLOW_ROW_MAP) {
+    if (line && line !== item.line) continue;
+    if (needles.some((needle) => text.includes(needle))) return target;
+  }
+  return null;
+}
+
+function findCashflowRow(model: CashflowModel | null, item: Pick<StatementItem, 'line' | 'code' | 'name'>) {
+  const target = statementCashflowKey(item);
+  if (!target) return undefined;
+  const rows = model?.rows || [];
+  const targetKey = normalizeMatch(target);
+  const byId = rows.find((row) => normalizeMatch(row.id) === targetKey);
+  if (byId) return byId;
+  const aliases = CASHFLOW_ROW_ALIASES[target] || [];
+  return rows.find((row) => {
+    const label = normalizeMatch(row.label);
+    if (target === 'loan-interest' || target === 'bank-commissions') {
+      if (normalizeMatch(row.id) === 'financial' || normalizeMatch(row.label) === 'gastos financieros') return false;
+      if (label.includes('interes') && label.includes('comision')) return false;
+    }
+    return aliases.some((alias) => label.includes(alias));
+  });
+}
+
+function cashflowRowTotal(row: CashflowRow | undefined) {
+  return (row?.values || []).reduce((sum, value) => sum + num(value), 0);
+}
 
 /** Construye el arbol de partidas (padres con sus subpartidas ordenadas). */
 function buildTree(items: StatementItem[]): StatementTreeItem[] {
@@ -246,6 +340,21 @@ function cashflowTotals(model: CashflowModel | null) {
     labels.set(row.id, row.label || row.id);
   }
   return { totals, labels };
+}
+
+function cashflowLineTotal(totals: Map<string, number>, line: StatementLine, fallback: number) {
+  const ids = LINE_CASHFLOW_TOTAL_ROWS[line] || [];
+  if (!ids.some((id) => totals.has(id))) return fallback;
+  if (line === 'costo' && totals.has('cost-sales')) return totals.get('cost-sales') || 0;
+  return ids.reduce((sum, id) => sum + (totals.get(id) || 0), 0);
+}
+
+function cashflowLineAmount(model: CashflowModel | null, line: StatementLine, fallback: number) {
+  if (line === 'ajuste') {
+    const adjustment = findCashflowRow(model, { line, code: '', name: LINE_BY_KEY.ajuste.label });
+    if (adjustment) return cashflowRowTotal(adjustment);
+  }
+  return cashflowLineTotal(cashflowTotals(model).totals, line, fallback);
 }
 
 /**
@@ -529,7 +638,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const projectedRevenue = cf('income', lots.reduce((sum, lot) => sum + lotRevenue(lot), 0));
     const totalArea = lots.reduce((sum, lot) => sum + num(lot.areaM2), 0);
     const soldLots = lots.filter((lot) => lot.status === 'vendido').length;
-    const realRevenue = num(statement?.ingresos);
+    const realRevenue = dynamicCf('income', num(statement?.ingresos));
     const landCost = num(classes.compra_terreno);
     const directCost = num(classes.inversion);
     const indirectCost = num(classes.costo_indirecto);
@@ -542,10 +651,12 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const projectedSalesAdmin = cf('selling', num(projected.ventas_admin));
     const projectedFinanceTax = cf('financial', num(projected.financiamiento));
     const projectedCostOfSales = projectedLand + projectedDirect + projectedIndirect;
-    const costOfSales = landCost + directCost + indirectCost;
+    const costOfSales = cashflowLineTotal(dynamicCfTotals, 'costo', landCost + directCost + indirectCost);
     const grossProfit = realRevenue - costOfSales;
-    const operatingProfit = grossProfit - salesAdminCost;
-    const preTaxProfit = operatingProfit - financeCost;
+    const realSalesAdminFromFlow = cashflowLineTotal(dynamicCfTotals, 'ventas_admin', salesAdminCost);
+    const realFinanceFromFlow = cashflowLineTotal(dynamicCfTotals, 'financiero', financeCost);
+    const operatingProfit = grossProfit - realSalesAdminFromFlow;
+    const preTaxProfit = operatingProfit - realFinanceFromFlow;
     const incomeTax = Math.max(0, preTaxProfit * INCOME_TAX_RATE);
     const netProfit = preTaxProfit - Math.max(realTaxRegistered, incomeTax);
     const igvReference = dynamicCf('igv', realRevenue > 0 ? realRevenue * 18 / 118 : 0);
@@ -561,19 +672,18 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     // si no, se mantiene la lectura historica de transacciones/egresos.
     const lineTotals = (statement?.partidas_er?.lines || {}) as Record<string, number | string>;
     const hasPartidas = items.length > 0;
-    const realIncome = hasPartidas ? num(lineTotals.ingreso) : realRevenue;
-    const realCostOfSales = hasPartidas ? num(lineTotals.costo) : costOfSales;
-    const realSalesAdmin = hasPartidas ? num(lineTotals.ventas_admin) : salesAdminCost;
-    const realFinance = hasPartidas ? num(lineTotals.financiero) : financeCost;
-    const realIgv = hasPartidas ? num(lineTotals.igv) : igvReference;
-    const realTax = hasPartidas ? num(lineTotals.impuestos) : Math.max(realTaxRegistered, incomeTax);
+    const realIncome = cashflowLineTotal(dynamicCfTotals, 'ingreso', hasPartidas ? num(lineTotals.ingreso) : realRevenue);
+    const realCostOfSales = cashflowLineTotal(dynamicCfTotals, 'costo', hasPartidas ? num(lineTotals.costo) : costOfSales);
+    const realSalesAdmin = cashflowLineTotal(dynamicCfTotals, 'ventas_admin', hasPartidas ? num(lineTotals.ventas_admin) : realSalesAdminFromFlow);
+    const realFinance = cashflowLineTotal(dynamicCfTotals, 'financiero', hasPartidas ? num(lineTotals.financiero) : realFinanceFromFlow);
+    const realIgv = cashflowLineTotal(dynamicCfTotals, 'igv', hasPartidas ? num(lineTotals.igv) : igvReference);
+    const realTax = cashflowLineTotal(dynamicCfTotals, 'impuestos', hasPartidas ? num(lineTotals.impuestos) : Math.max(realTaxRegistered, incomeTax));
     const realGrossProfit = realIncome - realCostOfSales;
     const realOperatingProfit = realGrossProfit - realSalesAdmin;
     const realPreTaxProfit = realOperatingProfit - realFinance;
     const realNetProfit = realPreTaxProfit - realTax;
-    const realAdjustedProfit = hasPartidas
-      ? realNetProfit - realIgv + num(lineTotals.ajuste)
-      : realNetProfit - realIgv;
+    const realAdjustment = cashflowLineAmount(dynamicCashflow, 'ajuste', hasPartidas ? num(lineTotals.ajuste) : 0);
+    const realAdjustedProfit = realNetProfit - realIgv + realAdjustment;
 
     return {
       totalArea,
@@ -633,6 +743,13 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
       cashflowRowId: source.id,
       isVirtual: true,
     });
+    const virtualRows = (line: StatementLine, sources: typeof SALES_ADMIN_CASHFLOW_ROWS) => sources.flatMap((source, index) => {
+      const statementItem = { line, code: source.code, name: source.label };
+      const sourceRow = findCashflowRow(cashflow, statementItem) || findCashflowRow(dynamicCashflow, statementItem);
+      return sourceRow
+        ? [virtualItem(line, { ...source, id: sourceRow.id, label: sourceRow.label || source.label }, index)]
+        : [];
+    });
     const tree = buildTree(items);
     const grouped: Record<StatementLine, StatementTreeItem[]> = {
       ingreso: [], costo: [], ventas_admin: [], financiero: [], impuestos: [], igv: [], ajuste: [],
@@ -641,7 +758,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
       if (grouped[item.line]) grouped[item.line].push(item);
     }
     grouped.costo = (grouped.costo.length ? grouped.costo : COST_CASHFLOW_ROWS.map((item, index) => virtualItem('costo', item, index))) as StatementTreeItem[];
-    grouped.ventas_admin = (grouped.ventas_admin.length ? grouped.ventas_admin : SALES_ADMIN_CASHFLOW_ROWS.map((item, index) => virtualItem('ventas_admin', item, index))) as StatementTreeItem[];
+    grouped.ventas_admin = (grouped.ventas_admin.length ? grouped.ventas_admin : virtualRows('ventas_admin', SALES_ADMIN_CASHFLOW_ROWS)) as StatementTreeItem[];
+    grouped.financiero = (grouped.financiero.length ? grouped.financiero : virtualRows('financiero', FINANCIAL_CASHFLOW_ROWS)) as StatementTreeItem[];
     grouped.igv = (grouped.igv.length ? grouped.igv : IGV_CASHFLOW_ROWS.map((item, index) => virtualItem('igv', item, index))) as StatementTreeItem[];
     return grouped;
   }, [items, cashflow, dynamicCashflow, projectId]);
@@ -717,6 +835,9 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const realAmount = (item: StatementTreeItemWithSource): number => {
       if (item.children.length) return item.children.reduce((sum, child) => sum + realAmount(child), 0);
       if (item.cashflowRowId && dynamicTotals.has(item.cashflowRowId)) return dynamicTotals.get(item.cashflowRowId) || 0;
+      const mappedRow = findCashflowRow(dynamicCashflow, item);
+      if (mappedRow) return cashflowRowTotal(mappedRow);
+      if (item.isVirtual) return 0;
       const byCode = dynamicByMatch.get(normalizeMatch(item.code));
       if (byCode !== undefined) return byCode;
       const byName = dynamicByMatch.get(normalizeMatch(item.name));
@@ -725,7 +846,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     };
     const totals: Record<string, number> = {};
     for (const meta of LINES) {
-      totals[`line-${meta.key}`] = (treeByLine[meta.key] || []).reduce((sum, item) => sum + realAmount(item as StatementTreeItemWithSource), 0);
+      const fallbackLineTotal = (treeByLine[meta.key] || []).reduce((sum, item) => sum + realAmount(item as StatementTreeItemWithSource), 0);
+      totals[`line-${meta.key}`] = cashflowLineAmount(dynamicCashflow, meta.key, fallbackLineTotal);
       // Real por partida: el cuadro pinta cada fila con la clave `item-<id>`, por eso
       // se replica aqui el mismo valor que aporta a su linea (los hijos suman el padre).
       const walkItems = (nodes: StatementTreeItem[]) => {
@@ -764,7 +886,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     financiero: report.projectedFinanceTax,
     impuestos: report.projectedIncomeTax,
     igv: report.projectedIgv,
-    ajuste: 0,
+    ajuste: cashflowLineAmount(cashflow, 'ajuste', 0),
   };
 
   /** Subtotales proyectados en cascada (igual que el real). */
@@ -783,8 +905,11 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     if (row.kind === 'line') return lineProjected[row.line] || 0;
     if (row.item.cashflowRowId) {
       const { totals } = cashflowTotals(cashflow);
-      return totals.get(row.item.cashflowRowId) || 0;
+      if (totals.has(row.item.cashflowRowId)) return totals.get(row.item.cashflowRowId) || 0;
     }
+    const projectedRow = findCashflowRow(cashflow, row.item);
+    if (projectedRow) return cashflowRowTotal(projectedRow);
+    if (row.item.isVirtual) return 0;
     const itemsInLine = (treeByLine[row.line] || []).reduce((sum, item) => sum + itemRealAmount(item), 0);
     if (!itemsInLine) return 0;
     return (lineProjected[row.line] || 0) * (itemRealAmount(row.item) / itemsInLine);
@@ -828,7 +953,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   /** Nombre del concepto: en linea fija se edita por localStorage, la partida en su modal. */
   function editableConcept(row: SheetRow, color: string) {
     const isChild = row.level > 1;
-    const textClass = `truncate text-xs font-semibold leading-tight md:text-sm ${isChild ? 'font-medium' : ''}`;
+    const textClass = `min-w-0 truncate text-xs font-semibold leading-tight md:whitespace-normal md:break-words md:text-sm ${isChild ? 'font-medium' : ''}`;
     if (row.kind !== 'line') {
       return (
         <p className={textClass} style={{ color }} title={row.label}>
@@ -1057,17 +1182,17 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
           <div className="relative min-h-[190px] overflow-hidden px-5 py-6 sm:px-7" style={{ background: `linear-gradient(135deg, ${BLUE_DARK}, ${BLUE})` }}>
             <div className="absolute -right-16 -top-20 h-56 w-56 rounded-full border border-white/15" />
             <div className="absolute right-24 top-12 h-24 w-24 rotate-12 rounded-md border border-white/10" />
-            <div className="relative flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-              <div className="min-w-0 text-white">
+            <div className="relative flex w-full min-w-0 flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+              <div className="block w-full min-w-0 text-white lg:flex-1">
                 <div className="inline-flex items-center gap-2 rounded-md bg-white/12 px-3 py-1 text-xs font-semibold ring-1 ring-white/20">
                   <FiFileText /> CRM - DUNACON
                 </div>
-                <h2 className="mt-5 text-3xl font-bold tracking-normal text-white sm:text-4xl">Estado de Resultados</h2>
-                <p className="mt-2 max-w-2xl text-sm text-blue-50">
+                <h2 className="mt-4 block break-words text-2xl font-bold leading-tight tracking-normal text-white sm:mt-5 sm:text-4xl">Estado de Resultados</h2>
+                <p className="mt-2 block max-w-2xl text-sm leading-relaxed text-blue-50">
                   Vista contable ejecutiva del proyecto, construida con ingresos, egresos y lotizacion registrada en la base de datos.
                 </p>
               </div>
-              <div className="grid gap-3 rounded-md bg-white/10 p-3 ring-1 ring-white/20 backdrop-blur-sm sm:min-w-[360px]">
+              <div className="grid w-full min-w-0 gap-3 rounded-md bg-white/10 p-3 ring-1 ring-white/20 backdrop-blur-sm lg:w-auto lg:min-w-[360px]">
                 <div className="flex items-center justify-between gap-3">
                   <label className="text-xs font-semibold uppercase tracking-wide text-blue-50">Moneda</label>
                   <CurrencyToggle
@@ -1122,7 +1247,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
 
         {/* El cuadro se apila hasta 1023px: en tablets el panel lateral ya no
             comprime las columnas de la tabla. */}
-        <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1.25fr)_minmax(340px,0.75fr)]">
+        <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1.4fr)_minmax(360px,0.6fr)]">
           <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
             <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BORDER }}>
               <div>
@@ -1138,22 +1263,19 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 </button>
               </div>
             </div>
-            {/* En movil la tabla es mas ancha que la pantalla: se fija un ancho
-                minimo real (720px) y "Concepto" mantiene 170px para verse
-                completo; el resto de columnas (Proy., Real, % Ingr., Desv.,
-                Acciones) se alcanzan deslizando. A partir de 640px el minimo
-                baja a 480px y las columnas vuelven a porcentajes, de modo que
-                en web la tabla cabe sin scroll. */}
+            {/* En pantallas chicas se conserva el desplazamiento horizontal.
+                En escritorio el concepto recibe mas ancho y las cifras mantienen
+                columnas amplias y alineadas para facilitar su lectura. */}
             <p className="px-4 py-2 text-xs text-slate-400 sm:hidden">Desliza la tabla hacia la derecha para ver las demas columnas.</p>
             <div className="w-full overflow-x-auto" style={{ WebkitOverflowScrolling: 'touch' }}>
-              <table className="w-full table-fixed text-[13px] sm:!min-w-[540px] md:text-sm" style={{ minWidth: 780 }}>
+              <table className="w-full table-fixed text-[13px] sm:!min-w-[540px] md:!min-w-[760px] md:text-sm">
                 <colgroup>
                   <col className="w-[200px] sm:w-[33%] md:w-[38%]" />
-                  <col className="w-[92px] sm:w-[19%] md:w-[16%]" />
-                  <col className="w-[92px] sm:w-[15%] md:w-[15%]" />
-                  <col className="w-[70px] sm:w-[12%] md:w-[11%]" />
-                  <col className="w-[84px] sm:w-[13%] md:w-[14%]" />
-                  <col className="w-[62px] sm:w-[8%] md:w-[6%]" />
+                  <col className="w-[92px] sm:w-[19%] md:w-[18%]" />
+                  <col className="w-[92px] sm:w-[15%] md:w-[18%]" />
+                  <col className="w-[70px] sm:w-[12%] md:w-[10%]" />
+                  <col className="w-[84px] sm:w-[13%] md:w-[11%]" />
+                  <col className="w-[62px] sm:w-[8%] md:w-[5%]" />
                 </colgroup>
                 <thead>
                   <tr className="border-b text-left text-[10px] font-bold uppercase leading-tight tracking-normal md:text-xs md:tracking-wide" style={{ borderColor: BORDER, color: MUTED, background: '#F8FAFC' }}>
@@ -1236,11 +1358,11 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                             </div>
                           </div>
                         </td>
-                        <td className="whitespace-nowrap px-1 py-2 text-right text-xs font-semibold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: INK }}>{show(projected)}</td>
-                        <td className="whitespace-nowrap px-1 py-2 text-right text-xs font-bold tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : INK }}>{show(real)}</td>
-                        <td className="whitespace-nowrap px-1 py-2 text-right text-xs tabular-nums md:px-3 md:py-3 md:text-sm" style={{ color: real < 0 ? RED : row.line === 'ingreso' ? GREEN : MUTED, fontWeight: row.line === 'ingreso' || row.kind === 'computed' ? 700 : 500 }}>{pct(share)}</td>
+                        <td className="whitespace-nowrap px-1 py-2 text-right text-xs font-semibold tabular-nums md:px-3 md:py-3 md:text-[13px]" style={{ color: INK }}>{show(projected)}</td>
+                        <td className="whitespace-nowrap px-1 py-2 text-right text-xs font-bold tabular-nums md:px-3 md:py-3 md:text-[13px]" style={{ color: real < 0 ? RED : INK }}>{show(real)}</td>
+                        <td className="whitespace-nowrap px-1 py-2 text-right text-xs tabular-nums md:px-3 md:py-3 md:text-[13px]" style={{ color: real < 0 ? RED : row.line === 'ingreso' ? GREEN : MUTED, fontWeight: row.line === 'ingreso' || row.kind === 'computed' ? 700 : 500 }}>{pct(share)}</td>
                         <td className="px-0.5 py-2 text-right md:px-1 md:py-3">
-                          <span className="inline-block whitespace-nowrap rounded-full px-1 py-0.5 text-[11px] font-bold tabular-nums md:px-2.5 md:py-1 md:text-xs" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
+                          <span className="inline-block whitespace-nowrap rounded-full px-1 py-0.5 text-[10px] font-bold tabular-nums md:px-2.5 md:py-1 md:text-[11px]" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
                             {diff >= 0 ? '+' : ''}{pct(diff)}
                           </span>
                         </td>

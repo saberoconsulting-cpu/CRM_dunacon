@@ -95,11 +95,59 @@ body {
     font-size: 11px;
   }
   .table-base { min-width: 100%; }
+  .bank-movements-grid {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: collapse;
+  }
+  .bank-movements-grid thead th {
+    border: 1px solid #4b5563;
+    background: #6b7280;
+    color: #fff;
+    font-weight: 600;
+  }
+  .bank-movements-grid tbody td,
+  .bank-movements-grid tfoot td {
+    border: 1px solid #cbd5e1;
+  }
+  .bank-movements-grid tbody tr:nth-child(even) {
+    background: #f8fafc;
+  }
+  .bank-movements-grid tbody td:nth-child(7),
+  .bank-movements-grid tbody td:nth-child(8),
+  .bank-movements-grid tbody td:nth-child(9) {
+    background: #ecfdf5;
+  }
+  .bank-movements-grid tbody tr:nth-child(even) td:nth-child(7),
+  .bank-movements-grid tbody tr:nth-child(even) td:nth-child(8),
+  .bank-movements-grid tbody tr:nth-child(even) td:nth-child(9) {
+    background: #e6f8ef;
+  }
+  .bank-movements-grid tfoot td {
+    background: #e5e7eb;
+  }
+  .bank-movements-grid tfoot td:nth-child(2),
+  .bank-movements-grid tfoot td:nth-child(3),
+  .bank-movements-grid tfoot td:nth-child(4) {
+    background: #dcfce7;
+  }
   .th-base {
     @apply px-3 py-2.5 text-left font-medium tracking-wide whitespace-nowrap;
     font-size: 11px;
     color: #6b7280;
     background:#fafafa;
+  }
+  /* Cabecera de tabla en el azul de marca con letras blancas que resaltan. */
+  .table-head-brand th {
+    background: var(--brand);
+    color: #fff;
+    font-weight: 600;
+  }
+  /* Cabecera de tabla gris-azulada (plomo azulado) con letras blancas. */
+  .table-head-plomo th {
+    background: #52728F;
+    color: #fff;
+    font-weight: 600;
   }
   .td-base {
     @apply px-3 py-2.5 whitespace-nowrap;
@@ -158,4 +206,3 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 .toast-in { animation: toast-in 0.2s ease-out; }
-

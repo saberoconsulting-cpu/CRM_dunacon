@@ -166,6 +166,11 @@ function budgetCashflowKey(item: BudgetItem): string | null {
   for (const [needles, target] of BUDGET_CASHFLOW_ROW_MAP) {
     if (needles.some((needle) => text.includes(needle))) return normalizeMatch(target);
   }
+  if (item.category === 'costo_terreno' && text.includes('costo de terreno')) return 'land';
+  if (item.category === 'costo_directo' && text.includes('costo directo')) return 'direct';
+  if (item.category === 'costo_indirecto' && text.includes('costo indirecto')) return 'indirect';
+  if (item.category === 'gastos_ventas_admin' && text.includes('ventas administracion')) return 'selling';
+  if (item.category === 'gastos_financieros_impuestos' && text.includes('gastos financieros')) return 'financial';
   return null;
 }
 

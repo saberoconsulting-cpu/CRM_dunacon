@@ -5,7 +5,7 @@ import { api } from '@/lib/api';
 
 const DUNACON_LOGO = '/logo/dunacon.png';
 
-const fmtUsd = (n: number) => Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtUsd = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 type Row = {
   month: number; saldoInicial: number; interes: number; amortizacionCapital: number;
@@ -72,13 +72,29 @@ export default function FinanciamientoDocPage() {
           h1 { font-size: 22px !important; line-height: 1.2 !important; }
           table { page-break-inside: auto; }
           tr { page-break-inside: avoid; page-break-after: auto; }
+          /* Cabecera repetida en cada hoja: logo + nombre del proyecto + lote. */
+          .doc-header {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            border-left: 0 !important;
+            border-right: 0 !important;
+            z-index: 10;
+          }
+          /* Reserva el alto de la cabecera (repetida) para que el contenido no quede debajo. */
+          .doc-body { padding-top: 156px !important; }
+          /* Repite tambien los titulos de las columnas del cronograma en cada hoja. */
+          table thead { display: table-header-group; }
         }
       `}</style>
-      <div className="max-w-4xl mx-auto">
+      <div className="doc-body max-w-4xl mx-auto">
         <div className="no-print flex justify-end mb-4">
           <button onClick={() => window.print()} className="btn-primary">Imprimir / Guardar PDF</button>
         </div>
-        <div className="overflow-hidden rounded-t-2xl border border-b-0 bg-white" style={{ borderColor: '#E5E7EB' }}>
+        <div className="doc-header overflow-hidden rounded-t-2xl border border-b-0 bg-white" style={{ borderColor: '#E5E7EB' }}>
           <div className="flex items-center justify-between gap-4 border-b px-4 py-3" style={{ borderColor: '#E5E7EB' }}>
             <div className="flex min-w-0 items-center gap-3">
               {project?.logoImageUrl && <img src={project.logoImageUrl} alt={project?.name || 'Proyecto'} className="h-11 w-auto max-w-40 object-contain" />}

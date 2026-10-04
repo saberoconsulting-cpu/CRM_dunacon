@@ -152,6 +152,19 @@ function monthLabelShort(month: string) {
   return date.toLocaleDateString('es-PE', { month: 'short' }).replace('.', '');
 }
 
+function dateTime(value?: string | null) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('es-PE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function currentMonthValue() {
   const date = new Date();
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -779,6 +792,11 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [historyRow, setHistoryRow] = useState<P | null>(null);
   const [historySale, setHistorySale] = useState<any>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditRows, setAuditRows] = useState<P[]>([]);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditMeta, setAuditMeta] = useState({ total: 0, totalPages: 1 });
   // Resultados del buscador "Buscar cliente o lote" (lotes/clientes, con o sin venta).
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [editingPayment, setEditingPayment] = useState<P | null>(null);
@@ -791,6 +809,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [approvalDocUrl, setApprovalDocUrl] = useState('');
   const currentRole = (() => { try { return JSON.parse(localStorage.getItem('crm_user') || '{}').role || ''; } catch { return ''; } })();
   const payCanMark = currentRole === 'admin' || currentRole === 'superadmin';
+  const canViewAudit = payCanMark;
 
   useEffect(() => { if (lockedProjectId) setPayProjectId(lockedProjectId); }, [lockedProjectId]);
 
@@ -904,6 +923,28 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     } catch (e: any) { toast(e.message, 'err'); } finally { setLoading(false); }
   }, [status, lockedProjectId, page, limit]);
 
+  const loadAudit = useCallback(async () => {
+    if (!canViewAudit) return;
+    setAuditLoading(true);
+    try {
+      const q = new URLSearchParams();
+      if (lockedProjectId) q.set('projectId', String(lockedProjectId));
+      q.set('page', String(auditPage));
+      q.set('limit', '10');
+      const back = (await api.get<any>(`/payments?${q.toString()}`)) || {};
+      const arr: P[] = Array.isArray(back) ? back : (back.items || []);
+      setAuditRows(arr);
+      setAuditMeta({
+        total: Number(back.total ?? arr.length),
+        totalPages: Number(back.totalPages ?? Math.max(1, Math.ceil((back.total ?? arr.length) / 10))),
+      });
+    } catch (e: any) {
+      toast(e.message || 'No se pudo cargar auditoria', 'err');
+    } finally {
+      setAuditLoading(false);
+    }
+  }, [auditPage, canViewAudit, lockedProjectId]);
+
   useEffect(() => {
     load();
     api.get<{ overdue: P[] }>('/payments/alerts').then((a) => setOverdue(a?.overdue || [])).catch(() => setOverdue([]));
@@ -911,6 +952,10 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     api.get<any>('/projects').then((d) => setPayProjects(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
     api.get<any[]>('/clients?limit=500').then((d) => setClients(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
   }, [load]);
+
+  useEffect(() => {
+    if (auditOpen) loadAudit();
+  }, [auditOpen, loadAudit]);
 
   useEffect(() => { setPage(1); }, [status, lockedProjectId]);
 
@@ -950,8 +995,22 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
   async function registrar() {
     if (savingPayment) return;
+    if (!lockedProjectId && !payProjectId) return toast('Selecciona un proyecto', 'err');
     if (!lotId) return toast('Selecciona un lote', 'err');
+    if (!clientId) return toast('Selecciona un cliente', 'err');
+    if (!payType) return toast('Selecciona el tipo de pago', 'err');
+    if (!payMethod) return toast('Selecciona el medio de pago', 'err');
+    if (!reference.trim()) return toast('Ingresa la referencia u operacion de pago', 'err');
+    if (!voucher) return toast('Adjunta el comprobante del pago', 'err');
+    if (!(Number(formExchangeRate) > 0)) return toast('Ingresa el tipo de cambio', 'err');
     if (!amount) return toast('Ingresa monto', 'err');
+    if (!dueDate) return toast('Ingresa la fecha de vencimiento', 'err');
+    if (!note.trim()) return toast('Ingresa una nota', 'err');
+    if (!regBankOp.trim()) return toast('Ingresa el N° de operacion bancaria', 'err');
+    if (!regReceiptNo.trim()) return toast('Ingresa el N° de boleta', 'err');
+    if (!(Number(regCuotaValue) > 0)) return toast('Ingresa el valor de la cuota', 'err');
+    if (!regBankOpFile) return toast('Adjunta la foto de la operacion bancaria', 'err');
+    if (!regReceiptFile) return toast('Adjunta la foto de la boleta', 'err');
     setSavingPayment(true);
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
@@ -1492,7 +1551,18 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
         </div>
         <div className="card">
           <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <h3 className="font-semibold">Historial de pagos</h3>
+            <div className="flex items-center gap-2">
+              <h3 className="font-semibold">Historial de pagos</h3>
+              {canViewAudit && (
+                <button
+                  type="button"
+                  className="btn-neutral !h-8 !px-3 text-xs"
+                  onClick={() => { setAuditPage(1); setAuditOpen(true); }}
+                >
+                  Auditoria
+                </button>
+              )}
+            </div>
             <div className="flex w-full min-w-0 flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center">
               <Select
                 value={status}
@@ -1527,7 +1597,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             : (
             <>
             <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
-            <table className="table-base" style={{ width: '100%', minWidth: 1180 }}>
+            <table className="table-base table-head-plomo" style={{ width: '100%', minWidth: 1180 }}>
               <thead><tr>
                 <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
                 <th className="th-base">Precio venta</th><th className="th-base">Tipo de pago</th>
@@ -1832,7 +1902,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 </div>
               </Field>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field label="TC (opcional)"><input type="number" step="0.0001" className="input" value={formExchangeRate} onChange={(e) => setFormExchangeRate(e.target.value)} placeholder="Ej: 3.75" /></Field>
+                <Field label="TC"><input type="number" step="0.0001" className="input" value={formExchangeRate} onChange={(e) => setFormExchangeRate(e.target.value)} placeholder="Ej: 3.75" /></Field>
                 <Field label="Monto US$">
                   <div className="flex items-center gap-2 rounded-md border px-3 py-2 tabular-nums" style={{ borderColor: BORDER, background: '#F8FAFC' }}>
                     <span className="text-xs font-semibold" style={{ color: MUTED }}>US$</span>
@@ -1857,9 +1927,9 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   rate={Number(formExchangeRate) || exchangeRate}
                   helper={amountCurrency === 'USD' ? `Se guardara ${money(amount)} con TC ${Number(formExchangeRate) || exchangeRate}` : undefined}
                 />
-                <Field label="Vence (opcional)"><input type="date" className="input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
+                <Field label="Vence"><input type="date" className="input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
               </div>
-              <Field label="Nota (opcional)"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
+              <Field label="Nota"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
 
               {/* Datos de la operacion bancaria y boleta. Se adjuntan al registrar
                   el pago para que el admin los revise al aprobar. */}
@@ -1868,8 +1938,8 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   Operacion bancaria y boleta (se revisan al aprobar el pago)
                 </p>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Field label="N° Op. Bco (opcional)"><input className="input" value={regBankOp} onChange={(e) => setRegBankOp(e.target.value)} placeholder="Ej: 0293-4521-1000" /></Field>
-                  <Field label="N° Boleta (opcional)"><input className="input" value={regReceiptNo} onChange={(e) => setRegReceiptNo(e.target.value)} placeholder="Ej: B001-4521" /></Field>
+                  <Field label="N° Op. Bco"><input className="input" value={regBankOp} onChange={(e) => setRegBankOp(e.target.value)} placeholder="Ej: 0293-4521-1000" /></Field>
+                  <Field label="N° Boleta"><input className="input" value={regReceiptNo} onChange={(e) => setRegReceiptNo(e.target.value)} placeholder="Ej: B001-4521" /></Field>
                 </div>
                 <AmountField
                   label="Valor de la cuota"
@@ -1920,6 +1990,72 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             <div className="flex flex-wrap items-center justify-end gap-2 border-t bg-canvas px-6 py-4" style={{ borderColor: '#EEF0F2' }}>
               <button className="btn-neutral" onClick={() => setOpen(false)} disabled={savingPayment}>Cancelar</button>
               <button className="btn-primary" onClick={registrar} disabled={savingPayment}>{savingPayment ? 'Guardando...' : 'Guardar pago'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {auditOpen && canViewAudit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setAuditOpen(false)} />
+          <div className="relative flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+            <div className="flex items-start justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BORDER }}>
+              <div>
+                <h3 className="font-semibold" style={{ fontSize: 17 }}>Auditoria de pagos</h3>
+                <p className="mt-1 text-sm text-slate-500">Movimientos registrados en pagos, ordenados por fecha y hora.</p>
+              </div>
+              <button type="button" className="grid h-9 w-9 place-items-center rounded-md border text-slate-500" style={{ borderColor: BORDER }} onClick={() => setAuditOpen(false)} aria-label="Cerrar">
+                <FiX />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto p-4">
+              {auditLoading ? (
+                <p className="p-6 text-center text-sm text-slate-400">Cargando auditoria...</p>
+              ) : auditRows.length === 0 ? (
+                <EmptyState text="No hay movimientos de pagos para mostrar." />
+              ) : (
+                <table className="table-base table-head-plomo" style={{ width: '100%', minWidth: 980 }}>
+                  <thead>
+                    <tr>
+                      <th className="th-base">Fecha y hora</th>
+                      <th className="th-base">Agente/Admin</th>
+                      <th className="th-base">Cliente</th>
+                      <th className="th-base">Lote</th>
+                      <th className="th-base">Tipo de pago</th>
+                      <th className="th-base">Medio</th>
+                      <th className="th-base">Referencia</th>
+                      <th className="th-base">Monto</th>
+                      <th className="th-base">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {auditRows.map((p) => (
+                      <tr key={p.id}>
+                        <td className="td-base">{dateTime(p.paidAt || p.createdAt)}</td>
+                        <td className="td-base">{p.receivedByName || p.approvedByName || '-'}</td>
+                        <td className="td-base">{p.clientName || '-'}</td>
+                        <td className="td-base">{p.lotCode || `Lote ${p.lotId}`}</td>
+                        <td className="td-base">{p.conceptLabel || TYPE_LABEL[p.type] || p.type || '-'}</td>
+                        <td className="td-base">{METHOD_LABEL[p.paymentMethod || ''] || p.paymentMethod || '-'}</td>
+                        <td className="td-base">{p.reference || p.bankOperationNumber || '-'}</td>
+                        <td className="td-base tabular-nums">{show(p.amount)}</td>
+                        <td className="td-base">
+                          <span className="badge capitalize" style={{ background: BADGE[p.status]?.[0] || '#F1F5F9', color: BADGE[p.status]?.[1] || MUTED }}>{p.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+            <div className="border-t px-4 py-3" style={{ borderColor: BORDER }}>
+              <PaginationBar
+                page={auditPage}
+                totalPages={auditMeta.totalPages}
+                total={auditMeta.total}
+                limit={10}
+                setPage={setAuditPage}
+                compact
+              />
             </div>
           </div>
         </div>
