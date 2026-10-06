@@ -10,6 +10,10 @@ export const CONSTRUCTION_BUDGET_CATEGORIES = [
 
 export type ConstructionBudgetCategory = typeof CONSTRUCTION_BUDGET_CATEGORIES[number];
 
+export const CONSTRUCTION_BUDGET_STATUSES = ['sin_inicio', 'en_ejecucion', 'terminada'] as const;
+
+export type ConstructionBudgetStatus = typeof CONSTRUCTION_BUDGET_STATUSES[number];
+
 export class CreateConstructionBudgetItemDto {
   @IsNumber()
   projectId!: number;
@@ -41,6 +45,10 @@ export class CreateConstructionBudgetItemDto {
   @IsString()
   @MaxLength(3)
   currency?: string;
+
+  @IsOptional()
+  @IsIn(CONSTRUCTION_BUDGET_STATUSES)
+  status?: ConstructionBudgetStatus;
 
   @IsOptional()
   @IsNumber()
@@ -78,6 +86,10 @@ export class UpdateConstructionBudgetItemDto {
   @IsString()
   @MaxLength(3)
   currency?: string;
+
+  @IsOptional()
+  @IsIn(CONSTRUCTION_BUDGET_STATUSES)
+  status?: ConstructionBudgetStatus;
 
   @IsOptional()
   @IsNumber()

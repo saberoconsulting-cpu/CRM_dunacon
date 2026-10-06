@@ -154,6 +154,10 @@ body {
     font-size: 13px;
     color: #171717;
   }
+  .bank-movements-grid tbody td.td-base {
+    padding-top: 0.1rem;
+    padding-bottom: 0.1rem;
+  }
   /* Boton compacto de acciones dentro de filas de tabla: parece boton de
      verdad (borde, fondo, sombra sutil) y se ve elegante en poco espacio. */
   .row-action {

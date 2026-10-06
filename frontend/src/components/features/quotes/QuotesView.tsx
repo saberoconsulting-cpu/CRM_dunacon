@@ -667,6 +667,13 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     return `${currency === 'PEN' ? 'S/' : 'US$'} ${value.toLocaleString(currency === 'PEN' ? 'es-PE' : 'en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   };
 
+  // Los numeros de los cards/tarjetas KPI no llevan decimales (redondeo simple).
+  const formatQuoteAmountCard = (amountUsd: number | null | undefined) => {
+    const usd = Number(amountUsd || 0);
+    const value = currency === 'PEN' ? usd * displayExchangeRate : usd;
+    return `${currency === 'PEN' ? 'S/' : 'US$'} ${Math.round(value).toLocaleString(currency === 'PEN' ? 'es-PE' : 'en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  };
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -862,21 +869,21 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
           />
           <QuoteKpi
             label={`Monto Cotizado ${currency === 'PEN' ? 'S/' : 'US$'}`}
-            value={formatQuoteAmount(stats?.montoTotal)}
+            value={formatQuoteAmountCard(stats?.montoTotal)}
             helper="Suma de cotizaciones"
             icon={<FiDollarSign />}
             accent="#0B2F6E"
           />
           <QuoteKpi
             label={`Cuota Inicial ${currency === 'PEN' ? 'S/' : 'US$'}`}
-            value={formatQuoteAmount(stats?.cuotaInicialTotal)}
+            value={formatQuoteAmountCard(stats?.cuotaInicialTotal)}
             helper="Iniciales cotizadas"
             icon={<FiTrendingUp />}
             accent="#1259C4"
           />
           <QuoteKpi
             label={`Cuota Contado ${currency === 'PEN' ? 'S/' : 'US$'}`}
-            value={formatQuoteAmount(stats?.cuotaContadoTotal)}
+            value={formatQuoteAmountCard(stats?.cuotaContadoTotal)}
             helper="Cuotas al contado"
             icon={<FiDollarSign />}
             accent="#0B2F6E"

@@ -47,6 +47,9 @@ export class BankAccountMovementEntity {
   @Column({ name: 'book_balance', type: 'numeric', precision: 14, scale: 2, nullable: true })
   bookBalance: string | null;
 
+  @Column({ name: 'exchange_rate', type: 'numeric', precision: 10, scale: 4, nullable: true })
+  exchangeRate: string | null;
+
   @Column({ name: 'opening_balance', type: 'numeric', precision: 14, scale: 2, nullable: true })
   openingBalance: string | null;
 

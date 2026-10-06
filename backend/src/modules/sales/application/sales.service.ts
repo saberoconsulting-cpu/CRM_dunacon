@@ -96,9 +96,13 @@ export class SalesService {
 
     const quote = dto.quoteId ? await this.dataSource.getRepository(QuoteEntity).findOne({ where: { id: dto.quoteId } }) : null;
     const catalog = await this.dataSource.getRepository(ProjectLotCatalogEntity).findOne({ where: { projectId: lot.projectId, code: lot.code } }).catch(() => null);
-    const hasFinalPrice = Number(lot.finalPrice || 0) > 0 || Number(catalog?.finalPrice || 0) > 0 || Number(quote?.finalPriceUsd || 0) > 0;
+    const finalPrice = Number(lot.finalPrice || 0) || Number(catalog?.finalPrice || 0);
+    const hasFinalPrice = finalPrice > 0;
     if (!hasFinalPrice) {
-      throw new BadRequestException('Este lote no tiene precio final. Registra el precio final antes de venderlo.');
+      throw new BadRequestException('Actualiza en la ficha del lote el precio final antes de registrar la venta.');
+    }
+    if (Math.abs(Number(dto.salePrice || 0) - finalPrice) > 0.01) {
+      throw new BadRequestException('El precio de venta debe coincidir con el precio final de la ficha del lote.');
     }
 
     const assignedAgentId = Number(dto.agentId || actorId);
@@ -357,26 +361,44 @@ export class SalesService {
     const pagedQb = qb.clone().orderBy(sortCol, order);
     // getRawMany no soporta skip/take (solo entidades); se usa offset/limit.
     const raw = await pagedQb.offset(skip).limit(limit).getRawMany();
-    const items = raw.map((r) => ({
-      id: Number(r.s_id), projectId: Number(r.s_project_id), lotId: Number(r.s_lot_id),
-      clientId: r.s_client_id ? Number(r.s_client_id) : null,
-      clientName: r.clientName || null,
-      agentId: r.s_agent_id ? Number(r.s_agent_id) : null,
-      salePrice: Number(r.s_sale_price), saleDate: r.s_sale_date,
-      commission: Number(r.s_commission), conditions: r.s_conditions,
-      financingBase: Number(r.s_financing_base || 0),
-      valorCuota: Number(r.s_valor_cuota || 0),
-      status: r.s_status, createdAt: r.s_created_at,
-      agentName: r.agentName || null, lotCode: r.lotCode || null,
-      lotAreaM2: Number(r.lotAreaM2 || 0),
-      approvalStatus: r.approvalStatus || 'pendiente',
-      planStatus: r.planStatus || 'pendiente',
-      totalCuotas: Number(r.totalCuotas || 0),
-      interestType: r.interestType || 'sin_intereses',
-      tea: Number(r.tea || 0),
-      cuotaInicial: Number(r.cuotaInicial || 0),
-      exchangeRate: Number(r.exchangeRate || 0),
-    }));
+    const items = raw.map((r) => {
+      const salePrice = Number(r.s_sale_price || 0);
+      const totalCuotas = Number(r.totalCuotas || 0);
+      const cuotaInicial = Number(r.cuotaInicial || 0);
+      const interestType = r.interestType || 'sin_intereses';
+      const tea = Number(r.tea || 0);
+      const conditions = r.s_conditions;
+      const graceMatch = String(conditions || '').match(/Cuotas sin interes:\s*(\d+)/i);
+      const graceMonths = Math.min(totalCuotas, Math.max(0, Number(graceMatch?.[1] || (interestType === 'tea' ? 0 : totalCuotas))));
+      const gracePlan = buildGraceSchedule({
+        principal: Math.max(0, salePrice - cuotaInicial),
+        totalCuotas,
+        graceMonths,
+        interestType,
+        teaPct: tea,
+      });
+      return {
+        id: Number(r.s_id), projectId: Number(r.s_project_id), lotId: Number(r.s_lot_id),
+        clientId: r.s_client_id ? Number(r.s_client_id) : null,
+        clientName: r.clientName || null,
+        agentId: r.s_agent_id ? Number(r.s_agent_id) : null,
+        salePrice, saleDate: r.s_sale_date,
+        commission: Number(r.s_commission), conditions,
+        financingBase: Number(r.s_financing_base || 0),
+        valorCuota: Number(r.s_valor_cuota || 0),
+        graceCuota: gracePlan.graceCuota,
+        status: r.s_status, createdAt: r.s_created_at,
+        agentName: r.agentName || null, lotCode: r.lotCode || null,
+        lotAreaM2: Number(r.lotAreaM2 || 0),
+        approvalStatus: r.approvalStatus || 'pendiente',
+        planStatus: r.planStatus || 'pendiente',
+        totalCuotas,
+        interestType,
+        tea,
+        cuotaInicial,
+        exchangeRate: Number(r.exchangeRate || 0),
+      };
+    });
     const result = buildPaginatedResult(items, total, page, limit);
     return {
       ...result,

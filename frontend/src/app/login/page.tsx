@@ -63,12 +63,13 @@ export default function LoginPage() {
           />
           <div className="mt-10 max-w-2xl">
             <h1
-              className="font-serif"
+              className="font-['Playfair_Display']"
               style={{
                 fontSize: 'clamp(28px, 3.4vw, 38px)',
                 fontWeight: 700,
                 lineHeight: 1.3,
-                color: '#0000aa',
+                color: '#1a56db',
+                letterSpacing: '-0.02em',
               }}
             >
               El CRM inmobiliario que integra
@@ -83,7 +84,7 @@ export default function LoginPage() {
               control
             </h1>
             <p
-              className="mt-7"
+              className="mt-7 font-['Inter']"
               style={{ fontSize: 16, lineHeight: 1.9, color: '#4B5563' }}
             >
               Simplifica tu gestión, controla tus ventas y tomas mejores decisiones.
@@ -109,13 +110,13 @@ export default function LoginPage() {
           </div>
 
           <h1
-            className="font-serif text-center min-[860px]:text-left"
-            style={{ fontSize: 'clamp(26px, 7vw, 30px)', fontWeight: 600, color: '#ffffff' }}
+            className="font-['Playfair_Display'] text-center min-[860px]:text-left"
+            style={{ fontSize: 'clamp(26px, 7vw, 30px)', fontWeight: 600, color: '#ffffff', letterSpacing: '-0.01em' }}
           >
             Bienvenido de nuevo
           </h1>
           <p
-            className="mt-1.5 mb-7 text-center min-[860px]:text-left"
+            className="mt-1.5 mb-7 font-['Inter'] text-center min-[860px]:text-left"
             style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)' }}
           >
             Ingresa tus credenciales para continuar.
@@ -133,7 +134,7 @@ export default function LoginPage() {
               )}
 
               <div>
-                <label className="block font-medium mb-1.5" style={{ fontSize: 12.5, color: '#4B5563' }}>
+                <label className="block font-['Inter'] font-medium mb-1.5" style={{ fontSize: 12.5, color: '#4B5563' }}>
                   Correo electrónico
                 </label>
                 <div className="relative">
@@ -159,7 +160,7 @@ export default function LoginPage() {
               </div>
 
               <div>
-                <label className="block font-medium mb-1.5" style={{ fontSize: 12.5, color: '#4B5563' }}>
+                <label className="block font-['Inter'] font-medium mb-1.5" style={{ fontSize: 12.5, color: '#4B5563' }}>
                   Contraseña
                 </label>
                 <div className="relative">
@@ -196,7 +197,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="group relative w-full flex items-center justify-center gap-2 rounded-lg text-white font-semibold text-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-60 disabled:hover:translate-y-0"
+                className="group relative w-full flex items-center justify-center gap-2 rounded-lg text-white font-['Inter'] font-semibold text-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-60 disabled:hover:translate-y-0"
                 style={{ height: 46, background: BRAND, boxShadow: '0 4px 14px rgba(26,86,219,0.25)' }}
                 onMouseEnter={(e) => (e.currentTarget.style.background = '#1347b0')}
                 onMouseLeave={(e) => (e.currentTarget.style.background = BRAND)}

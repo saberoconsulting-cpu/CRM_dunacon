@@ -76,8 +76,12 @@ export class BankAccountsController {
   @Post('import/preview')
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
-  previewImport(@UploadedFile() file: Express.Multer.File) {
-    return this.bankAccountsService.previewExcel(file);
+  previewImport(
+    @UploadedFile() file: Express.Multer.File,
+    @Body('projectId') projectId: string,
+    @Body('accountKey') accountKey: string,
+  ) {
+    return this.bankAccountsService.previewExcel(file, Number(projectId), accountKey);
   }
 
   @Post('import')
@@ -87,6 +91,8 @@ export class BankAccountsController {
     @Body('rows') rows: any[],
     @Body('accountKey') accountKey: string,
     @Body('currency') currency: string,
+    @Body('sourceCurrency') sourceCurrency: string,
+    @Body('defaultExchangeRate') defaultExchangeRate: number,
     @Body('sourceFile') sourceFile: string,
     @Body('importBatch') importBatch: string,
     @Body('skipDuplicates') skipDuplicates: boolean,
@@ -96,7 +102,7 @@ export class BankAccountsController {
     return this.bankAccountsService.importRows(
       Number(projectId),
       rows,
-      { accountKey, currency, sourceFile, importBatch, skipDuplicates, openingBalance },
+      { accountKey, currency, sourceCurrency, defaultExchangeRate, sourceFile, importBatch, skipDuplicates, openingBalance },
       actorId,
     );
   }

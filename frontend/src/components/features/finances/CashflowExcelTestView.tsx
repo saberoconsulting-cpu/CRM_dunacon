@@ -7,7 +7,7 @@ import { api } from '@/lib/api';
 import { BRAND } from '@/lib/types';
 import { Toaster, toast } from '@/components/ui/ui';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
-import { useDisplayCurrency } from '@/lib/currency';
+import { formatCurrency, useDisplayCurrency } from '@/lib/currency';
 
 type Row = { id: string; label: string; group?: boolean; computed?: boolean; values: number[]; parentId?: string; depth?: number };
 type CashflowMode = 'estatico' | 'dinamico';
@@ -30,26 +30,13 @@ const YEARS = Array.from({ length: YEAR_COUNT }, (_, index) => `Año ${index}`);
 // El endpoint /sales valida limit con @Max(100) (pagination.dto.ts): pedir 500
 // devolvía 400 Bad Request y el flujo se generaba sin ventas.
 const SALES_EXPORT_LIMIT = 100;
-/**
- * Versionado del sembrado del flujo estatico. Se guarda dentro de `assumptions`.
- * v1 (implicita, sin marca) escribia en Año 0 las filas 'initial-fee' y
- * 'financing-fee' a partir del % de cuota inicial (saleValue * initialPercent y
- * saleValue * (1 - initialPercent)), pisando lo que el usuario borraba.
- * v2 las trata como numero plano: por defecto 0 y solo cambian si el usuario
- * escribe o si vienen de pagos reales. Al leer un modelo v1 se limpian.
- */
 const CASHFLOW_SEED_VERSION = 2;
+const DYNAMIC_SEED_VERSION = 1;
 /** Filas que NO se rellenan por formula desde los supuestos (celdas planas). */
 const PLAIN_NUMBER_ROW_IDS = ['initial-fee', 'financing-fee'];
 const money = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 0 });
 const empty = () => Array(YEAR_COUNT).fill(0) as number[];
 const normalizeValues = (values?: number[]) => Array.from({ length: YEAR_COUNT }, (_, index) => Number(values?.[index] || 0));
-
-// Columnas fijas de las tablas. `cqw` = ancho visible del contenedor con scroll
-// (se activa con [container-type:inline-size]).
-// En movil: Concepto = ancho visible - 116px (104px de Total + 12px del primer año que
-// "asoma" para que se note que hay mas a la derecha). El texto se recorta con "...".
-// Desde md vuelve a 232px, con columnas pegadas (sticky) como antes.
 const CONCEPT_COL = 'w-[70cqw] min-w-[70cqw] max-w-[70cqw] md:w-[232px] md:min-w-[232px] md:max-w-none';
 const TOTAL_COL = 'w-[30cqw] min-w-[30cqw] max-w-[30cqw] md:w-[100px] md:min-w-[100px] md:max-w-none';
 const YEAR_COL = 'w-[100px] min-w-[100px]';
@@ -74,7 +61,7 @@ function computeIRR(flow: number[]): number | null {
 
 const CONSTRUCTION_CHILD_ROWS: SectionRowDefinition[] = [
     { id: 'construction-earthworks', label: 'Movimiento de tierras', parentId: 'construction' },
-    { id: 'construction-sanitation', label: 'Obras de saneamiento', parentId: 'construction' },
+    { id: 'construction-sanitation', label: 'Obras civiles', parentId: 'construction' },
     { id: 'construction-roads', label: 'Pavimentación y vías', parentId: 'construction' },
     { id: 'construction-electric', label: 'Redes eléctricas y alumbrado público', parentId: 'construction' },
     { id: 'construction-complementary', label: 'Obras complementarias', parentId: 'construction' },
@@ -181,6 +168,85 @@ function includesAny(text: string, words: string[]) {
     return words.some((word) => text.includes(word));
 }
 
+const BUDGET_CASHFLOW_ROW_MAP: Array<[string[], string]> = [
+    // El ORDEN importa: `alcabala` va ANTES que `legal` para que la palabra
+    // "legal" (needle muy amplio) no le robe el monto a la partida de alcabala.
+    [['alcabala', 'alcabala 3'], 'alcabala'],
+    [['a 02', 'gastos legales', 'notariales', 'notarial', 'asesoria legal', 'legal'], 'legal'],
+    [['a 01', 'adquisicion de terreno', 'terreno bruto', 'fundo matriz', 'compra terreno', 'compra de terreno'], 'land-cost'],
+    [['b 01', 'movimiento de tierras', 'movimiento de tierra', 'afirmado'], 'construction-earthworks'],
+    [['b 02', 'obras civiles', 'obras de saneamiento', 'saneamiento', 'cisterna', 'redes de agua', 'redes sanitarias'], 'construction-sanitation'],
+    [['b 03', 'pavimentacion y vias', 'pavimentacion', 'vias', 'veredas', 'pistas', 'sardineles'], 'construction-roads'],
+    [['b 04', 'redes electricas', 'alumbrado publico', 'alumbrado', 'electricas', 'electrico'], 'construction-electric'],
+    [['b 05', 'obras complementarias', 'obras complementaria', 'complementarias'], 'construction-complementary'],
+    [['supervision tecnica', 'supervision'], 'supervision'],
+    [['conexion de servicios', 'servicios publicos'], 'services'],
+    [['c 01', 'licencias', 'permisos', 'tasaciones', 'impactos ambientales', 'diseno'], 'design'],
+    [['c 02', 'ingenieria y supervision', 'gerencia de proyectos', 'gerencia'], 'management'],
+    [['c 03', 'gastos generales de campo', 'indemnizacion', 'titulacion'], 'indemnity'],
+    [['imprevistos', 'contingencia'], 'legal-contingency'],
+    [['d 01', 'comisiones de ventas', 'comision de ventas', 'comision venta'], 'commission'],
+    [['d 02', 'publicidad', 'marketing', 'mkt'], 'marketing'],
+    [['d 03', 'gastos administrativos', 'gastos de administracion', 'planillas'], 'sales-plan'],
+    [['post venta', 'postventa'], 'post-sale'],
+    [['descuento', 'descuentos', 'bono', 'bonos'], 'discounts'],
+    [['e 01', 'financiamiento de obra', 'intereses', 'interes', 'prestamo'], 'financial'],
+    [['e 02', 'impuesto a la renta', 'impuesto', 'renta', 'igv'], 'tax'],
+];
+
+/**
+ * Un needle es "de codigo" cuando, ya normalizado, tiene forma de codigo de
+ * partida (una letra + 2 digitos: "a 02", "b 01"...). Se compara SOLO contra el
+ * codigo exacto de la partida, nunca contra el nombre. Asi una partida como
+ * "Alcabala (3%)" con codigo A.02 no es robada por `['a 02', ...] -> legal`.
+ */
+function isBudgetCodeNeedle(needle: string) {
+    return /^[a-z] \d{1,3}$/.test(needle);
+}
+
+function budgetCashflowRow(item: any): string | null {
+    const code = normalizeConcept(item?.code || '');
+    const name = normalizeConcept(item?.name || '');
+    for (const [needles, target] of BUDGET_CASHFLOW_ROW_MAP) {
+        if (BUDGET_ROW_CATEGORIES[target] !== item?.category) continue;
+        const hit = needles.some((needle) => (isBudgetCodeNeedle(needle) ? code === needle : name.includes(needle)));
+        if (hit) return target;
+    }
+    return null;
+}
+
+const BUDGET_CATEGORY_FALLBACK_ROW: Record<string, string> = {
+    costo_terreno: 'land-cost',
+    costo_directo: 'construction-complementary',
+    costo_indirecto: 'legal-contingency',
+    gastos_ventas_admin: 'marketing',
+    gastos_financieros_impuestos: 'financial',
+};
+
+const BUDGET_ROW_CATEGORIES: Record<string, string> = {
+    'land-cost': 'costo_terreno',
+    alcabala: 'costo_terreno',
+    legal: 'costo_terreno',
+    'construction-earthworks': 'costo_directo',
+    'construction-sanitation': 'costo_directo',
+    'construction-roads': 'costo_directo',
+    'construction-electric': 'costo_directo',
+    'construction-complementary': 'costo_directo',
+    supervision: 'costo_directo',
+    services: 'costo_directo',
+    design: 'costo_indirecto',
+    management: 'costo_indirecto',
+    indemnity: 'costo_indirecto',
+    'legal-contingency': 'costo_indirecto',
+    'sales-plan': 'gastos_ventas_admin',
+    marketing: 'gastos_ventas_admin',
+    commission: 'gastos_ventas_admin',
+    'post-sale': 'gastos_ventas_admin',
+    discounts: 'gastos_ventas_admin',
+    financial: 'gastos_financieros_impuestos',
+    tax: 'gastos_financieros_impuestos',
+};
+
 /**
  * Mapa de la clasificacion EERR (la que el cliente ve y edita en Cuentas y bancos
  * > Categorias) hacia la fila del flujo de caja dinamico que le corresponde.
@@ -210,7 +276,7 @@ const EERR_ROW_MAP: Array<[string[], string]> = [
     [['post venta', 'postventa'], 'post-sale'],
     [['descuento', 'descuentos', 'bono', 'bonos'], 'discounts'],
     // Gastos financieros e impuestos
-    [['gastos financieros', 'gasto financiero', 'pago detracciones', 'detraccion', 'interes', 'intereses', 'comision bancaria', 'cambio dolares/soles', 'devolucion', 'devoluciones'], 'financial'],
+    [['gastos financieros', 'gasto financiero', 'pago detracciones', 'detraccion', 'interes', 'intereses', 'comision bancaria', 'cambio dolares soles', 'devolucion', 'devoluciones'], 'financial'],
     [['impuesto', 'impuestos', 'renta', 'itf', 'tributo'], 'tax'],
 ];
 
@@ -221,19 +287,44 @@ const EERR_ROW_MAP: Array<[string[], string]> = [
  */
 function constructionChildRow(text: string) {
     if (includesAny(text, ['movimiento de tierra', 'movimiento de tierras', 'afirmado'])) return 'construction-earthworks';
-    if (includesAny(text, ['saneamiento', 'cisterna', 'redes de agua', 'redes sanitarias', 'pozo', 'riego tecnificado'])) return 'construction-sanitation';
+    if (includesAny(text, ['obras civiles', 'saneamiento', 'cisterna', 'redes de agua', 'redes sanitarias', 'pozo', 'riego tecnificado'])) return 'construction-sanitation';
     if (includesAny(text, ['pavimentacion', 'vias', 'veredas', 'pistas', 'sardinel', 'sardineles', 'portico', 'cerco', 'losa', 'fulbito', 'tennis', 'piscina', 'parrilla', 'fogata', 'club house', 'oficina stand'])) return 'construction-roads';
     if (includesAny(text, ['electric', 'alumbrado', 'telefonia', 'videovigilancia', 'camaras'])) return 'construction-electric';
     return 'construction-complementary';
 }
 
+type SeedContext = {
+    explicit: Map<string, string>;
+    knownRowIds: Set<string>;
+    labelToRowId: Map<string, string>;
+};
 
-function cashflowRowFromBankMovement(item: BankMovement) {
+function cashflowRowFromBankMovement(item: BankMovement, context?: SeedContext) {
     const text = normalizeConcept([item.eerrClassification, item.movementType, item.description].filter(Boolean).join(' '));
     const deposit = Number(item.depositAmount || 0);
 
+    if (context) {
+        const keys = [
+            normalizeConcept(item.movementType),
+            normalizeConcept(item.eerrClassification),
+        ].filter(Boolean);
+        for (const key of keys) {
+            const linked = context.explicit.get(key);
+            if (linked && context.knownRowIds.has(linked)) return linked;
+        }
+    }
+
     // 1) La clasificacion EERR manda: es la que el cliente homologa en el panel.
     const eerr = normalizeConcept(item.eerrClassification);
+
+    if (context) {
+        const candidates = [normalizeConcept(item.movementType), normalizeConcept(item.description), eerr].filter(Boolean);
+        for (const candidate of candidates) {
+            const target = context.labelToRowId.get(candidate);
+            if (target) return target;
+        }
+    }
+
     if (eerr) {
         if (includesAny(eerr, ['costo de construccion'])) return constructionChildRow(text);
         for (const [keys, target] of EERR_ROW_MAP) {
@@ -361,7 +452,7 @@ function SectionTitle({ section, color, label }: { section: { id: string; label:
 }
 
 export default function CashflowExcelTestView({ projectId }: { projectId: number }) {
-    const { currency, setCurrency, exchangeRate, setExchangeRate, toDisplay, format: show } = useDisplayCurrency();
+    const { currency, setCurrency, exchangeRate, setExchangeRate } = useDisplayCurrency();
     const exchangeRateRef = useRef(exchangeRate);
     useEffect(() => { exchangeRateRef.current = exchangeRate; }, [exchangeRate]);
     const [rows, setRows] = useState<Row[]>([]);
@@ -410,6 +501,17 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const [hidePastYears, setHidePastYears] = useState(false);
     const [subpartidaModal, setSubpartidaModal] = useState<{ parentId: string; parentLabel: string } | null>(null);
     const [subpartidaName, setSubpartidaName] = useState('');
+    // Detecta pantallas angostas (movil) para simplificar los ejes/etiquetas de
+    // los graficos: en movil se ocultan los numeros fijos y solo se ven al tocar.
+    const [isNarrow, setIsNarrow] = useState(false);
+
+    useEffect(() => {
+        const mq = window.matchMedia('(max-width: 767px)');
+        const apply = () => setIsNarrow(mq.matches);
+        apply();
+        mq.addEventListener('change', apply);
+        return () => mq.removeEventListener('change', apply);
+    }, []);
 
     /**
      * Construye las filas base ("seed") con la data real del sistema.
@@ -442,29 +544,34 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 return api.get<{ items: BankMovement[] }>(`/bank-accounts?${params.toString()}`).catch(() => ({ items: [] }));
             }))).flatMap((data) => data.items || [])
             : [];
+        const bankCategories = usesBankCashflow
+            ? await api.get<{ items: Array<{ movementType: string; eerrClassification: string; cashflowRowId?: string | null }> }>(`/bank-accounts/categories?projectId=${projectId}`).catch(() => ({ items: [] }))
+            : { items: [] };
         const lots = plan?.lots || [];
         const budgetItems = budget?.items || [];
-        const budgetByCategory = (category: string) => budgetItems
+        const budgetParentIds = new Set(
+            budgetItems
+                .map((item: any) => Number(item.parentId || item.parent_id || 0))
+                .filter((parentId: number) => parentId > 0),
+        );
+        const budgetLeafItems = budgetItems.filter((item: any) => !budgetParentIds.has(Number(item.id || 0)));
+        const budgetByCategory = (category: string) => budgetLeafItems
             .filter((item: any) => item.category === category)
             .reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
-        const budgetByName = (names: string[]) => budgetItems
-            .filter((item: any) => names.some((name) => String(item.name || '').toLowerCase().includes(name)))
-            .reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
-        // Partidas del presupuesto dentro de una categoria, filtradas por nombre.
-        const budgetInCategory = (category: string, names: string[]) => budgetItems
-            .filter((item: any) => item.category === category && names.some((name) => String(item.name || '').toLowerCase().includes(name)))
-            .reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+        const budgetByCashflowRow = (budgetLeafItems as any[]).reduce((map: Record<string, number>, item: any) => {
+            const rowId = budgetCashflowRow(item) || BUDGET_CATEGORY_FALLBACK_ROW[item.category];
+            if (!rowId) return map;
+            map[rowId] = (map[rowId] || 0) + Number(item.amount || 0);
+            return map;
+        }, {});
+        const hasBudget = budgetLeafItems.length > 0;
         const totalLots = lots.length || Number(projectData?.stats?.total || 0);
         const price = Number(projectData?.referencePrice || 0);
         const lotSaleValue = lots.reduce((sum: number, lot: any) => sum + Number(lot.finalPrice || lot.salePrice || lot.price || 0), 0);
         const landArea = lots.reduce((sum: number, lot: any) => sum + Number(lot.areaM2 || lot.area || 0), 0);
         const lotArea = totalLots > 0 ? landArea / totalLots : 0;
         const saleValue = lotSaleValue || landArea * price;
-        const landLegal = budgetByName(['gastos legales y notariales', 'legal de compra', 'notarial']);
-        const land = Math.max(0, budgetByCategory('costo_terreno') - landLegal);
         const direct = budgetByCategory('costo_directo');
-        const indirect = budgetByCategory('costo_indirecto');
-        const sellingAdmin = budgetByCategory('gastos_ventas_admin');
         const financing = usesBankCashflow ? 0 : Number(statement?.egresos_clasificados?.financiamiento || 0);
         const tax = usesBankCashflow ? 0 : Number(statement?.egresos_clasificados?.impuestos || 0);
         const TOTAL_ONLY_IDS = ['cost-sales', 'gross', 'operating', 'pre-tax', 'net', 'adjusted', 'accumulated-title', 'pre-tax-accumulated', 'adjusted-accumulated'];
@@ -482,6 +589,50 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 })),
             ];
         });
+
+        if (usesBankCashflow) {
+            const seenIds = new Set(seedRows.map((item) => item.id));
+            const savedModels = await Promise.all([
+                api.get<any>(`/cashflow/model?projectId=${projectId}&mode=dinamico`).catch(() => null),
+                api.get<any>(`/cashflow/model?projectId=${projectId}&mode=estatico`).catch(() => null),
+            ]);
+            const structuralWidth = seedRows[0]?.values?.length || YEAR_COUNT;
+            for (const model of savedModels) {
+                for (const item of (model?.rows || [])) {
+                    const id = String(item?.id || '');
+                    if (!id || seenIds.has(id)) continue;
+                    seenIds.add(id);
+                    seedRows.push({
+                        id,
+                        label: String(item?.label || 'Nueva subpartida'),
+                        values: Array.from({ length: structuralWidth }, () => 0),
+                        computed: Boolean(item?.computed),
+                        parentId: item?.parentId ? String(item.parentId) : undefined,
+                        depth: Number(item?.depth || 1),
+                    });
+                }
+            }
+        }
+
+        const explicitLinks = new Map<string, string>();
+        for (const category of (bankCategories.items || [])) {
+            const rowId = category.cashflowRowId ? String(category.cashflowRowId) : '';
+            if (!rowId) continue;
+            const eerrKey = normalizeConcept(category.eerrClassification);
+            const typeKey = normalizeConcept(category.movementType);
+            if (eerrKey) explicitLinks.set(eerrKey, rowId);
+            if (typeKey) explicitLinks.set(typeKey, rowId);
+        }
+        const labelToRowId = new Map<string, string>();
+        for (const item of seedRows) {
+            const key = normalizeConcept(item.label);
+            if (key && !labelToRowId.has(key)) labelToRowId.set(key, item.id);
+        }
+        const seedContext: SeedContext = {
+            explicit: explicitLinks,
+            knownRowIds: new Set(seedRows.map((item) => item.id)),
+            labelToRowId,
+        };
         const yearOf = (rawDate: any): number | null => {
             if (!rawDate) return null;
             const date = new Date(rawDate);
@@ -569,18 +720,17 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 const year = yearOf(movement.movementDate);
                 const deposit = Number(movement.depositAmount || 0);
                 const charge = Number(movement.chargeAmount || 0);
-                const targetRow = cashflowRowFromBankMovement(movement);
+                const targetRow = cashflowRowFromBankMovement(movement, seedContext);
                 const amount = deposit > 0 ? deposit : charge;
                 const movementRate = Number(movement.exchangeRate) > 0 ? Number(movement.exchangeRate) : exchangeRateRef.current;
                 const amountInUsd = movement.currency === 'PEN' ? amount / movementRate : amount;
-                // El modelo del flujo usa soles como base y el usuario lo visualiza en dolares
-                // o soles mediante el selector global.
-                addToSeries(targetRow, year, amountInUsd * exchangeRateRef.current);
+                // El flujo dinamico se maneja en dolares reales: los movimientos
+                // bancarios USD se guardan tal cual y solo se convierten si el
+                // usuario decide visualizar la pantalla en soles.
+                addToSeries(targetRow, year, amountInUsd);
             }
             return { rows: seedRows, manualFields: { landArea, lotArea, totalLots, priceM2: price }, project: projectData, baseYear: calculatedBaseYear, firstDataYear, years: requiredYears };
         }
-        const realSoldValue = sales.reduce((sum: number, sale: any) => sum + Number(sale.salePrice || 0), 0);
-        const soldValue = realSoldValue || (sales.length ? saleValue : 0);
         const paymentSeries = (types: string[]) => {
             const series = emptySeries();
             for (const payment of paidPayments) {
@@ -594,48 +744,36 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         const initialPaymentTypes = ['reserva', 'adelanto', 'primera_cuota', 'cuota_inicial', 'otros'];
         setSeries('initial-fee', sales.length ? paymentSeries(initialPaymentTypes) : emptySeries());
         setSeries('financing-fee', sales.length ? paymentSeries(['cuota']) : emptySeries());
-        setSeries('land-cost', atYearZero(land));
-        setSeries('alcabala', atYearZero(land * 0.03));
-        setSeries('legal', atYearZero(landLegal));
-        const constructionBreakdown = [
-            { id: 'construction-earthworks', names: ['movimiento de tierras'] },
-            { id: 'construction-sanitation', names: ['saneamiento'] },
-            { id: 'construction-roads', names: ['pavimentacion', 'pavimentación', 'vias', 'vías'] },
-            { id: 'construction-electric', names: ['electricas', 'eléctricas', 'alumbrado'] },
-            { id: 'construction-complementary', names: ['complementarias'] },
-        ];
-        let assignedConstruction = 0;
-        constructionBreakdown.forEach((item) => {
-            const value = budgetByName(item.names);
-            assignedConstruction += value;
-            setSeries(item.id, atYearZero(value));
+        [
+            'land-cost',
+            'alcabala',
+            'legal',
+            'construction-earthworks',
+            'construction-sanitation',
+            'construction-roads',
+            'construction-electric',
+            'construction-complementary',
+            'supervision',
+            'services',
+            'design',
+            'management',
+            'indemnity',
+            'legal-contingency',
+            'sales-plan',
+            'marketing',
+            'commission',
+            'post-sale',
+            'discounts',
+            'financial',
+            'tax',
+        ].forEach((id) => {
+            const value = Number(budgetByCashflowRow[id] || 0);
+            if (hasBudget || value > 0) setSeries(id, atYearZero(value));
         });
-        if (assignedConstruction <= 0) setSeries('construction-earthworks', atYearZero(direct));
-        setSeries('supervision', atYearZero(direct * 0.04));
-        setSeries('services', atYearZero(direct * 0.01));
-        setSeries('design', atYearZero(indirect || direct * 0.03));
-        setSeries('indemnity', atYearZero(direct * 0.01));
-        setSeries('legal-contingency', atYearZero(direct * 0.05));
-        setSeries('management', spreadByDates(soldValue * 0.04, salesYearsList));
 
-        // Gastos de ventas y administrativos: cada partida sale del presupuesto
-        // (categoria gastos_ventas_admin, filtrando por nombre); Publicidad recibe lo
-        // que no se haya asignado a las demas. Comision y descuentos caen a los datos
-        // de las ventas si el presupuesto no los trae.
-        const sellingCat = 'gastos_ventas_admin';
-        const payrollBudget = budgetInCategory(sellingCat, ['planilla', 'sueldo', 'personal']);
-        const commissionBudget = budgetInCategory(sellingCat, ['comisi'])
-            || sales.reduce((sum: number, sale: any) => sum + Number(sale.commissionAmount || sale.commission || 0), 0);
-        const postSaleBudget = budgetInCategory(sellingCat, ['post venta', 'postventa', 'post-venta']);
-        const discountBudget = budgetInCategory(sellingCat, ['descuento', 'bono'])
-            || sales.reduce((sum: number, sale: any) => sum + Number(sale.discountAmount || sale.discount || 0), 0);
-        const marketingBudget = Math.max(0, sellingAdmin - payrollBudget - commissionBudget - postSaleBudget - discountBudget);
-        setSeries('sales-plan', spreadByDates(payrollBudget, salesYearsList));
-        setSeries('marketing', spreadByDates(marketingBudget, salesYearsList));
-        setSeries('commission', spreadByDates(commissionBudget, salesYearsList));
-        setSeries('post-sale', spreadByDates(postSaleBudget, salesYearsList));
-        setSeries('discounts', spreadByDates(discountBudget, salesYearsList));
-
+        const hasDirectDetail = ['construction-earthworks', 'construction-sanitation', 'construction-roads', 'construction-electric', 'construction-complementary', 'supervision', 'services']
+            .some((id) => Number(budgetByCashflowRow[id] || 0) > 0);
+        if (direct > 0 && !hasDirectDetail) setSeries('construction-earthworks', atYearZero(direct));
         return { rows: seedRows, manualFields: { landArea, lotArea, totalLots, priceM2: price }, project: projectData, baseYear: calculatedBaseYear, firstDataYear, years: requiredYears };
     }
 
@@ -663,8 +801,10 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     ...seed.manualFields,
                     startYear: seed.baseYear,
                     firstDataYear: seed.firstDataYear,
+                    sourceCurrency: 'USD',
                     historicalValues,
                     years: yearCount,
+                    dynamicSeedVersion: DYNAMIC_SEED_VERSION,
                 },
                 rows: dynamicRows,
             });
@@ -691,16 +831,25 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 const defaultStartYear = Number(staticAssumptions.startYear ?? staticAssumptions.baseYear) || new Date().getFullYear();
                 const savedStartYear = Math.max(1900, Math.min(9999, Math.round(Number(savedDynamicAssumptions.startYear) || defaultStartYear)));
                 const seed = await buildSeedRows(savedStartYear);
-                // Solo se restaura el IGV manual; las demas filas siempre provienen
-                // de las fuentes del sistema.
-                const savedFirstDataYear = Number(savedDynamicAssumptions.firstDataYear || 0) || 0;
+                
+                // REGLA DE ORO: el flujo dinamico NUNCA toma montos del estatico.
+                // El dinamico es una foto de la data real del sistema (Cuentas y
+                // Bancos). Antes, si el seed no tenia data real, se copiaba el
+                // estatico COMPLETO (montos incluidos) al dinamico; por eso en el
+                // Presupuesto de Obra la columna Real terminaba siendo identica a la
+                // Proyectada. Ahora el dinamico usa SIEMPRE sus propios valores del
+                // seed (cero si no hay movimientos bancarios) y solo hereda del
+                // estatico la ESTRUCTURA (nombres y jerarquia de subpartidas
+                // personalizadas), jamas sus montos.
                 const historicalValues: Record<string, number[]> = savedDynamicAssumptions.historicalValues || {};
-                const restoredRows = Object.keys(historicalValues).length
+                const restoredRows: Row[] = Object.keys(historicalValues).length
                     ? seed.rows.map((item) => {
                         const saved = historicalValues[item.id];
                         if (!saved) return item;
                         return {
                             ...item,
+                            // El IGV es el unico dato editable del flujo dinamico y se
+                            // conserva al reconstruirlo; el resto sale del seed (bancos).
                             values: normalizeValues(item.values).map((cell, year) => {
                                 return item.id === 'igv' && saved[year] !== undefined
                                     ? Number(saved[year] || 0)
@@ -709,12 +858,29 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         };
                     })
                     : seed.rows;
+
+                if (savedStatic?.rows?.length) {
+                    const seedIds = new Set(seed.rows.map((item) => item.id));
+                    const existingIds = new Set(restoredRows.map((item) => item.id));
+                    const structuralWidth = seed.rows[0]?.values?.length || YEAR_COUNT;
+                    const structuralRows: Row[] = savedStatic.rows
+                        .filter((item: any) => !seedIds.has(item.id) && !existingIds.has(item.id))
+                        .map((item: any) => ({
+                            id: String(item.id),
+                            label: String(item.label || 'Nueva subpartida'),
+                            values: Array.from({ length: structuralWidth }, () => 0),
+                            computed: Boolean(item.computed),
+                            parentId: item.parentId ? String(item.parentId) : undefined,
+                            depth: Number(item.depth || 1),
+                        }));
+                    restoredRows.push(...structuralRows);
+                }
+                
                 setProject(seed.project);
                 setBaseYear(seed.baseYear);
-                setFirstDataYear(savedFirstDataYear || seed.firstDataYear);
+                setFirstDataYear(Number(savedDynamicAssumptions.firstDataYear || 0) || seed.firstDataYear);
                 // Se persiste siempre, se este viendo el estatico o el dinamico.
                 void persistDynamic({ ...seed, rows: restoredRows }, staticYearCount);
-                // Dinamico = data real del sistema (nunca el estatico guardado).
                 rowsRef.current = restoredRows;
                 setRows(restoredRows);
                 setManual((current) => ({
@@ -822,9 +988,13 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     useEffect(() => { rowsRef.current = rows; }, [rows]);
 
     const parseFormattedNumber = (value: string) => Number(String(value || '0').replace(/,/g, '').replace(/\s/g, '')) || 0;
+    // La base del flujo esta en DOLARES (los movimientos bancarios USD se guardan
+    // tal cual). El toggle S/ es SOLO visual. Si el usuario tipea un monto con el
+    // toggle en S/, ese numero viene en soles y hay que devolverlo a dolares (base)
+    // DIVIDIENDO por el tipo de cambio. En US$ se guarda tal cual.
     const baseNumber = (value: string) => {
         const numeric = parseFormattedNumber(value);
-        return currency === 'USD' ? numeric * exchangeRate : numeric;
+        return currency === 'PEN' ? numeric / exchangeRate : numeric;
     };
 
     const calculated = useMemo(() => {
@@ -850,7 +1020,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         return map;
     }, {}), [calculated]);
 
-    const displayNumber = (value: number) => Math.round(toDisplay(value));
+    // La base del flujo esta en DOLARES. La pantalla puede mostrarse en soles con
+    // el toggle: en ese caso se MULTIPLICA por el tipo de cambio (solo visual, nunca
+    // se guarda en soles). En US$ el valor se pinta tal cual.
+    const amountToDisplay = (value: number) => (currency === 'PEN' ? Number(value || 0) * exchangeRate : Number(value || 0));
+    const showAmount = (value: number | string | null | undefined) => formatCurrency(amountToDisplay(Number(value || 0)), currency);
+    const displayNumber = (value: number) => Math.round(amountToDisplay(value));
     const formatInteger = (value: number) => displayNumber(value).toLocaleString('en-US');
     const formatPlainInteger = (value: number) => Math.round(Number(value || 0)).toLocaleString('en-US');
     const displayRowTotal = (values: number[]) => formatInteger(values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0));
@@ -1011,8 +1186,15 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         setSaved(false);
         setHasSavedModel(false);
         setEditingLabel(null);
-        // El dinamico se regenera desde el sistema: solo el estatico guarda nombres.
-        if (mode === 'dinamico') return;
+        // El dinamico reconstruye sus montos desde el sistema, pero la estructura
+        // (nombres y jerarquia de subpartidas) es editable igual que en el estatico:
+        // se persiste la foto derivada para que el nombre sobreviva a la recarga.
+        if (mode === 'dinamico') {
+            rowsRef.current = rowsRef.current.map((item) => item.id === id ? { ...item, label: nextLabel } : item);
+            scheduleDynamicSave();
+            toast('Nombre actualizado');
+            return;
+        }
         try {
             await api.post('/cashflow/model', {
                 projectId,
@@ -1078,7 +1260,6 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     }
 
     function addSubpartida() {
-        if (mode === 'dinamico') return;
         const parentId = subpartidaModal?.parentId;
         const parentLabel = subpartidaModal?.parentLabel;
         if (!parentId || !parentLabel) return;
@@ -1103,12 +1284,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         closeSubpartidaModal();
         setSaved(false);
         setHasSavedModel(false);
+        if (mode === 'dinamico') { scheduleDynamicSave(); return; }
         window.setTimeout(() => scheduleAutosave(), 0);
         toast('Subpartida agregada');
     }
 
     function canAddSubpartida(parentId: string) {
-        if (mode === 'dinamico') return false;
         const noAdd = new Set([
             'lots-sold', 'cost-sales', 'gross', 'operating', 'pre-tax', 'tax', 'net', 'adjusted',
             'accumulated-title', 'pre-tax-accumulated', 'adjusted-accumulated',
@@ -1402,10 +1583,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     };
     const renderedYearColumnCount = displayedYearIndexes.length + (showHistoricalColumn ? 1 : 0);
     const renderChildRows = (parentId: string): ReactNode[] => {
-        if (mode === 'dinamico' && parentId === 'income') return [];
         return (childRowsByParent[parentId] || []).flatMap((item) => {
         if (item.id === 'lots-sold') return [];
-        if (mode === 'dinamico' && item.parentId === 'income') return [];
         const childRows = childRowsByParent[item.id] || [];
         const hasChildren = childRows.length > 0;
         const isExpanded = expanded[item.id] ?? false;
@@ -1539,7 +1718,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         </div>
                         <button className="btn-neutral min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" onClick={exportPdf}><FiDownload /> Exportar PDF</button>
                         <button className="btn-neutral min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" onClick={() => (mode === 'dinamico' ? refreshDynamic() : loadModel('estatico'))}><FiRefreshCw /> {mode === 'dinamico' ? 'Actualizar data' : 'Recargar'}</button>
-                        <button className="btn-primary min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" onClick={openAssumptions}><FiEdit3 /> Ajustar supuestos</button>
+                        <button className="btn-primary col-span-2 min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm lg:col-span-1" onClick={openAssumptions}><FiEdit3 /> Ajustar supuestos</button>
                     </div>
                 </div>
 
@@ -1605,13 +1784,13 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 </div>
                 <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-4 lg:grid-cols-7">
                     {[
-                        { label: 'VAN contable', value: show(van), helper: `Tasa ${Number(manual.discountRate) || 10}% · utilidad ajustada descontada`, tone: BRAND.blue },
+                        { label: 'VAN contable', value: showAmount(van), helper: `Tasa ${Number(manual.discountRate) || 10}% · utilidad ajustada descontada`, tone: BRAND.blue },
                         { label: 'TIR contable', value: tir === null ? '—' : `${(tir * 100).toFixed(2)}%`, helper: tir === null ? 'Requiere utilidad negativa en algún año' : 'Tasa interna de retorno', tone: '#15803D' },
                         { label: 'ROI contable', value: roi === null ? '—' : `${roi.toFixed(1)}%`, helper: 'Utilidad ajustada / costos totales', tone: '#0EA5A9' },
                         { label: 'Margen de utilidad', value: margin === null ? '—' : `${margin.toFixed(1)}%`, helper: 'Utilidad ajustada / ventas', tone: '#D97706' },
                         { label: 'Payback', value: paybackValue, helper: paybackHelper, tone: '#8064A2' },
                         { label: 'Punto de equilibrio', value: breakEvenLots === null ? '—' : `${formatPlainInteger(breakEvenLots)} lotes`, helper: `Lotes para cubrir costos · ${formatPlainInteger(totalLots)} totales`, tone: '#E11D48' },
-                        { label: 'Capital máximo requerido', value: show(maxCapitalRequired), helper: 'Máx. déficit de caja acumulado', tone: BRAND.blueDark },
+                        { label: 'Capital máximo requerido', value: showAmount(maxCapitalRequired), helper: 'Máx. déficit de caja acumulado', tone: BRAND.blueDark },
                     ].map(({ label, value, helper, tone }) => (
                         <div key={label} className="min-w-0 rounded-xl border bg-white px-3 py-3" style={{ borderColor: `${tone}40` }}>
                             <p className="truncate text-[11px] font-semibold uppercase tracking-wide" style={{ color: tone }} title={label}>{label}</p>
@@ -1747,9 +1926,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                             {SECTIONS.filter((section) => !['accumulated-title', 'pre-tax-accumulated', 'adjusted-accumulated', ...COST_SALES_CHILD_SECTION_IDS].includes(section.id)).map((section) => {
                                 const sectionRow = calculated.find((item) => item.id === section.id);
                                 const surface = sectionSurface(section.id, section.computed);
-                                const hasChildren = mode === 'dinamico' && section.id === 'income'
-                                    ? false
-                                    : section.id === 'cost-sales' || (childRowsByParent[section.id] || []).some((item) => item.id !== 'lots-sold');
+                                const hasChildren = section.id === 'cost-sales' || (childRowsByParent[section.id] || []).some((item) => item.id !== 'lots-sold');
                                 const isExpanded = expanded[section.id] ?? false;
 
                                 return (
@@ -1887,7 +2064,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                                 </Fragment>
                                             );
                                         })}
-                                        {section.id !== 'cost-sales' && !(mode === 'dinamico' && section.id === 'income') && hasChildren && isExpanded && renderChildRows(section.id)}
+                                        {section.id !== 'cost-sales' && hasChildren && isExpanded && renderChildRows(section.id)}
                                     </Fragment>
                                 );
                             })}
@@ -1935,14 +2112,14 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     </div>
                     <div className="space-y-2 p-4">
                         {[
-                            { label: `Terreno ${currency === 'USD' ? 'US$' : 'S/'}`, value: show(landAcquisitionTotal) },
+                            { label: `Terreno ${currency === 'USD' ? 'US$' : 'S/'}`, value: showAmount(landAcquisitionTotal) },
                             { label: 'Área venta (m²)', value: formatPlainInteger(manual.landArea) },
                             { label: 'Nro. de lotes', value: formatPlainInteger(totalLots) },
                             { label: 'Área promedio por lote (m²)', value: formatPlainInteger(averageLotArea) },
-                            { label: `Precio ${currency === 'USD' ? 'US$' : 'S/'}/m²`, value: show(manual.priceM2) },
-                            { label: `Precio lote prom. ${currency === 'USD' ? 'US$' : 'S/'}`, value: show(averageLotPrice) },
+                            { label: `Precio ${currency === 'USD' ? 'US$' : 'S/'}/m²`, value: showAmount(manual.priceM2) },
+                            { label: `Precio lote prom. ${currency === 'USD' ? 'US$' : 'S/'}`, value: showAmount(averageLotPrice) },
                             { label: 'Cuota inicial', value: `${manual.initialPercent}%` },
-                            { label: `Venta total lotes ${currency === 'USD' ? 'US$' : 'S/'}`, value: show(saleValue) },
+                            { label: `Venta total lotes ${currency === 'USD' ? 'US$' : 'S/'}`, value: showAmount(saleValue) },
                         ].map(({ label, value }) => (
                             <button key={String(label)} type="button" onClick={openAssumptions} className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition hover:brightness-95" style={{ background: '#FFF0B3' }}>
                                 <span className="text-xs font-medium text-slate-700">{label}</span>
@@ -1966,14 +2143,14 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 <CartesianGrid stroke="#E5E7EB" vertical={false} />
                                 <ReferenceLine y={0} stroke="#94A3B8" strokeWidth={1.5} />
                                 <XAxis dataKey="year" tick={{ fontSize: 10, fill: BRAND.blueDark }} tickMargin={8} axisLine={false} tickLine={false} />
-                                <YAxis domain={[(min: number) => Math.min(0, min), (max: number) => Math.max(0, max)]} tickFormatter={(value) => show(Number(value))} tick={{ fontSize: 10, fill: BRAND.muted }} axisLine={false} tickLine={false} width={88} />
-                                <Tooltip formatter={(value: number | string) => [show(Number(value)), 'Utilidad acumulada']} />
+                                <YAxis hide={isNarrow} domain={[(min: number) => Math.min(0, min), (max: number) => Math.max(0, max)]} tickFormatter={(value) => showAmount(Number(value))} tick={{ fontSize: 10, fill: BRAND.muted }} axisLine={false} tickLine={false} width={isNarrow ? 0 : 88} />
+                                <Tooltip formatter={(value: number | string) => [showAmount(Number(value)), 'Utilidad acumulada']} />
                                 <Bar dataKey="value" fill={BRAND.blue} radius={[2, 2, 0, 0]}>
                                     {visibleYears.map((year, index) => {
                                         const value = accumulatedProfit[index] || 0;
                                         return <Cell key={`utility-bar-${year}`} fill={value >= 0 ? BRAND.blue : '#DC2626'} />;
                                     })}
-                                    <LabelList dataKey="value" position="top" formatter={(value: number | string) => formatInteger(Number(value))} fill="#DC2626" fontSize={9} />
+                                    {!isNarrow && <LabelList dataKey="value" position="top" formatter={(value: number | string) => formatInteger(Number(value))} fill="#DC2626" fontSize={9} />}
                                 </Bar>
                             </BarChart>
                         </ResponsiveContainer>
@@ -2107,7 +2284,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg" style={{ background: `${BRAND.blue}14`, color: BRAND.blue }}><FiEdit3 /></span>
                             <div><h3 className="font-semibold" style={{ color: BRAND.ink }}>Confirmar cambio</h3><p className="mt-1 text-sm text-slate-500">¿Deseas aplicar este dato al modelo financiero?</p></div>
                         </div>
-                        <div className="rounded-lg border bg-[#F8FAFC] px-3 py-2.5 text-sm" style={{ borderColor: BRAND.border }}><div className="flex justify-between gap-3"><span className="text-slate-500">Valor anterior</span><b>{show(pendingEdit.original)}</b></div><div className="mt-1 flex justify-between gap-3"><span className="text-slate-500">Nuevo valor</span><b style={{ color: BRAND.blue }}>{show(pendingEdit.value)}</b></div></div>
+                        <div className="rounded-lg border bg-[#F8FAFC] px-3 py-2.5 text-sm" style={{ borderColor: BRAND.border }}><div className="flex justify-between gap-3"><span className="text-slate-500">Valor anterior</span><b>{showAmount(pendingEdit.original)}</b></div><div className="mt-1 flex justify-between gap-3"><span className="text-slate-500">Nuevo valor</span><b style={{ color: BRAND.blue }}>{showAmount(pendingEdit.value)}</b></div></div>
                         <div className="mt-5 flex justify-end gap-2"><button className="btn-neutral" onClick={cancelCellEdit}>Cancelar</button><button className="btn-primary" onClick={applyCellEdit}>Aplicar dato</button></div>
                     </div>
                 </div>

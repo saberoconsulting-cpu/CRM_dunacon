@@ -18,6 +18,7 @@ export type BankMovementImportRow = {
   depositAmount: number;
   chargeAmount: number;
   bookBalance: number | null;
+  exchangeRate: number | null;
   movementType: string | null;
   eerrClassification: string | null;
   invoiceNumber: string | null;
@@ -71,6 +72,10 @@ export class CreateBankMovementDto {
   bookBalance?: number | null;
 
   @IsOptional()
+  @IsNumber()
+  exchangeRate?: number | null;
+
+  @IsOptional()
   @IsString()
   @MaxLength(40)
   movementType?: string | null;
@@ -113,6 +118,11 @@ export class CreateBankCategoryDto {
   eerrClassification!: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  cashflowRowId?: string;
+
+  @IsOptional()
   @IsNumber()
   sortOrder?: number;
 }
@@ -132,6 +142,11 @@ export class UpdateBankCategoryDto {
   @IsString()
   @MaxLength(150)
   eerrClassification?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  cashflowRowId?: string;
 
   @IsOptional()
   @IsNumber()
@@ -177,6 +192,10 @@ export class UpdateBankMovementDto {
   @IsOptional()
   @IsNumber()
   bookBalance?: number | null;
+
+  @IsOptional()
+  @IsNumber()
+  exchangeRate?: number | null;
 
   @IsOptional()
   @IsString()
@@ -237,4 +256,8 @@ export class CreateBankAccountDto {
   @IsString()
   @MaxLength(80)
   accountNumber?: string;
+
+  @IsOptional()
+  @IsIn(BANK_CURRENCIES)
+  currency?: BankCurrency;
 }

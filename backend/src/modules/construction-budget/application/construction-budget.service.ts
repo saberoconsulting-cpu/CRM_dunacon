@@ -22,7 +22,7 @@ const BASE_BUDGET_TEMPLATE: Array<{ category: ConstructionBudgetCategory; code: 
   { category: 'costo_terreno', code: 'A.01', name: 'Adquisicion de terreno bruto / fundo matriz', sortOrder: 10 },
   { category: 'costo_terreno', code: 'A.02', name: 'Gastos legales y notariales de compra del terreno', sortOrder: 20 },
   { category: 'costo_directo', code: 'B.01', name: 'Movimiento de tierras', sortOrder: 110 },
-  { category: 'costo_directo', code: 'B.02', name: 'Obras de saneamiento', sortOrder: 120 },
+  { category: 'costo_directo', code: 'B.02', name: 'Obras civiles', sortOrder: 120 },
   { category: 'costo_directo', code: 'B.03', name: 'Pavimentacion y vias', sortOrder: 130 },
   { category: 'costo_directo', code: 'B.04', name: 'Redes electricas y alumbrado publico', sortOrder: 140 },
   { category: 'costo_directo', code: 'B.05', name: 'Obras complementarias', sortOrder: 150 },
@@ -45,6 +45,7 @@ type BudgetImportRow = {
   description: string | null;
   amount: number;
   currency: string;
+  status: string;
   sortOrder: number;
   errors: string[];
 };
@@ -74,6 +75,7 @@ export class ConstructionBudgetService {
       parentId: null,
       amount: '0',
       currency: 'PEN',
+      status: 'sin_inicio',
       createdBy: actorId || null,
     })));
     return this.list(projectId);
@@ -90,6 +92,7 @@ export class ConstructionBudgetService {
       description: dto.description || null,
       amount: String(dto.amount || 0),
       currency: dto.currency || 'PEN',
+      status: dto.status || 'sin_inicio',
       sortOrder: dto.sortOrder || 0,
       createdBy: actorId || null,
     });
@@ -109,6 +112,7 @@ export class ConstructionBudgetService {
       ...(dto.description !== undefined ? { description: dto.description } : {}),
       ...(dto.amount !== undefined ? { amount: String(dto.amount) } : {}),
       ...(dto.currency ? { currency: dto.currency } : {}),
+      ...(dto.status ? { status: dto.status } : {}),
       ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
       ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
     });
@@ -146,7 +150,7 @@ export class ConstructionBudgetService {
       validRows: usableRows.filter((row) => row.errors.length === 0).length,
       errors,
       rows: usableRows,
-      expectedColumns: ['categoria', 'codigo', 'padre', 'nombre', 'descripcion', 'monto', 'moneda', 'orden'],
+      expectedColumns: ['categoria', 'codigo', 'padre', 'nombre', 'descripcion', 'monto', 'moneda', 'estado', 'orden'],
     };
   }
 
@@ -197,6 +201,7 @@ export class ConstructionBudgetService {
         description: row.description,
         amount: String(row.amount || 0),
         currency: row.currency || 'PEN',
+        status: row.status || 'sin_inicio',
         sortOrder: row.sortOrder || 0,
         isActive: true,
       });
@@ -211,22 +216,22 @@ export class ConstructionBudgetService {
   }
 
   async totalsByProject(projectId?: number) {
-    const qb = this.budgetRepo.createQueryBuilder('b')
-      .select('b.category', 'category')
-      .addSelect('COALESCE(SUM(b.amount),0)', 'total')
-      .where('b.is_active = true')
-      .groupBy('b.category');
-    if (projectId) qb.andWhere('b.project_id = :projectId', { projectId });
-    const rows = await qb.getRawMany();
-    const totals = this.emptyTotals();
-    for (const row of rows) totals[row.category as ConstructionBudgetCategory] = Number(row.total || 0);
-    return totals;
+    const where: any = { isActive: true };
+    if (projectId) where.projectId = projectId;
+    const items = await this.budgetRepo.find({ where });
+    return this.buildSummary(items).categories;
   }
 
   buildSummary(items: ConstructionBudgetItemEntity[]) {
     const totals = this.emptyTotals();
+    const parentIds = new Set(
+      items
+        .map((item) => Number(item.parentId || 0))
+        .filter((parentId) => parentId > 0),
+    );
     for (const item of items) {
       if ((CONSTRUCTION_BUDGET_CATEGORIES as readonly string[]).includes(item.category)) {
+        if (parentIds.has(Number(item.id))) continue;
         totals[item.category as ConstructionBudgetCategory] += Number(item.amount || 0);
       }
     }
@@ -258,6 +263,7 @@ export class ConstructionBudgetService {
     const description = cleanCell(readColumn(row, ['descripcion', 'descripción', 'detalle', 'observacion', 'observación'])) || null;
     const amount = parseAmount(readColumn(row, ['monto', 'importe', 'total', 'presupuesto', 'proyectado', 'costo']));
     const currency = (cleanCell(readColumn(row, ['moneda', 'currency'])) || 'PEN').toUpperCase().slice(0, 3);
+    const status = normalizeStatus(cleanCell(readColumn(row, ['estado', 'status'])));
     const sortOrder = Number(parseAmount(readColumn(row, ['orden', 'sort', 'sort_order'])) || Math.max(0, rowNumber - 2) * 10 + 10);
     const category = normalizeCategory(cleanCell(readColumn(row, ['categoria', 'categoría', 'rubro', 'grupo'])), code);
     const errors: string[] = [];
@@ -270,7 +276,7 @@ export class ConstructionBudgetService {
     if (!Number.isFinite(amount) || amount < 0) errors.push('Monto invalido');
     if (!currency || currency.length !== 3) errors.push('Moneda invalida');
 
-    return { rowNumber, category, code, parentCode, name, description, amount, currency, sortOrder, errors };
+    return { rowNumber, category, code, parentCode, name, description, amount, currency, status, sortOrder, errors };
   }
 
   private normalizeImportPayload(row: BudgetImportRow): BudgetImportRow {
@@ -282,6 +288,7 @@ export class ConstructionBudgetService {
       descripcion: row.description || '',
       monto: row.amount,
       moneda: row.currency,
+      estado: row.status,
       orden: row.sortOrder,
     }, row.rowNumber || 0);
   }
@@ -366,6 +373,32 @@ function normalizeCategory(value: string, code: string): ConstructionBudgetCateg
   if (CATEGORY_ALIASES[key]) return CATEGORY_ALIASES[key];
   const firstLetter = String(code || '').trim().charAt(0).toLowerCase();
   return CATEGORY_ALIASES[firstLetter] || '';
+}
+
+const STATUS_ALIASES: Record<string, string> = {
+  sin_inicio: 'sin_inicio',
+  'sin inicio': 'sin_inicio',
+  pendiente: 'sin_inicio',
+  no_iniciado: 'sin_inicio',
+  en_ejecucion: 'en_ejecucion',
+  'en ejecucion': 'en_ejecucion',
+  'en ejecución': 'en_ejecucion',
+  ejecucion: 'en_ejecucion',
+  'en proceso': 'en_ejecucion',
+  proceso: 'en_ejecucion',
+  terminada: 'terminada',
+  terminado: 'terminada',
+  finalizada: 'terminada',
+  finalizado: 'terminada',
+  culminada: 'terminada',
+  culminado: 'terminada',
+  concluida: 'terminada',
+  concluido: 'terminada',
+};
+
+function normalizeStatus(value: string): string {
+  const key = normalizeHeader(value).replace(/\s+/g, '_');
+  return STATUS_ALIASES[key] || 'sin_inicio';
 }
 
 function inferParentCode(code: string) {

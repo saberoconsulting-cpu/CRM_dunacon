@@ -3,8 +3,11 @@
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   FiBriefcase,
+  FiCheckCircle,
   FiChevronDown,
   FiChevronRight,
+  FiCircle,
+  FiClock,
   FiDollarSign,
   FiDownload,
   FiEdit3,
@@ -15,14 +18,17 @@ import {
   FiTrash2,
   FiX,
 } from 'react-icons/fi';
+import type { IconType } from 'react-icons';
 import { Toaster, toast, Field } from '@/components/ui/ui';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { Select } from '@/components/ui/Select';
+import { StatusPillSelect, type StatusPillOption } from '@/components/ui/StatusPillSelect';
 import { api } from '@/lib/api';
 import { BRAND } from '@/lib/types';
-import { useDisplayCurrency } from '@/lib/currency';
+import { formatCurrency, useDisplayCurrency } from '@/lib/currency';
 
 type BudgetCategory = 'costo_terreno' | 'costo_directo' | 'costo_indirecto' | 'gastos_ventas_admin' | 'gastos_financieros_impuestos';
+type BudgetStatus = 'sin_inicio' | 'en_ejecucion' | 'terminada';
 type BudgetItem = {
   id: number;
   projectId: number;
@@ -33,17 +39,37 @@ type BudgetItem = {
   description?: string | null;
   amount: string;
   currency: string;
+  status: BudgetStatus;
   sortOrder: number;
   isActive: boolean;
 };
 type BudgetTreeItem = BudgetItem & { children: BudgetTreeItem[] };
+type CashflowRow = { id: string; label: string; values: number[]; parentId?: string | null };
 type CashflowModel = {
-  rows?: Array<{ id: string; label: string; values: number[] }>;
+  assumptions?: Record<string, any>;
+  rows?: CashflowRow[];
 };
-type BankMovement = {
-  chargeAmount?: string | number;
-  eerrClassification?: string | null;
+/**
+ * Indice de un flujo de caja: montos por id/label, la jerarquia de filas
+ * (`childrenByParent`) y un mapa de claves normalizadas hacia el id canonico
+ * de cada fila (`rowIdByKey`), necesario para acotar el matching de subpartidas
+ * a los hijos de su fila padre.
+ */
+type FlowIndex = {
+  byId: Map<string, number>;
+  byLabel: Map<string, number>;
+  childrenByParent: Map<string, CashflowRow[]>;
+  rowIdByKey: Map<string, string>;
 };
+// El Presupuesto de Obra consume UNICAMENTE los flujos de caja del proyecto:
+// el estatico (Proyectado) y el dinamico (Real). Ya no lee "Cuentas y bancos":
+// esa data solo alimenta el flujo dinamico, que es el que aqui se consulta.
+//
+// Version minima del sembrado del flujo dinamico que este componente considera
+// valida. Los registros anteriores podian ser una copia del estatico; por eso se
+// exige esta marca en `assumptions.dynamicSeedVersion` antes de usar sus montos.
+const DYNAMIC_SEED_VERSION = 1;
+
 
 const CATEGORIES: Array<{ key: BudgetCategory; label: string; letter: string; color: string; helper: string }> = [
   { key: 'costo_terreno', label: 'Costo de terreno', letter: 'A', color: '#0866E5', helper: 'Compra del fundo matriz y formalizacion legal.' },
@@ -57,6 +83,34 @@ const BORDER = '#E2E8F0';
 const INK = '#0F172A';
 const MUTED = '#64748B';
 const CLOSED_CATEGORIES = Object.fromEntries(CATEGORIES.map((cat) => [cat.key, false])) as Record<string, boolean>;
+
+// Estados de ejecucion de cada partida/subpartida del presupuesto.
+const STATUS_OPTIONS: Array<{ key: BudgetStatus; label: string; color: string; background: string; border: string }> = [
+  { key: 'sin_inicio', label: 'Sin Inicio', color: '#64748B', background: '#F1F5F9', border: '#E2E8F0' },
+  { key: 'en_ejecucion', label: 'En Ejecución', color: '#B45309', background: '#FEF3C7', border: '#FCD34D' },
+  { key: 'terminada', label: 'Terminada', color: '#15803D', background: '#DCFCE7', border: '#86EFAC' },
+];
+const STATUS_META = Object.fromEntries(STATUS_OPTIONS.map((status) => [status.key, status])) as Record<BudgetStatus, (typeof STATUS_OPTIONS)[number]>;
+
+// Icono por estado para el pill-select (mejora la lectura visual de cada fila).
+const STATUS_ICON: Record<BudgetStatus, IconType> = {
+  sin_inicio: FiCircle,
+  en_ejecucion: FiClock,
+  terminada: FiCheckCircle,
+};
+
+const STATUS_PILL_OPTIONS: StatusPillOption[] = STATUS_OPTIONS.map((status) => ({
+  value: status.key,
+  label: status.label,
+  color: status.color,
+  background: status.background,
+  border: status.border,
+  icon: STATUS_ICON[status.key],
+}));
+
+function statusMeta(status?: string) {
+  return STATUS_META[(status as BudgetStatus)] || STATUS_META.sin_inicio;
+}
 
 function nextCode(items: BudgetItem[], category: BudgetCategory, excludeId?: number) {
   const meta = CATEGORIES.find((item) => item.key === category);
@@ -126,13 +180,16 @@ function normalizeMatch(value: unknown) {
  * el mapa EERR de Cuentas y bancos.
  */
 const BUDGET_CASHFLOW_ROW_MAP: Array<[string[], string]> = [
-  // A) Costo de terreno
+  // A) Costo de terreno. El ORDEN importa: cada needle se evalua de lo mas
+  // especifico a lo mas generico, asi que `alcabala` va ANTES que `legal`
+  // (la palabra "legal" es un needle muy amplio y nunca debe robarle la
+  // alcabala a la partida que si es de alcabala).
+  [['alcabala', 'alcabala 3'], 'alcabala'],
   [['a 02', 'gastos legales', 'notariales', 'notarial', 'asesoria legal', 'legal'], 'legal'],
   [['a 01', 'adquisicion de terreno', 'terreno bruto', 'fundo matriz', 'compra terreno', 'compra de terreno'], 'land-cost'],
-  [['alcabala'], 'alcabala'],
   // B) Costo directo (subpartidas de obra)
   [['b 01', 'movimiento de tierras', 'movimiento de tierra', 'afirmado'], 'construction-earthworks'],
-  [['b 02', 'obras de saneamiento', 'saneamiento', 'cisterna', 'redes de agua', 'redes sanitarias'], 'construction-sanitation'],
+  [['b 02', 'obras civiles', 'obras de saneamiento', 'saneamiento', 'cisterna', 'redes de agua', 'redes sanitarias'], 'construction-sanitation'],
   [['b 03', 'pavimentacion y vias', 'pavimentacion', 'vias', 'veredas', 'pistas', 'sardineles'], 'construction-roads'],
   [['b 04', 'redes electricas', 'alumbrado publico', 'alumbrado', 'electricas', 'electrico'], 'construction-electric'],
   [['b 05', 'obras complementarias', 'obras complementaria', 'complementarias'], 'construction-complementary'],
@@ -153,18 +210,60 @@ const BUDGET_CASHFLOW_ROW_MAP: Array<[string[], string]> = [
   [['e 02', 'impuesto a la renta', 'impuesto', 'renta', 'igv'], 'tax'],
 ];
 
+const BUDGET_ROW_CATEGORIES: Record<string, BudgetCategory> = {
+  'land-cost': 'costo_terreno',
+  alcabala: 'costo_terreno',
+  legal: 'costo_terreno',
+  'construction-earthworks': 'costo_directo',
+  'construction-sanitation': 'costo_directo',
+  'construction-roads': 'costo_directo',
+  'construction-electric': 'costo_directo',
+  'construction-complementary': 'costo_directo',
+  supervision: 'costo_directo',
+  services: 'costo_directo',
+  design: 'costo_indirecto',
+  management: 'costo_indirecto',
+  indemnity: 'costo_indirecto',
+  'legal-contingency': 'costo_indirecto',
+  'sales-plan': 'gastos_ventas_admin',
+  marketing: 'gastos_ventas_admin',
+  commission: 'gastos_ventas_admin',
+  'post-sale': 'gastos_ventas_admin',
+  discounts: 'gastos_ventas_admin',
+  financial: 'gastos_financieros_impuestos',
+  tax: 'gastos_financieros_impuestos',
+};
+
+/**
+ * Un needle es "de codigo" cuando, ya normalizado, tiene la forma de un codigo
+ * de partida del presupuesto (una letra + 2 digitos: "a 02", "b 01"...). Estos
+ * se comparan SOLO contra el codigo exacto de la partida; nunca contra el
+ * nombre. Asi, una partida llamada "Alcabala (3%)" con codigo A.02 NO es robada
+ * por la entrada `['a 02', ...] -> legal`: su nombre manda y cae en `alcabala`.
+ */
+function isCodeNeedle(needle: string) {
+  return /^[a-z] \d{1,3}$/.test(needle);
+}
+
 /**
  * Fila del flujo de caja asociada a una partida. Se evalua en orden y gana la
  * primera coincidencia (de lo mas especifico a lo mas generico) para que una
  * partida no sume dos filas a la vez (p. ej. A.02 solo debe caer en `legal`,
  * no tambien en `land-cost` por contener la palabra "terreno").
+ *
+ * Los needles de codigo ("a 02", "b 01"...) solo coinciden con el codigo EXACTO
+ * de la partida; los needles de texto ("alcabala", "asesoria legal"...) solo
+ * coinciden con el NOMBRE. Esto evita que un codigo generico (A.02) se confunda
+ * con el nombre de otra partida y termine trayendo el mismo monto en dos filas.
  */
 function budgetCashflowKey(item: BudgetItem): string | null {
   const code = normalizeMatch(item.code);
   const name = normalizeMatch(item.name);
   const text = `${code} ${name}`.trim();
   for (const [needles, target] of BUDGET_CASHFLOW_ROW_MAP) {
-    if (needles.some((needle) => text.includes(needle))) return normalizeMatch(target);
+    if (BUDGET_ROW_CATEGORIES[target] !== item.category) continue;
+    const hit = needles.some((needle) => (isCodeNeedle(needle) ? code === needle : name.includes(needle)));
+    if (hit) return normalizeMatch(target);
   }
   if (item.category === 'costo_terreno' && text.includes('costo de terreno')) return 'land';
   if (item.category === 'costo_directo' && text.includes('costo directo')) return 'direct';
@@ -174,9 +273,37 @@ function budgetCashflowKey(item: BudgetItem): string | null {
   return null;
 }
 
+/**
+ * Fila del flujo a usar cuando la partida no coincide con ningun needle de
+ * `BUDGET_CASHFLOW_ROW_MAP`. Espeja `BUDGET_CATEGORY_FALLBACK_ROW` de
+ * CashflowExcelTestView para que ambas pantallas resuelvan la misma fila.
+ */
+const BUDGET_CATEGORY_FALLBACK_ROW: Record<BudgetCategory, string> = {
+  costo_terreno: 'land-cost',
+  costo_directo: 'construction-complementary',
+  costo_indirecto: 'legal-contingency',
+  gastos_ventas_admin: 'marketing',
+  gastos_financieros_impuestos: 'financial',
+};
+
 function pct(real: number, projected: number) {
   if (!projected) return real ? 100 : 0;
   return (real / projected) * 100;
+}
+
+function cashflowCategoryTotal(source: Map<string, number>, category: BudgetCategory): number | null {
+  const value = (key: string) => source.get(normalizeMatch(key));
+  if (category === 'costo_terreno') return value('land') ?? null;
+  if (category === 'costo_directo') return value('direct') ?? null;
+  if (category === 'costo_indirecto') return value('indirect') ?? null;
+  if (category === 'gastos_ventas_admin') return value('selling') ?? null;
+  if (category === 'gastos_financieros_impuestos') {
+    const financial = value('financial');
+    const tax = value('tax');
+    if (financial == null && tax == null) return null;
+    return Number(financial || 0) + Number(tax || 0);
+  }
+  return null;
 }
 
 export default function ConstructionBudgetView({ projectId }: { projectId: number }) {
@@ -184,7 +311,6 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
   const [summary, setSummary] = useState<any>({ categories: {}, grandTotal: 0 });
   const [cashflow, setCashflow] = useState<CashflowModel | null>(null);
   const [dynamicCashflow, setDynamicCashflow] = useState<CashflowModel | null>(null);
-  const [bankMovements, setBankMovements] = useState<BankMovement[]>([]);
   const [loading, setLoading] = useState(true);
   const [openCats, setOpenCats] = useState<Record<string, boolean>>(CLOSED_CATEGORIES);
   const [openItems, setOpenItems] = useState<Record<number, boolean>>({});
@@ -193,38 +319,39 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
   const [deleting, setDeleting] = useState<BudgetItem | null>(null);
   const [form, setForm] = useState<any>({});
   const [printing, setPrinting] = useState(false);
-  // Moneda unica de la pantalla: los montos se guardan siempre en soles y
-  // `show()` los convierte a la moneda activa al momento de pintarlos.
-  const { currency, setCurrency, exchangeRate, setExchangeRate, format: show } = useDisplayCurrency();
+  // Moneda unica de la pantalla: los montos base del presupuesto/flujo son USD.
+  // La pantalla puede mostrarse en soles con el toggle: en ese caso se MULTIPLICA
+  // por el tipo de cambio (solo visual, el dato guardado sigue en dolares).
+  // En US$ el monto se pinta tal cual.
+  const { currency, setCurrency, exchangeRate, setExchangeRate } = useDisplayCurrency();
   // Simbolo de la moneda activa para los encabezados de la tabla.
   const symbol = String(currency).toUpperCase() === 'USD' ? 'US$' : 'S/';
+  // Convierte un monto base (dolares) a la moneda activa: en S/ multiplica por el TC.
+  const toDisplay = (value: number) => (String(currency).toUpperCase() === 'PEN' ? Number(value || 0) * exchangeRate : Number(value || 0));
   // En movil la columna del monto es angosta: pintamos el numero sin simbolo
   // (el encabezado ya lo indica) para que no se amontone con el Concepto.
-  const showCompact = (value: number) => show(value).replace(/^[^\d-]+/, '').trim();
+  const showUsdBase = (value: number) => formatCurrency(toDisplay(value), currency);
+  const showUsdBaseCompact = (value: number) => showUsdBase(value).replace(/^[^\d-]+/, '').trim();
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [data, cashflowData, dynamicCashflowData, bankData] = await Promise.all([
+      const [data, cashflowData, dynamicCashflowData] = await Promise.all([
         api.get<any>(`/construction-budget?projectId=${projectId}`),
         api.get<CashflowModel | null>(`/cashflow/model?projectId=${projectId}&mode=estatico`).catch(() => null),
         api.get<CashflowModel | null>(`/cashflow/model?projectId=${projectId}&mode=dinamico`).catch(() => null),
-        api.get<any>(`/bank-accounts/accounts?projectId=${projectId}`)
-          .then(async (accountsData) => {
-            const accounts = Array.isArray(accountsData?.items) ? accountsData.items : [];
-            const keys = accounts.length ? accounts.map((account: any) => account.accountKey).filter(Boolean) : ['GENERAL'];
-            const responses = await Promise.all(keys.map((accountKey: string) =>
-              api.get<any>(`/bank-accounts?projectId=${projectId}&accountKey=${encodeURIComponent(accountKey)}`).catch(() => ({ items: [] })),
-            ));
-            return { items: responses.flatMap((response) => Array.isArray(response?.items) ? response.items : []) };
-          })
-          .catch(() => ({ items: [] })),
       ]);
       setItems(data?.items || []);
       setSummary(data?.summary || { categories: {}, grandTotal: 0 });
       setCashflow(cashflowData && Array.isArray(cashflowData.rows) ? cashflowData : null);
-      setDynamicCashflow(dynamicCashflowData && Array.isArray(dynamicCashflowData.rows) ? dynamicCashflowData : null);
-      setBankMovements(Array.isArray(bankData?.items) ? bankData.items : []);
+      // Salvaguarda: los modelos dinamicos guardados ANTES del arreglo podian ser
+      // una copia del estatico (mismo monto en Real y Proyectado). Si el registro
+      // no trae la marca de version del sembrado dinamico, se ignora para no
+      // mostrar un Real contaminado; se regenerara al abrir el flujo de caja.
+      const dynamicIsClean = dynamicCashflowData
+        && Array.isArray(dynamicCashflowData.rows)
+        && Number((dynamicCashflowData.assumptions || {}).dynamicSeedVersion || 0) >= DYNAMIC_SEED_VERSION;
+      setDynamicCashflow(dynamicIsClean ? dynamicCashflowData : null);
       setOpenCats(CLOSED_CATEGORIES);
       setOpenItems({});
     } catch (error: any) {
@@ -283,80 +410,205 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     }));
   }, [items]);
 
-  const cashflowTotals = useMemo(() => {
-    const totals = new Map<string, number>();
-    for (const row of cashflow?.rows || []) {
+  /**
+   * Indice de un modelo de flujo de caja indexado por id tecnico (clave canonica,
+   * un unico valor por fila) y, aparte, por label normalizado. Antes se sumaban
+   * id y label en el MISMO mapa, lo que hacia que una fila fuera alcanzable por
+   * dos claves y el matching difuso la contara dos veces (duplicando montos).
+   * Ahora el id es la unica fuente numerica y el label solo sirve para resolver
+   * exactamente una fila (nunca para sumar varias).
+   *
+   * Ademas se reconstruye la JERARQUIA del flujo (`childrenByParent`) y un mapa
+   * de claves normalizadas hacia el id canonico de la fila (`rowIdByKey`), de
+   * modo que una subpartida pueda resolverse por nombre ACOTADO a los hijos de su
+   * fila padre. Esto es clave en produccion: hay hasta 3 niveles de subpartidas y
+   * sin acotar por padre dos homonimas en secciones distintas se confundirian o
+   * colapsarian sobre el total del padre.
+   */
+  const buildFlowIndex = useCallback((model: CashflowModel | null) => {
+    const byId = new Map<string, number>();
+    const byLabel = new Map<string, number>();
+    const childrenByParent = new Map<string, CashflowRow[]>();
+    const rowIdByKey = new Map<string, string>();
+    for (const row of model?.rows || []) {
       const total = (row.values || []).reduce((sum, value) => sum + Number(value || 0), 0);
-      const keys = [row.id, row.label].map(normalizeMatch).filter(Boolean);
-      keys.forEach((key) => totals.set(key, (totals.get(key) || 0) + total));
+      const idKey = normalizeMatch(row.id);
+      const labelKey = normalizeMatch(row.label);
+      if (idKey) byId.set(idKey, total);
+      if (labelKey && !byId.has(labelKey)) byLabel.set(labelKey, total);
+      // Jerarquia: los hijos se indexan por el id del padre (clave normalizada).
+      if (row.parentId) {
+        const parentKey = normalizeMatch(row.parentId);
+        if (parentKey) childrenByParent.set(parentKey, [...(childrenByParent.get(parentKey) || []), row]);
+        const parentExact = rowIdByKey.get(parentKey) || row.parentId;
+        rowIdByKey.set(parentKey, parentExact);
+      }
+      // Claves -> id canonico. El id tiene prioridad sobre el label.
+      if (idKey) rowIdByKey.set(idKey, row.id);
+      if (labelKey && !rowIdByKey.has(labelKey)) rowIdByKey.set(labelKey, row.id);
     }
-    return totals;
-  }, [cashflow]);
+    return { byId, byLabel, childrenByParent, rowIdByKey };
+  }, []);
 
-  const bankTotals = useMemo(() => {
-    const totals = new Map<string, number>();
-    for (const movement of bankMovements) {
-      const key = normalizeMatch(movement.eerrClassification);
-      if (!key) continue;
-      totals.set(key, (totals.get(key) || 0) + Number(movement.chargeAmount || 0));
+  const cashflowIndex = useMemo(() => buildFlowIndex(cashflow), [cashflow, buildFlowIndex]);
+  const dynamicCashflowIndex = useMemo(() => buildFlowIndex(dynamicCashflow), [dynamicCashflow, buildFlowIndex]);
+
+  /**
+   * Fila del flujo a la que apunta cada categoria del presupuesto. Se usa como
+   * ultimo recurso cuando el flujo no expone la fila de seccion (land/direct/
+   * indirect/selling/financial): asi el monto nunca queda en cero si la data
+   * existe en el flujo.
+   */
+  const staticCategoryRow: Record<BudgetCategory, string> = {
+    costo_terreno: 'land',
+    costo_directo: 'direct',
+    costo_indirecto: 'indirect',
+    gastos_ventas_admin: 'selling',
+    gastos_financieros_impuestos: 'financial',
+  };
+
+  /**
+   * Id de la fila del flujo que corresponde a una partida del presupuesto (su
+   * "clave"). Se usa para acotar la busqueda de sus subpartidas a los hijos de
+   * esa fila. Orden: 1) la fila mapeada por codigo/nombre de la partida
+   * (`budgetCashflowKey`), 2) el mapeo hacia su id canonico en el flujo
+   * (`rowIdByKey`), 3) su propio codigo/nombre normalizado.
+   */
+  function parentFlowKeyFor(index: FlowIndex, item: BudgetItem | null | undefined): string | null {
+    if (!item) return null;
+    const mapped = budgetCashflowKey(item);
+    if (mapped) {
+      const key = normalizeMatch(mapped);
+      if (index.rowIdByKey.has(key)) return index.rowIdByKey.get(key) || mapped;
+      if (index.byId.has(key)) return mapped;
     }
-    return totals;
-  }, [bankMovements]);
-
-  const dynamicCashflowTotals = useMemo(() => {
-    const totals = new Map<string, number>();
-    for (const row of dynamicCashflow?.rows || []) {
-      const total = (row.values || []).reduce((sum, value) => sum + Number(value || 0), 0);
-      const keys = [row.id, row.label].map(normalizeMatch).filter(Boolean);
-      keys.forEach((key) => totals.set(key, (totals.get(key) || 0) + total));
-    }
-    return totals;
-  }, [dynamicCashflow]);
-
-  function matchedTotal(source: Map<string, number>, item: BudgetItem) {
-    const code = normalizeMatch(item.code);
     const name = normalizeMatch(item.name);
-    const mappedKey = budgetCashflowKey(item);
-    let total = 0;
-    for (const [key, value] of source.entries()) {
-      if (
-        key === code ||
-        key === name ||
-        (mappedKey != null && key === mappedKey) ||
-        key.startsWith(`${code} `) ||
-        key.includes(` ${code} `) ||
-        (name.length > 2 && key.includes(name))
-      ) {
-        total += value;
+    if (name && index.rowIdByKey.has(name)) return index.rowIdByKey.get(name) || null;
+    const code = normalizeMatch(item.code);
+    if (code && index.rowIdByKey.has(code)) return index.rowIdByKey.get(code) || null;
+    return null;
+  }
+
+  /**
+   * Resuelve el monto de UNA partida contra UNA fila del flujo. Es determinista:
+   * nunca suma varias filas y nunca colapsa subpartidas hermanas sobre el total
+   * del padre.
+   *
+   * Partida raiz (sin parentId): el flujo la define a nivel de partida, asi que
+   *   se mapea por codigo/nombre, luego por su codigo exacto y luego por su nombre.
+   * Subpartida (con parentId): busca por su NOMBRE ACOTADO a los hijos de su fila
+   *   padre (a cualquier nivel de anidamiento: B.01.01, B.01.01.01...). Asi dos
+   *   subpartidas homonimas en secciones distintas no se confunden entre si y nunca
+   *   colapsan sobre el total del padre. Si no halla por nombre, busca por codigo
+   *   entre esos mismos hermanos; y recien despues cae al indice global plano.
+   */
+  function matchedTotal(
+    index: FlowIndex,
+    item: BudgetItem,
+    parentFlowKey?: string | null,
+  ) {
+    const isSub = item.parentId != null;
+    if (!isSub) {
+      const mappedKey = budgetCashflowKey(item) ?? normalizeMatch(BUDGET_CATEGORY_FALLBACK_ROW[item.category]);
+      if (mappedKey != null) {
+        const mappedValue = index.byId.get(mappedKey);
+        if (mappedValue != null) return mappedValue;
       }
     }
-    return total;
+    // Subpartida (a cualquier nivel de anidamiento): busca por nombre ACOTADO a los
+    // hijos de la fila padre ya resuelta.
+    const name = normalizeMatch(item.name);
+    if (parentFlowKey) {
+      const parentKey = normalizeMatch(parentFlowKey);
+      const siblings = index.childrenByParent.get(parentKey) || [];
+      if (name) {
+        const child = siblings.find((row) => normalizeMatch(row.label) === name);
+        if (child) return (child.values || []).reduce((sum, value) => sum + Number(value || 0), 0);
+      }
+      const code = normalizeMatch(item.code);
+      if (code) {
+        const child = siblings.find((row) => normalizeMatch(row.id) === code || normalizeMatch(row.label) === code);
+        if (child) return (child.values || []).reduce((sum, value) => sum + Number(value || 0), 0);
+      }
+    }
+    // Fallback: indice global plano (por nombre y luego por codigo).
+    if (name) {
+      const byName = index.byLabel.get(name) ?? index.byId.get(name);
+      if (byName != null) return byName;
+    }
+    const code = normalizeMatch(item.code);
+    if (code) {
+      const byCode = index.byId.get(code) ?? index.byLabel.get(code);
+      if (byCode != null) return byCode;
+    }
+    if (!isSub) {
+      if (name) {
+        const byName = index.byId.get(name) ?? index.byLabel.get(name);
+        if (byName != null) return byName;
+      }
+    }
+    return 0;
   }
 
-  function projectedAmount(item: BudgetTreeItem): number {
-    if (item.children.length) return item.children.reduce((sum, child) => sum + projectedAmount(child), 0);
-    const fromCashflow = matchedTotal(cashflowTotals, item);
-    return fromCashflow || Number(item.amount || 0);
+  /**
+   * Monto proyectado de una partida. Sale del Flujo de Caja ESTATICO (modo
+   * 'estatico'), que es donde el cliente carga sus partidas y subpartidas. Si el
+   * flujo no expone la fila, se usa el monto manual de la partida.
+   */
+  function projectedAmount(item: BudgetTreeItem, parentFlowKey?: string | null): number {
+    if (item.children.length) {
+      const selfKey = parentFlowKeyFor(cashflowIndex, item) || parentFlowKey || null;
+      return item.children.reduce((sum, child) => sum + projectedAmount(child, selfKey), 0);
+    }
+    const fromCashflow = matchedTotal(cashflowIndex, item, parentFlowKey);
+    if (fromCashflow) return fromCashflow;
+    // Si la subpartida no encuentra su fila en el flujo, usa su monto manual.
+    // Solo para partidas raiz se cae a la categoria cuando no hay match.
+    if (item.parentId != null) return Number(item.amount || 0);
+    // Partida raiz: si la fila de seccion existe en el estatico (aunque sume 0), se respeta.
+    const categoryRow = staticCategoryRow[item.category];
+    const categoryValue = cashflowIndex.byId.get(normalizeMatch(categoryRow));
+    if (categoryValue != null) return categoryValue;
+    return Number(item.amount || 0);
   }
 
-  function realAmount(item: BudgetTreeItem): number {
-    if (item.children.length) return item.children.reduce((sum, child) => sum + realAmount(child), 0);
-    const fromDynamicCashflow = matchedTotal(dynamicCashflowTotals, item);
-    return fromDynamicCashflow || matchedTotal(bankTotals, item);
+  /**
+   * Monto real de una partida. Consume UNICAMENTE el Flujo de Caja Dinámico
+   * (modo 'dinamico'), que se alimenta de Cuentas y Bancos. No se mezcla con
+   * el estático.
+   */
+  function realAmount(item: BudgetTreeItem, parentFlowKey?: string | null): number {
+    if (item.children.length) {
+      const selfKey = parentFlowKeyFor(dynamicCashflowIndex, item) || parentFlowKey || null;
+      return item.children.reduce((sum, child) => sum + realAmount(child, selfKey), 0);
+    }
+    const fromDynamic = matchedTotal(dynamicCashflowIndex, item, parentFlowKey);
+    if (fromDynamic) return fromDynamic;
+    // Si la subpartida no encuentra su fila en el flujo dinamico, usa su monto manual.
+    // Solo para partidas raiz se cae a la categoria cuando no hay match.
+    if (item.parentId != null) return Number(item.amount || 0);
+    // Partida raiz: ultima recurso es la fila de seccion del flujo dinamico.
+    const categoryRow = staticCategoryRow[item.category];
+    const categoryKey = normalizeMatch(categoryRow);
+    const dynamicCategory = dynamicCashflowIndex.byId.get(categoryKey);
+    if (dynamicCategory != null) return dynamicCategory;
+    return 0;
   }
 
   const budgetTotals = useMemo(() => {
     const categories = Object.fromEntries(itemTree.map((cat) => [
       cat.key,
       {
-        projected: cat.roots.reduce((sum, item) => sum + projectedAmount(item), 0),
-        real: cat.roots.reduce((sum, item) => sum + realAmount(item), 0),
+        projected: cashflowCategoryTotal(cashflowIndex.byId, cat.key) ?? cat.roots.reduce((sum, item) => sum + projectedAmount(item), 0),
+        // Real: UNICAMENTE flujo dinamico (data de Cuentas y Bancos). No se mezcla con estatico.
+        real: cashflowCategoryTotal(dynamicCashflowIndex.byId, cat.key)
+          ?? cat.roots.reduce((sum, item) => sum + realAmount(item), 0),
       },
     ])) as Record<BudgetCategory, { projected: number; real: number }>;
     const projected = Object.values(categories).reduce((sum, item) => sum + item.projected, 0);
     const real = Object.values(categories).reduce((sum, item) => sum + item.real, 0);
     return { categories, projected, real };
-  }, [itemTree, cashflowTotals, dynamicCashflowTotals, bankTotals]);
+  }, [itemTree, cashflowIndex, dynamicCashflowIndex]);
 
   function revealItem(id: number | null) {
     if (!id) return;
@@ -382,6 +634,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
       name: '',
       amount: '',
       currency: 'PEN',
+      status: 'sin_inicio' as BudgetStatus,
       sortOrder: parentId
         ? items.filter((item) => Number(item.parentId || 0) === Number(parentId)).length * 10 + 10
         : items.filter((item) => item.category === category && !item.parentId).length * 10 + 10,
@@ -393,6 +646,21 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     setEditing(item);
     setForm({ ...item, amount: Number(item.amount || 0) });
     setModalOpen(true);
+  }
+
+  // Cambia el estado de una partida/subpartida directamente desde la tabla.
+  // Se actualiza la UI de inmediato (optimista) y, si el backend falla, se revierte.
+  async function updateStatus(item: BudgetTreeItem, status: BudgetStatus) {
+    if (item.status === status) return;
+    setItems((current) => current.map((row) => (Number(row.id) === Number(item.id) ? { ...row, status } : row)));
+    if (editing && Number(editing.id) === Number(item.id)) setEditing({ ...editing, status });
+    try {
+      await api.patch(`/construction-budget/${item.id}`, { status });
+    } catch (error: any) {
+      setItems((current) => current.map((row) => (Number(row.id) === Number(item.id) ? { ...row, status: item.status } : row)));
+      if (editing && Number(editing.id) === Number(item.id)) setEditing({ ...editing, status: item.status });
+      toast(error?.message || 'No se pudo actualizar el estado', 'err');
+    }
   }
 
   async function seedBase() {
@@ -480,16 +748,29 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
             </div>
           </td>
           <td className="budget-cell-projected whitespace-nowrap px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: INK }}>
-            <span className="budget-amount-compact md:hidden">{showCompact(projected)}</span>
-            <span className="budget-amount-full hidden md:inline">{show(projected)}</span>
+            <span className="budget-amount-compact md:hidden">{showUsdBaseCompact(projected)}</span>
+            <span className="budget-amount-full hidden md:inline">{showUsdBase(projected)}</span>
           </td>
           <td className="budget-cell-real whitespace-nowrap px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: real > 0 ? '#16A36A' : INK }}>
-            <span className="budget-amount-compact md:hidden">{showCompact(real)}</span>
-            <span className="budget-amount-full hidden md:inline">{show(real)}</span>
+            <span className="budget-amount-compact md:hidden">{showUsdBaseCompact(real)}</span>
+            <span className="budget-amount-full hidden md:inline">{showUsdBase(real)}</span>
           </td>
           <td className="budget-cell-advance px-1.5 py-3 text-right md:px-3">
             <span className="inline-block rounded-full px-1.5 py-1 text-[11px] font-bold tabular-nums sm:px-2.5 sm:text-xs" style={{ background: advance >= 100 ? '#EAF7EE' : '#F1F5F9', color: advance >= 100 ? '#16A36A' : BRAND.blue }}>
               {advance.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+            </span>
+          </td>
+          <td className="budget-cell-status px-1.5 py-3 text-center md:px-3">
+            {/* En pantalla se edita con el pill-select; en impresion se muestra solo el texto. */}
+            <StatusPillSelect
+              className="budget-no-print"
+              title="Estado de la partida"
+              value={item.status || 'sin_inicio'}
+              onChange={(next) => updateStatus(item, next as BudgetStatus)}
+              options={STATUS_PILL_OPTIONS}
+            />
+            <span className="budget-status-text" style={{ color: statusMeta(item.status).color, fontWeight: 700 }}>
+              {statusMeta(item.status).label}
             </span>
           </td>
           <td className="budget-no-print px-1.5 py-3 md:px-3">
@@ -517,8 +798,10 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
       <Toaster />
       <style jsx global>{`
         @media (min-width: 768px) {
-          .budget-table { width: 100% !important; min-width: 980px !important; }
+          .budget-table { width: 100% !important; min-width: 1120px !important; }
         }
+        /* En pantalla el estado se edita con el selector; el texto solo se usa al imprimir. */
+        .budget-status-text { display: none; }
         @media print {
           @page {
             size: A4 landscape;
@@ -552,15 +835,17 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
             min-width: 0 !important;
           }
           /* Al exportar desde el celular la tabla quedo en su modo reducido
-             (Concepto + Proyectado): aqui se fuerzan las 5 columnas para que
-             Real, Avance % y Acciones reaparezcan en el PDF. */
-          .budget-print-area .budget-table > colgroup > .budget-col-concept { width: 44% !important; }
-          .budget-print-area .budget-table > colgroup > .budget-col-projected { width: 15% !important; }
-          .budget-print-area .budget-table > colgroup > .budget-col-real { width: 15% !important; }
-          .budget-print-area .budget-table > colgroup > .budget-col-advance { width: 12% !important; }
-          .budget-print-area .budget-table > colgroup > .budget-col-actions { width: 14% !important; }
+             (Concepto + Proyectado): aqui se fuerzan las columnas para que
+             Real, Avance %, Estado y Acciones reaparezcan en el PDF. */
+          .budget-print-area .budget-table > colgroup > .budget-col-concept { width: 34% !important; }
+          .budget-print-area .budget-table > colgroup > .budget-col-projected { width: 14% !important; }
+          .budget-print-area .budget-table > colgroup > .budget-col-real { width: 14% !important; }
+          .budget-print-area .budget-table > colgroup > .budget-col-advance { width: 11% !important; }
+          .budget-print-area .budget-table > colgroup > .budget-col-status { width: 15% !important; }
+          .budget-print-area .budget-table > colgroup > .budget-col-actions { width: 12% !important; }
           .budget-print-area .budget-table .budget-cell-real,
-          .budget-print-area .budget-table .budget-cell-advance { display: table-cell !important; }
+          .budget-print-area .budget-table .budget-cell-advance,
+          .budget-print-area .budget-table .budget-cell-status { display: table-cell !important; }
           .budget-print-area .budget-no-print,
           .budget-print-area .budget-table .budget-col-actions { display: none !important; }
           .budget-print-area th,
@@ -575,6 +860,11 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
           }
           .budget-print-area .budget-amount-full {
             display: inline !important;
+          }
+          /* En el PDF el estado se muestra como texto (el select queda oculto). */
+          .budget-print-area .budget-status-text {
+            display: inline-block !important;
+            white-space: nowrap;
           }
           /* En el PDF las celdas recuperan su padding normal y dejan de recortar
              el contenido, porque el ancho de hoja (A4 landscape) ya alcanza. */
@@ -608,8 +898,8 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                 Partidas y subpartidas por proyecto. Estos montos alimentan automaticamente la columna Proyectado del Estado de Resultados.
               </p>
             </div>
-            <div className="budget-no-print grid w-full grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:w-auto lg:max-w-[620px] lg:flex-wrap lg:justify-end">
-              <div className="flex w-full justify-center sm:col-span-2 lg:w-auto lg:justify-start">
+            <div className="budget-no-print grid w-full grid-cols-2 gap-2 lg:w-auto lg:max-w-[460px]">
+              <div className="flex w-full justify-center col-span-2 lg:justify-end">
                 <CurrencyToggle
                   currency={currency}
                   setCurrency={setCurrency}
@@ -617,21 +907,21 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                   setExchangeRate={setExchangeRate}
                 />
               </div>
-              <button className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={exportPdf}><FiDownload /> Exportar PDF</button>
-              <button className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={load} disabled={loading}><FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar</button>
-              <button className="btn-outline w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={seedBase} disabled={items.length > 0} title={items.length > 0 ? 'La base solo se carga cuando el presupuesto esta vacio' : 'Carga las partidas base del presupuesto'}><FiFilePlus /> Base</button>
-              <button className="btn-primary w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={() => openCreate('costo_directo')}><FiPlus /> Nueva partida</button>
+              <button className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm" onClick={exportPdf}><FiDownload /> Exportar PDF</button>
+              <button className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm" onClick={load} disabled={loading}><FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar</button>
+              <button className="btn-outline w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm" onClick={seedBase} disabled={items.length > 0} title={items.length > 0 ? 'La base solo se carga cuando el presupuesto esta vacio' : 'Carga las partidas base del presupuesto'}><FiFilePlus /> Base</button>
+              <button className="btn-primary w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm" onClick={() => openCreate('costo_directo')}><FiPlus /> Nueva partida</button>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 border-t bg-[#F8FAFC] p-4 xl:grid-cols-6" style={{ borderColor: BORDER }}>
             <div className="min-w-0 rounded-md border bg-white p-3 sm:p-4 xl:col-span-1" style={{ borderColor: BORDER }}>
               <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }}>Total presupuesto</p>
-              <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-xl" style={{ color: INK }}>{show(budgetTotals.projected || summary?.grandTotal)}</p>
+              <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-xl" style={{ color: INK }}>{showUsdBase(budgetTotals.projected || summary?.grandTotal)}</p>
             </div>
             {CATEGORIES.map((cat) => (
               <div key={cat.key} className="min-w-0 rounded-md border bg-white p-3 sm:p-4" style={{ borderColor: BORDER }}>
                 <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }} title={`${cat.letter}. ${cat.label}`}>{cat.letter}. {cat.label}</p>
-                <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-lg" style={{ color: cat.color }}>{show(budgetTotals.categories[cat.key]?.projected || summary?.categories?.[cat.key])}</p>
+                <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-lg" style={{ color: cat.color }}>{showUsdBase(budgetTotals.categories[cat.key]?.projected || summary?.categories?.[cat.key])}</p>
               </div>
             ))}
           </div>
@@ -651,13 +941,14 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
             <>
               <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
               <div className="overflow-x-auto [container-type:inline-size]" style={{ WebkitOverflowScrolling: 'touch' }}>
-                <table className="budget-table w-[calc(100cqw_+_300px)] table-fixed border-collapse text-[13px] md:w-full md:min-w-[980px] md:text-sm">
+                <table className="budget-table w-[calc(100cqw_+_440px)] table-fixed border-collapse text-[13px] md:w-full md:min-w-[1120px] md:text-sm">
                   <colgroup>
-                    <col className="budget-col-concept w-[calc(100cqw_-_132px)] md:w-[44%]" />
-                    <col className="budget-col-projected w-[132px] md:w-[15%]" />
-                    <col className="budget-col-real w-[130px] md:w-[15%]" />
-                    <col className="budget-col-advance w-[86px] md:w-[12%]" />
-                    <col className="budget-col-actions budget-no-print w-[84px] md:w-[14%]" />
+                    <col className="budget-col-concept w-[calc(100cqw_-_132px)] md:w-[36%]" />
+                    <col className="budget-col-projected w-[132px] md:w-[14%]" />
+                    <col className="budget-col-real w-[130px] md:w-[14%]" />
+                    <col className="budget-col-advance w-[86px] md:w-[11%]" />
+                    <col className="budget-col-status w-[150px] md:w-[13%]" />
+                    <col className="budget-col-actions budget-no-print w-[84px] md:w-[12%]" />
                   </colgroup>
                   <thead>
                     <tr className="border-b text-[10px] font-bold uppercase tracking-wide" style={{ borderColor: BORDER, background: '#F8FAFC', color: MUTED }}>
@@ -665,6 +956,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                       <th className="budget-head-projected whitespace-nowrap px-2 py-3 text-right md:px-3">Proyectado {symbol}</th>
                       <th className="budget-cell-real whitespace-nowrap px-2 py-3 text-right md:px-3">Real {symbol}</th>
                       <th className="budget-cell-advance whitespace-nowrap px-1.5 py-3 text-right md:px-3">Avance %</th>
+                      <th className="budget-cell-status whitespace-nowrap px-1.5 py-3 text-center md:px-3">Estado</th>
                       <th className="budget-no-print px-1.5 py-3 text-right md:px-3">Acciones</th>
                     </tr>
                   </thead>
@@ -692,18 +984,19 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                               </button>
                             </td>
                             <td className="budget-cell-projected whitespace-nowrap px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: cat.color }}>
-                              <span className="budget-amount-compact md:hidden">{showCompact(categoryProjected)}</span>
-                              <span className="budget-amount-full hidden md:inline">{show(categoryProjected)}</span>
+                              <span className="budget-amount-compact md:hidden">{showUsdBaseCompact(categoryProjected)}</span>
+                              <span className="budget-amount-full hidden md:inline">{showUsdBase(categoryProjected)}</span>
                             </td>
                             <td className="budget-cell-real whitespace-nowrap px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: categoryReal > 0 ? '#16A36A' : INK }}>
-                              <span className="budget-amount-compact md:hidden">{showCompact(categoryReal)}</span>
-                              <span className="budget-amount-full hidden md:inline">{show(categoryReal)}</span>
+                              <span className="budget-amount-compact md:hidden">{showUsdBaseCompact(categoryReal)}</span>
+                              <span className="budget-amount-full hidden md:inline">{showUsdBase(categoryReal)}</span>
                             </td>
                             <td className="budget-cell-advance px-1.5 py-3 text-right md:px-3">
                               <span className="inline-block rounded-full px-1.5 py-1 text-[11px] font-bold tabular-nums sm:px-2.5 sm:text-xs" style={{ background: categoryAdvance >= 100 ? '#EAF7EE' : '#F1F5F9', color: categoryAdvance >= 100 ? '#16A36A' : BRAND.blue }}>
                                 {categoryAdvance.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
                               </span>
                             </td>
+                            <td className="budget-cell-status px-1.5 py-3 text-center md:px-3" />
                             <td className="budget-no-print px-1.5 py-3 text-right md:px-3">
                               <button className="btn-neutral !h-8 !px-2 text-xs" title="Agregar partida" onClick={() => openCreate(cat.key)}><FiPlus /><span className="hidden md:inline"> Partida</span></button>
                             </td>
@@ -715,18 +1008,19 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                     <tr className="border-t" style={{ borderColor: BRAND.blueDark, background: '#EAF3FF' }}>
                       <td className="px-2 py-4 text-sm font-bold sm:px-4 sm:text-base" style={{ color: BRAND.blueDark }}>Total A+B+C+D+E</td>
                       <td className="budget-cell-projected whitespace-nowrap px-2 py-4 text-right text-xs font-extrabold tabular-nums sm:text-sm md:px-3" style={{ color: INK }}>
-                        <span className="budget-amount-compact md:hidden">{showCompact(budgetTotals.projected)}</span>
-                        <span className="budget-amount-full hidden md:inline">{show(budgetTotals.projected)}</span>
+                        <span className="budget-amount-compact md:hidden">{showUsdBaseCompact(budgetTotals.projected)}</span>
+                        <span className="budget-amount-full hidden md:inline">{showUsdBase(budgetTotals.projected)}</span>
                       </td>
                       <td className="budget-cell-real whitespace-nowrap px-2 py-4 text-right text-xs font-extrabold tabular-nums sm:text-sm md:px-3" style={{ color: '#16A36A' }}>
-                        <span className="budget-amount-compact md:hidden">{showCompact(budgetTotals.real)}</span>
-                        <span className="budget-amount-full hidden md:inline">{show(budgetTotals.real)}</span>
+                        <span className="budget-amount-compact md:hidden">{showUsdBaseCompact(budgetTotals.real)}</span>
+                        <span className="budget-amount-full hidden md:inline">{showUsdBase(budgetTotals.real)}</span>
                       </td>
                       <td className="budget-cell-advance px-1.5 py-4 text-right md:px-3">
                         <span className="inline-block rounded-full bg-white px-1.5 py-1 text-[11px] font-extrabold tabular-nums sm:px-2.5 sm:text-xs" style={{ color: pct(budgetTotals.real, budgetTotals.projected) >= 100 ? '#16A36A' : BRAND.blue }}>
                           {pct(budgetTotals.real, budgetTotals.projected).toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
                         </span>
                       </td>
+                      <td className="budget-cell-status px-1.5 py-4 md:px-3" />
                       <td className="budget-no-print px-1.5 py-4 md:px-3" />
                     </tr>
                   </tbody>
@@ -810,6 +1104,14 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                   <Field label="Orden"><input type="number" inputMode="numeric" className="input" value={form.sortOrder || 0} onChange={(event) => setForm((p: any) => ({ ...p, sortOrder: event.target.value }))} /></Field>
                 </div>
               </div>
+
+              <Field label="Estado">
+                <Select
+                  value={form.status || 'sin_inicio'}
+                  onChange={(value) => setForm((p: any) => ({ ...p, status: value as BudgetStatus }))}
+                  options={STATUS_OPTIONS.map((status) => ({ value: status.key, label: status.label }))}
+                />
+              </Field>
             </div>
 
             <div className="grid shrink-0 grid-cols-[1fr_1.7fr] gap-2 border-t px-4 py-3 sm:flex sm:justify-end sm:px-5" style={{ borderColor: BORDER }}>

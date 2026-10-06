@@ -330,14 +330,28 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     [items],
   );
 
-  // Al elegir el TIPO se autocompleta su CLASIFICACION FC segun el mapeo.
-  function pickMovementType(value: string) {
+  // Al ELEGIR una opcion del desplegable se autocompleta su CLASIFICACION FC segun el mapeo.
+  function selectMovementType(value: string) {
     const matched = categoryByLookup.get(value.trim().toUpperCase());
     setForm((current: any) => ({
       ...current,
       movementType: matched ? matched.movementType : value,
-      eerrClassification: matched?.eerrClassification || current.eerrClassification || '',
+      eerrClassification: matched?.eerrClassification || '',
     }));
+  }
+
+  // Mientras el usuario ESCRIBE solo se actualiza el texto para filtrar; NO se
+  // sobrescribe con el primer match (eso "pegaba" las 3 letras iniciales y
+  // bloqueaba seguir filtrando). La CLASIFICACION FC se recalcula al elegir.
+  function onTypeInput(text: string) {
+    setForm((current: any) => {
+      const matched = categoryByLookup.get(text.trim().toUpperCase());
+      return {
+        ...current,
+        movementType: text,
+        eerrClassification: matched ? matched.eerrClassification : '',
+      };
+    });
   }
 
   const pageCount = Math.max(1, Math.ceil(items.length / PAGE_SIZE));
@@ -873,8 +887,8 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                           <td className="td-base max-w-[180px] truncate" style={{ color: MUTED }} title={item.observation || ''}>{item.observation || '-'}</td>
                           <td className="td-base">
                             <div className="flex justify-end gap-1">
-                              <button className="grid h-7 w-7 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Modificar este registro" onClick={(event) => { event.stopPropagation(); openEdit(item); }}><FiEdit3 /></button>
-                              <button className="grid h-7 w-7 place-items-center rounded-md text-slate-500 hover:bg-red-50 hover:text-red-600" title="Eliminar" onClick={(event) => { event.stopPropagation(); setDeleting(item); }}><FiTrash2 /></button>
+                              <button className="grid h-6 w-6 place-items-center rounded-md text-slate-500 hover:bg-slate-100" title="Modificar este registro" onClick={(event) => { event.stopPropagation(); openEdit(item); }}><FiEdit3 /></button>
+                              <button className="grid h-6 w-6 place-items-center rounded-md text-slate-500 hover:bg-red-50 hover:text-red-600" title="Eliminar" onClick={(event) => { event.stopPropagation(); setDeleting(item); }}><FiTrash2 /></button>
                             </div>
                           </td>
                         </tr>
@@ -1172,29 +1186,48 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 <div className="relative">
                   <input
                     ref={typeInputRef}
-                    className="input pr-9"
+                    className="input pr-16"
                     placeholder="Selecciona o escribe el concepto"
                     value={form.movementType || ''}
-                    onChange={(event) => pickMovementType(event.target.value)}
-                    onFocus={() => { if (!editing) setTypeOpen(true); }}
+                    onChange={(event) => { onTypeInput(event.target.value); setTypeOpen(true); }}
+                    onFocus={() => setTypeOpen(true)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') { setTypeOpen(false); }
+                      if (event.key === 'Enter' && typeSuggestions.length > 0) {
+                        event.preventDefault();
+                        selectMovementType(typeSuggestions[0].value);
+                        setTypeOpen(false);
+                      }
+                    }}
                   />
-                  {!editing && (
+                  <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                    {form.movementType ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setForm((current: any) => ({ ...current, movementType: '', eerrClassification: '' }));
+                          setTypeOpen(true);
+                          typeInputRef.current?.focus();
+                        }}
+                        className="grid h-7 w-7 cursor-pointer place-items-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
+                        title="Limpiar el tipo seleccionado"
+                        aria-label="Limpiar tipo ingreso/gasto"
+                      >
+                        <FiX style={{ fontSize: 16 }} />
+                      </button>
+                    ) : null}
                     <button
                       type="button"
-                      onClick={() => {
-                        setTypeOpen(false);
-                        setForm((current: any) => ({ ...current, movementType: '', eerrClassification: '' }));
-                        typeInputRef.current?.focus();
-                      }}
-                      className="absolute right-1 top-1/2 grid h-7 w-7 -translate-y-1/2 cursor-pointer place-items-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-red-500"
-                      title="Limpiar / cambiar el tipo seleccionado"
-                      aria-label="Limpiar tipo ingreso/gasto"
+                      onClick={() => { setTypeOpen((open) => !open); typeInputRef.current?.focus(); }}
+                      className="grid h-7 w-7 cursor-pointer place-items-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                      title="Ver lista de conceptos"
+                      aria-label="Ver lista de conceptos"
                     >
-                      <FiX style={{ fontSize: 16 }} />
+                      <FiChevronDown style={{ fontSize: 16 }} />
                     </button>
-                  )}
+                  </div>
 
-                  {typeOpen && !editing && (
+                  {typeOpen && (
                     <>
                       <div className="fixed inset-0 z-30" onClick={() => setTypeOpen(false)} />
                       <div
@@ -1211,7 +1244,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                               key={option.value}
                               type="button"
                               className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-slate-50"
-                              onClick={() => { pickMovementType(option.value); setTypeOpen(false); }}
+                              onClick={() => { selectMovementType(option.value); setTypeOpen(false); }}
                             >
                               <span className="font-semibold" style={{ color: INK }}>{option.value}</span>
                               <span className="truncate" style={{ color: MUTED }}>{option.label}</span>

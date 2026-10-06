@@ -27,6 +27,9 @@ export class BankCategoryMappingEntity {
   @Column({ name: 'eerr_classification', type: 'varchar', length: 150 })
   eerrClassification: string;
 
+  @Column({ name: 'cashflow_row_id', type: 'varchar', length: 120, nullable: true })
+  cashflowRowId: string | null;
+
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder: number;
 

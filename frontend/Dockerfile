@@ -1,9 +1,15 @@
 # ---- Etapa 1: dependencias y build ----
-FROM node:20-alpine AS builder
+FROM node:22-alpine AS builder
 WORKDIR /app
 
+# Reintentos y timeouts para redes inestables (evita ECONNRESET al bajar paquetes)
+RUN npm config set fetch-retries 5 \
+ && npm config set fetch-retry-mintimeout 20000 \
+ && npm config set fetch-retry-maxtimeout 120000 \
+ && npm config set fetch-timeout 600000
+
 COPY package*.json ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 
 COPY next.config.js postcss.config.js tailwind.config.js tsconfig.json ./
 COPY types ./types
@@ -17,7 +23,7 @@ RUN npm run build
 RUN npm prune --omit=dev
 
 # ---- Etapa 2: runtime ----
-FROM node:20-alpine AS runner
+FROM node:22-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000

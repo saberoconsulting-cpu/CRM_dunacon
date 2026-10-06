@@ -10,7 +10,15 @@ import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
 import { printHtml } from '@/lib/print';
 import { Lot, Project } from '@/lib/types';
-import { useDisplayCurrency, formatCurrency } from '@/lib/currency';
+import { useDisplayCurrency, formatCurrency, formatCurrencyShort } from '@/lib/currency';
+
+/**
+ * Version minima del sembrado del flujo dinamico que este componente considera
+ * valida. Los registros anteriores a este arreglo podian ser una copia del flujo
+ * estatico (por eso la columna Real terminaba igual a la Proyectada). Se exige
+ * la marca `assumptions.dynamicSeedVersion` antes de usar sus montos.
+ */
+const DYNAMIC_SEED_VERSION = 1;
 
 type IncomeStatement = {
   ingresos: number | string;
@@ -126,6 +134,7 @@ function compareStatementItems(a: StatementItem, b: StatementItem) {
 }
 
 type CashflowModel = {
+  assumptions?: Record<string, any>;
   rows?: CashflowRow[];
 };
 type CashflowRow = { id: string; label: string; values: number[]; parentId?: string };
@@ -158,23 +167,64 @@ function LineIcon({ line, size = 14 }: { line: StatementLine; size?: number }) {
   return <svg {...common}><path d="M20 6 9 17l-5-5" /></svg>;
 }
 
-const COST_CASHFLOW_ROWS = [
-  { code: 'C.01', id: 'land', label: 'Costo de Terreno' },
-  { code: 'C.02', id: 'direct', label: 'Costo Directo' },
-  { code: 'C.03', id: 'indirect', label: 'Costo Indirecto' },
-];
-const SALES_ADMIN_CASHFLOW_ROWS: Array<{ code: string; id: string; label: string }> = [
-  { code: 'D.01', id: 'sales-plan', label: 'Gastos de Administración (Planilla)' },
-  { code: 'D.02', id: 'marketing', label: 'Marketing Digital (1.5% de Ventas)' },
-  { code: 'D.03', id: 'commission', label: 'Comisión de Ventas (3% de Ventas)' },
-  { code: 'D.04', id: 'maintenance-condominium', label: 'Gastos de Mantenimiento - Condominio' },
-];
-const FINANCIAL_CASHFLOW_ROWS: Array<{ code: string; id: string; label: string }> = [
-  { code: 'E.01', id: 'loan-interest', label: 'Intereses de Prestamos' },
-  { code: 'E.02', id: 'bank-commissions', label: 'Comisiones Bancarias' },
-];
-const IGV_CASHFLOW_ROWS = [
-  { code: 'G.01', id: 'igv', label: 'IGV Referencial Incluido en Ingresos' },
+type CashflowSectionPartida = {
+  line: StatementLine;
+  /** Seccion del flujo de caja que gobierna la linea (id del padre). */
+  section: string;
+  /** Filas hijas del flujo que se muestran como partidas, en su orden natural. */
+  children: Array<{ code: string; id: string; label: string }>;
+  /** Partida mostrada si el flujo no expone filas hijas (seccion total). */
+  single?: { code: string; id: string; label: string };
+};
+
+const LINE_CASHFLOW_SECTIONS: CashflowSectionPartida[] = [
+  {
+    line: 'ingreso',
+    section: 'income',
+    children: [
+      { code: 'A.01', id: 'initial-fee', label: 'Cuota inicial' },
+      { code: 'A.02', id: 'financing-fee', label: 'Cuota financiamiento (lotes que pagan cuota)' },
+    ],
+    single: { code: 'A.01', id: 'income', label: 'Ingreso por venta de lotes' },
+  },
+  {
+    line: 'costo',
+    section: 'cost-sales',
+    children: [
+      { code: 'C.01', id: 'land', label: 'Costo de Terreno' },
+      { code: 'C.02', id: 'direct', label: 'Costo Directo' },
+      { code: 'C.03', id: 'indirect', label: 'Costo Indirecto' },
+    ],
+  },
+  {
+    line: 'ventas_admin',
+    section: 'selling',
+    children: [
+      { code: 'D.01', id: 'sales-plan', label: 'Gastos de Administración (Planilla)' },
+      { code: 'D.02', id: 'marketing', label: 'Marketing Digital (1.5% de Ventas)' },
+      { code: 'D.03', id: 'commission', label: 'Comisión de Ventas (3% de Ventas)' },
+      { code: 'D.04', id: 'post-sale', label: 'Post Venta (1% de Ventas)' },
+      { code: 'D.05', id: 'discounts', label: 'Descuentos (bonos) (10% de Ventas)' },
+    ],
+  },
+  {
+    line: 'financiero',
+    section: 'financial',
+    children: [],
+    single: { code: 'E.01', id: 'financial', label: 'Gastos financieros' },
+  },
+  {
+    line: 'impuestos',
+    section: 'tax',
+    children: [],
+    single: { code: 'F.01', id: 'tax', label: 'Impuesto a la renta referencial' },
+  },
+  {
+    line: 'igv',
+    section: 'igv',
+    children: [],
+    single: { code: 'G.01', id: 'igv', label: 'IGV Referencial Incluido en Ingresos' },
+  },
 ];
 
 const LINE_CASHFLOW_TOTAL_ROWS: Record<StatementLine, string[]> = {
@@ -332,14 +382,136 @@ function lotRevenue(lot: Lot) {
   return num(lot.finalPrice || lot.salePrice || lot.price);
 }
 
-function cashflowTotals(model: CashflowModel | null) {
+/**
+ * Indice de un modelo de flujo de caja. Ademas de los montos por id/label, expone
+ * la jerarquia (`childrenByParent`) y un mapa de claves normalizadas hacia el id
+ * canonico de la fila (`rowIdByKey`), de modo que una subpartida pueda resolverse
+ * por nombre ACOTADO a los hijos de su fila padre (evita colapsar sobre el total
+ * del padre cuando hay nombres repetidos en secciones distintas).
+ */
+type FlowIndex = {
+  totals: Map<string, number>;
+  labels: Map<string, string>;
+  byId: Map<string, number>;
+  byLabel: Map<string, number>;
+  childrenByParent: Map<string, CashflowRow[]>;
+  rowIdByKey: Map<string, string>;
+};
+
+function cashflowTotals(model: CashflowModel | null): FlowIndex {
   const totals = new Map<string, number>();
   const labels = new Map<string, string>();
+  // Dos indices SEPARADOS: uno por id tecnico y otro por label normalizado. Antes
+  // ambas claves se volcaban en un MISMO mapa sumando montos, por lo que una fila
+  // era alcanzable por dos claves y el matching difuso la contaba dos veces
+  // (duplicando montos entre partidas distintas). Ahora cada mapa guarda exactamente
+  // un valor por fila y nunca se suman.
+  const byId = new Map<string, number>();
+  const byLabel = new Map<string, number>();
+  const childrenByParent = new Map<string, CashflowRow[]>();
+  const rowIdByKey = new Map<string, string>();
   for (const row of model?.rows || []) {
-    totals.set(row.id, (row.values || []).reduce((sum, value) => sum + num(value), 0));
+    const total = (row.values || []).reduce((sum, value) => sum + num(value), 0);
+    totals.set(row.id, total);
     labels.set(row.id, row.label || row.id);
+    const idKey = normalizeMatch(row.id);
+    const labelKey = normalizeMatch(row.label);
+    if (idKey) byId.set(idKey, total);
+    if (labelKey && !byId.has(labelKey)) byLabel.set(labelKey, total);
+    // Jerarquia: los hijos se indexan por el id del padre (clave normalizada).
+    if (row.parentId) {
+      const parentKey = normalizeMatch(row.parentId);
+      if (parentKey) childrenByParent.set(parentKey, [...(childrenByParent.get(parentKey) || []), row]);
+      const parentExact = rowIdByKey.get(parentKey) || row.parentId;
+      rowIdByKey.set(parentKey, parentExact);
+    }
+    // Claves -> id canonico. El id tiene prioridad sobre el label.
+    if (idKey) rowIdByKey.set(idKey, row.id);
+    if (labelKey && !rowIdByKey.has(labelKey)) rowIdByKey.set(labelKey, row.id);
   }
-  return { totals, labels };
+  return { totals, labels, byId, byLabel, childrenByParent, rowIdByKey };
+}
+
+/**
+ * Id de la fila del flujo que corresponde a una partida del cuadro (su "clave").
+ * Se usa para acotar la busqueda de sus subpartidas a los hijos de esa fila:
+ * 1) la fila asignada explicitamente (`cashflowRowId`), 2) el mapeo por codigo/nombre
+ * de la partida (`statementCashflowKey`) resuelto contra el index, 3) el propio
+ * nombre/codigo de la partida.
+ */
+function parentFlowKeyFor(
+  index: FlowIndex,
+  item: StatementTreeItemWithSource | null | undefined,
+): string | null {
+  if (!item) return null;
+  if (item.cashflowRowId != null) {
+    const key = normalizeMatch(item.cashflowRowId);
+    if (key) return index.rowIdByKey.get(key) || item.cashflowRowId;
+  }
+  const mapped = statementCashflowKey(item);
+  if (mapped) {
+    const key = normalizeMatch(mapped);
+    if (index.rowIdByKey.has(key)) return index.rowIdByKey.get(key) || mapped;
+  }
+  const name = normalizeMatch(item.name);
+  if (name && index.rowIdByKey.has(name)) return index.rowIdByKey.get(name) || null;
+  const code = normalizeMatch(item.code);
+  if (code && index.rowIdByKey.has(code)) return index.rowIdByKey.get(code) || null;
+  return null;
+}
+
+function matchedFlowTotal(
+  index: FlowIndex,
+  item: { code?: string | null; name?: string | null; cashflowRowId?: string | null; parentId?: number | null },
+  parentFlowKey?: string | null,
+  fallback = 0,
+): number {
+  if (item.cashflowRowId != null) {
+    const mapped = index.byId.get(normalizeMatch(item.cashflowRowId));
+    if (mapped != null) return mapped;
+  }
+  // Subpartida (a cualquier nivel): busca por nombre ACOTADO a los hijos de la fila
+  // padre cuando se conoce la clave del padre. Asi dos subpartidas homonimas en
+  // secciones distintas no se confunden entre si y nunca colapsan sobre el padre.
+  const name = normalizeMatch(item.name);
+  if (parentFlowKey) {
+    const parentKey = normalizeMatch(parentFlowKey);
+    const siblings = index.childrenByParent.get(parentKey) || [];
+    if (name) {
+      const child = siblings.find((row) => normalizeMatch(row.label) === name);
+      if (child) return (child.values || []).reduce((sum, value) => sum + num(value), 0);
+    }
+    const code = normalizeMatch(item.code);
+    if (code) {
+      const child = siblings.find((row) => normalizeMatch(row.id) === code || normalizeMatch(row.label) === code);
+      if (child) return (child.values || []).reduce((sum, value) => sum + num(value), 0);
+    }
+  }
+  if (name) {
+    const byName = index.byLabel.get(name) ?? index.byId.get(name);
+    if (byName != null) return byName;
+  }
+  const code = normalizeMatch(item.code);
+  if (code) {
+    const byCode = index.byId.get(code) ?? index.byLabel.get(code);
+    if (byCode != null) return byCode;
+  }
+  if (!item.parentId) {
+    const name = normalizeMatch(item.name);
+    if (name) {
+      const byName = index.byId.get(name) ?? index.byLabel.get(name);
+      if (byName != null) return byName;
+    }
+  }
+  return fallback;
+}
+
+function cashflowRowAmount(source: Map<string, number>, rowId: string | null | undefined): number | null {
+  if (rowId == null) return null;
+  const key = normalizeMatch(rowId);
+  if (!key) return null;
+  const value = source.get(key);
+  return value == null ? null : value;
 }
 
 function cashflowLineTotal(totals: Map<string, number>, line: StatementLine, fallback: number) {
@@ -555,10 +727,23 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   const [ruc, setRuc] = useState(DEFAULT_RUC);
   const [labelOverrides, setLabelOverrides] = useState<Record<string, string>>({});
   const [editingLabel, setEditingLabel] = useState<string | null>(null);
-  // Moneda unica de la pantalla: `show()` convierte los montos a la moneda activa.
-  const { currency, setCurrency, exchangeRate, setExchangeRate, format: show, formatShort: short } = useDisplayCurrency();
+  const { currency, setCurrency, exchangeRate, setExchangeRate } = useDisplayCurrency();
   // Simbolo para los encabezados de la tabla segun la moneda activa.
   const symbol = String(currency).toUpperCase() === 'USD' ? 'US$' : 'S/';
+  // El Estado de Resultados alimenta su columna "Real" desde el flujo de caja,
+  // que se maneja en dolares. La pantalla puede mostrarse en soles con el toggle:
+  // en ese caso se MULTIPLICA por el tipo de cambio (solo visual, el dato guardado
+  // sigue en dolares). En US$ el monto se pinta tal cual.
+  const toDisplay = (value: number | string | null | undefined) => (String(currency).toUpperCase() === 'PEN' ? Number(value || 0) * exchangeRate : Number(value || 0));
+  const showUsdBase = (value: number | string | null | undefined) => formatCurrency(
+    toDisplay(value),
+    currency,
+  );
+  // Version abreviada (US$ 3.2M / S/ 12k) para ejes de graficos.
+  const showUsdBaseShort = (value: number | string | null | undefined) => formatCurrencyShort(
+    toDisplay(value),
+    currency,
+  );
 
   useEffect(() => {
     try {
@@ -605,7 +790,14 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
       setStatement(statementData);
       setLots(lotData);
       setCashflow(cashflowData && Array.isArray(cashflowData.rows) ? cashflowData : null);
-      setDynamicCashflow(dynamicCashflowData && Array.isArray(dynamicCashflowData.rows) ? dynamicCashflowData : null);
+      // Salvaguarda: los modelos dinamicos guardados ANTES del arreglo podian ser
+      // una copia del estatico (mismo monto en Real y Proyectado). Si el registro
+      // no trae la marca de version del sembrado dinamico, se ignora; se regenerara
+      // al abrir el flujo de caja en modo dinamico.
+      const dynamicIsClean = dynamicCashflowData
+        && Array.isArray(dynamicCashflowData.rows)
+        && Number((dynamicCashflowData.assumptions || {}).dynamicSeedVersion || 0) >= DYNAMIC_SEED_VERSION;
+      setDynamicCashflow(dynamicIsClean ? dynamicCashflowData : null);
       setItems(Array.isArray(itemsData?.items) ? itemsData.items : []);
     } catch (error: any) {
       toast(error?.message || 'No se pudo cargar el estado de resultados', 'err');
@@ -633,12 +825,14 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     // guardado, se cae a la lógica anterior (lotes + presupuesto) como referencia.
     const { totals: cfTotals } = cashflowTotals(cashflow);
     const { totals: dynamicCfTotals } = cashflowTotals(dynamicCashflow);
+    // Real: sale UNICAMENTE del Flujo de Caja Dinámico (modo 'dinamico'), que se
+    // alimenta de Cuentas y Bancos. No se mezcla con el estático.
     const cf = (id: string, fallback: number) => cfTotals.has(id) ? (cfTotals.get(id) ?? 0) : fallback;
-    const dynamicCf = (id: string, fallback: number) => dynamicCfTotals.has(id) ? (dynamicCfTotals.get(id) ?? 0) : fallback;
+    const realCf = (id: string, fallback: number) => dynamicCfTotals.has(id) ? (dynamicCfTotals.get(id) ?? 0) : fallback;
     const projectedRevenue = cf('income', lots.reduce((sum, lot) => sum + lotRevenue(lot), 0));
     const totalArea = lots.reduce((sum, lot) => sum + num(lot.areaM2), 0);
     const soldLots = lots.filter((lot) => lot.status === 'vendido').length;
-    const realRevenue = dynamicCf('income', num(statement?.ingresos));
+    const realRevenue = realCf('income', num(statement?.ingresos));
     const landCost = num(classes.compra_terreno);
     const directCost = num(classes.inversion);
     const indirectCost = num(classes.costo_indirecto);
@@ -659,7 +853,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const preTaxProfit = operatingProfit - realFinanceFromFlow;
     const incomeTax = Math.max(0, preTaxProfit * INCOME_TAX_RATE);
     const netProfit = preTaxProfit - Math.max(realTaxRegistered, incomeTax);
-    const igvReference = dynamicCf('igv', realRevenue > 0 ? realRevenue * 18 / 118 : 0);
+    const igvReference = realCf('igv', realRevenue > 0 ? realRevenue * 18 / 118 : 0);
     const adjustedProfit = netProfit - igvReference;
     const projectedGrossProfit = projectedRevenue - projectedCostOfSales;
     const projectedOperatingProfit = projectedGrossProfit - projectedSalesAdmin;
@@ -668,8 +862,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const projectedNetProfit = projectedPreTaxProfit - projectedIncomeTax;
     const projectedIgv = cf('igv', projectedRevenue > 0 ? projectedRevenue * 18 / 118 : 0);
 
-    // Reales por linea: si el proyecto cargo partidas propias, esas mandan;
-    // si no, se mantiene la lectura historica de transacciones/egresos.
+    // Reales por linea: manda UNICAMENTE el flujo DINAMICO (data de Cuentas y Bancos).
+    // Solo si el flujo no expone la linea se cae a las partidas propias del ER.
     const lineTotals = (statement?.partidas_er?.lines || {}) as Record<string, number | string>;
     const hasPartidas = items.length > 0;
     const realIncome = cashflowLineTotal(dynamicCfTotals, 'ingreso', hasPartidas ? num(lineTotals.ingreso) : realRevenue);
@@ -682,7 +876,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const realOperatingProfit = realGrossProfit - realSalesAdmin;
     const realPreTaxProfit = realOperatingProfit - realFinance;
     const realNetProfit = realPreTaxProfit - realTax;
-    const realAdjustment = cashflowLineAmount(dynamicCashflow, 'ajuste', hasPartidas ? num(lineTotals.ajuste) : 0);
+    const realAdjustment = cashflowLineAmount(dynamicCashflow, 'ajuste', 0);
     const realAdjustedProfit = realNetProfit - realIgv + realAdjustment;
 
     return {
@@ -725,31 +919,54 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   /** Arbol de partidas por linea (padres + subpartidas), ya ordenado. */
   const treeByLine = useMemo(() => {
     const { labels: projectedLabels } = cashflowTotals(cashflow);
-    const { totals: realTotals } = cashflowTotals(dynamicCashflow);
-    const flowValue = (rowId: string, fallback = 0) => realTotals.has(rowId) ? realTotals.get(rowId) || 0 : fallback;
-    const virtualItem = (line: StatementLine, source: { code: string; id: string; label: string }, index: number): StatementTreeItemWithSource => ({
-      id: -1000 - index - (line === 'ventas_admin' ? 100 : 0),
+    const projectedIndex = cashflowTotals(cashflow);
+    const { totals: projectedTotals } = projectedIndex;
+    const realIndex = cashflowTotals(dynamicCashflow);
+    const { totals: realTotals } = realIndex;
+    const flowValue = (rowId: string, isProjected: boolean, fallback = 0) => {
+      const index = isProjected ? projectedIndex : realIndex;
+      const totals = isProjected ? projectedTotals : realTotals;
+      return matchedFlowTotal(index, { cashflowRowId: rowId, code: rowId, name: rowId }, null, totals.has(rowId) ? totals.get(rowId) || 0 : fallback);
+    };
+    // Filas del flujo indexadas por id y por label, igual que Presupuesto de Obra,
+    // para poder resolver una partida tanto por su id como por su nombre.
+    const staticRows = cashflow?.rows || [];
+    const dynamicRows = dynamicCashflow?.rows || [];
+    const findFlowRow = (id: string) => staticRows.find((row) => normalizeMatch(row.id) === normalizeMatch(id))
+      || dynamicRows.find((row) => normalizeMatch(row.id) === normalizeMatch(id));
+    const labelFor = (id: string, fallback: string) =>
+      findFlowRow(id)?.label || projectedLabels.get(id) || fallback;
+    const LINE_ID_OFFSET: Record<StatementLine, number> = {
+      ingreso: 0, costo: 1, ventas_admin: 2, financiero: 3, impuestos: 4, igv: 5, ajuste: 6,
+    };
+    const partida = (index: number, line: StatementLine, code: string, id: string, label: string): StatementTreeItemWithSource => ({
+      id: -1000 - LINE_ID_OFFSET[line] * 100 - index,
       projectId,
       parentId: null,
       line,
-      code: source.code,
-      name: projectedLabels.get(source.id) || source.label,
+      code,
+      name: labelFor(id, label),
       description: null,
-      amount: String(flowValue(source.id)),
+      amount: '0',
       currency: 'PEN',
       sortOrder: (index + 1) * 10,
       isActive: true,
       children: [],
-      cashflowRowId: source.id,
+      cashflowRowId: id,
       isVirtual: true,
     });
-    const virtualRows = (line: StatementLine, sources: typeof SALES_ADMIN_CASHFLOW_ROWS) => sources.flatMap((source, index) => {
-      const statementItem = { line, code: source.code, name: source.label };
-      const sourceRow = findCashflowRow(cashflow, statementItem) || findCashflowRow(dynamicCashflow, statementItem);
-      return sourceRow
-        ? [virtualItem(line, { ...source, id: sourceRow.id, label: sourceRow.label || source.label }, index)]
-        : [];
-    });
+    const sectionPartidas = (line: StatementLine): StatementTreeItemWithSource[] => {
+      const def = LINE_CASHFLOW_SECTIONS.find((entry) => entry.line === line);
+      if (!def) return [];
+      // Filas que existen en cualquiera de los dos flujos
+      const present = def.children.filter((child) => 
+        staticRows.some((row) => normalizeMatch(row.id) === normalizeMatch(child.id)) ||
+        dynamicRows.some((row) => normalizeMatch(row.id) === normalizeMatch(child.id))
+      );
+      if (present.length) return present.map((child, index) => partida(index, line, child.code, child.id, child.label));
+      if (def.single && findFlowRow(def.single.id)) return [partida(0, line, def.single.code, def.single.id, def.single.label)];
+      return [];
+    };
     const tree = buildTree(items);
     const grouped: Record<StatementLine, StatementTreeItem[]> = {
       ingreso: [], costo: [], ventas_admin: [], financiero: [], impuestos: [], igv: [], ajuste: [],
@@ -757,18 +974,19 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     for (const item of tree) {
       if (grouped[item.line]) grouped[item.line].push(item);
     }
-    grouped.costo = (grouped.costo.length ? grouped.costo : COST_CASHFLOW_ROWS.map((item, index) => virtualItem('costo', item, index))) as StatementTreeItem[];
-    grouped.ventas_admin = (grouped.ventas_admin.length ? grouped.ventas_admin : virtualRows('ventas_admin', SALES_ADMIN_CASHFLOW_ROWS)) as StatementTreeItem[];
-    grouped.financiero = (grouped.financiero.length ? grouped.financiero : virtualRows('financiero', FINANCIAL_CASHFLOW_ROWS)) as StatementTreeItem[];
-    grouped.igv = (grouped.igv.length ? grouped.igv : IGV_CASHFLOW_ROWS.map((item, index) => virtualItem('igv', item, index))) as StatementTreeItem[];
+    (['ingreso', 'costo', 'ventas_admin', 'financiero', 'impuestos', 'igv'] as StatementLine[]).forEach((line) => {
+      const flowPartidas = sectionPartidas(line) as StatementTreeItem[];
+      if (!flowPartidas.length) return;
+      const mapped = new Set(flowPartidas.map((item) => (item as StatementTreeItemWithSource).cashflowRowId).filter(Boolean) as string[]);
+      const ownItems = (grouped[line] || []) as StatementTreeItemWithSource[];
+      const extras = ownItems.filter((item) => {
+        const key = statementCashflowKey(item);
+        return Boolean(key) && !mapped.has(key as string) && Boolean(findFlowRow(key as string));
+      });
+      grouped[line] = extras.length ? [...flowPartidas, ...(extras as StatementTreeItem[])] : flowPartidas;
+    });
     return grouped;
   }, [items, cashflow, dynamicCashflow, projectId]);
-
-  /**
-   * Filas visibles del cuadro: cada linea fija con sus partidas y, despues, los
-   * subtotales de utilidad. Las subpartidas se expanden con el chevron (o
-   * siempre, al exportar a PDF).
-   */
   const sheet = useMemo<SheetRow[]>(() => {
     const rows: SheetRow[] = [];
     const walk = (line: StatementLine, nodes: StatementTreeItem[], depth: number) => {
@@ -826,23 +1044,32 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
    * subtotales se recalculan en cascada, igual que el PDF.
    */
   const rowReal = useMemo(() => {
-    const { totals: dynamicTotals, labels: dynamicLabels } = cashflowTotals(dynamicCashflow);
-    const dynamicByMatch = new Map<string, number>();
-    for (const [id, value] of dynamicTotals.entries()) {
-      dynamicByMatch.set(normalizeMatch(id), value);
-      dynamicByMatch.set(normalizeMatch(dynamicLabels.get(id) || ''), value);
-    }
-    const realAmount = (item: StatementTreeItemWithSource): number => {
-      if (item.children.length) return item.children.reduce((sum, child) => sum + realAmount(child), 0);
-      if (item.cashflowRowId && dynamicTotals.has(item.cashflowRowId)) return dynamicTotals.get(item.cashflowRowId) || 0;
-      const mappedRow = findCashflowRow(dynamicCashflow, item);
-      if (mappedRow) return cashflowRowTotal(mappedRow);
+    const dynamicIndex = cashflowTotals(dynamicCashflow);
+    const { totals: dynamicTotals } = dynamicIndex;
+    // Indice "real": UNICAMENTE el flujo DINAMICO (data de Cuentas y Bancos).
+    // No se mezcla con el estático.
+    const realAmount = (item: StatementTreeItemWithSource, parentFlowKey?: string | null): number => {
+      if (item.children.length) return item.children.reduce((sum, child) => sum + realAmount(child, parentFlowKeyFor(dynamicIndex, item)), 0);
+      // Partida virtual del flujo: el Real es el de su fila (dinamico).
+      if (item.cashflowRowId) {
+        const byId = cashflowRowAmount(dynamicIndex.byId, item.cashflowRowId);
+        if (byId != null) return byId;
+        if (dynamicTotals.has(item.cashflowRowId)) return dynamicTotals.get(item.cashflowRowId) || 0;
+        const fromFlow = matchedFlowTotal(dynamicIndex, {
+          cashflowRowId: item.cashflowRowId,
+          code: item.cashflowRowId,
+          name: item.cashflowRowId,
+        });
+        if (fromFlow) return fromFlow;
+      }
+      // Matching difuso (codigo/nombre) SOLO para partidas raiz: las subpartidas
+      // nacen en el flujo, por eso se resuelven aparte (por nombre acotado al padre).
+      if (item.parentId == null) {
+        const mappedRow = findCashflowRow(dynamicCashflow, item);
+        if (mappedRow) return cashflowRowTotal(mappedRow);
+      }
       if (item.isVirtual) return 0;
-      const byCode = dynamicByMatch.get(normalizeMatch(item.code));
-      if (byCode !== undefined) return byCode;
-      const byName = dynamicByMatch.get(normalizeMatch(item.name));
-      if (byName !== undefined) return byName;
-      return num(item.amount);
+      return matchedFlowTotal(dynamicIndex, item, parentFlowKey, num(item.amount));
     };
     const totals: Record<string, number> = {};
     for (const meta of LINES) {
@@ -870,7 +1097,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     totals.net = net;
     totals.adjusted = net - line('igv') + line('ajuste');
     return totals;
-  }, [treeByLine, dynamicCashflow]);
+  }, [treeByLine, dynamicCashflow, cashflow]);
 
   const hasItems = items.length > 0 || Boolean(cashflow?.rows?.length || dynamicCashflow?.rows?.length);
 
@@ -900,16 +1127,55 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [report]);
 
+  /** Partida por id (para resolver el padre de una subpartida en el matching del flujo). */
+  const itemById = useMemo(() => {
+    const map = new Map<number, StatementTreeItemWithSource>();
+    const walk = (nodes: StatementTreeItem[]) => {
+      for (const node of nodes) {
+        map.set(Number(node.id), node as StatementTreeItemWithSource);
+        if (node.children.length) walk(node.children);
+      }
+    };
+    (Object.values(treeByLine) as StatementTreeItem[][]).forEach(walk);
+    return map;
+  }, [treeByLine]);
+
+  const findItemById = (id: number | null | undefined) => (id == null ? null : itemById.get(Number(id)) || null);
+
   function rowProjected(row: SheetRow): number {
     if (row.kind === 'computed') return projectedComputed[row.id] || 0;
     if (row.kind === 'line') return lineProjected[row.line] || 0;
+    const index = cashflowTotals(cashflow);
+    // Subpartida: su proyectado sale del flujo ESTATICO buscando por NOMBRE entre
+    // los hijos de la fila PADRE ya resuelta (misma regla que el Real).
+    const parentItem = row.item.parentId != null ? findItemById(row.item.parentId) : null;
+    const parentFlowKey = parentItem ? parentFlowKeyFor(index, parentItem as StatementTreeItemWithSource) : null;
     if (row.item.cashflowRowId) {
-      const { totals } = cashflowTotals(cashflow);
+      const { totals } = index;
+      // Mismo criterio que Presupuesto de Obra y que el Real: primero por id/label
+      // normalizado (determinista), luego matching determinista por codigo/nombre.
+      const byId = cashflowRowAmount(index.byId, row.item.cashflowRowId);
+      if (byId != null) return byId;
+      const fromStatic = matchedFlowTotal(index, {
+        cashflowRowId: row.item.cashflowRowId,
+        code: row.item.cashflowRowId,
+        name: row.item.cashflowRowId,
+      });
+      if (fromStatic) return fromStatic;
       if (totals.has(row.item.cashflowRowId)) return totals.get(row.item.cashflowRowId) || 0;
     }
-    const projectedRow = findCashflowRow(cashflow, row.item);
-    if (projectedRow) return cashflowRowTotal(projectedRow);
+    // Matching difuso (codigo/nombre) SOLO para partidas raiz: las subpartidas nacen
+    // en el flujo, por eso se resuelven por nombre acotado al padre.
+    if (row.item.parentId == null) {
+      const projectedRow = findCashflowRow(cashflow, row.item);
+      if (projectedRow) return cashflowRowTotal(projectedRow);
+    }
     if (row.item.isVirtual) return 0;
+    // Subpartida real del flujo: proyectado por nombre entre los hijos del padre.
+    const fromStaticChild = row.item.parentId != null
+      ? matchedFlowTotal(index, row.item, parentFlowKey, 0)
+      : 0;
+    if (fromStaticChild) return fromStaticChild;
     const itemsInLine = (treeByLine[row.line] || []).reduce((sum, item) => sum + itemRealAmount(item), 0);
     if (!itemsInLine) return 0;
     return (lineProjected[row.line] || 0) * (itemRealAmount(row.item) / itemsInLine);
@@ -1089,7 +1355,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   /**
    * Exporta las cards (KPI + metricas) y el cuadro completo del Estado de
    * Resultados a PDF usando el mismo helper `printHtml` que el resto del CRM.
-   * Respeta la moneda activa (S/ o US$) mediante `show()` y `symbol`.
+   * Respeta la moneda activa (S/ o US$) mediante `showUsdBase` y `symbol`.
    */
   function exportPdf() {
     if (loading) return toast('Espera a que termine la carga', 'err');
@@ -1104,14 +1370,14 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const today = new Date().toLocaleString('es-PE', { dateStyle: 'long', timeStyle: 'short' });
 
     const cards: Array<{ label: string; value: string; helper: string; tone: string }> = [
-      { label: 'Ingreso real', value: show(report.realRevenue), helper: 'Ingresos de la operacion diaria (transacciones)', tone: GREEN },
-      { label: 'Utilidad neta', value: show(report.netProfit), helper: `Margen neto ${pct(report.margin)}`, tone: report.netProfit >= 0 ? BLUE : RED },
+      { label: 'Ingreso real', value: showUsdBase(report.realRevenue), helper: 'Ingresos de la operacion diaria (transacciones)', tone: GREEN },
+      { label: 'Utilidad neta', value: showUsdBase(report.netProfit), helper: `Margen neto ${pct(report.margin)}`, tone: report.netProfit >= 0 ? BLUE : RED },
       { label: 'Lotes vendidos', value: `${report.soldLots}/${lots.length}`, helper: 'Conteo desde lotizacion', tone: BLUE_DARK },
       { label: 'Area vendible', value: `${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 0 })} m2`, helper: project?.location || 'Ubicacion del proyecto', tone: '#7C3AED' },
     ];
     const pills: Array<{ label: string; value: string }> = [
-      { label: 'Precio proyectado m2', value: show(report.projectedM2) },
-      { label: 'Ingreso real m2', value: show(report.realM2) },
+      { label: 'Precio proyectado m2', value: showUsdBase(report.projectedM2) },
+      { label: 'Ingreso real m2', value: showUsdBase(report.realM2) },
       { label: 'Area venta m2', value: `${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} m2` },
       { label: 'Fecha de reporte', value: new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }) },
     ];
@@ -1150,8 +1416,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
           <td class="concept${child}">
             <span class="concept-name">${escapeHtml(row.label)}</span>
           </td>
-          <td class="num">${escapeHtml(show(projected))}</td>
-          <td class="num">${escapeHtml(show(real))}</td>
+          <td class="num">${escapeHtml(showUsdBase(projected))}</td>
+          <td class="num">${escapeHtml(showUsdBase(real))}</td>
           <td class="num">${escapeHtml(pct(share))}</td>
           <td class="num">${escapeHtml(`${diff >= 0 ? '+' : ''}${pct(diff)}`)}</td>
         </tr>
@@ -1231,16 +1497,16 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 border-t bg-[#F8FAFC] p-4 xl:grid-cols-4" style={{ borderColor: BORDER }}>
-            <MetricPill label="Precio proyectado m2" value={show(report.projectedM2)} />
-            <MetricPill label="Ingreso real m2" value={show(report.realM2)} color={GREEN} />
+            <MetricPill label="Precio proyectado m2" value={showUsdBase(report.projectedM2)} />
+            <MetricPill label="Ingreso real m2" value={showUsdBase(report.realM2)} color={GREEN} />
             <MetricPill label="Area venta m2" value={`${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} m2`} color={BLUE_DARK} />
             <MetricPill label="Fecha de reporte" value={new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })} color={INK} />
           </div>
         </section>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <KpiCard label="Ingreso real" value={show(report.realRevenue)} helper="Ingresos de la operación diaria (transacciones)" icon={<FiDollarSign />} color={GREEN} />
-          <KpiCard label="Utilidad neta" value={show(report.netProfit)} helper={`Margen neto ${pct(report.margin)}`} icon={<FiTrendingUp />} color={report.netProfit >= 0 ? BLUE : RED} />
+          <KpiCard label="Ingreso real" value={showUsdBase(report.realRevenue)} helper="Ingresos de la operación diaria (transacciones)" icon={<FiDollarSign />} color={GREEN} />
+          <KpiCard label="Utilidad neta" value={showUsdBase(report.netProfit)} helper={`Margen neto ${pct(report.margin)}`} icon={<FiTrendingUp />} color={report.netProfit >= 0 ? BLUE : RED} />
           <KpiCard label="Lotes vendidos" value={`${report.soldLots}/${lots.length}`} helper="Conteo desde lotizacion" icon={<FiGrid />} color={BLUE_DARK} />
           <KpiCard label="Area vendible" value={`${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 0 })} m2`} helper={project?.location || 'Ubicacion del proyecto'} icon={<FiMapPin />} color="#7C3AED" />
         </div>
@@ -1358,8 +1624,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                             </div>
                           </div>
                         </td>
-                        <td className="whitespace-nowrap px-1 py-2 text-right text-xs font-semibold tabular-nums md:px-3 md:py-3 md:text-[13px]" style={{ color: INK }}>{show(projected)}</td>
-                        <td className="whitespace-nowrap px-1 py-2 text-right text-xs font-bold tabular-nums md:px-3 md:py-3 md:text-[13px]" style={{ color: real < 0 ? RED : INK }}>{show(real)}</td>
+                        <td className="whitespace-nowrap px-1 py-2 text-right text-xs font-semibold tabular-nums md:px-3 md:py-3 md:text-[13px]" style={{ color: INK }}>{showUsdBase(projected)}</td>
+                        <td className="whitespace-nowrap px-1 py-2 text-right text-xs font-bold tabular-nums md:px-3 md:py-3 md:text-[13px]" style={{ color: real < 0 ? RED : INK }}>{showUsdBase(real)}</td>
                         <td className="whitespace-nowrap px-1 py-2 text-right text-xs tabular-nums md:px-3 md:py-3 md:text-[13px]" style={{ color: real < 0 ? RED : row.line === 'ingreso' ? GREEN : MUTED, fontWeight: row.line === 'ingreso' || row.kind === 'computed' ? 700 : 500 }}>{pct(share)}</td>
                         <td className="px-0.5 py-2 text-right md:px-1 md:py-3">
                           <span className="inline-block whitespace-nowrap rounded-full px-1 py-0.5 text-[10px] font-bold tabular-nums md:px-2.5 md:py-1 md:text-[11px]" style={{ background: Math.abs(diff) <= 5 ? '#F1F5F9' : diff >= 0 ? '#EAF7EE' : '#FEE2E2', color: Math.abs(diff) <= 5 ? MUTED : diff >= 0 ? GREEN : RED }}>
@@ -1398,9 +1664,9 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={projectedChartData} layout="vertical" margin={{ left: 8, right: 24, top: 8, bottom: 12 }}>
                     <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" horizontal={false} />
-                    <XAxis type="number" tickFormatter={short} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <XAxis type="number" tickFormatter={showUsdBaseShort} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: MUTED }} width={88} axisLine={false} tickLine={false} />
-                    <Tooltip content={<StatementTooltip formatter={show} />} cursor={{ fill: '#F8FAFC' }} />
+                    <Tooltip content={<StatementTooltip formatter={showUsdBase} />} cursor={{ fill: '#F8FAFC' }} />
                     <Bar dataKey="value" name="Monto" radius={[0, 8, 8, 0]}>
                       {projectedChartData.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
                     </Bar>
@@ -1418,9 +1684,9 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={realChartData} layout="vertical" margin={{ left: 8, right: 24, top: 8, bottom: 12 }}>
                     <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" horizontal={false} />
-                    <XAxis type="number" tickFormatter={short} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <XAxis type="number" tickFormatter={showUsdBaseShort} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
                     <YAxis type="category" dataKey="name" tick={{ fontSize: 11, fill: MUTED }} width={88} axisLine={false} tickLine={false} />
-                    <Tooltip content={<StatementTooltip formatter={show} />} cursor={{ fill: '#F8FAFC' }} />
+                    <Tooltip content={<StatementTooltip formatter={showUsdBase} />} cursor={{ fill: '#F8FAFC' }} />
                     <Bar dataKey="value" name="Monto" radius={[0, 8, 8, 0]}>
                       {realChartData.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
                     </Bar>

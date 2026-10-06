@@ -35,6 +35,10 @@ export class ConstructionBudgetItemEntity {
   @Column({ length: 3, default: 'PEN' })
   currency: string;
 
+  /** Estado de ejecucion de la partida/subpartida: sin_inicio | en_ejecucion | terminada. */
+  @Column({ length: 20, default: 'sin_inicio' })
+  status: string;
+
   @Column({ name: 'sort_order', default: 0 })
   sortOrder: number;
 

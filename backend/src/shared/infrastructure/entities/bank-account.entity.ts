@@ -21,6 +21,9 @@ export class BankAccountEntity {
   @Column({ name: 'account_number', type: 'varchar', length: 80, nullable: true })
   accountNumber: string | null;
 
+  @Column({ type: 'varchar', length: 3, default: 'USD' })
+  currency: string;
+
   @Column({ name: 'is_active', default: true })
   isActive: boolean;
 

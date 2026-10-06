@@ -26,6 +26,7 @@ export const BANK_EXPECTED_COLUMNS = [
   'abono',
   'cargo',
   'saldo_contable',
+  'tipo_cambio',
   'tipo_ingreso_gasto',
   'clasificacion_eerr',
   'nro_factura_boleta',
@@ -113,9 +114,9 @@ export class BankAccountsService {
   async list(projectId: number, filters: ListFilters = {}) {
     if (!projectId) throw new BadRequestException('Proyecto requerido');
     const accountKey = filters.accountKey || 'GENERAL';
-    await this.normalizeAccountCurrencyToUSD(projectId, accountKey);
+    const currency = await this.getAccountCurrency(projectId, accountKey);
     await this.renumberItemsByDate(projectId, accountKey);
-    await this.recalculateAccountBalances(projectId, accountKey);
+    await this.recalculateBalances(projectId, currency, accountKey);
 
     const qb = this.movementRepo.createQueryBuilder('m')
       .where('m.project_id = :projectId', { projectId })
@@ -131,7 +132,7 @@ export class BankAccountsService {
     // Los totales de las tarjetas se calculan sobre LAS MISMAS filas que muestra
     // la tabla (respeta filtros de fecha, moneda, clasificacion y busqueda), para
     // que "Total ingresos/egresos" coincida con lo que el usuario ve abajo.
-    const summary = await this.buildSummary(projectId, accountKey, filters);
+    const summary = await this.buildSummary(projectId, accountKey, filters, currency);
     const facets = await this.buildFacets(projectId, accountKey);
 
     return { items, summary, facets };
@@ -144,7 +145,7 @@ export class BankAccountsService {
     return qb;
   }
 
-  private async buildSummary(projectId: number, accountKey: string, filters: ListFilters = {}) {
+  private async buildSummary(projectId: number, accountKey: string, filters: ListFilters = {}, accountCurrency = 'USD') {
     // Los totales describen el mismo conjunto que la tabla: si el usuario filtra
     // "Enero", las tarjetas muestran Enero y cuadran con las filas visibles.
     const scopedQb = this.movementRepo.createQueryBuilder('m')
@@ -164,7 +165,6 @@ export class BankAccountsService {
         order: { movementDate: 'ASC', id: 'ASC' },
       })
       : scopedItems;
-    const accountCurrency = allItems.some((item) => item.currency === 'USD') ? 'USD' : 'PEN';
     const scopedCurrencyItems = scopedItems.filter((item) => item.currency === accountCurrency);
     const allCurrencyItems = allItems.filter((item) => item.currency === accountCurrency);
 
@@ -252,6 +252,7 @@ export class BankAccountsService {
 
   async create(dto: CreateBankMovementDto, actorId?: number) {
     if (!dto.projectId) throw new BadRequestException('Proyecto requerido');
+    const exchangeRate = sanitizeExchangeRate(dto.exchangeRate);
     const deposit = Number(dto.depositAmount || 0);
     const charge = Number(dto.chargeAmount || 0);
     if (deposit <= 0 && charge <= 0) {
@@ -262,7 +263,7 @@ export class BankAccountsService {
     }
 
     const accountKey = dto.accountKey || 'GENERAL';
-    const currency = 'USD';
+    const currency = await this.getAccountCurrency(dto.projectId, accountKey);
     const map = await this.categoryMap(dto.projectId);
     const resolvedType = dto.movementType || (deposit > 0 ? 'INGRESO' : 'GASTO');
     // Se usa una transaccion: mantiene una sola conexion del pool durante toda
@@ -282,6 +283,7 @@ export class BankAccountsService {
         depositAmount: String(deposit),
         chargeAmount: String(charge),
         bookBalance: null,
+        exchangeRate: exchangeRate === null ? null : String(exchangeRate),
         openingBalance: null,
         movementType: resolvedType,
         // Si no se envia clasificacion, se autocompleta con el mapeo EERR.
@@ -296,9 +298,8 @@ export class BankAccountsService {
         sourceRow: null,
         createdBy: actorId || null,
       }));
-      await this.normalizeAccountCurrencyToUSD(dto.projectId, accountKey, manager);
       await this.renumberItemsByDate(dto.projectId, accountKey, manager);
-      await this.recalculateBalances(dto.projectId, 'USD', accountKey, manager);
+      await this.recalculateBalances(dto.projectId, currency, accountKey, manager);
     });
 
     return this.list(dto.projectId, { accountKey });
@@ -310,6 +311,7 @@ export class BankAccountsService {
 
     const deposit = dto.depositAmount !== undefined ? Number(dto.depositAmount || 0) : Number(item.depositAmount || 0);
     const charge = dto.chargeAmount !== undefined ? Number(dto.chargeAmount || 0) : Number(item.chargeAmount || 0);
+    const exchangeRate = dto.exchangeRate !== undefined ? sanitizeExchangeRate(dto.exchangeRate) : sanitizeExchangeRate(item.exchangeRate);
     if (deposit > 0 && charge > 0) {
       throw new BadRequestException('Un movimiento no puede tener abono y cargo a la vez');
     }
@@ -322,17 +324,17 @@ export class BankAccountsService {
       ...(dto.depositAmount !== undefined ? { depositAmount: String(deposit) } : {}),
       ...(dto.chargeAmount !== undefined ? { chargeAmount: String(charge) } : {}),
       ...(dto.bookBalance !== undefined ? { bookBalance: dto.bookBalance === null ? null : String(dto.bookBalance) } : {}),
+      ...(dto.exchangeRate !== undefined ? { exchangeRate: exchangeRate === null ? null : String(exchangeRate) } : {}),
       ...(dto.movementType !== undefined ? { movementType: dto.movementType } : {}),
       ...(dto.eerrClassification !== undefined ? { eerrClassification: dto.eerrClassification } : {}),
       ...(dto.invoiceNumber !== undefined ? { invoiceNumber: dto.invoiceNumber } : {}),
       ...(dto.observation !== undefined ? { observation: dto.observation } : {}),
-      currency: 'USD',
     });
 
+    item.currency = await this.getAccountCurrency(item.projectId, item.accountKey);
     await this.movementRepo.save(item);
-    await this.normalizeAccountCurrencyToUSD(item.projectId, item.accountKey);
     await this.renumberItemsByDate(item.projectId, item.accountKey);
-    await this.recalculateBalances(item.projectId, 'USD', item.accountKey);
+    await this.recalculateBalances(item.projectId, item.currency, item.accountKey);
     return this.list(item.projectId, { accountKey: item.accountKey });
   }
 
@@ -342,14 +344,14 @@ export class BankAccountsService {
     const { projectId, currency, accountKey } = item;
     await this.movementRepo.delete(id);
     await this.renumberItemsByDate(projectId, accountKey);
-    await this.recalculateBalances(projectId, 'USD', accountKey);
+    await this.recalculateBalances(projectId, currency, accountKey);
     return this.list(projectId, { accountKey });
   }
 
   async updateOpeningBalance(dto: UpdateBankOpeningBalanceDto) {
     if (!dto.projectId) throw new BadRequestException('Proyecto requerido');
     const accountKey = dto.accountKey || 'GENERAL';
-    const currency = 'USD';
+    const currency = await this.getAccountCurrency(dto.projectId, accountKey);
     const openingBalance = Number(dto.openingBalance);
     if (!Number.isFinite(openingBalance)) throw new BadRequestException('Saldo inicial no valido');
 
@@ -362,7 +364,7 @@ export class BankAccountsService {
     if (!projectId) throw new BadRequestException('Proyecto requerido');
     let items = await this.accountRepo.find({ where: { projectId, isActive: true }, order: { id: 'ASC' } });
     if (!items.length) {
-      const account = await this.accountRepo.save(this.accountRepo.create({ projectId, accountKey: 'GENERAL', name: 'Cuenta principal', bank: 'BCP', accountNumber: null, isActive: true }));
+      const account = await this.accountRepo.save(this.accountRepo.create({ projectId, accountKey: 'GENERAL', name: 'Cuenta principal', bank: 'BCP', accountNumber: null, currency: 'USD', isActive: true }));
       items = [account];
     }
     return { items };
@@ -373,7 +375,7 @@ export class BankAccountsService {
     const name = dto.name.trim();
     if (!name) throw new BadRequestException('Ingresa el nombre de la cuenta');
     const accountKey = `${name.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 80)}-${Date.now()}`;
-    await this.accountRepo.save(this.accountRepo.create({ projectId: dto.projectId, accountKey, name, bank: dto.bank?.trim() || null, accountNumber: dto.accountNumber?.trim() || null, isActive: true }));
+    await this.accountRepo.save(this.accountRepo.create({ projectId: dto.projectId, accountKey, name, bank: dto.bank?.trim() || null, accountNumber: dto.accountNumber?.trim() || null, currency: dto.currency || 'USD', isActive: true }));
     return this.listAccounts(dto.projectId);
   }
 
@@ -501,19 +503,9 @@ export class BankAccountsService {
     }
   }
 
-  private async recalculateAccountBalances(projectId: number, accountKey: string) {
-    await this.recalculateBalances(projectId, 'USD', accountKey);
-  }
-
-  private async normalizeAccountCurrencyToUSD(projectId: number, accountKey: string, manager?: EntityManager) {
-    const repo = manager ? manager.getRepository(BankAccountMovementEntity) : this.movementRepo;
-    await repo.createQueryBuilder()
-      .update(BankAccountMovementEntity)
-      .set({ currency: 'USD' })
-      .where('project_id = :projectId', { projectId })
-      .andWhere('account_key = :accountKey', { accountKey })
-      .andWhere("currency <> 'USD'")
-      .execute();
+  private async getAccountCurrency(projectId: number, accountKey: string) {
+    const account = await this.accountRepo.findOne({ where: { projectId, accountKey } });
+    return account?.currency || 'USD';
   }
 
   private async renumberItemsByDate(projectId: number, accountKey: string, manager?: EntityManager) {
@@ -648,6 +640,7 @@ export class BankAccountsService {
     const movementType = cleanCell(dto.movementType);
     const eerrClassification = cleanCell(dto.eerrClassification);
     const code = cleanCell(dto.code).toUpperCase() || categoryCode(movementType);
+    const cashflowRowId = cleanCell(dto.cashflowRowId) || null;
     if (!movementType) throw new BadRequestException('Ingresa el TIPO INGRESO/GASTO');
     if (!eerrClassification) throw new BadRequestException('Ingresa la CLASIFICACION EERR');
 
@@ -657,6 +650,7 @@ export class BankAccountsService {
       if (duplicate) {
         duplicate.code = code;
         duplicate.eerrClassification = eerrClassification;
+        duplicate.cashflowRowId = cashflowRowId;
         duplicate.isActive = true;
         await repo.save(duplicate);
         return;
@@ -666,6 +660,7 @@ export class BankAccountsService {
         code,
         movementType,
         eerrClassification,
+        cashflowRowId,
         sortOrder: dto.sortOrder ?? 0,
         isActive: true,
         createdBy: actorId || null,
@@ -691,6 +686,7 @@ export class BankAccountsService {
         code: code || categoryCode(movementType),
         movementType,
         eerrClassification,
+        ...(dto.cashflowRowId !== undefined ? { cashflowRowId: cleanCell(dto.cashflowRowId) || null } : {}),
         ...(dto.sortOrder !== undefined ? { sortOrder: dto.sortOrder } : {}),
         ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       });
@@ -730,7 +726,7 @@ export class BankAccountsService {
     return map;
   }
 
-  previewExcel(file?: Express.Multer.File) {
+  async previewExcel(file?: Express.Multer.File, projectId?: number, accountKey = 'GENERAL') {
     if (!file?.buffer?.length) throw new BadRequestException('Adjunta un archivo Excel');
     if (!/\.(xlsx|xls|csv)$/i.test(file.originalname || '')) {
       throw new BadRequestException('Solo se aceptan archivos Excel .xlsx, .xls o .csv');
@@ -739,6 +735,17 @@ export class BankAccountsService {
     const parsed = this.parseWorkbook(file);
     const usable = parsed.rows;
     const errors = usable.flatMap((row) => row.errors.map((message) => ({ rowNumber: row.rowNumber, message })));
+    const [movementCount, lastMovement] = projectId
+      ? await Promise.all([
+        this.movementRepo.count({ where: { projectId, accountKey } }),
+        this.movementRepo.createQueryBuilder('m')
+          .where('m.project_id = :projectId', { projectId })
+          .andWhere('m.account_key = :accountKey', { accountKey })
+          .orderBy('m.movement_date', 'DESC', 'NULLS LAST')
+          .addOrderBy('m.id', 'DESC')
+          .getOne(),
+      ])
+      : [0, null];
 
     return {
       sheet: parsed.sheet,
@@ -752,6 +759,13 @@ export class BankAccountsService {
         abonos: round2(usable.reduce((sum, row) => sum + row.depositAmount, 0)),
         cargos: round2(usable.reduce((sum, row) => sum + row.chargeAmount, 0)),
       },
+      accountContinuation: {
+        movementCount,
+        itemNumber: lastMovement?.itemNumber ?? movementCount,
+        movementDate: lastMovement?.movementDate ?? null,
+        bookBalance: lastMovement?.bookBalance ?? null,
+        currency: lastMovement?.currency ?? await this.getAccountCurrency(projectId || 0, accountKey),
+      },
       expectedColumns: [...BANK_EXPECTED_COLUMNS],
       sourceFile: file.originalname,
     };
@@ -760,14 +774,25 @@ export class BankAccountsService {
   async importRows(
     projectId: number,
     rows: BankMovementImportRow[],
-    options: { accountKey?: string; currency?: string; sourceFile?: string; importBatch?: string; skipDuplicates?: boolean; openingBalance?: number | null } = {},
+    options: {
+      accountKey?: string;
+      currency?: string;
+      sourceCurrency?: string;
+      defaultExchangeRate?: number;
+      sourceFile?: string;
+      importBatch?: string;
+      skipDuplicates?: boolean;
+      openingBalance?: number | null;
+    } = {},
     actorId?: number,
   ) {
     if (!projectId) throw new BadRequestException('Proyecto requerido');
     if (!Array.isArray(rows) || rows.length === 0) throw new BadRequestException('No hay filas para importar');
 
     const accountKey = options.accountKey || 'GENERAL';
-    const defaultCurrency = 'USD';
+    const accountCurrency = await this.getAccountCurrency(projectId, accountKey);
+    const sourceCurrency = options.sourceCurrency === 'USD' ? 'USD' : options.sourceCurrency === 'PEN' ? 'PEN' : accountCurrency;
+    const defaultExchangeRate = sanitizeExchangeRate(options.defaultExchangeRate);
     const skipDuplicates = options.skipDuplicates !== false;
     const importBatch = options.importBatch || `batch-${Date.now()}`;
 
@@ -797,7 +822,7 @@ export class BankAccountsService {
         continue;
       }
 
-      const currency = 'USD';
+      const currency = accountCurrency;
       const sourceKey = buildSourceKey(row, currency, accountKey);
       if (skipDuplicates && existingKeys.has(sourceKey)) {
         duplicates += 1;
@@ -805,6 +830,7 @@ export class BankAccountsService {
       }
       existingKeys.add(sourceKey);
 
+      const exchangeRate = sanitizeExchangeRate(row.exchangeRate) || defaultExchangeRate;
       pending.push(this.movementRepo.create({
         projectId,
         accountKey,
@@ -813,9 +839,10 @@ export class BankAccountsService {
         monthLabel: monthLabelFromDate(row.movementDate),
         description: row.description,
         counterparty: row.counterparty,
-        depositAmount: String(depositAmount),
-        chargeAmount: String(chargeAmount),
+        depositAmount: String(convertAmountCurrency(depositAmount, sourceCurrency, accountCurrency, exchangeRate)),
+        chargeAmount: String(convertAmountCurrency(chargeAmount, sourceCurrency, accountCurrency, exchangeRate)),
         bookBalance: null,
+        exchangeRate: exchangeRate === null ? null : String(exchangeRate),
         movementType: row.movementType || (depositAmount > 0 ? 'INGRESO' : 'GASTO'),
         eerrClassification: row.eerrClassification || mapping.get(normalizeHeader(row.movementType || '')) || null,
         invoiceNumber: row.invoiceNumber,
@@ -832,7 +859,7 @@ export class BankAccountsService {
 
     const opening = existingMovementCount > 0 || options.openingBalance === undefined || options.openingBalance === null
       ? null
-      : round2(options.openingBalance);
+      : convertAmountCurrency(options.openingBalance, sourceCurrency, accountCurrency, defaultExchangeRate);
     if (pending.length) {
       // Se recalcula la cadena de saldos de toda la cuenta tras importar.
       if (opening !== null) {
@@ -844,7 +871,6 @@ export class BankAccountsService {
         for (let index = 0; index < pending.length; index += 200) {
           await manager.save(pending.slice(index, index + 200), { chunk: 200 });
         }
-        await this.normalizeAccountCurrencyToUSD(projectId, accountKey, manager);
         await this.renumberItemsByDate(projectId, accountKey, manager);
       });
       const currencies = Array.from(new Set(pending.map((item) => item.currency)));
@@ -854,8 +880,8 @@ export class BankAccountsService {
     }
 
     if (opening !== null) {
-      await this.saveOpeningBalance(projectId, defaultCurrency, accountKey, opening);
-      await this.recalculateBalances(projectId, defaultCurrency, accountKey);
+      await this.saveOpeningBalance(projectId, accountCurrency, accountKey, opening);
+      await this.recalculateBalances(projectId, accountCurrency, accountKey);
     }
 
     const result = await this.list(projectId, { accountKey });
@@ -974,6 +1000,7 @@ export class BankAccountsService {
       depositRaw: get('abono'),
       chargeRaw: get('cargo'),
       balanceRaw: get('saldo_contable'),
+      exchangeRateRaw: get('tipo_cambio'),
       typeRaw: get('tipo_ingreso_gasto'),
       eerrRaw: get('clasificacion_eerr'),
       invoiceRaw: get('nro_factura_boleta'),
@@ -992,10 +1019,11 @@ export class BankAccountsService {
       depositRaw: raw[5],
       chargeRaw: raw[6],
       balanceRaw: raw[7],
-      typeRaw: raw[8],
-      eerrRaw: raw[9],
-      invoiceRaw: raw[10],
-      observationRaw: raw[11],
+      exchangeRateRaw: raw[8],
+      typeRaw: raw[9],
+      eerrRaw: raw[10],
+      invoiceRaw: raw[11],
+      observationRaw: raw[12],
     });
   }
 
@@ -1009,6 +1037,7 @@ export class BankAccountsService {
     depositRaw: unknown;
     chargeRaw: unknown;
     balanceRaw: unknown;
+    exchangeRateRaw: unknown;
     typeRaw: unknown;
     eerrRaw: unknown;
     invoiceRaw: unknown;
@@ -1021,6 +1050,8 @@ export class BankAccountsService {
     const chargeAmount = safeAmount(input.chargeRaw, errors, 'Cargo');
     const balanceCell = cleanCell(input.balanceRaw);
     const bookBalance = balanceCell === '' ? null : safeAmount(input.balanceRaw, errors, 'Saldo contable');
+    const exchangeRateCell = cleanCell(input.exchangeRateRaw);
+    const exchangeRate = exchangeRateCell === '' ? null : safeExchangeRate(input.exchangeRateRaw, errors);
     const dateRaw = cleanCell(input.dateRaw);
     const movementDate = normalizeDate(dateRaw);
     if (dateRaw && !movementDate) errors.push(`Fecha no valida: "${dateRaw}"`);
@@ -1028,10 +1059,10 @@ export class BankAccountsService {
     if (depositAmount > 0 && chargeAmount > 0) errors.push('La fila tiene abono y cargo a la vez');
     if (!description && !counterparty) errors.push('Falta descripcion o proveedor/cliente');
 
-    const typeRaw = cleanCell(input.typeRaw).toUpperCase();
-    const movementType = typeRaw
-      ? (typeRaw.startsWith('ING') ? 'INGRESO' : typeRaw.startsWith('GAS') || typeRaw.startsWith('EGR') ? 'GASTO' : typeRaw.slice(0, 40))
-      : (depositAmount > 0 ? 'INGRESO' : chargeAmount > 0 ? 'GASTO' : null);
+    // El TIPO se guarda TAL CUAL viene del Excel (respeta mayusculas/minusculas).
+    // Solo cuando el archivo no trae la columna se deduce por el monto.
+    const typeRaw = cleanCell(input.typeRaw).slice(0, 40);
+    const movementType = typeRaw || (depositAmount > 0 ? 'INGRESO' : chargeAmount > 0 ? 'GASTO' : null);
 
     return {
       rowNumber: input.rowNumber,
@@ -1043,6 +1074,7 @@ export class BankAccountsService {
       depositAmount,
       chargeAmount,
       bookBalance,
+      exchangeRate,
       movementType,
       eerrClassification: cleanCell(input.eerrRaw) || null,
       invoiceNumber: cleanCell(input.invoiceRaw) || null,
@@ -1062,6 +1094,7 @@ const COLUMN_ALIASES: Record<string, string[]> = {
   abono: ['abono ingreso', 'abono', 'ingreso', 'haber', 'deposito', 'credito'],
   cargo: ['cargo egreso', 'cargo', 'egreso', 'retiro', 'debito'],
   saldo_contable: ['saldo contable', 'saldo'],
+  tipo_cambio: ['tipo cambio', 'tipo de cambio', 'tc', 't c', 'exchange rate'],
   tipo_ingreso_gasto: ['tipo ingreso gasto', 'tipo', 'tipo movimiento'],
   clasificacion_eerr: ['clasificacion eerr', 'clasificacion', 'cuenta eerr', 'rubro eerr'],
   nro_factura_boleta: ['nro factura boleta', 'factura', 'boleta', 'nro factura', 'comprobante'],
@@ -1173,6 +1206,30 @@ function safeAmount(value: unknown, errors: string[], label: string) {
   return Math.abs(parsed);
 }
 
+function safeExchangeRate(value: unknown, errors: string[]) {
+  const parsed = parseAmount(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    errors.push('Tipo de cambio invalido');
+    return null;
+  }
+  return round4(parsed);
+}
+
+function sanitizeExchangeRate(value: unknown) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = parseAmount(value);
+  return Number.isFinite(parsed) && parsed > 0 ? round4(parsed) : null;
+}
+
+function convertAmountCurrency(value: number, from: string, to: string, exchangeRate: number | null) {
+  const amount = Number(value || 0);
+  if (from === to) return round2(amount);
+  if (!exchangeRate) {
+    throw new BadRequestException('Se requiere tipo de cambio para importar movimientos en otra moneda');
+  }
+  return round2(from === 'PEN' && to === 'USD' ? amount / exchangeRate : amount * exchangeRate);
+}
+
 function isValidYMD(year: number, month: number, day: number) {
   if (!Number.isInteger(year) || year < 1900 || year > 2200) return false;
   if (!Number.isInteger(month) || month < 1 || month > 12) return false;
@@ -1275,4 +1332,8 @@ function buildSourceKey(row: BankMovementImportRow, currency: string, accountKey
 
 function round2(value: number) {
   return Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+}
+
+function round4(value: number) {
+  return Math.round((Number(value || 0) + Number.EPSILON) * 10000) / 10000;
 }
