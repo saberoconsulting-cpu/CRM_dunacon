@@ -29,11 +29,14 @@ const BASE_BUDGET_TEMPLATE: Array<{ category: ConstructionBudgetCategory; code: 
   { category: 'costo_indirecto', code: 'C.01', name: 'Licencias, permisos, tasaciones e impactos ambientales', sortOrder: 210 },
   { category: 'costo_indirecto', code: 'C.02', name: 'Ingenieria y supervision', sortOrder: 220 },
   { category: 'costo_indirecto', code: 'C.03', name: 'Gastos generales de campo', sortOrder: 230 },
-  { category: 'gastos_ventas_admin', code: 'D.01', name: 'Comisiones de ventas por lote', sortOrder: 310 },
+  { category: 'gastos_ventas_admin', code: 'D.01', name: 'Gastos de Administracion (Planilla)', sortOrder: 310 },
   { category: 'gastos_ventas_admin', code: 'D.02', name: 'Publicidad y marketing digital/tradicional', sortOrder: 320 },
-  { category: 'gastos_ventas_admin', code: 'D.03', name: 'Gastos administrativos', sortOrder: 330 },
+  { category: 'gastos_ventas_admin', code: 'D.03', name: 'Comisiones de ventas por lote', sortOrder: 330 },
+  { category: 'gastos_ventas_admin', code: 'D.04', name: 'Gastos de Mantenimiento - Condominio', sortOrder: 340 },
+  { category: 'gastos_ventas_admin', code: 'D.05', name: 'Post Venta', sortOrder: 350 },
   { category: 'gastos_financieros_impuestos', code: 'E.01', name: 'Intereses de prestamos o financiamiento de obra', sortOrder: 410 },
-  { category: 'gastos_financieros_impuestos', code: 'E.02', name: 'Impuesto a la renta e IGV aplicable', sortOrder: 420 },
+  { category: 'gastos_financieros_impuestos', code: 'E.02', name: 'Impuesto a la renta', sortOrder: 420 },
+  { category: 'gastos_financieros_impuestos', code: 'E.03', name: 'IGV Referencial incluido en ingresos', sortOrder: 430 },
 ];
 
 type BudgetImportRow = {

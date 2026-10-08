@@ -202,12 +202,15 @@ const BUDGET_CASHFLOW_ROW_MAP: Array<[string[], string]> = [
   [['c 03', 'gastos generales de campo', 'indemnizacion', 'titulacion'], 'indemnity'],
   [['imprevistos', 'contingencia'], 'legal-contingency'],
   // D) Gastos de ventas y administrativos
-  [['d 01', 'comisiones de ventas', 'comision de ventas', 'comision venta'], 'commission'],
+  [['d 01', 'gastos de administracion', 'gastos administrativos', 'planilla', 'planillas'], 'sales-plan'],
   [['d 02', 'publicidad', 'marketing', 'mkt'], 'marketing'],
-  [['d 03', 'gastos administrativos', 'gastos de administracion', 'planillas'], 'sales-plan'],
+  [['d 03', 'comisiones de ventas', 'comision de ventas', 'comision venta'], 'commission'],
+  [['d 04', 'mantenimiento', 'condominio'], 'post-sale'],
+  [['d 05', 'post venta', 'postventa'], 'discounts'],
   // E) Gastos financieros e impuestos
   [['e 01', 'financiamiento de obra', 'intereses', 'interes', 'prestamo'], 'financial'],
-  [['e 02', 'impuesto a la renta', 'impuesto', 'renta', 'igv'], 'tax'],
+  [['e 02', 'impuesto a la renta', 'impuesto', 'renta'], 'tax'],
+  [['e 03', 'igv referencial incluido en ingresos', 'igv referencial', 'igv'], 'igv'],
 ];
 
 const BUDGET_ROW_CATEGORIES: Record<string, BudgetCategory> = {
@@ -232,6 +235,7 @@ const BUDGET_ROW_CATEGORIES: Record<string, BudgetCategory> = {
   discounts: 'gastos_ventas_admin',
   financial: 'gastos_financieros_impuestos',
   tax: 'gastos_financieros_impuestos',
+  igv: 'gastos_financieros_impuestos',
 };
 
 /**
@@ -600,15 +604,19 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
       cat.key,
       {
         projected: cashflowCategoryTotal(cashflowIndex.byId, cat.key) ?? cat.roots.reduce((sum, item) => sum + projectedAmount(item), 0),
-        // Real: UNICAMENTE flujo dinamico (data de Cuentas y Bancos). No se mezcla con estatico.
-        real: cashflowCategoryTotal(dynamicCashflowIndex.byId, cat.key)
-          ?? cat.roots.reduce((sum, item) => sum + realAmount(item), 0),
+        // Real: UNICAMENTE flujo dinamico (data de Cuentas y Bancos), pero el
+        // encabezado debe cuadrar con las subpartidas visibles del presupuesto.
+        // Si se toma primero el total de seccion del flujo (`indirect`,
+        // `selling`, `financial`), puede diferir de la suma de C.01/C.02..., D.01
+        // ... o E.01... cuando el flujo dinamico trae filas hijas homologadas.
+        real: cat.roots.reduce((sum, item) => sum + realAmount(item), 0),
       },
     ])) as Record<BudgetCategory, { projected: number; real: number }>;
     const projected = Object.values(categories).reduce((sum, item) => sum + item.projected, 0);
     const real = Object.values(categories).reduce((sum, item) => sum + item.real, 0);
     return { categories, projected, real };
   }, [itemTree, cashflowIndex, dynamicCashflowIndex]);
+  const staticConstructionCost = cashflowIndex.byId.get(normalizeMatch('construction')) || 0;
 
   function revealItem(id: number | null) {
     if (!id) return;
@@ -913,7 +921,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
               <button className="btn-primary w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm" onClick={() => openCreate('costo_directo')}><FiPlus /> Nueva partida</button>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 border-t bg-[#F8FAFC] p-4 xl:grid-cols-6" style={{ borderColor: BORDER }}>
+          <div className="grid grid-cols-2 gap-3 border-t bg-[#F8FAFC] p-4 xl:grid-cols-7" style={{ borderColor: BORDER }}>
             <div className="min-w-0 rounded-md border bg-white p-3 sm:p-4 xl:col-span-1" style={{ borderColor: BORDER }}>
               <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }}>Total presupuesto</p>
               <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-xl" style={{ color: INK }}>{showUsdBase(budgetTotals.projected || summary?.grandTotal)}</p>
@@ -924,6 +932,10 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                 <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-lg" style={{ color: cat.color }}>{showUsdBase(budgetTotals.categories[cat.key]?.projected || summary?.categories?.[cat.key])}</p>
               </div>
             ))}
+            <div className="min-w-0 rounded-md border bg-white p-3 sm:p-4" style={{ borderColor: BORDER }}>
+              <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }} title="Costo de construccion">Costo construccion</p>
+              <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-lg" style={{ color: '#0F9F6E' }}>{showUsdBase(staticConstructionCost)}</p>
+            </div>
           </div>
         </section>
 

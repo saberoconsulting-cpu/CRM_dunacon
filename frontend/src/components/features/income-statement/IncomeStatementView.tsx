@@ -936,6 +936,16 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
       || dynamicRows.find((row) => normalizeMatch(row.id) === normalizeMatch(id));
     const labelFor = (id: string, fallback: string) =>
       findFlowRow(id)?.label || projectedLabels.get(id) || fallback;
+    const financialChildRows = () => {
+      const rows = [...staticRows, ...dynamicRows].filter((row) => normalizeMatch(row.parentId) === 'financial');
+      const seen = new Set<string>();
+      return rows.filter((row) => {
+        const key = normalizeMatch(row.id || row.label);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
     const LINE_ID_OFFSET: Record<StatementLine, number> = {
       ingreso: 0, costo: 1, ventas_admin: 2, financiero: 3, impuestos: 4, igv: 5, ajuste: 6,
     };
@@ -958,6 +968,12 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const sectionPartidas = (line: StatementLine): StatementTreeItemWithSource[] => {
       const def = LINE_CASHFLOW_SECTIONS.find((entry) => entry.line === line);
       if (!def) return [];
+      if (line === 'financiero') {
+        const children = financialChildRows();
+        if (children.length) {
+          return children.map((child, index) => partida(index, line, `E.${String(index + 1).padStart(2, '0')}`, child.id, child.label || child.id));
+        }
+      }
       // Filas que existen en cualquiera de los dos flujos
       const present = def.children.filter((child) => 
         staticRows.some((row) => normalizeMatch(row.id) === normalizeMatch(child.id)) ||
@@ -987,6 +1003,12 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     });
     return grouped;
   }, [items, cashflow, dynamicCashflow, projectId]);
+
+  const hasFinancialFlowChildren = useMemo(
+    () => (treeByLine.financiero || []).some((item) => normalizeMatch((item as StatementTreeItemWithSource).cashflowRowId) !== 'financial'),
+    [treeByLine],
+  );
+
   const sheet = useMemo<SheetRow[]>(() => {
     const rows: SheetRow[] = [];
     const walk = (line: StatementLine, nodes: StatementTreeItem[], depth: number) => {
@@ -1074,7 +1096,9 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const totals: Record<string, number> = {};
     for (const meta of LINES) {
       const fallbackLineTotal = (treeByLine[meta.key] || []).reduce((sum, item) => sum + realAmount(item as StatementTreeItemWithSource), 0);
-      totals[`line-${meta.key}`] = cashflowLineAmount(dynamicCashflow, meta.key, fallbackLineTotal);
+      totals[`line-${meta.key}`] = meta.key === 'financiero' && hasFinancialFlowChildren
+        ? fallbackLineTotal
+        : cashflowLineAmount(dynamicCashflow, meta.key, fallbackLineTotal);
       // Real por partida: el cuadro pinta cada fila con la clave `item-<id>`, por eso
       // se replica aqui el mismo valor que aporta a su linea (los hijos suman el padre).
       const walkItems = (nodes: StatementTreeItem[]) => {
@@ -1097,7 +1121,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     totals.net = net;
     totals.adjusted = net - line('igv') + line('ajuste');
     return totals;
-  }, [treeByLine, dynamicCashflow, cashflow]);
+  }, [treeByLine, dynamicCashflow, cashflow, hasFinancialFlowChildren]);
 
   const hasItems = items.length > 0 || Boolean(cashflow?.rows?.length || dynamicCashflow?.rows?.length);
 
@@ -1110,7 +1134,14 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     ingreso: report.projectedRevenue,
     costo: report.projectedCostOfSales,
     ventas_admin: report.projectedSalesAdmin,
-    financiero: report.projectedFinanceTax,
+    financiero: hasFinancialFlowChildren
+      ? (treeByLine.financiero || []).reduce((sum, item) => {
+        const rowId = (item as StatementTreeItemWithSource).cashflowRowId;
+        if (!rowId) return sum;
+        const index = cashflowTotals(cashflow);
+        return sum + (cashflowRowAmount(index.byId, rowId) ?? cashflowRowAmount(index.totals, rowId) ?? matchedFlowTotal(index, { cashflowRowId: rowId, code: rowId, name: rowId }, null, 0));
+      }, 0)
+      : report.projectedFinanceTax,
     impuestos: report.projectedIncomeTax,
     igv: report.projectedIgv,
     ajuste: cashflowLineAmount(cashflow, 'ajuste', 0),
@@ -1472,27 +1503,29 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 <div className="flex min-h-10 items-center rounded-md bg-white px-3 text-sm font-bold" style={{ color: INK }}>
                   {project?.name || `Proyecto ${projectId}`}
                 </div>
-                <label className="text-xs font-semibold uppercase tracking-wide text-blue-50">RUC editable</label>
-                <div className="flex items-center gap-2 rounded-md bg-white px-3">
-                  <FiEdit3 className="shrink-0" style={{ color: BLUE }} />
-                  <input
-                    className="h-10 min-w-0 flex-1 bg-transparent text-sm font-bold outline-none"
+                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:block">
+                  <label className="hidden text-xs font-semibold uppercase tracking-wide text-blue-50 sm:block">RUC editable</label>
+                  <div className="flex min-w-0 items-center gap-1.5 rounded-md bg-white px-2 sm:mt-1 sm:gap-2 sm:px-3">
+                    <FiEdit3 className="shrink-0 text-sm sm:text-base" style={{ color: BLUE }} />
+                    <input
+                      className="h-10 min-w-0 flex-1 bg-transparent text-xs font-bold outline-none sm:text-sm"
+                      style={{ color: INK }}
+                      value={ruc}
+                      onChange={(event) => setRuc(event.target.value)}
+                      inputMode="numeric"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    className="btn-neutral !h-10 shrink-0 justify-center whitespace-nowrap !px-2 text-xs sm:mt-3 sm:w-full sm:!px-3 sm:text-sm"
                     style={{ color: INK }}
-                    value={ruc}
-                    onChange={(event) => setRuc(event.target.value)}
-                    inputMode="numeric"
-                  />
+                    onClick={exportPdf}
+                    disabled={loading}
+                    title="Exporta las cards y el cuadro del Estado de Resultados a PDF"
+                  >
+                    <FiDownload /> Exportar PDF
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  className="btn-neutral !h-10 w-full justify-center whitespace-nowrap text-sm"
-                  style={{ color: INK }}
-                  onClick={exportPdf}
-                  disabled={loading}
-                  title="Exporta las cards y el cuadro del Estado de Resultados a PDF"
-                >
-                  <FiDownload /> Exportar PDF
-                </button>
               </div>
             </div>
           </div>

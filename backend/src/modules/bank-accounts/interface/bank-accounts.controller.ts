@@ -20,8 +20,11 @@ export class BankAccountsController {
     @Query('accountKey') accountKey?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
+    @Query('search') search?: string,
+    @Query('movementType') movementType?: string,
+    @Query('eerrClassification') eerrClassification?: string,
   ) {
-    return this.bankAccountsService.list(Number(projectId), { accountKey, from, to });
+    return this.bankAccountsService.list(Number(projectId), { accountKey, from, to, search, movementType, eerrClassification });
   }
 
   @Get('accounts')

@@ -117,6 +117,7 @@ export class BankAccountsService {
     const currency = await this.getAccountCurrency(projectId, accountKey);
     await this.renumberItemsByDate(projectId, accountKey);
     await this.recalculateBalances(projectId, currency, accountKey);
+    await this.ensureProjectCategories(projectId);
 
     const qb = this.movementRepo.createQueryBuilder('m')
       .where('m.project_id = :projectId', { projectId })
@@ -127,6 +128,11 @@ export class BankAccountsService {
       .orderBy('m.movement_date', 'ASC', 'NULLS LAST')
       .addOrderBy('m.id', 'ASC')
       .getMany();
+    const categoryMap = await this.categoryMap(projectId);
+    for (const item of items) {
+      const mapped = categoryMap.get(normalizeHeader(item.movementType || ''));
+      if (mapped) item.eerrClassification = mapped;
+    }
     for (const item of items) item.monthLabel = monthLabelFromDate(item.movementDate);
 
     // Los totales de las tarjetas se calculan sobre LAS MISMAS filas que muestra
@@ -142,6 +148,28 @@ export class BankAccountsService {
   private applyFilters(qb: SelectQueryBuilder<BankAccountMovementEntity>, filters: ListFilters) {
     if (filters.from) qb.andWhere('m.movement_date >= :from', { from: filters.from });
     if (filters.to) qb.andWhere('m.movement_date <= :to', { to: filters.to });
+    if (filters.search) {
+      qb.andWhere('(LOWER(COALESCE(m.counterparty, \'\')) LIKE :search OR LOWER(COALESCE(m.description, \'\')) LIKE :search)', {
+        search: `%${filters.search.toLowerCase()}%`,
+      });
+    }
+    if (filters.movementType) qb.andWhere('m.movement_type = :movementType', { movementType: filters.movementType });
+    if (filters.eerrClassification) {
+      qb.andWhere(`(
+        m.eerr_classification = :eerrClassification
+        OR EXISTS (
+          SELECT 1
+          FROM bank_category_mappings bcm
+          WHERE bcm.project_id = m.project_id
+            AND bcm.is_active = true
+            AND bcm.eerr_classification = :eerrClassification
+            AND (
+              UPPER(TRIM(bcm.movement_type)) = UPPER(TRIM(m.movement_type))
+              OR UPPER(TRIM(COALESCE(bcm.code, ''))) = UPPER(TRIM(m.movement_type))
+            )
+        )
+      )`, { eerrClassification: filters.eerrClassification });
+    }
     return qb;
   }
 
@@ -200,22 +228,11 @@ export class BankAccountsService {
       // Neto del subconjunto visible: es el que debe cuadrar con la columna
       // "Saldo" de la tabla cuando hay filtros activos.
       netoVisible: round2(totalDeposits - totalCharges),
-      filtrado: Boolean(filters.from || filters.to),
+      filtrado: Boolean(filters.from || filters.to || filters.search || filters.movementType || filters.eerrClassification),
     };
   }
 
   private async buildFacets(projectId: number, accountKey: string) {
-    const classifications = await this.movementRepo.createQueryBuilder('m')
-      .select('m.eerr_classification', 'value')
-      .addSelect('COUNT(*)', 'count')
-      .where('m.project_id = :projectId', { projectId })
-      .andWhere('m.account_key = :accountKey', { accountKey })
-      .andWhere('m.eerr_classification IS NOT NULL')
-      .andWhere("m.eerr_classification <> ''")
-      .groupBy('m.eerr_classification')
-      .orderBy('m.eerr_classification', 'ASC')
-      .getRawMany();
-
     const months = await this.movementRepo.createQueryBuilder('m')
       .select("to_char(m.movement_date, 'YYYY-MM')", 'value')
       .where('m.project_id = :projectId', { projectId })
@@ -239,7 +256,7 @@ export class BankAccountsService {
       .getRawMany();
 
     return {
-      eerrClassifications: classifications.map((row) => ({ value: row.value, count: Number(row.count || 0) })),
+      eerrClassifications: [],
       months: months.map((row) => row.value).filter(Boolean),
       batches: batches.map((row) => ({
         file: row.file,
@@ -286,8 +303,8 @@ export class BankAccountsService {
         exchangeRate: exchangeRate === null ? null : String(exchangeRate),
         openingBalance: null,
         movementType: resolvedType,
-        // Si no se envia clasificacion, se autocompleta con el mapeo EERR.
-        eerrClassification: dto.eerrClassification || map.get(normalizeHeader(resolvedType)) || null,
+        // La clasificacion FC vigente manda siempre desde la tabla de categorias.
+        eerrClassification: map.get(normalizeHeader(resolvedType)) || dto.eerrClassification || null,
         invoiceNumber: dto.invoiceNumber || null,
         observation: dto.observation || null,
         currency,
@@ -316,6 +333,10 @@ export class BankAccountsService {
       throw new BadRequestException('Un movimiento no puede tener abono y cargo a la vez');
     }
 
+    const nextMovementType = dto.movementType !== undefined ? dto.movementType : item.movementType;
+    const map = await this.categoryMap(item.projectId);
+    const mappedClassification = map.get(normalizeHeader(nextMovementType || ''));
+
     Object.assign(item, {
       ...(dto.movementDate !== undefined ? { movementDate: normalizeDate(dto.movementDate) } : {}),
       ...(dto.movementDate !== undefined || dto.monthLabel !== undefined ? { monthLabel: monthLabelFromDate(dto.movementDate ?? item.movementDate) } : {}),
@@ -326,7 +347,9 @@ export class BankAccountsService {
       ...(dto.bookBalance !== undefined ? { bookBalance: dto.bookBalance === null ? null : String(dto.bookBalance) } : {}),
       ...(dto.exchangeRate !== undefined ? { exchangeRate: exchangeRate === null ? null : String(exchangeRate) } : {}),
       ...(dto.movementType !== undefined ? { movementType: dto.movementType } : {}),
-      ...(dto.eerrClassification !== undefined ? { eerrClassification: dto.eerrClassification } : {}),
+      ...(mappedClassification
+        ? { eerrClassification: mappedClassification }
+        : dto.eerrClassification !== undefined ? { eerrClassification: dto.eerrClassification } : {}),
       ...(dto.invoiceNumber !== undefined ? { invoiceNumber: dto.invoiceNumber } : {}),
       ...(dto.observation !== undefined ? { observation: dto.observation } : {}),
     });
@@ -844,7 +867,7 @@ export class BankAccountsService {
         bookBalance: null,
         exchangeRate: exchangeRate === null ? null : String(exchangeRate),
         movementType: row.movementType || (depositAmount > 0 ? 'INGRESO' : 'GASTO'),
-        eerrClassification: row.eerrClassification || mapping.get(normalizeHeader(row.movementType || '')) || null,
+        eerrClassification: mapping.get(normalizeHeader(row.movementType || '')) || row.eerrClassification || null,
         invoiceNumber: row.invoiceNumber,
         observation: row.observation,
         currency,

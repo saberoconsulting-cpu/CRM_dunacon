@@ -209,8 +209,12 @@ export default function ProjectPage() {
       <LotDetailModal lotId={selectedLot} onClose={() => setSelectedLot(null)} onChanged={loadAll} compact />
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <div className="card flex flex-wrap items-center gap-4 xl:col-span-3">
-          {project.coverImageUrl && <img src={project.coverImageUrl} className="h-[84px] w-16 rounded-lg object-cover" alt="" />}
+        <div className="card flex flex-wrap items-start gap-4 xl:col-span-3 xl:items-center">
+          {project.coverImageUrl && (
+            <div className="w-24 shrink-0 self-stretch sm:w-auto sm:self-auto">
+              <img src={project.coverImageUrl} className="h-full min-h-[126px] w-full rounded-lg object-cover sm:h-[84px] sm:w-16 sm:min-h-0" alt="" />
+            </div>
+          )}
           <div className="min-w-40 flex-1">
             {project.logoImageUrl && <img src={project.logoImageUrl} className="h-12 w-auto max-w-40 object-contain" alt={`Logo ${project.name}`} />}
             <p className="flex items-center gap-1 text-sm text-slate-500"><IoLocationSharp /> {project.location}</p>
@@ -227,7 +231,7 @@ export default function ProjectPage() {
               setExchangeRate={setExchangeRate}
             />
             {canEdit && (
-              <div className="flex w-full flex-col gap-2 sm:w-48">
+              <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-48 sm:flex-col">
                 <label className="btn-neutral !h-8 cursor-pointer justify-center text-xs">
                   <FiCamera />
                   <input type="file" accept="image/*" className="hidden" onChange={(e) => { const file = e.target.files?.[0]; e.target.value = ''; reemplazarLogo(file); }} />

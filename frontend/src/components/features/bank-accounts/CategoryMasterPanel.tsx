@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { FiAlertTriangle, FiEdit3, FiList, FiPlus, FiRefreshCw, FiSave, FiTrash2, FiX } from 'react-icons/fi';
+import { FiAlertTriangle, FiDownload, FiEdit3, FiList, FiPlus, FiRefreshCw, FiSave, FiTrash2, FiX } from 'react-icons/fi';
 import { toast } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 
@@ -43,10 +43,15 @@ function makeCode(value: string) {
     .toUpperCase();
 }
 
-export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
+function categoryClassificationOptions(items: Category[]) {
+  return Array.from(new Set(items.map((item) => item.eerrClassification).filter(Boolean))).sort();
+}
+
+export default function CategoryMasterPanel({ projectId, onClose, onChanged, onReportPdf }: {
   projectId: number;
   onClose: () => void;
   onChanged?: () => void;
+  onReportPdf?: () => void;
 }) {
   const [items, setItems] = useState<Category[]>([]);
   const [unmapped, setUnmapped] = useState<Array<{ movementType: string; eerrClassification: string }>>([]);
@@ -68,7 +73,7 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
     try {
       const data = await api.get<CategoryResponse>(`/bank-accounts/categories?projectId=${projectId}`);
       setItems(data?.items || []);
-      setEerrOptions(data?.eerrOptions || []);
+      setEerrOptions(categoryClassificationOptions(data?.items || []));
       setDrafts({});
     } catch (error: any) {
       toast(error?.message || 'No se pudieron cargar las categorias', 'err');
@@ -79,7 +84,6 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
     try {
       const extra = await api.get<CategoryResponse>(`/bank-accounts/categories/unmapped?projectId=${projectId}`);
       setUnmapped(extra?.unmapped || []);
-      setEerrOptions((current) => Array.from(new Set([...current, ...(extra?.eerrOptions || [])])).sort());
     } catch {
       setUnmapped([]);
     }
@@ -282,9 +286,12 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
             <FiX />
           </button>
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
           <button className="btn-neutral !h-8 justify-center !px-2 text-[11px]" onClick={load} disabled={loading}>
             <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar
+          </button>
+          <button className="btn-neutral !h-8 justify-center !px-2 text-[11px]" onClick={onReportPdf}>
+            <FiDownload /> Reporte PDF
           </button>
           <button
             className="btn-neutral !h-8 justify-center !px-2 text-[11px]"

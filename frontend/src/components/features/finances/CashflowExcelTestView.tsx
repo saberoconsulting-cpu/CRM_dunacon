@@ -185,13 +185,16 @@ const BUDGET_CASHFLOW_ROW_MAP: Array<[string[], string]> = [
     [['c 02', 'ingenieria y supervision', 'gerencia de proyectos', 'gerencia'], 'management'],
     [['c 03', 'gastos generales de campo', 'indemnizacion', 'titulacion'], 'indemnity'],
     [['imprevistos', 'contingencia'], 'legal-contingency'],
-    [['d 01', 'comisiones de ventas', 'comision de ventas', 'comision venta'], 'commission'],
+    [['d 01', 'gastos de administracion', 'gastos administrativos', 'planilla', 'planillas'], 'sales-plan'],
     [['d 02', 'publicidad', 'marketing', 'mkt'], 'marketing'],
-    [['d 03', 'gastos administrativos', 'gastos de administracion', 'planillas'], 'sales-plan'],
+    [['d 03', 'comisiones de ventas', 'comision de ventas', 'comision venta'], 'commission'],
+    [['d 04', 'mantenimiento', 'condominio'], 'post-sale'],
+    [['d 05', 'post venta', 'postventa'], 'discounts'],
     [['post venta', 'postventa'], 'post-sale'],
     [['descuento', 'descuentos', 'bono', 'bonos'], 'discounts'],
     [['e 01', 'financiamiento de obra', 'intereses', 'interes', 'prestamo'], 'financial'],
-    [['e 02', 'impuesto a la renta', 'impuesto', 'renta', 'igv'], 'tax'],
+    [['e 02', 'impuesto a la renta', 'impuesto', 'renta'], 'tax'],
+    [['e 03', 'igv referencial incluido en ingresos', 'igv referencial', 'igv'], 'igv'],
 ];
 
 /**
@@ -245,6 +248,7 @@ const BUDGET_ROW_CATEGORIES: Record<string, string> = {
     discounts: 'gastos_ventas_admin',
     financial: 'gastos_financieros_impuestos',
     tax: 'gastos_financieros_impuestos',
+    igv: 'gastos_financieros_impuestos',
 };
 
 /**
@@ -326,7 +330,10 @@ function cashflowRowFromBankMovement(item: BankMovement, context?: SeedContext) 
     }
 
     if (eerr) {
-        if (includesAny(eerr, ['costo de construccion'])) return constructionChildRow(text);
+        // "costo de construcci" (sin vocal final) cubre tanto la clasificacion
+        // correcta "COSTO DE CONSTRUCCION" como la corrupta "COSTO DE CONSTRUCCI?N"
+        // (con "?" literal que normalizeConcept convierte en espacio).
+        if (includesAny(eerr, ['costo de construccion', 'costo de construcci'])) return constructionChildRow(text);
         for (const [keys, target] of EERR_ROW_MAP) {
             if (includesAny(eerr, keys)) {
                 // Un egreso con clasificacion de ingreso se registra como egreso real.
@@ -596,6 +603,17 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 api.get<any>(`/cashflow/model?projectId=${projectId}&mode=dinamico`).catch(() => null),
                 api.get<any>(`/cashflow/model?projectId=${projectId}&mode=estatico`).catch(() => null),
             ]);
+            const savedById = new Map<string, any>();
+            for (const model of savedModels) {
+                for (const item of (model?.rows || [])) {
+                    const id = String(item?.id || '');
+                    if (id && !savedById.has(id)) savedById.set(id, item);
+                }
+            }
+            seedRows.forEach((item) => {
+                const saved = savedById.get(item.id);
+                if (saved?.label) item.label = String(saved.label);
+            });
             const structuralWidth = seedRows[0]?.values?.length || YEAR_COUNT;
             for (const model of savedModels) {
                 for (const item of (model?.rows || [])) {
@@ -988,27 +1006,25 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     useEffect(() => { rowsRef.current = rows; }, [rows]);
 
     const parseFormattedNumber = (value: string) => Number(String(value || '0').replace(/,/g, '').replace(/\s/g, '')) || 0;
-    // La base del flujo esta en DOLARES (los movimientos bancarios USD se guardan
-    // tal cual). El toggle S/ es SOLO visual. Si el usuario tipea un monto con el
-    // toggle en S/, ese numero viene en soles y hay que devolverlo a dolares (base)
-    // DIVIDIENDO por el tipo de cambio. En US$ se guarda tal cual.
-    const baseNumber = (value: string) => {
-        const numeric = parseFormattedNumber(value);
-        return currency === 'PEN' ? numeric / exchangeRate : numeric;
-    };
+    // REGLA DEL FLUJO: la base SIEMPRE esta en DOLARES. El cliente ingresa y edita
+    // en dolares; el toggle S/ es SOLO visual (multiplica al pintar, nunca al
+    // guardar). Por eso `baseNumber` NUNCA convierte: guarda el numero tal cual se
+    // teclea. Si se dividiera por el tipo de cambio se distorsionaba el dato (era
+    // el bug: al abrir en S/ el valor tecleado se dividia y quedaba "inflado").
+    const baseNumber = (value: string) => parseFormattedNumber(value);
 
     const calculated = useMemo(() => {
         // Base: filas con los borradores de edición superpuestos para que los totales
         // de categorías y las columnas de total se recalculen EN VIVO mientras se tipea.
         const base = rows.map((item) => ({ ...item, values: normalizeValues(item.values) }));
-        const draftValue = (id: string, value: string) => (id === 'lots-sold' ? parseFormattedNumber(value) : baseNumber(value));
+        const draftValue = (value: string) => baseNumber(value);
         Object.entries(editingDrafts).forEach(([key, draft]) => {
             const [id, rawYear] = key.split(':');
             const year = Number(rawYear);
             if (!id || Number.isNaN(year)) return;
             const item = base.find((candidate) => candidate.id === id);
             if (!item || item.computed) return;
-            item.values = item.values.map((cell, index) => index === year ? draftValue(id, draft) : cell);
+            item.values = item.values.map((cell, index) => index === year ? draftValue(draft) : cell);
         });
         return calculateRows(base);
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1081,9 +1097,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
 
     function beginCellEdit(id: string, year: number, value: number) {
         editSnapshot.current = { id, year, value };
+        // El borrador de edicion se pinta SIEMPRE en la moneda base (dolares), sin
+        // importar el toggle: asi lo que el usuario teclea es exactamente el valor
+        // que se guarda y editar con la vista en S/ no distorsiona el dato.
         setEditingDrafts((current) => ({
             ...current,
-            [cellKey(id, year)]: id === 'lots-sold' ? (value ? formatPlainInteger(value) : '') : (value ? formatInteger(value) : ''),
+            [cellKey(id, year)]: value ? formatPlainInteger(value) : '',
         }));
     }
 
@@ -1095,7 +1114,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             delete next[cellKey(id, year)];
             return next;
         });
-        const baseValue = id === 'lots-sold' ? parseFormattedNumber(value) : baseNumber(value);
+        const baseValue = baseNumber(value);
         const item = rows.find((candidate) => candidate.id === id);
         if (!item?.computed) writeCellValue(id, year, baseValue);
         if (snapshot && snapshot.id === id && snapshot.year === year && snapshot.value === baseValue) return;
@@ -1191,8 +1210,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         // se persiste la foto derivada para que el nombre sobreviva a la recarga.
         if (mode === 'dinamico') {
             rowsRef.current = rowsRef.current.map((item) => item.id === id ? { ...item, label: nextLabel } : item);
-            scheduleDynamicSave();
-            toast('Nombre actualizado');
+            try {
+                await persistDynamic({ rows: rowsRef.current, manualFields: manual, baseYear, firstDataYear, years: projectionYears });
+                toast('Nombre actualizado');
+            } catch (error: any) {
+                toast(error?.message || 'No se pudo guardar el nombre', 'err');
+            }
             return;
         }
         try {

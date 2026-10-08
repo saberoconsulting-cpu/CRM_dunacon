@@ -7,6 +7,7 @@ import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import AnnualReportPanel from '@/components/features/bank-accounts/AnnualReportPanel';
 import CategoryMasterPanel from '@/components/features/bank-accounts/CategoryMasterPanel';
 import { api, uploadFile } from '@/lib/api';
+import { printHtml } from '@/lib/print';
 import { BRAND } from '@/lib/types';
 import { useDisplayCurrency } from '@/lib/currency';
 
@@ -93,7 +94,7 @@ const INK = '#0F172A';
 const MUTED = '#64748B';
 const PAGE_SIZE = 25;
 
-const emptyFilters = { from: '', to: '' };
+const emptyFilters = { from: '', to: '', search: '', movementType: '', eerrClassification: '' };
 
 function num(value: unknown) {
   const parsed = Number(value);
@@ -127,6 +128,15 @@ function inputAmount(value: number) {
 function bankMoney(value: unknown, currency: 'PEN' | 'USD') {
   const symbol = currency === 'USD' ? 'US$' : 'S/';
   return `${symbol} ${num(value).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function monthLabelFromDate(value: string | null) {
@@ -316,6 +326,14 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
       .sort((left, right) => left.value.localeCompare(right.value)),
     [categories],
   );
+  const classificationOptions = useMemo(
+    () => Array.from(new Set(categories.map((item) => item.eerrClassification).filter(Boolean))).sort(),
+    [categories],
+  );
+  const classificationFor = useCallback((item: Pick<Movement, 'movementType' | 'eerrClassification'>) => {
+    const matched = categoryByLookup.get(String(item.movementType || '').trim().toUpperCase());
+    return matched?.eerrClassification || item.eerrClassification || '';
+  }, [categoryByLookup]);
 
 // Sugerencias para el combo de "Tipo ingreso/gasto", filtradas por lo escrito.
   const typeSuggestions = useMemo(() => {
@@ -568,6 +586,60 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     { label: 'Total años', value: yearRange.label, color: '#0000AA', helper: yearRange.helper, accent: true },
   ];
 
+  function exportPdf() {
+    const accountLabel = selectedAccount
+      ? `${selectedAccount.bank ? `${selectedAccount.bank} - ` : ''}${selectedAccount.name} (${selectedAccount.currency === 'USD' ? 'US$' : 'S/'})`
+      : 'Cuenta bancaria';
+    const filtersText = [
+      filters.from ? `Desde ${filters.from}` : '',
+      filters.to ? `Hasta ${filters.to}` : '',
+      filters.search ? `Proveedor/Cliente: ${filters.search}` : '',
+      filters.movementType ? `Tipo I/G: ${filters.movementType}` : '',
+      filters.eerrClassification ? `Clasif. FC: ${filters.eerrClassification}` : '',
+    ].filter(Boolean).join(' - ') || 'Sin filtros aplicados';
+    const cardHtml = cards.map((card) => `
+      <div class="card"><div class="label">${escapeHtml(card.label)}</div><div class="value" style="color:${card.color}">${escapeHtml(card.value)}</div><div class="helper">${escapeHtml(card.helper)}</div></div>
+    `).join('');
+    const rows = sortedItems.map((item) => `
+      <tr>
+        <td>${escapeHtml(item.itemNumber ?? '-')}</td>
+        <td>${escapeHtml(prettyDate(item.movementDate))}</td>
+        <td>${escapeHtml(monthLabel(item.movementDate))}</td>
+        <td>${escapeHtml(item.description || '-')}</td>
+        <td>${escapeHtml(item.counterparty || '-')}</td>
+        <td class="num pos">${escapeHtml(num(item.depositAmount) ? tableMoney(item.depositAmount, item.exchangeRate) : '-')}</td>
+        <td class="num neg">${escapeHtml(num(item.chargeAmount) ? tableMoney(item.chargeAmount, item.exchangeRate) : '-')}</td>
+        <td class="num">${escapeHtml(item.bookBalance === null ? '-' : tableMoney(item.bookBalance, item.exchangeRate))}</td>
+        <td>${escapeHtml(item.movementType || '-')}</td>
+        <td>${escapeHtml(classificationFor(item) || '-')}</td>
+      </tr>
+    `).join('');
+
+    printHtml(`<!doctype html><html><head><meta charset="utf-8" /><title>Reporte Cuentas y bancos</title>
+      <style>
+        @page { size: A4 landscape; margin: 10mm; }
+        body { font-family: Arial, sans-serif; color: #0F172A; margin: 0; }
+        .header { display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #1877F2; padding-bottom: 10px; }
+        .logo { height: 44px; object-fit: contain; } h1 { margin: 0; font-size: 22px; }
+        .muted { color: #64748B; font-size: 11px; margin-top: 4px; }
+        .section { margin-top: 14px; } .cards { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+        .card { border: 1px solid #E2E8F0; border-radius: 6px; padding: 8px; min-height: 54px; }
+        .label { color: #64748B; font-size: 9px; font-weight: 700; text-transform: uppercase; }
+        .value { margin-top: 4px; font-size: 15px; font-weight: 800; } .helper { margin-top: 2px; color: #94A3B8; font-size: 9px; }
+        table { width: 100%; border-collapse: collapse; font-size: 9px; } th { background: #64748B; color: #fff; text-align: left; padding: 6px; }
+        td { border-bottom: 1px solid #E2E8F0; padding: 5px 6px; vertical-align: top; }
+        .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; } .pos { color: #16A36A; font-weight: 700; } .neg { color: #DC2626; font-weight: 700; }
+      </style></head><body>
+        <div class="header">
+          <img class="logo" src="/logo/dunacon.png" alt="Dunacon" />
+          <div style="text-align:center"><h1>Cuentas y bancos</h1><div class="muted">${escapeHtml(accountLabel)} - Proyecto ${escapeHtml(projectId)}</div><div class="muted">${escapeHtml(filtersText)}</div></div>
+          <div class="muted" style="text-align:right">${escapeHtml(new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'long', year: 'numeric' }))}<br />${escapeHtml(sortedItems.length)} movimientos</div>
+        </div>
+        <div class="section cards">${cardHtml}</div>
+        <div class="section"><table><thead><tr><th>Item</th><th>Fecha</th><th>Mes</th><th>Descripcion</th><th>Proveedor / Cliente</th><th>Abono</th><th>Cargo</th><th>Saldo contable</th><th>Tipo I/G</th><th>Clasif. FC</th></tr></thead><tbody>${rows}</tbody></table></div>
+      </body></html>`);
+  }
+
   return (
     <>
       <Toaster />
@@ -579,9 +651,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
               <p className="mt-1 max-w-3xl text-sm" style={{ color: MUTED }}>
                 Sube el Excel las veces que necesites: los movimientos se acumulan sin borrar los anteriores.
               </p>
-            </div>
-            <div className="order-first flex w-full justify-start lg:order-none lg:w-auto lg:justify-end">
-              <CurrencyToggle currency={currency} setCurrency={setCurrency} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} />
             </div>
             <div className="relative flex w-full items-center gap-2 lg:w-auto">
               <button
@@ -623,18 +692,24 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 <FiPlus /> <span className="sm:hidden">Agregar</span><span className="hidden sm:inline">Agregar cuenta</span>
               </button>
             </div>
-            <div className="grid w-full grid-cols-2 gap-2 lg:flex lg:w-auto lg:max-w-[560px] lg:flex-wrap lg:justify-end">
-              <button className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={load} disabled={loading}>
+            <div className="grid w-full grid-cols-2 gap-2 lg:w-[430px] lg:shrink-0">
+              <div className="flex h-10 min-w-0 items-center justify-center rounded-md border bg-white px-2" style={{ borderColor: BORDER }}>
+                <CurrencyToggle currency={currency} setCurrency={setCurrency} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} className="justify-center" />
+              </div>
+              <button className="btn-neutral !h-10 w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm" onClick={load} disabled={loading}>
                 <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar
               </button>
-              <button className="btn-outline w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={() => fileRef.current?.click()} disabled={uploading}>
+              <button className="btn-neutral !h-10 w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm" onClick={exportPdf} disabled={loading}>
+                <FiDownload /> Reporte PDF
+              </button>
+              <button className="btn-outline !h-10 w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm" onClick={() => fileRef.current?.click()} disabled={uploading}>
                 <FiUploadCloud /> {uploading ? 'Leyendo...' : 'Subir Excel'}
               </button>
-              <button className="btn-primary w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto" onClick={openCreate}>
+              <button className="btn-primary !h-10 w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm" onClick={openCreate}>
                 <FiPlus /> <span className="sm:hidden">Registrar Op.</span><span className="hidden sm:inline">Registrar</span>
               </button>
               <button
-                className="btn-neutral w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm lg:w-auto"
+                className="btn-neutral !h-10 w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm"
                 onClick={() => setCategoriesOpen((value) => !value)}
                 aria-expanded={categoriesOpen}
                 title="Configuracion de Categorias y Mapeo FC"
@@ -761,16 +836,11 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
         )}
 
         <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
-          <div className="flex flex-col gap-2 border-b px-4 py-3 lg:flex-row lg:items-center lg:justify-between" style={{ borderColor: BORDER }}>
-            <div className="flex min-w-0 items-center gap-2">
+          <div className="flex flex-col gap-3 border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between" style={{ borderColor: BORDER }}>
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
               <button className="btn-neutral !h-9 !px-3 text-xs" onClick={() => setShowFilters((value) => !value)} aria-expanded={showFilters}>
                 <FiFilter /> Filtros{activeFilters ? ` (${activeFilters})` : ''}
               </button>
-              {activeFilters > 0 && (
-                <button className="btn-neutral !h-9 !px-2 text-xs" onClick={() => setFilters({ ...emptyFilters })} title="Limpiar filtros">
-                  <FiX /> Limpiar
-                </button>
-              )}
               <button
                 type="button"
                 className="inline-flex h-9 items-center gap-1.5 rounded-lg border bg-[#F8FAFC] px-2.5 text-xs font-semibold transition-colors hover:bg-slate-100"
@@ -783,6 +853,25 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
               >
                 {dateSort === 'asc' ? <FiArrowUp aria-hidden="true" /> : <FiArrowDown aria-hidden="true" />}
                 Orden: fecha {dateSort === 'asc' ? 'ascendente' : 'descendente'}
+              </button>
+            </div>
+            <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-[minmax(180px,1fr)_160px_160px_auto]">
+              <input
+                className="input !h-9 text-xs sm:text-sm"
+                placeholder="Buscar Proveedor/Cliente"
+                value={filters.search}
+                onChange={(event) => f('search', event.target.value)}
+              />
+              <select className="input !h-9 text-xs sm:text-sm" value={filters.movementType} onChange={(event) => f('movementType', event.target.value)}>
+                <option value="">Tipo I/G</option>
+                {categories.map((item) => <option key={item.id} value={item.movementType}>{item.movementType}</option>)}
+              </select>
+              <select className="input !h-9 text-xs sm:text-sm" value={filters.eerrClassification} onChange={(event) => f('eerrClassification', event.target.value)}>
+                <option value="">Clasif. FC</option>
+                {classificationOptions.map((item) => <option key={item} value={item}>{item}</option>)}
+              </select>
+              <button className="btn-neutral !h-9 justify-center !px-3 text-xs sm:text-sm" onClick={() => setFilters({ ...emptyFilters })} disabled={!activeFilters} title="Limpiar filtros">
+                <FiX /> Limpiar
               </button>
             </div>
             <p className="text-xs" style={{ color: MUTED }}>
@@ -882,7 +971,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                             {item.exchangeRate ? num(item.exchangeRate).toFixed(4) : '-'}
                           </td>
                           <td className="td-base max-w-[180px] truncate" style={{ color: MUTED }} title={item.movementType || ''}>{item.movementType || '-'}</td>
-                          <td className="td-base max-w-[180px] truncate" style={{ color: MUTED }} title={item.eerrClassification || ''}>{item.eerrClassification || '-'}</td>
+                          <td className="td-base max-w-[180px] truncate" style={{ color: MUTED }} title={classificationFor(item) || ''}>{classificationFor(item) || '-'}</td>
                           <td className="td-base whitespace-nowrap" style={{ color: MUTED }}>{item.invoiceNumber || '-'}</td>
                           <td className="td-base max-w-[180px] truncate" style={{ color: MUTED }} title={item.observation || ''}>{item.observation || '-'}</td>
                           <td className="td-base">
@@ -936,6 +1025,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
             projectId={projectId}
             onClose={() => setCategoriesOpen(false)}
             onChanged={() => { loadCategories(); load(); }}
+            onReportPdf={exportPdf}
           />
         )}
       </div>
