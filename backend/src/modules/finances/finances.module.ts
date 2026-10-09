@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { FinancialTransactionEntity } from '../../shared/infrastructure/entities/financial-transaction.entity';
 import { ExpenseEntity } from '../../shared/infrastructure/entities/expense.entity';
 import { CashflowModelEntity } from '../../shared/infrastructure/entities/cashflow-model.entity';
+import { BankAccountMovementEntity } from '../../shared/infrastructure/entities/bank-account-movement.entity';
 import { AuditLogEntity } from '../../shared/infrastructure/entities/audit-log.entity';
 import { WebsocketModule } from '../../shared/infrastructure/websocket/websocket.module';
 import { ConstructionBudgetModule } from '../construction-budget/construction-budget.module';
@@ -15,7 +16,7 @@ import { CashflowService } from './application/cashflow.service';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([FinancialTransactionEntity, ExpenseEntity, AuditLogEntity, CashflowModelEntity]),
+    TypeOrmModule.forFeature([FinancialTransactionEntity, ExpenseEntity, AuditLogEntity, CashflowModelEntity, BankAccountMovementEntity]),
     WebsocketModule,
     ConstructionBudgetModule,
     IncomeStatementModule,

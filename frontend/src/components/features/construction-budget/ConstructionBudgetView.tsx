@@ -922,19 +922,19 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3 border-t bg-[#F8FAFC] p-4 xl:grid-cols-7" style={{ borderColor: BORDER }}>
-            <div className="min-w-0 rounded-md border bg-white p-3 sm:p-4 xl:col-span-1" style={{ borderColor: BORDER }}>
+            <div className="min-w-0 rounded-md border bg-white p-3 sm:p-4 xl:col-span-1 xl:px-2" style={{ borderColor: BORDER }}>
               <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }}>Total presupuesto</p>
-              <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-xl" style={{ color: INK }}>{showUsdBase(budgetTotals.projected || summary?.grandTotal)}</p>
+              <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-xl xl:text-[15px] 2xl:text-base" style={{ color: INK }}>{showUsdBase(budgetTotals.projected || summary?.grandTotal)}</p>
             </div>
             {CATEGORIES.map((cat) => (
-              <div key={cat.key} className="min-w-0 rounded-md border bg-white p-3 sm:p-4" style={{ borderColor: BORDER }}>
+              <div key={cat.key} className="min-w-0 rounded-md border bg-white p-3 sm:p-4 xl:px-2" style={{ borderColor: BORDER }}>
                 <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }} title={`${cat.letter}. ${cat.label}`}>{cat.letter}. {cat.label}</p>
-                <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-lg" style={{ color: cat.color }}>{showUsdBase(budgetTotals.categories[cat.key]?.projected || summary?.categories?.[cat.key])}</p>
+                <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-lg xl:text-[15px] 2xl:text-base" style={{ color: cat.color }}>{showUsdBase(budgetTotals.categories[cat.key]?.projected || summary?.categories?.[cat.key])}</p>
               </div>
             ))}
-            <div className="min-w-0 rounded-md border bg-white p-3 sm:p-4" style={{ borderColor: BORDER }}>
+            <div className="min-w-0 rounded-md border bg-white p-3 sm:p-4 xl:px-2" style={{ borderColor: BORDER }}>
               <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }} title="Costo de construccion">Costo construccion</p>
-              <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-lg" style={{ color: '#0F9F6E' }}>{showUsdBase(staticConstructionCost)}</p>
+              <p className="mt-1 truncate text-center text-base font-bold tabular-nums sm:text-lg xl:text-[15px] 2xl:text-base" style={{ color: '#0F9F6E' }}>{showUsdBase(staticConstructionCost)}</p>
             </div>
           </div>
         </section>

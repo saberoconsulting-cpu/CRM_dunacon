@@ -210,18 +210,20 @@ export default function ProjectPage() {
 
       <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         <div className="card flex flex-wrap items-start gap-4 xl:col-span-3 xl:items-center">
-          {project.coverImageUrl && (
-            <div className="w-24 shrink-0 self-stretch sm:w-auto sm:self-auto">
-              <img src={project.coverImageUrl} className="h-full min-h-[126px] w-full rounded-lg object-cover sm:h-[84px] sm:w-16 sm:min-h-0" alt="" />
+          <div className="flex min-w-0 flex-1 flex-nowrap items-start gap-4">
+            {project.coverImageUrl && (
+              <div className="w-24 shrink-0 sm:w-auto sm:self-stretch">
+                <img src={project.coverImageUrl} className="h-[108px] w-full rounded-lg object-cover sm:h-[108px] sm:w-24" alt="" />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              {project.logoImageUrl && <img src={project.logoImageUrl} className="h-12 w-auto max-w-40 object-contain" alt={`Logo ${project.name}`} />}
+              <p className="flex items-center gap-1 text-sm text-slate-500"><IoLocationSharp /> {project.location}</p>
+              {project.description && <p className="mt-1 text-xs text-slate-400">{project.description}</p>}
+              <span className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold" style={{ background: '#EAF7EE', color: '#125A3B' }}>
+                Ingreso registrado: {fmt(income)}
+              </span>
             </div>
-          )}
-          <div className="min-w-40 flex-1">
-            {project.logoImageUrl && <img src={project.logoImageUrl} className="h-12 w-auto max-w-40 object-contain" alt={`Logo ${project.name}`} />}
-            <p className="flex items-center gap-1 text-sm text-slate-500"><IoLocationSharp /> {project.location}</p>
-            {project.description && <p className="mt-1 text-xs text-slate-400">{project.description}</p>}
-            <span className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold" style={{ background: '#EAF7EE', color: '#125A3B' }}>
-              Ingreso registrado: {fmt(income)}
-            </span>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
             <CurrencyToggle

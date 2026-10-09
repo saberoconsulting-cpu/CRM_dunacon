@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { FiBarChart2, FiChevronDown, FiChevronRight, FiDollarSign, FiDownload, FiEdit3, FiFileText, FiGrid, FiMapPin, FiPlus, FiRefreshCw, FiTrendingUp, FiX } from 'react-icons/fi';
+import { FiAlertTriangle, FiBarChart2, FiChevronDown, FiChevronRight, FiDollarSign, FiDownload, FiEdit3, FiFileText, FiGrid, FiMapPin, FiPlus, FiRefreshCw, FiTrendingUp, FiX } from 'react-icons/fi';
 import { Toaster, toast, Field } from '@/components/ui/ui';
 import { Select } from '@/components/ui/Select';
 import { KpiCard as SharedKpiCard } from '@/components/ui/Metrics';
@@ -136,6 +136,12 @@ function compareStatementItems(a: StatementItem, b: StatementItem) {
 type CashflowModel = {
   assumptions?: Record<string, any>;
   rows?: CashflowRow[];
+  bankSync?: {
+    movementCount: number;
+    lastBankMovementAt: string | null;
+    modelUpdatedAt: string | null;
+    stale: boolean;
+  };
 };
 type CashflowRow = { id: string; label: string; values: number[]; parentId?: string };
 
@@ -1486,7 +1492,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 </div>
                 <h2 className="mt-4 block break-words text-2xl font-bold leading-tight tracking-normal text-white sm:mt-5 sm:text-4xl">Estado de Resultados</h2>
                 <p className="mt-2 block max-w-2xl text-sm leading-relaxed text-blue-50">
-                  Vista contable ejecutiva del proyecto, construida con ingresos, egresos y lotizacion registrada en la base de datos.
+                  Vista contable ejecutiva del proyecto, construida con ingresos y egresos.
                 </p>
               </div>
               <div className="grid w-full min-w-0 gap-3 rounded-md bg-white/10 p-3 ring-1 ring-white/20 backdrop-blur-sm lg:w-auto lg:min-w-[360px]">
@@ -1503,21 +1509,23 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 <div className="flex min-h-10 items-center rounded-md bg-white px-3 text-sm font-bold" style={{ color: INK }}>
                   {project?.name || `Proyecto ${projectId}`}
                 </div>
-                <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 sm:block">
-                  <label className="hidden text-xs font-semibold uppercase tracking-wide text-blue-50 sm:block">RUC editable</label>
-                  <div className="flex min-w-0 items-center gap-1.5 rounded-md bg-white px-2 sm:mt-1 sm:gap-2 sm:px-3">
-                    <FiEdit3 className="shrink-0 text-sm sm:text-base" style={{ color: BLUE }} />
-                    <input
-                      className="h-10 min-w-0 flex-1 bg-transparent text-xs font-bold outline-none sm:text-sm"
-                      style={{ color: INK }}
-                      value={ruc}
-                      onChange={(event) => setRuc(event.target.value)}
-                      inputMode="numeric"
-                    />
+                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
+                  <div className="min-w-0 flex-1">
+                    <label className="text-xs font-semibold uppercase tracking-wide text-blue-50">RUC editable</label>
+                    <div className="mt-1 flex min-w-0 items-center gap-1.5 rounded-md bg-white px-2 sm:gap-2 sm:px-3">
+                      <FiEdit3 className="shrink-0 text-sm sm:text-base" style={{ color: BLUE }} />
+                      <input
+                        className="h-10 min-w-0 flex-1 bg-transparent text-xs font-bold outline-none sm:text-sm"
+                        style={{ color: INK }}
+                        value={ruc}
+                        onChange={(event) => setRuc(event.target.value)}
+                        inputMode="numeric"
+                      />
+                    </div>
                   </div>
                   <button
                     type="button"
-                    className="btn-neutral !h-10 shrink-0 justify-center whitespace-nowrap !px-2 text-xs sm:mt-3 sm:w-full sm:!px-3 sm:text-sm"
+                    className="btn-neutral !h-10 shrink-0 justify-center whitespace-nowrap !px-2 text-xs sm:!px-3 sm:text-sm"
                     style={{ color: INK }}
                     onClick={exportPdf}
                     disabled={loading}
@@ -1536,6 +1544,27 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
             <MetricPill label="Fecha de reporte" value={new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })} color={INK} />
           </div>
         </section>
+
+        {dynamicCashflow?.bankSync?.stale && (
+          <section className="rounded-md border bg-amber-50 px-4 py-3 shadow-sm" style={{ borderColor: '#FCD34D' }}>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="flex items-start gap-2 text-sm font-semibold text-amber-900">
+                <FiAlertTriangle className="mt-0.5 shrink-0" />
+                El flujo de caja dinamico esta desactualizado frente a Cuentas y bancos.
+              </p>
+              <a
+                className="inline-flex h-9 items-center justify-center gap-2 rounded-md px-3 text-xs font-bold text-white"
+                style={{ background: BLUE }}
+                href={`/projects/${projectId}/cashflow`}
+              >
+                <FiRefreshCw /> Actualizar flujo
+              </a>
+            </div>
+            <p className="mt-1 text-xs text-amber-800">
+              Hay movimientos bancarios registrados despues de la ultima reconstruccion del flujo dinamico. Actualizalo antes de tomar decisiones con la columna Real.
+            </p>
+          </section>
+        )}
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <KpiCard label="Ingreso real" value={showUsdBase(report.realRevenue)} helper="Ingresos de la operación diaria (transacciones)" icon={<FiDollarSign />} color={GREEN} />

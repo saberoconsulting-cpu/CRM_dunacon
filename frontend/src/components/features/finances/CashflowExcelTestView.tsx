@@ -37,8 +37,8 @@ const PLAIN_NUMBER_ROW_IDS = ['initial-fee', 'financing-fee'];
 const money = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 0 });
 const empty = () => Array(YEAR_COUNT).fill(0) as number[];
 const normalizeValues = (values?: number[]) => Array.from({ length: YEAR_COUNT }, (_, index) => Number(values?.[index] || 0));
-const CONCEPT_COL = 'w-[70cqw] min-w-[70cqw] max-w-[70cqw] md:w-[232px] md:min-w-[232px] md:max-w-none';
-const TOTAL_COL = 'w-[30cqw] min-w-[30cqw] max-w-[30cqw] md:w-[100px] md:min-w-[100px] md:max-w-none';
+const CONCEPT_COL = 'w-[70vw] min-w-[70vw] max-w-[70vw] supports-[width:1cqw]:w-[70cqw] supports-[width:1cqw]:min-w-[70cqw] supports-[width:1cqw]:max-w-[70cqw] md:w-[232px] md:min-w-[232px] md:max-w-none';
+const TOTAL_COL = 'w-[30vw] min-w-[30vw] max-w-[30vw] supports-[width:1cqw]:w-[30cqw] supports-[width:1cqw]:min-w-[30cqw] supports-[width:1cqw]:max-w-[30cqw] md:w-[100px] md:min-w-[100px] md:max-w-none';
 const YEAR_COL = 'w-[100px] min-w-[100px]';
 
 function computeIRR(flow: number[]): number | null {
@@ -715,7 +715,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         const atYearZero = (total: number) => { const series = emptySeries(); series[0] = total; return series; };
         const addToSeries = (id: string, year: number | null, amount: number) => {
             const slot = toSlot(year);
-            if (slot === null || !Number.isFinite(amount) || amount <= 0) return;
+            if (slot === null) return;
+            if (!Number.isFinite(amount) || amount <= 0) return;
             const item = seedRows.find((candidate) => candidate.id === id);
             if (!item) return;
             const values = normalizeValues(item.values);

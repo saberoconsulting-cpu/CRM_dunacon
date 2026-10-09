@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CashflowModelEntity } from '../../../shared/infrastructure/entities/cashflow-model.entity';
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
+import { BankAccountMovementEntity } from '../../../shared/infrastructure/entities/bank-account-movement.entity';
 import { SaveCashflowModelDto, CashflowMode } from './dto/cashflow.dto';
 
 const MODES: CashflowMode[] = ['estatico', 'dinamico'];
@@ -15,6 +16,8 @@ export class CashflowService {
     private readonly cashflowRepo: Repository<CashflowModelEntity>,
     @InjectRepository(AuditLogEntity)
     private readonly auditRepo: Repository<AuditLogEntity>,
+    @InjectRepository(BankAccountMovementEntity)
+    private readonly bankMovementRepo: Repository<BankAccountMovementEntity>,
   ) {}
 
   private normalizeMode(mode?: string): CashflowMode {
@@ -28,10 +31,29 @@ export class CashflowService {
    */
   async getModel(projectId: number, mode?: string) {
     if (!projectId) return null;
+    const normalizedMode = this.normalizeMode(mode);
     const model = await this.cashflowRepo.findOne({
-      where: { projectId, mode: this.normalizeMode(mode) },
+      where: { projectId, mode: normalizedMode },
     });
-    return model || null;
+    if (!model) return null;
+    if (normalizedMode !== 'dinamico') return model;
+
+    const bankState = await this.bankMovementRepo.createQueryBuilder('m')
+      .select('COUNT(*)', 'movementCount')
+      .addSelect('MAX(m.updated_at)', 'lastBankMovementAt')
+      .where('m.project_id = :projectId', { projectId })
+      .getRawOne();
+    const lastBankMovementAt = bankState?.lastBankMovementAt ? new Date(bankState.lastBankMovementAt) : null;
+    const modelUpdatedAt = model.updatedAt ? new Date(model.updatedAt) : null;
+    return {
+      ...model,
+      bankSync: {
+        movementCount: Number(bankState?.movementCount || 0),
+        lastBankMovementAt: lastBankMovementAt?.toISOString() || null,
+        modelUpdatedAt: modelUpdatedAt?.toISOString() || null,
+        stale: Boolean(lastBankMovementAt && modelUpdatedAt && lastBankMovementAt > modelUpdatedAt),
+      },
+    };
   }
 
   /** Crea o actualiza el modelo del proyecto para ese modo (upsert). */

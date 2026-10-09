@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { FiAlertTriangle, FiDownload, FiEdit3, FiList, FiPlus, FiRefreshCw, FiSave, FiTrash2, FiX } from 'react-icons/fi';
 import { toast } from '@/components/ui/ui';
 import { api } from '@/lib/api';
+import { printHtml } from '@/lib/print';
 
 type Category = {
   id: number;
@@ -27,6 +28,15 @@ const BORDER = '#CBD5E1';
 const NAVY = '#002060';
 const INPUT_STYLE = { width: '100%', padding: '5px 6px', border: `1px solid ${BORDER}`, borderRadius: 4, fontSize: 12 };
 
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
 function makeCode(value: string) {
   const words = String(value || '')
     .normalize('NFD')
@@ -47,11 +57,10 @@ function categoryClassificationOptions(items: Category[]) {
   return Array.from(new Set(items.map((item) => item.eerrClassification).filter(Boolean))).sort();
 }
 
-export default function CategoryMasterPanel({ projectId, onClose, onChanged, onReportPdf }: {
+export default function CategoryMasterPanel({ projectId, onClose, onChanged }: {
   projectId: number;
   onClose: () => void;
   onChanged?: () => void;
-  onReportPdf?: () => void;
 }) {
   const [items, setItems] = useState<Category[]>([]);
   const [unmapped, setUnmapped] = useState<Array<{ movementType: string; eerrClassification: string }>>([]);
@@ -272,6 +281,50 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged, onR
     ? [...items].sort((a, b) => Number(a.sortOrder || 0) - Number(b.sortOrder || 0) || Number(a.id) - Number(b.id))
     : items;
 
+  function exportCategoriesPdf() {
+    const rows = visibleItems.map((item, index) => {
+      const current = draftOf(item);
+      return `
+        <tr>
+          <td class="center">${escapeHtml(Number(item.sortOrder || 0) || index + 1)}</td>
+          <td>${escapeHtml(current.code || item.code || makeCode(current.movementType))}</td>
+          <td>${escapeHtml(current.movementType)}</td>
+          <td>${escapeHtml(current.eerrClassification)}</td>
+        </tr>
+      `;
+    }).join('');
+    printHtml(`<!doctype html><html><head><meta charset="utf-8" /><title>Reporte de categorias</title>
+      <style>
+        body{font-family:Arial,Helvetica,sans-serif;margin:24px;color:#0F172A;background:#fff}
+        .header{display:flex;justify-content:space-between;gap:16px;align-items:flex-start;border-bottom:3px solid ${NAVY};padding-bottom:12px;margin-bottom:16px}
+        h1{margin:0;color:${NAVY};font-size:22px}
+        p{margin:4px 0 0;color:#64748B;font-size:12px}
+        table{width:100%;border-collapse:collapse;table-layout:fixed}
+        th{background:${NAVY};color:#fff;text-align:left;font-size:11px;text-transform:uppercase;padding:8px;border:1px solid ${NAVY}}
+        td{font-size:12px;padding:7px 8px;border:1px solid #CBD5E1;vertical-align:top;word-break:break-word}
+        tbody tr:nth-child(even){background:#F8FAFC}
+        .center{text-align:center}
+        .meta{text-align:right}
+        @media print{body{margin:14px}.header{break-inside:avoid}thead{display:table-header-group}}
+      </style></head><body>
+        <div class="header">
+          <div>
+            <h1>Tabla de categorias</h1>
+            <p>Codigos y mapeo FC usados en Cuentas y bancos.</p>
+          </div>
+          <div class="meta">
+            <p><b>Proyecto:</b> ${escapeHtml(projectId)}</p>
+            <p><b>Total:</b> ${visibleItems.length} categorias</p>
+            <p>${escapeHtml(new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'long', year: 'numeric' }))}</p>
+          </div>
+        </div>
+        <table>
+          <thead><tr><th style="width:54px;text-align:center">Item</th><th style="width:80px">Cod.</th><th>Categoria</th><th>Clasif. FC</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="4" class="center">Sin categorias</td></tr>'}</tbody>
+        </table>
+      </body></html>`);
+  }
+
   return (
     <aside className="fixed inset-y-0 right-0 z-50 flex w-[600px] max-w-[calc(100vw_-_72px)] flex-col border-l bg-white shadow-2xl" style={{ borderColor: BORDER }}>
       <div className="border-b px-4 py-3" style={{ borderColor: BORDER }}>
@@ -290,7 +343,7 @@ export default function CategoryMasterPanel({ projectId, onClose, onChanged, onR
           <button className="btn-neutral !h-8 justify-center !px-2 text-[11px]" onClick={load} disabled={loading}>
             <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar
           </button>
-          <button className="btn-neutral !h-8 justify-center !px-2 text-[11px]" onClick={onReportPdf}>
+          <button className="btn-neutral !h-8 justify-center !px-2 text-[11px]" onClick={exportCategoriesPdf}>
             <FiDownload /> Reporte PDF
           </button>
           <button

@@ -190,6 +190,8 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [tableCurrency, setTableCurrency] = useState<'USD' | 'PEN'>('USD');
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [movementFilterOpen, setMovementFilterOpen] = useState(false);
+  const [classificationFilterOpen, setClassificationFilterOpen] = useState(false);
   const [accountForm, setAccountForm] = useState({ name: '', bank: '', accountNumber: '', currency: 'USD' as 'PEN' | 'USD' });
   const [savingAccount, setSavingAccount] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -862,14 +864,78 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 value={filters.search}
                 onChange={(event) => f('search', event.target.value)}
               />
-              <select className="input !h-9 text-xs sm:text-sm" value={filters.movementType} onChange={(event) => f('movementType', event.target.value)}>
-                <option value="">Tipo I/G</option>
-                {categories.map((item) => <option key={item.id} value={item.movementType}>{item.movementType}</option>)}
-              </select>
-              <select className="input !h-9 text-xs sm:text-sm" value={filters.eerrClassification} onChange={(event) => f('eerrClassification', event.target.value)}>
-                <option value="">Clasif. FC</option>
-                {classificationOptions.map((item) => <option key={item} value={item}>{item}</option>)}
-              </select>
+              <div className="relative min-w-0">
+                <button
+                  type="button"
+                  className="flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-xl border bg-white px-3 text-left text-xs font-semibold shadow-sm transition-colors hover:bg-[#F8FAFC] sm:text-sm"
+                  style={{ borderColor: '#D1D5DB', color: filters.movementType ? INK : MUTED }}
+                  onClick={() => setMovementFilterOpen((open) => !open)}
+                  aria-expanded={movementFilterOpen}
+                >
+                  <span className="min-w-0 truncate">{filters.movementType || 'Tipo I/G'}</span>
+                  <FiChevronDown className={`shrink-0 transition-transform ${movementFilterOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {movementFilterOpen && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setMovementFilterOpen(false)} />
+                    <div className="absolute left-0 right-0 top-10 z-40 max-h-64 overflow-auto rounded-md border bg-white p-1 shadow-xl" style={{ borderColor: BORDER }}>
+                      <button
+                        type="button"
+                        className={`flex w-full rounded px-3 py-2 text-left text-xs font-semibold transition-colors hover:bg-[#F3F7FC] ${!filters.movementType ? 'bg-[#EAF3FF] text-[#1877F2]' : 'text-slate-700'}`}
+                        onClick={() => { f('movementType', ''); setMovementFilterOpen(false); }}
+                      >
+                        Todos los tipos
+                      </button>
+                      {categories.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className={`flex w-full min-w-0 rounded px-3 py-2 text-left text-xs transition-colors hover:bg-[#F3F7FC] ${filters.movementType === item.movementType ? 'bg-[#EAF3FF] text-[#1877F2]' : 'text-slate-700'}`}
+                          onClick={() => { f('movementType', item.movementType); setMovementFilterOpen(false); }}
+                        >
+                          <span className="truncate">{item.movementType}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              <div className="relative min-w-0">
+                <button
+                  type="button"
+                  className="flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-xl border bg-white px-3 text-left text-xs font-semibold shadow-sm transition-colors hover:bg-[#F8FAFC] sm:text-sm"
+                  style={{ borderColor: '#D1D5DB', color: filters.eerrClassification ? INK : MUTED }}
+                  onClick={() => setClassificationFilterOpen((open) => !open)}
+                  aria-expanded={classificationFilterOpen}
+                >
+                  <span className="min-w-0 truncate">{filters.eerrClassification || 'Clasif. FC'}</span>
+                  <FiChevronDown className={`shrink-0 transition-transform ${classificationFilterOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {classificationFilterOpen && (
+                  <>
+                    <div className="fixed inset-0 z-30" onClick={() => setClassificationFilterOpen(false)} />
+                    <div className="absolute left-0 right-0 top-10 z-40 max-h-64 overflow-auto rounded-md border bg-white p-1 shadow-xl" style={{ borderColor: BORDER }}>
+                      <button
+                        type="button"
+                        className={`flex w-full rounded px-3 py-2 text-left text-xs font-semibold transition-colors hover:bg-[#F3F7FC] ${!filters.eerrClassification ? 'bg-[#EAF3FF] text-[#1877F2]' : 'text-slate-700'}`}
+                        onClick={() => { f('eerrClassification', ''); setClassificationFilterOpen(false); }}
+                      >
+                        Todas las clasificaciones
+                      </button>
+                      {classificationOptions.map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          className={`flex w-full min-w-0 rounded px-3 py-2 text-left text-xs transition-colors hover:bg-[#F3F7FC] ${filters.eerrClassification === item ? 'bg-[#EAF3FF] text-[#1877F2]' : 'text-slate-700'}`}
+                          onClick={() => { f('eerrClassification', item); setClassificationFilterOpen(false); }}
+                        >
+                          <span className="truncate">{item}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
               <button className="btn-neutral !h-9 justify-center !px-3 text-xs sm:text-sm" onClick={() => setFilters({ ...emptyFilters })} disabled={!activeFilters} title="Limpiar filtros">
                 <FiX /> Limpiar
               </button>
@@ -1025,7 +1091,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
             projectId={projectId}
             onClose={() => setCategoriesOpen(false)}
             onChanged={() => { loadCategories(); load(); }}
-            onReportPdf={exportPdf}
           />
         )}
       </div>
