@@ -149,8 +149,22 @@ export class BankAccountsService {
     if (filters.from) qb.andWhere('m.movement_date >= :from', { from: filters.from });
     if (filters.to) qb.andWhere('m.movement_date <= :to', { to: filters.to });
     if (filters.search) {
-      qb.andWhere('(LOWER(COALESCE(m.counterparty, \'\')) LIKE :search OR LOWER(COALESCE(m.description, \'\')) LIKE :search)', {
-        search: `%${filters.search.toLowerCase()}%`,
+      const rawSearch = filters.search.toLowerCase().trim();
+      const initials = rawSearch.replace(/[^a-z0-9]/g, '');
+      qb.andWhere(`(
+        LOWER(COALESCE(m.counterparty, '')) LIKE :search
+        OR LOWER(COALESCE(m.description, '')) LIKE :search
+        OR LOWER(COALESCE(m.movement_type, '')) LIKE :search
+        OR LOWER(COALESCE(m.eerr_classification, '')) LIKE :search
+        OR LOWER(COALESCE(m.invoice_number, '')) LIKE :search
+        OR LOWER(COALESCE(m.observation, '')) LIKE :search
+        OR LOWER(regexp_replace(COALESCE(m.counterparty, ''), '(^|[[:space:]])([^[:space:]])[^[:space:]]*[[:space:]]*', '\\2', 'g')) LIKE :initials
+        OR LOWER(regexp_replace(COALESCE(m.description, ''), '(^|[[:space:]])([^[:space:]])[^[:space:]]*[[:space:]]*', '\\2', 'g')) LIKE :initials
+        OR LOWER(regexp_replace(COALESCE(m.movement_type, ''), '(^|[[:space:]])([^[:space:]])[^[:space:]]*[[:space:]]*', '\\2', 'g')) LIKE :initials
+        OR LOWER(regexp_replace(COALESCE(m.eerr_classification, ''), '(^|[[:space:]])([^[:space:]])[^[:space:]]*[[:space:]]*', '\\2', 'g')) LIKE :initials
+      )`, {
+        search: `%${rawSearch}%`,
+        initials: `%${initials || '__no_initials__'}%`,
       });
     }
     if (filters.movementType) qb.andWhere('m.movement_type = :movementType', { movementType: filters.movementType });

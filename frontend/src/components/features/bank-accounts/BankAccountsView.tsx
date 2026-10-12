@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FiAlertCircle, FiArrowDown, FiArrowUp, FiCheckCircle, FiChevronDown, FiChevronLeft, FiChevronRight, FiCreditCard, FiDownload, FiEdit3, FiFilter, FiPlus, FiRefreshCw, FiSave, FiSettings, FiTrash2, FiUploadCloud, FiX } from 'react-icons/fi';
+import { FiAlertCircle, FiArrowDown, FiArrowUp, FiCheckCircle, FiChevronDown, FiChevronLeft, FiChevronRight, FiCreditCard, FiDownload, FiEdit3, FiPlus, FiRefreshCw, FiSave, FiSettings, FiTrash2, FiUploadCloud, FiX } from 'react-icons/fi';
 import { Toaster, toast, Field } from '@/components/ui/ui';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import AnnualReportPanel from '@/components/features/bank-accounts/AnnualReportPanel';
@@ -163,7 +163,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [facets, setFacets] = useState<any>({ eerrClassifications: [], months: [], batches: [] });
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ ...emptyFilters });
-  const [showFilters, setShowFilters] = useState(false);
   const [page, setPage] = useState(1);
   const [dateSort, setDateSort] = useState<'asc' | 'desc'>('asc');
   const [formOpen, setFormOpen] = useState(false);
@@ -558,7 +557,10 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     }
   }
 
-  const f = (key: string, value: any) => setFilters((current) => ({ ...current, [key]: value }));
+  const f = (key: string, value: any) => {
+    setPage(1);
+    setFilters((current) => ({ ...current, [key]: value }));
+  };
   const activeFilters = Object.values(filters).filter(Boolean).length;
 
   const filtered = Boolean(summary?.filtrado);
@@ -840,9 +842,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
         <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
           <div className="flex flex-col gap-3 border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between" style={{ borderColor: BORDER }}>
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <button className="btn-neutral !h-9 !px-3 text-xs" onClick={() => setShowFilters((value) => !value)} aria-expanded={showFilters}>
-                <FiFilter /> Filtros{activeFilters ? ` (${activeFilters})` : ''}
-              </button>
               <button
                 type="button"
                 className="inline-flex h-9 items-center gap-1.5 rounded-lg border bg-[#F8FAFC] px-2.5 text-xs font-semibold transition-colors hover:bg-slate-100"
@@ -857,10 +856,26 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 Orden: fecha {dateSort === 'asc' ? 'ascendente' : 'descendente'}
               </button>
             </div>
-            <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-[minmax(180px,1fr)_160px_160px_auto]">
+            <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-[140px_140px_minmax(200px,1fr)_160px_160px_auto]">
+              <input
+                type="date"
+                className="input !h-9 text-xs sm:text-sm"
+                value={filters.from}
+                onChange={(event) => f('from', event.target.value)}
+                title="Fecha desde"
+                aria-label="Fecha desde"
+              />
+              <input
+                type="date"
+                className="input !h-9 text-xs sm:text-sm"
+                value={filters.to}
+                onChange={(event) => f('to', event.target.value)}
+                title="Fecha hasta"
+                aria-label="Fecha hasta"
+              />
               <input
                 className="input !h-9 text-xs sm:text-sm"
-                placeholder="Buscar Proveedor/Cliente"
+                placeholder="Buscar texto o iniciales"
                 value={filters.search}
                 onChange={(event) => f('search', event.target.value)}
               />
@@ -872,7 +887,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   onClick={() => setMovementFilterOpen((open) => !open)}
                   aria-expanded={movementFilterOpen}
                 >
-                  <span className="min-w-0 truncate">{filters.movementType || 'Tipo I/G'}</span>
+                  <span className="min-w-0 truncate">{filters.movementType || 'Tipo Ingreso/Gasto'}</span>
                   <FiChevronDown className={`shrink-0 transition-transform ${movementFilterOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {movementFilterOpen && (
@@ -908,7 +923,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   onClick={() => setClassificationFilterOpen((open) => !open)}
                   aria-expanded={classificationFilterOpen}
                 >
-                  <span className="min-w-0 truncate">{filters.eerrClassification || 'Clasif. FC'}</span>
+                  <span className="min-w-0 truncate">{filters.eerrClassification || 'Clasificacion FC'}</span>
                   <FiChevronDown className={`shrink-0 transition-transform ${classificationFilterOpen ? 'rotate-180' : ''}`} />
                 </button>
                 {classificationFilterOpen && (
@@ -944,13 +959,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
               {items.length} movimientos{preview ? '' : ''}
             </p>
           </div>
-
-          {showFilters && (
-            <div className="grid gap-3 border-b bg-[#F8FAFC] p-4 sm:grid-cols-2 xl:grid-cols-4" style={{ borderColor: BORDER }}>
-              <Field label="Desde"><input type="date" className="input !h-9" value={filters.from} onChange={(e) => f('from', e.target.value)} /></Field>
-              <Field label="Hasta"><input type="date" className="input !h-9" value={filters.to} onChange={(e) => f('to', e.target.value)} /></Field>
-            </div>
-          )}
 
           {loading ? (
             <p className="p-8 text-center text-sm text-slate-400">Cargando estado de cuenta...</p>

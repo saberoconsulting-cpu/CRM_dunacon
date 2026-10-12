@@ -170,6 +170,19 @@ function normalizeConcept(value: unknown) {
         .trim();
 }
 
+function normalizeCashflowMatchConcept(value: unknown) {
+    return normalizeConcept(String(value || '')
+        .replace(/\([^)]*\)/g, ' ')
+        .split(/[-–—]/)[0]);
+}
+
+function cashflowMatchKeys(value: unknown) {
+    return Array.from(new Set([
+        normalizeConcept(value),
+        normalizeCashflowMatchConcept(value),
+    ].filter(Boolean)));
+}
+
 function includesAny(text: string, words: string[]) {
     return words.some((word) => text.includes(word));
 }
@@ -194,7 +207,7 @@ const BUDGET_CASHFLOW_ROW_MAP: Array<[string[], string]> = [
     [['d 01', 'gastos de administracion', 'gastos administrativos', 'planilla', 'planillas'], 'sales-plan'],
     [['d 02', 'publicidad', 'marketing', 'mkt'], 'marketing'],
     [['d 03', 'comisiones de ventas', 'comision de ventas', 'comision venta'], 'commission'],
-    [['d 04', 'mantenimiento', 'condominio'], 'post-sale'],
+    [['d 04', 'condominio'], 'post-sale'],
     [['d 05', 'post venta', 'postventa'], 'discounts'],
     [['post venta', 'postventa'], 'post-sale'],
     [['descuento', 'descuentos', 'bono', 'bonos'], 'discounts'],
@@ -280,7 +293,7 @@ const EERR_ROW_MAP: Array<[string[], string]> = [
     [['independizacion', 'titulacion', 'indemnizacion'], 'indemnity'],
     [['imprevistos', 'imprevisto', 'contingencia'], 'legal-contingency'],
     // Gastos de ventas y administrativos
-    [['gastos de administracion', 'administracion', 'gastos administrativos'], 'sales-plan'],
+    [['gastos de ventas y administrativos', 'gastos ventas administrativos', 'gastos de mantenimiento', 'gasto de mantenimiento', 'gastos de administracion', 'administracion', 'gastos administrativos'], 'sales-plan'],
     [['marketing - mkt digital', 'marketing', 'mkt', 'campanas - meta ads', 'campanas', 'meta ads', 'publicidad'], 'marketing'],
     [['comision venta lotes', 'comision de ventas', 'comision venta', 'comisiones de venta'], 'commission'],
     [['post venta', 'postventa'], 'post-sale'],
@@ -312,7 +325,6 @@ type SeedContext = {
 
 function cashflowRowFromBankMovement(item: BankMovement, context?: SeedContext) {
     const movementTypeKey = normalizeConcept(item.movementType);
-    const descriptionKey = normalizeConcept(item.description);
     const category = movementTypeKey ? context?.categoryByType.get(movementTypeKey) : undefined;
     const categoryEerr = normalizeConcept(category?.eerrClassification);
     const eerr = categoryEerr || normalizeConcept(item.eerrClassification);
@@ -330,10 +342,27 @@ function cashflowRowFromBankMovement(item: BankMovement, context?: SeedContext) 
 
         // La subpartida concreta sale del Tipo/Categoria de Cuentas y bancos.
         // La Clasif. FC se usa como familia; no debe pisar subpartidas hermanas.
-        const candidates = [movementTypeKey, descriptionKey].filter(Boolean);
+        const candidates = [
+            ...cashflowMatchKeys(item.movementType),
+            ...cashflowMatchKeys(item.description),
+        ];
         for (const candidate of candidates) {
             const target = context.labelToRowId.get(candidate);
             if (target) return target;
+        }
+    }
+
+    const typeText = normalizeConcept([category?.movementType, item.movementType].filter(Boolean).join(' '));
+    if (typeText) {
+        if (includesAny(typeText, ['alcabala'])) return 'alcabala';
+        if (includesAny(typeText, ['gastos de mantenimiento', 'gasto de mantenimiento'])) return 'sales-plan';
+        if (includesAny(typeText, ['construccion', 'obra', 'movimiento de tierra', 'movimiento de tierras', 'afirmado', 'saneamiento', 'cisterna', 'redes de agua', 'redes sanitarias', 'pozo', 'pavimentacion', 'vias', 'veredas', 'pistas', 'sardinel', 'sardineles', 'portico', 'cerco', 'losa', 'piscina', 'parrilla', 'fogata', 'club house', 'oficina stand', 'plantas', 'grass', 'electric', 'alumbrado', 'telefonia', 'videovigilancia', 'camaras', 'mantenimiento de instalaciones', 'vigilancia', 'areas verdes', 'juego ninos'])) return constructionChildRow(typeText);
+        for (const [keys, target] of EERR_ROW_MAP) {
+            if (includesAny(typeText, keys)) {
+                const egresoTargets = ['land-cost', 'alcabala', 'legal', 'management', 'indemnity', 'legal-contingency', 'sales-plan', 'marketing', 'commission', 'post-sale', 'discounts', 'financial', 'tax'];
+                if (deposit > 0 && egresoTargets.includes(target)) break;
+                return target;
+            }
         }
     }
 
@@ -368,6 +397,7 @@ function cashflowRowFromBankMovement(item: BankMovement, context?: SeedContext) 
     if (includesAny(text, ['gerencia de proyectos', 'gerencia'])) return 'management';
     if (includesAny(text, ['indemnizacion', 'independizacion', 'titulacion'])) return 'indemnity';
     if (includesAny(text, ['imprevisto', 'contingencia'])) return 'legal-contingency';
+    if (includesAny(text, ['gastos de mantenimiento', 'gasto de mantenimiento'])) return 'sales-plan';
     if (includesAny(text, ['planilla', 'sueldo', 'personal'])) return 'sales-plan';
     if (includesAny(text, ['marketing', 'publicidad', 'campana', 'campanas', 'meta ads', 'mkt'])) return 'marketing';
     if (includesAny(text, ['comision venta', 'comision de ventas'])) return 'commission';
@@ -561,8 +591,16 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             : [];
         const seenBankMovementKeys = new Set<string>();
         const bankMovements = rawBankMovements.filter((movement: any) => {
+            if (movement.id) {
+                const key = `id:${movement.id}`;
+                if (seenBankMovementKeys.has(key)) return false;
+                seenBankMovementKeys.add(key);
+                return true;
+            }
             const amount = Number(movement.depositAmount || 0) || Number(movement.chargeAmount || 0);
             const key = [
+                movement.accountKey || '',
+                movement.itemNumber || '',
                 movement.movementDate || '',
                 normalizeConcept(movement.description),
                 normalizeConcept(movement.counterparty),
@@ -672,8 +710,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         }
         const labelToRowId = new Map<string, string>();
         for (const item of seedRows) {
-            const key = normalizeConcept(item.label);
-            if (key && !labelToRowId.has(key)) labelToRowId.set(key, item.id);
+            for (const key of cashflowMatchKeys(item.label)) {
+                if (key && !labelToRowId.has(key)) labelToRowId.set(key, item.id);
+            }
         }
         const seedContext: SeedContext = {
             explicit: explicitLinks,

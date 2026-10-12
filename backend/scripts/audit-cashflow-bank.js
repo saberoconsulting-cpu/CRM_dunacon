@@ -53,7 +53,7 @@ const EERR_ROW_MAP = [
   [['gerencia de proyectos', 'gerencia'], 'management'],
   [['independizacion', 'titulacion', 'indemnizacion'], 'indemnity'],
   [['imprevistos', 'imprevisto', 'contingencia'], 'legal-contingency'],
-  [['gastos de administracion', 'administracion', 'gastos administrativos'], 'sales-plan'],
+  [['gastos de mantenimiento', 'gasto de mantenimiento', 'gastos de administracion', 'administracion', 'gastos administrativos'], 'sales-plan'],
   [['marketing - mkt digital', 'marketing', 'mkt', 'campanas - meta ads', 'campanas', 'meta ads', 'publicidad'], 'marketing'],
   [['comision venta lotes', 'comision de ventas', 'comision venta', 'comisiones de venta'], 'commission'],
   [['post venta', 'postventa'], 'post-sale'],
@@ -100,6 +100,7 @@ function rowFromMovement(item, context) {
   if (includesAny(text, ['gerencia de proyectos', 'gerencia'])) return 'management';
   if (includesAny(text, ['indemnizacion', 'independizacion', 'titulacion'])) return 'indemnity';
   if (includesAny(text, ['imprevisto', 'contingencia'])) return 'legal-contingency';
+  if (includesAny(text, ['gastos de mantenimiento', 'gasto de mantenimiento'])) return 'sales-plan';
   if (includesAny(text, ['planilla', 'sueldo', 'personal'])) return 'sales-plan';
   if (includesAny(text, ['marketing', 'publicidad', 'campana', 'campanas', 'meta ads', 'mkt'])) return 'marketing';
   if (includesAny(text, ['comision venta', 'comision de ventas'])) return 'commission';
@@ -263,6 +264,8 @@ async function main() {
       console.log(`- ${item.rowId}: esperado ${money(item.expected)} | flujo ${money(item.stored)} | diff ${money(item.diff)}`);
     }
     const relevantTypes = new Set([
+      'gastos de mantenimiento',
+      'gasto de mantenimiento',
       'gasto',
       'devolucion',
       'servicio de luz agua',
