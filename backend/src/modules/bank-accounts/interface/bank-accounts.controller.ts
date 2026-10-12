@@ -73,7 +73,7 @@ export class BankAccountsController {
     @Query('currency') currency?: string,
     @Query('accountKey') accountKey?: string,
   ) {
-    return this.bankAccountsService.annualReport(Number(projectId), year ? Number(year) : undefined, currency, accountKey);
+    return this.bankAccountsService.annualReport(Number(projectId), year === 'all' ? 'all' : (year ? Number(year) : undefined), currency, accountKey);
   }
 
   @Post('import/preview')

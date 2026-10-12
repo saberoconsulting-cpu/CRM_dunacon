@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api } from '@/lib/api';
-import { LOT_STATUS_COLOR, LOT_STATUS_LABEL, LotStatus, formatDate } from '@/lib/types';
+import { LOT_STATUS_COLOR, LOT_STATUS_LABEL, LOT_STATUS_SELECT_OPTIONS, LotStatus, formatDate } from '@/lib/types';
 import { Select } from '@/components/ui/Select';
 import { printHtml } from '@/lib/print';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
@@ -28,11 +28,11 @@ const INK = '#0F172A';
 const MUTED = '#64748B';
 const BORDER = '#E2E8F0';
 const SOLD_GREEN = '#16A36A';
-// Estados en los que el lote ya tiene una operacion comercial (venta, separacion
-// o alquiler). Bloquean las acciones de cotizar/vender y, ademas, congelan la
+// Estados en los que el lote ya tiene una operacion comercial (venta o separacion).
+// Bloquean las acciones de cotizar/vender y, ademas, congelan la
 // parte comercial de la ficha: estado y precios no se editan hasta liberar el
 // lote. Debe coincidir con COMMERCIALLY_LOCKED_STATUSES de plan.service.ts.
-const BLOCKED_ACTION_STATUSES = ['vendido', 'alquilado', 'reservado', 'adelanto', 'primera_cuota'];
+const BLOCKED_ACTION_STATUSES = ['vendido', 'reservado', 'adelanto', 'primera_cuota', 'alquilado'];
 
 function formatArea(value: unknown) {
   const n = Number(value || 0);
@@ -42,6 +42,24 @@ function formatArea(value: unknown) {
 
 function formatMeters(value: number) {
   return value.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+function calcFixedPayment(principal: number, months: number, interestType?: string, teaPct?: number) {
+  const p = Math.max(0, Number(principal || 0));
+  const n = Math.max(0, Math.floor(Number(months || 0)));
+  if (p <= 0 || n <= 0) return 0;
+  const tea = Number(teaPct || 0);
+  if (interestType !== 'tea' || tea <= 0) return p / n;
+  const monthlyRate = Math.pow(1 + tea / 100, 1 / 12) - 1;
+  if (monthlyRate <= 0) return p / n;
+  const factor = Math.pow(1 + monthlyRate, n);
+  return (p * monthlyRate * factor) / (factor - 1);
+}
+
+function amountForInstallment(row: any, noInterestInstallments: number, noInterestPayment: number, interestPayment: number) {
+  const installmentNo = Number(row?.installmentNo || 0);
+  if (installmentNo > 0 && installmentNo <= noInterestInstallments) return noInterestPayment;
+  return interestPayment || noInterestPayment || Number(row?.amount || 0);
 }
 
 function toDateInput(value?: string | Date | null) {
@@ -59,8 +77,8 @@ function inferDimensions(lot: any) {
 function detailStatusColor(status: string) {
   if (status === 'disponible') return '#16955B';
   if (status === 'reservado') return '#D99A18';
-  if (status === 'adelanto') return '#2F6FB7';
-  if (status === 'primera_cuota') return '#7151A6';
+  if (status === 'adelanto') return '#D99A18';
+  if (status === 'primera_cuota' || status === 'alquilado') return '#1877F2';
   if (status === 'vendido') return '#1877F2';
   return (LOT_STATUS_COLOR as any)[status] || '#64748b';
 }
@@ -254,7 +272,13 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
       const normalizedSalePrice = looksDividedByRate(Number(rawLot.salePrice || 0), expectedSalePrice)
         ? Number(expectedSalePrice.toFixed(2))
         : Number(rawLot.salePrice || 0);
-      const normalizedLot = { ...rawLot, salePrice: normalizedSalePrice || rawLot.salePrice };
+      const fin = await api.get<any>(`/sales/by-lot/${lotId}`).catch(() => ({ sale: null, installments: [] }));
+      const normalizedLot = {
+        ...rawLot,
+        salePrice: normalizedSalePrice || rawLot.salePrice,
+        clientName: rawLot.clientName || d.client?.fullName || fin?.sale?.clientName || null,
+        clientId: rawLot.clientId || d.client?.id || fin?.sale?.clientId || null,
+      };
       setLot(normalizedLot); setBlock(d.street || d.block || null); setPlan(d.plan || null); setHistory(d.history || []); setPayments(d.payments || []);
       const lastStatusDate = (d.history || [])[0]?.createdAt || d.lot?.updatedAt || new Date().toISOString();
       setLotizacion({
@@ -273,7 +297,6 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
         areaM2: Number(normalizedLot.areaM2 || 0),
         price: Number(normalizedLot.price || 0),
       });
-      const fin = await api.get<any>(`/sales/by-lot/${lotId}`).catch(() => ({ sale: null, installments: [] }));
       setFin(fin);
     }
     catch (e:any){ toast(e.message,'err'); }
@@ -379,28 +402,21 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   function exportLotPdf() {
     if (!lot) return;
     const logoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
+    const streetLabel = lot.address || lot.streetAddress || lot.blockAddress || block?.address || block?.name || lot.streetName || lot.blockName || EMPTY;
+    const referenceLabel = block?.name || lot.streetName || lot.blockName || block?.address || lot.streetAddress || lot.blockAddress || EMPTY;
+    const clientLabel = lot.clientName || saleFn?.clientName || EMPTY;
     const rows = [
       ['Num. Lote', lot.code || '—'],
-      ['Calle', block?.name || lot.streetName || lot.blockName || '—'],
-      ['Referencia', lot.address || block?.address || lot.streetAddress || lot.blockAddress || '—'],
+      ['Calle', streetLabel],
+      ['Referencia', referenceLabel],
       ['Tipo', lot.type || '—'],
       ['Estado', LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status],
-      ['Area', formatArea(lot.areaM2)],
       ['Dimensiones', inferDimensions(lot)],
       ['Precio por m2', pricePerM2 ? money(pricePerM2) : EMPTY],
       ['Precio de Venta', saleBasePrice ? money(saleBasePrice) : EMPTY],
       ['Precio Final', needsPrice ? 'Por registrar' : (finalLotPrice ? money(finalLotPrice) : EMPTY)],
-      ['Cliente', lot.clientName || '—'],
+      ['Cliente', clientLabel],
     ];
-    const paymentRows = payments.map((p: any) => `
-      <tr>
-        <td>${escapeHtml(p.type || '—')}</td>
-        <td>${escapeHtml(p.paymentMethod || '—')}</td>
-        <td class="num">${escapeHtml(showMoney(p.amount))}</td>
-        <td>${escapeHtml(p.status || '—')}</td>
-        <td>${escapeHtml(formatDate(p.paidAt || p.createdAt || ''))}</td>
-      </tr>
-    `).join('');
     const historyRows = history.map((h) => `
       <tr>
         <td>${escapeHtml(LOT_STATUS_LABEL[h.fromStatus as LotStatus] || h.fromStatus || '—')}</td>
@@ -412,51 +428,122 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
       <tr>
         <td>Cuota ${escapeHtml(q.installmentNo || '—')}</td>
         <td>${escapeHtml(formatDate(q.dueDate))}</td>
-        <td class="num">${escapeHtml(showMoney(q.amount))}</td>
+        <td class="num">${escapeHtml(money(amountForInstallment(q, noInterestInstallments, noInterestPayment, interestPayment)))}</td>
         <td>${escapeHtml(q.status || '—')}</td>
       </tr>
     `).join('');
+    const detailSplitAt = Math.ceil(rows.length / 2);
+    const detailLeft = rows.slice(0, detailSplitAt);
+    const detailRight = rows.slice(detailSplitAt);
+    const detailRows = detailLeft.map(([leftLabel, leftValue], index) => {
+      const [rightLabel, rightValue] = detailRight[index] || ['', ''];
+      const leftShown = leftLabel === 'Estado' ? `<span class="status">${escapeHtml(leftValue)}</span>` : escapeHtml(leftValue);
+      const rightShown = rightLabel === 'Estado' ? `<span class="status">${escapeHtml(rightValue)}</span>` : escapeHtml(rightValue);
+      return `<tr><td class="label">${escapeHtml(leftLabel)}</td><td class="value-cell">${leftShown}</td><td class="quote-data-gap"></td><td class="label">${escapeHtml(rightLabel)}</td><td class="value-cell">${rightShown}</td></tr>`;
+    }).join('');
     const html = `
       <html>
         <head>
           <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
+          <meta name="viewport" content="width=800, initial-scale=1" />
           <title>Ficha lote ${escapeHtml(lot.code)}</title>
           <style>
-            body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white}
-            .brand{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}
-            .brand img{height:42px;max-width:180px;object-fit:contain}
-            .eyebrow{margin:0 0 5px;color:#1877F2;font-size:10px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
-            h1{margin:0;font-size:24px;line-height:1.15;color:#111827}
-            h2{font-size:13px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
+            *{box-sizing:border-box}
+            html,body{max-width:100%;overflow-x:hidden}
+            body{font-family:Arial,Helvetica,sans-serif;margin:24px;color:#171717;background:white;font-size:12px}
+            .brand{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;border-bottom:3px solid #1877F2;padding-bottom:12px;margin-bottom:12px}
+            .logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}
+            .eyebrow{margin:0 0 5px;color:#1877F2;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+            h1{margin:0;font-size:26px;line-height:1.15;color:#111827}
+            h2{font-size:15px;margin:14px 0 7px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}
             p{margin:4px 0 0;color:#6B7280;font-size:12px}
-            .summary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0 18px}
-            .summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:10px;border-radius:6px}
-            .summary span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
-            .summary strong{display:block;margin-top:4px;color:#111827;font-size:13px}
+            .summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0 14px}
+            .summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:10px 8px;border-radius:6px;min-width:0}
+            .summary span{display:block;color:#6B7280;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.02em;line-height:1.12;white-space:normal}
+            .summary strong{display:block;margin-top:5px;color:#111827;font-size:13px;white-space:nowrap;letter-spacing:0}
+            .summary .head-card{border-color:#B9D2F4;background:#F5F9FF;border-left:4px solid #1877F2;text-align:center}
+            .summary .head-card span{color:#1259C4;text-align:center}
+            .summary .head-card strong{color:#0B2F6E;text-align:center}
+            .summary-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:6px;margin:14px 0 18px}
+            .summary-row div{border:1px solid #E5E7EB;background:#F8FAFC;padding:8px 7px;border-radius:6px;min-width:0}
+            .summary-row span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.2;min-height:24px}
+            .summary-row strong{display:block;margin-top:3px;color:#111827;font-size:12px;white-space:nowrap;letter-spacing:0}
+            .summary-row .finance-highlight{border-color:#1877F2;background:#F5F9FF;border-left:4px solid #1877F2;text-align:center}
+            .summary-row .finance-highlight strong{color:#1259C4}
+            .section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:nowrap}
+            .summary-aside{display:flex;gap:8px;margin-bottom:10px}
+            .summary-aside div{border:1px solid #E5E7EB;background:#F8FAFC;padding:5px 10px;border-radius:6px;text-align:right}
+            .summary-aside span{display:block;color:#6B7280;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+            .summary-aside strong{display:block;margin-top:2px;color:#111827;font-size:12px}
+            .quote-data-table td{width:24%}
+            .quote-data-table .label{width:24%}
+            .quote-data-table .quote-data-gap{width:4%;border:none;background:white;padding:0}
+            .quote-data-table .value-cell{overflow-wrap:anywhere;word-break:break-word}
             table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}
-            th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:10px;text-align:left;text-transform:uppercase}
-            td{border:1px solid #E5E7EB;padding:8px 7px;font-size:11px;vertical-align:top}
+            th{background:#1877F2;color:white;border:1px solid #1877F2;padding:8px 7px;font-size:12px;text-align:left;text-transform:uppercase}
+            td{border:1px solid #E5E7EB;padding:8px 7px;font-size:12px;vertical-align:top}
             tbody tr:nth-child(even){background:#F8FAFC}
-            .label{background:#D8E8FF;font-weight:700;color:#111827;width:38%}
-            .num{text-align:right;white-space:nowrap;font-weight:700;color:#1259C4}
+            .label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}
+            .num{text-align:right;white-space:nowrap}.strong{font-weight:700;color:#1259C4}
             .status{display:inline-block;border-radius:999px;padding:4px 9px;background:${detailStatusColor(lot.status)}22;color:${detailStatusColor(lot.status)};font-weight:700}
+            .mini-status{display:inline-block;margin-left:8px;border-radius:999px;padding:2px 7px;font-size:10px;font-weight:700;text-transform:uppercase}
+            .schedule-table{table-layout:fixed}
+            .schedule-table th,.schedule-table td{padding:6px 4px;font-size:12px;line-height:1.35}
             .watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.06;z-index:-1}
             .watermark img{width:560px;max-width:72vw}
-            .footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:10px;text-align:right}
+            .footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:11px;text-align:right}
             @media (max-width:640px){
               body{margin:12px}
               .brand{flex-direction:column;gap:10px}
-              .brand img{height:32px;max-width:130px}
+              .logos img{height:32px;max-width:120px}
               h1{font-size:17px}
               h2{font-size:11px;margin:14px 0 6px}
               p{font-size:11px}
               .summary{grid-template-columns:repeat(2,minmax(0,1fr))}
+              .summary-row{grid-template-columns:repeat(2,minmax(0,1fr))}
+              .section-head{flex-direction:column;align-items:flex-start;gap:6px}
+              .summary-aside{width:100%}
+              .summary-aside div{flex:1;text-align:left}
               table{table-layout:auto}
               th,td{padding:5px 4px;font-size:9px}
               .watermark img{width:300px}
             }
-            @media print{body{margin:18px}thead{display:table-header-group}.brand,.summary{break-inside:avoid}.watermark{position:fixed}}
+            @page{size:A4 portrait;margin:5mm 0}
+            @media print{
+              html,body{width:auto !important;max-width:none !important;overflow:visible !important}
+              body{margin:0 !important;padding:0 7mm !important;font-size:13px !important;line-height:1.4 !important;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
+              body *{font-family:Arial,Helvetica,sans-serif !important;-webkit-print-color-adjust:exact !important;print-color-adjust:exact !important}
+              .brand,.summary,.summary-row,.footer,table{width:100% !important;max-width:100% !important}
+              .brand{margin:0 0 8px !important;padding-bottom:8px !important;gap:14px !important}
+              .brand h1,h1{font-size:24px !important;line-height:1.12 !important}
+              .eyebrow{font-size:11px !important;margin:0 0 4px !important}
+              .logos{gap:10px !important;flex:0 0 auto !important}
+              .logos img{height:36px !important;max-width:138px !important}
+              p{font-size:11px !important;margin:3px 0 !important}
+              h2{font-size:14px !important;line-height:1.18 !important;margin:10px 0 6px !important}
+              table{margin-bottom:8px !important}
+              th,td{padding:6px 8px !important;font-size:12px !important;line-height:1.22 !important}
+              .summary{display:grid !important;grid-template-columns:repeat(4,minmax(0,1fr)) !important;gap:8px !important;margin:8px 0 10px !important}
+              .summary div{min-width:0 !important;overflow:hidden !important;padding:8px 6px !important}
+              .summary span{font-size:11px !important;line-height:1.1 !important}
+              .summary strong{font-size:12px !important;margin-top:3px !important;white-space:nowrap !important}
+              .summary-row{display:grid !important;grid-template-columns:repeat(5,minmax(0,1fr)) !important;gap:8px !important;margin:8px 0 10px !important}
+              .summary-row div{min-width:0 !important;overflow:hidden !important;padding:8px 6px !important}
+              .summary-row span{font-size:9.5px !important;line-height:1.2 !important;min-height:auto !important}
+              .summary-row strong{font-size:12px !important;margin-top:4px !important;white-space:nowrap !important}
+              .quote-data-table{table-layout:fixed !important}
+              .quote-data-table .label{width:18% !important}
+              .quote-data-table .value-cell{width:30% !important}
+              .quote-data-table .quote-data-gap{width:4% !important}
+              .schedule-table{table-layout:fixed !important}
+              .schedule-table th,.schedule-table td{padding:6px 5px !important;font-size:11.5px !important}
+              thead{display:table-header-group}
+              tr{break-inside:avoid;page-break-inside:avoid}
+              .brand,.summary,.summary-row,.summary-aside{break-inside:avoid}
+              .watermark{position:fixed;opacity:.06}
+              .watermark img{width:340px !important}
+              .footer{margin-top:8px !important;padding-top:6px !important;font-size:10px !important}
+            }
           </style>
         </head>
         <body>
@@ -467,36 +554,41 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
               <h1>Lote ${escapeHtml(lot.code)}</h1>
               <p>Generado ${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</p>
             </div>
-            <img src="${escapeHtml(logoUrl)}" alt="Dunacon" />
+            <div class="logos"><img src="${escapeHtml(logoUrl)}" alt="Dunacon" /></div>
           </div>
           <div class="summary">
-            <div><span>Estado</span><strong>${escapeHtml(LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status)}</strong></div>
-            <div><span>Area</span><strong>${escapeHtml(formatArea(lot.areaM2))}</strong></div>
-            <div><span>Precio de venta</span><strong>${escapeHtml(saleBasePrice ? money(saleBasePrice) : EMPTY)}</strong></div>
-            <div><span>Precio final</span><strong>${escapeHtml(needsPrice ? 'Por registrar' : money(finalLotPrice))}</strong></div>
+            <div class="head-card"><span>Estado</span><strong>${escapeHtml(LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status)}</strong></div>
+            <div class="head-card"><span>Area</span><strong>${escapeHtml(formatArea(lot.areaM2))}</strong></div>
+            <div class="head-card"><span>Precio de venta</span><strong>${escapeHtml(saleBasePrice ? money(saleBasePrice) : EMPTY)}</strong></div>
+            <div class="head-card"><span>Precio final</span><strong>${escapeHtml(needsPrice ? 'Por registrar' : money(finalLotPrice))}</strong></div>
           </div>
           <h2>Informacion del lote</h2>
-          <table><tbody>
-            ${rows.map(([label, value]) => `<tr><td class="label">${escapeHtml(label)}</td><td>${label === 'Estado' ? `<span class="status">${escapeHtml(value)}</span>` : escapeHtml(value)}</td></tr>`).join('')}
-          </tbody></table>
-          <h2>Pagos</h2>
-          <table>
-            <thead><tr><th>Tipo</th><th>Medio</th><th>Monto</th><th>Estado</th><th>Fecha</th></tr></thead>
-            <tbody>${paymentRows || '<tr><td colspan="5">Sin pagos registrados.</td></tr>'}</tbody>
-          </table>
-          <h2>Financiamiento del lote</h2>
-          <div class="summary">
-            <div><span>Valor del lote</span><strong>${escapeHtml(saleBasePrice ? money(saleBasePrice) : EMPTY)}</strong></div>
-            <div><span>Precio final</span><strong>${escapeHtml(needsPrice ? 'Por registrar' : money(finalLotPrice))}</strong></div>
-            <div><span>Total abonado</span><strong>${escapeHtml(money(amountPaid))}</strong></div>
-            <div><span>Saldo por pagar</span><strong>${escapeHtml(money(remaining))}</strong></div>
-            <div><span>Avance</span><strong>${donePct}%</strong></div>
-            <div><span>Valor cuota</span><strong>${escapeHtml(money(aheadPayment))}</strong></div>
-            <div><span>Cuotas</span><strong>${schedule.length}</strong></div>
-            <div><span>Pagadas</span><strong>${closed}</strong></div>
-            <div><span>Pendientes</span><strong>${Math.max(0, schedule.length - closed)}</strong></div>
+          <table class="quote-data-table"><tbody>${detailRows}</tbody></table>
+          <div class="section-head">
+            <h2>Resumen comercial</h2>
+            <div class="summary-aside">
+              <div><span>Area</span><strong>${escapeHtml(formatArea(lot.areaM2))}</strong></div>
+              <div><span>Precio m2</span><strong>${escapeHtml(pricePerM2 ? money(pricePerM2) : EMPTY)}</strong></div>
+            </div>
           </div>
-          <table>
+          <table><thead><tr><th>Concepto</th><th>Importe</th></tr></thead><tbody>
+            <tr><td>Valor del lote</td><td class="num strong">${escapeHtml(saleBasePrice ? money(saleBasePrice) : EMPTY)}</td></tr>
+            <tr><td>Precio final</td><td class="num strong">${escapeHtml(needsPrice ? 'Por registrar' : money(finalLotPrice))}</td></tr>
+            <tr><td>Cuota inicial</td><td class="num">${escapeHtml(initialPayment ? money(initialPayment) : EMPTY)}${initialPayment ? `<span class="mini-status" style="background:${initialPaid ? '#D1FAE5' : '#FEF3C7'};color:${initialPaid ? '#065F46' : '#92400E'}">${initialPaid ? 'Pagada' : 'Pendiente'}</span>` : ''}</td></tr>
+            <tr><td>Saldo por pagar</td><td class="num strong">${escapeHtml(money(remaining))}</td></tr>
+          </tbody></table>
+          <h2>Financiamiento</h2>
+          <div class="summary-row">
+            <div class="finance-highlight"><span>Saldo por pagar</span><strong>${escapeHtml(money(remaining))}</strong></div>
+            <div class="finance-highlight"><span>Avance</span><strong>${donePct}%</strong></div>
+            <div class="finance-highlight"><span>Cuota inicial</span><strong>${escapeHtml(initialPayment ? money(initialPayment) : EMPTY)} ${initialPayment ? `(${initialPaid ? 'Pagada' : 'Pendiente'})` : ''}</strong></div>
+            <div class="finance-highlight"><span>Valor cuota (${escapeHtml(nextPaymentLabel)})</span><strong>${escapeHtml(nextPaymentAmount ? money(nextPaymentAmount) : EMPTY)}</strong></div>
+            <div class="finance-highlight"><span>Cuotas sin interés (${noInterestInstallments})</span><strong>${escapeHtml(noInterestPayment ? money(noInterestPayment) : EMPTY)}</strong></div>
+            <div class="finance-highlight"><span>Cuotas con interés (${interestInstallments})</span><strong>${escapeHtml(interestPayment ? money(interestPayment) : EMPTY)}</strong></div>
+            <div class="finance-highlight"><span>Pendientes</span><strong>${Math.max(0, schedule.length - closed)}</strong></div>
+          </div>
+          <h2>Cronograma del financiamiento</h2>
+          <table class="schedule-table">
             <thead><tr><th>Cuota</th><th>Vencimiento</th><th>Monto</th><th>Estado</th></tr></thead>
             <tbody>${scheduleRows || '<tr><td colspan="4">Sin cronograma registrado.</td></tr>'}</tbody>
           </table>
@@ -534,10 +626,26 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   );
   const finalLotPrice = Number(lot?.finalPrice || 0);
   const financeBasePrice = finalLotPrice || saleBasePrice;
-  const aheadPayment = Number(saleFn?.valorCuota || (schedule[0]?.amount || 0));
+  const initialPayment = Number(saleFn?.cuotaInicial || 0);
+  const initialPaid = initialPayment > 0 && amountPaid >= initialPayment;
+  const remaining = Math.max(0, financeBasePrice - initialPayment);
+  const totalFinancingInstallments = Number(saleFn?.totalCuotas || schedule.length || 0);
+  const parsedGraceInstallments = Number(String(saleFn?.conditions || '').match(/Cuotas sin interes:\s*(\d+)/i)?.[1] || 0);
+  const noInterestInstallments = totalFinancingInstallments > 0
+    ? (saleFn?.interestType === 'tea' ? Math.min(totalFinancingInstallments, Math.max(0, parsedGraceInstallments)) : totalFinancingInstallments)
+    : 0;
+  const interestInstallments = saleFn?.interestType === 'tea' ? Math.max(0, totalFinancingInstallments - noInterestInstallments) : 0;
+  const noInterestPayment = Number(noInterestInstallments > 0 && totalFinancingInstallments > 0 ? remaining / totalFinancingInstallments : 0);
+  const balanceAfterNoInterest = Math.max(0, remaining - noInterestPayment * noInterestInstallments);
+  const interestPayment = Number(interestInstallments > 0 ? calcFixedPayment(balanceAfterNoInterest, interestInstallments, saleFn?.interestType, Number(saleFn?.tea || 0)) : 0);
+  const nextInstallment = schedule.find((x) => x.status !== 'pagado');
+  const nextInstallmentNo = Number(nextInstallment?.installmentNo || 0);
+  const aheadPayment = nextInstallmentNo > 0 && nextInstallmentNo <= noInterestInstallments ? noInterestPayment : (interestPayment || noInterestPayment);
+  const nextPaymentIsInitial = initialPayment > 0 && !initialPaid;
+  const nextPaymentLabel = nextPaymentIsInitial ? 'Inicial' : (nextInstallment ? `Cuota ${nextInstallment.installmentNo || ''}`.trim() : 'Cuota');
+  const nextPaymentAmount = nextPaymentIsInitial ? initialPayment : Number(aheadPayment || 0);
   const closed = schedule.filter((x) => x.status === 'pagado').length;
   const firstDue = schedule[0]?.dueDate || null;
-  const remaining = Math.max(0, financeBasePrice - amountPaid);
   const donePct = financeBasePrice > 0 ? Math.min(100, Math.round((amountPaid / financeBasePrice) * 100)) : 0;
   // Un lote vendido sin venta registrada ni precios en la ficha no tiene un
   // precio real que mostrar; estimarlo con precio/m2 * area inventaria una cifra
@@ -733,11 +841,11 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                       <p className="mb-2 mt-1 text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: MUTED }}>Estado y comercial</p>
                       {saleLocked && (
                         <div className="mb-2 rounded-xl border p-3 text-xs" style={{ borderColor: '#BFDBFE', background: '#EFF6FF', color: '#1E40AF' }}>
-                          <b>🔒 Lote {LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status}.</b> El estado y los precios de un lote vendido, separado o alquilado están congelados para no alterar la operación ya registrada ni liberar el lote para revenderlo. Si necesitas corregir el monto, libera el lote desde <b>Historial de estados</b> o registra la venta real y el sistema tomará ese monto.
+                          <b>🔒 Lote {LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status}.</b> El estado y los precios de un lote vendido o reservado estan congelados para no alterar la operacion ya registrada ni liberar el lote para revenderlo. Solo una devolucion debe liberar el lote y cambiarlo a disponible.
                         </div>
                       )}
                       <div className="grid items-start gap-3 md:grid-cols-2">
-                        <div><Field label="Estado"><Select value={lotizacion.status} onChange={(v) => setLotizacion({ ...lotizacion, status: v })} disabled={saleLocked} options={Object.entries(LOT_STATUS_LABEL).map(([key, label]) => ({ value: key, label }))} /></Field></div>
+                        <div><Field label="Estado"><Select value={lotizacion.status} onChange={(v) => setLotizacion({ ...lotizacion, status: v })} disabled={saleLocked} options={LOT_STATUS_SELECT_OPTIONS} /></Field></div>
                         <div><Field label="Fecha de estado"><input type="date" className="input" value={lotizacion.statusDate} onChange={(e) => setLotizacion({ ...lotizacion, statusDate: e.target.value })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
                         <div><Field label="Precio venta (US$)"><input type="number" className="input" value={toEditValue(lotizacion.salePrice)} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
                         <div><Field label="Precio final (US$)"><input type="number" className="input" value={toEditValue(lotizacion.finalPrice)} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
@@ -751,7 +859,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                     </div>
                   )}
 
-                  {!compact && (amountPaid > 0 || schedule.length > 0 || saleFn) && (
+                  {false && !compact && (amountPaid > 0 || schedule.length > 0 || saleFn) && (
                     <div className="rounded-[16px] border bg-white p-4" style={{ borderColor: BORDER }}>
                       <div className="mb-3 flex items-center justify-between">
                         <h4 className="text-sm font-bold" style={{ color: INK }}>Financiamiento del lote</h4>
@@ -761,9 +869,17 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                       <div className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
                         <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Valor del lote</div><b>{saleBasePrice ? money(saleBasePrice) : EMPTY}</b></div>
                         <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Precio final</div><b>{needsPrice ? 'Por registrar' : money(finalLotPrice)}</b></div>
-                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Total abonado</div><b className="text-emerald-600">{money(amountPaid)}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3">
+                          <div className="label">Cuota inicial</div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <b className="text-slate-700">{initialPayment ? money(initialPayment) : EMPTY}</b>
+                            {initialPayment > 0 && <span className={`badge ${initialPaid ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{initialPaid ? 'Pagada' : 'Pendiente'}</span>}
+                          </div>
+                        </div>
                         <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Saldo por pagar</div><b style={{ color: BLUE_DARK }}>{money(remaining)}</b></div>
-                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Valor cuota</div><b className="text-slate-700">{money(aheadPayment)}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Valor cuota ({nextPaymentLabel})</div><b className="text-slate-700">{nextPaymentAmount ? money(nextPaymentAmount) : EMPTY}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Cuotas sin interés ({noInterestInstallments})</div><b className="text-slate-700">{noInterestPayment ? money(noInterestPayment) : EMPTY}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Cuotas con interés ({interestInstallments})</div><b className="text-slate-700">{interestPayment ? money(interestPayment) : EMPTY}</b></div>
                       </div>
                       {(schedule.length > 0 || aheadPayment > 0) && (
                         <div className="mt-3 flex flex-wrap gap-2 text-xs">
@@ -779,7 +895,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                           {schedule.map((q) => (
                             <div key={q.id ?? q.installmentNo} className="flex items-center justify-between border-b border-slate-50 py-1 text-xs">
                               <span className="text-slate-500">Cuota {q.installmentNo} vence {formatDate(q.dueDate)}</span>
-                              <b className={q.status === 'pagado' ? 'text-emerald-600' : 'text-slate-700'}>{money(q.amount)}</b>
+                              <b className={q.status === 'pagado' ? 'text-emerald-600' : 'text-slate-700'}>{money(amountForInstallment(q, noInterestInstallments, noInterestPayment, interestPayment))}</b>
                             </div>
                           ))}
                         </div>
@@ -799,7 +915,52 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                   )}
                 </main>
 
-                <RealLotPlan lot={lot} block={block} plan={plan} />
+                <aside className="min-w-0 space-y-4">
+                  <RealLotPlan lot={lot} block={block} plan={plan} />
+                  {!compact && (amountPaid > 0 || schedule.length > 0 || saleFn) && (
+                    <div className="rounded-[16px] border bg-white p-4" style={{ borderColor: BORDER }}>
+                      <div className="mb-3 flex items-center justify-between">
+                        <h4 className="text-sm font-bold" style={{ color: INK }}>Financiamiento del lote</h4>
+                        <span className="badge" style={{ background: donePct >= 100 ? '#D1FAE5' : '#FEF3C7', color: donePct >= 100 ? '#065F46' : '#92400E' }}>{donePct >= 100 ? 'Saldado' : donePct + '%'}</span>
+                      </div>
+                      <div className="mb-4 h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full" style={{ width: donePct + '%', background: statusColor }} /></div>
+                      <div className="grid grid-cols-2 gap-3 text-sm">
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Valor del lote</div><b>{saleBasePrice ? money(saleBasePrice) : EMPTY}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Precio final</div><b>{needsPrice ? 'Por registrar' : money(finalLotPrice)}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3">
+                          <div className="label">Cuota inicial</div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <b className="text-slate-700">{initialPayment ? money(initialPayment) : EMPTY}</b>
+                            {initialPayment > 0 && <span className={`badge ${initialPaid ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{initialPaid ? 'Pagada' : 'Pendiente'}</span>}
+                          </div>
+                        </div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Saldo por pagar</div><b style={{ color: BLUE_DARK }}>{money(remaining)}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Valor cuota ({nextPaymentLabel})</div><b className="text-slate-700">{nextPaymentAmount ? money(nextPaymentAmount) : EMPTY}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Cuotas sin interés ({noInterestInstallments})</div><b className="text-slate-700">{noInterestPayment ? money(noInterestPayment) : EMPTY}</b></div>
+                        <div className="rounded-xl bg-[#F8FAFC] p-3"><div className="label">Cuotas con interés ({interestInstallments})</div><b className="text-slate-700">{interestPayment ? money(interestPayment) : EMPTY}</b></div>
+                      </div>
+                      {(schedule.length > 0 || aheadPayment > 0) && (
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                          <span className="badge bg-slate-100 text-slate-600">Cuota: {money(nextPaymentAmount || aheadPayment)}</span>
+                          <span className="badge bg-slate-100 text-slate-600">Cuotas: {schedule.length}</span>
+                          <span className="badge bg-emerald-50 text-emerald-700">Pagadas: {closed}</span>
+                          <span className="badge bg-amber-50 text-amber-700">Pendientes: {Math.max(0, schedule.length - closed)}</span>
+                          {firstDue && <span className="badge bg-slate-100 text-slate-600">Primera cuota: {formatDate(firstDue)}</span>}
+                        </div>
+                      )}
+                      {schedule.length > 0 && (
+                        <div className="mt-3 max-h-48 space-y-1 overflow-auto pr-1">
+                          {schedule.map((q) => (
+                            <div key={q.id ?? q.installmentNo} className="flex items-center justify-between border-b border-slate-50 py-1 text-xs">
+                              <span className="text-slate-500">Cuota {q.installmentNo} vence {formatDate(q.dueDate)}</span>
+                              <b className={q.status === 'pagado' ? 'text-emerald-600' : 'text-slate-700'}>{money(amountForInstallment(q, noInterestInstallments, noInterestPayment, interestPayment))}</b>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </aside>
               </div>
             </div>
           </>

@@ -29,16 +29,16 @@ export enum LotStatus {
 export const LOT_STATUS_COLOR: Record<LotStatus, string> = {
   [LotStatus.DISPONIBLE]: '#D1D5DB', // Disponible (gris)
   [LotStatus.RESERVADO]: '#F2B94B', // Reservado (amarillo)
-  [LotStatus.ADELANTO]: '#4B83C4', // Con adelanto (azul)
-  [LotStatus.PRIMERA_CUOTA]: '#8064A2', // Primera cuota (violeta)
+  [LotStatus.ADELANTO]: '#F2B94B', // Legacy: se muestra como reservado
+  [LotStatus.PRIMERA_CUOTA]: '#1877F2', // Legacy: se muestra como vendido
   [LotStatus.VENDIDO]: '#1877F2', // Vendido (azul de marca)
 };
 
 export const LOT_STATUS_LABEL: Record<LotStatus, string> = {
   [LotStatus.DISPONIBLE]: 'Disponible',
   [LotStatus.RESERVADO]: 'Reservado',
-  [LotStatus.ADELANTO]: 'Con adelanto',
-  [LotStatus.PRIMERA_CUOTA]: 'Primera cuota',
+  [LotStatus.ADELANTO]: 'Reservado',
+  [LotStatus.PRIMERA_CUOTA]: 'Vendido',
   [LotStatus.VENDIDO]: 'Vendido',
 };
 

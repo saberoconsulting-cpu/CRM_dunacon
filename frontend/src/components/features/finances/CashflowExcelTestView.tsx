@@ -23,12 +23,18 @@ type BankMovement = {
     exchangeRate: string | number | null;
     currency: 'PEN' | 'USD';
 };
-const MODE_LABEL: Record<CashflowMode, string> = { estatico: 'Flujo estático', dinamico: 'Flujo dinámico' };
+type BankCategory = {
+    code?: string | null;
+    movementType: string;
+    eerrClassification: string;
+    cashflowRowId?: string | null;
+};
+const MODE_LABEL: Record<CashflowMode, string> = { estatico: 'Flujo estatico', dinamico: 'Flujo dinamico' };
 const MAX_PROJECTION_YEARS = 15;
 const YEAR_COUNT = MAX_PROJECTION_YEARS + 1;
-const YEARS = Array.from({ length: YEAR_COUNT }, (_, index) => `Año ${index}`);
+const YEARS = Array.from({ length: YEAR_COUNT }, (_, index) => `Ano ${index}`);
 // El endpoint /sales valida limit con @Max(100) (pagination.dto.ts): pedir 500
-// devolvía 400 Bad Request y el flujo se generaba sin ventas.
+// devolvÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­a 400 Bad Request y el flujo se generaba sin ventas.
 const SALES_EXPORT_LIMIT = 100;
 const CASHFLOW_SEED_VERSION = 2;
 const DYNAMIC_SEED_VERSION = 1;
@@ -62,15 +68,15 @@ function computeIRR(flow: number[]): number | null {
 const CONSTRUCTION_CHILD_ROWS: SectionRowDefinition[] = [
     { id: 'construction-earthworks', label: 'Movimiento de tierras', parentId: 'construction' },
     { id: 'construction-sanitation', label: 'Obras civiles', parentId: 'construction' },
-    { id: 'construction-roads', label: 'Pavimentación y vías', parentId: 'construction' },
-    { id: 'construction-electric', label: 'Redes eléctricas y alumbrado público', parentId: 'construction' },
+    { id: 'construction-roads', label: 'Pavimentacion y vias', parentId: 'construction' },
+    { id: 'construction-electric', label: 'Redes electricas y alumbrado publico', parentId: 'construction' },
     { id: 'construction-complementary', label: 'Obras complementarias', parentId: 'construction' },
 ];
 
 const SECTIONS: Array<{ id: string; label: string; tone: string; computed?: boolean; rows: SectionRowDefinition[] }> = [
     {
         id: 'income', label: 'Ingreso por venta de lotes', tone: BRAND.blue, rows: [
-            { id: 'lots-sold', label: 'Venta de lotes por año' },
+            { id: 'lots-sold', label: 'Venta de lotes por ano' },
             { id: 'initial-fee', label: 'Cuota inicial' },
             { id: 'financing-fee', label: 'Cuota financiamiento (lotes que pagan cuota)' },
         ]
@@ -85,17 +91,17 @@ const SECTIONS: Array<{ id: string; label: string; tone: string; computed?: bool
     },
     {
         id: 'direct', label: 'Costo Directo', tone: '#16A36A', rows: [
-            { id: 'construction', label: 'Costos de Construcción', computed: true },
+            { id: 'construction', label: 'Costos de Construccion', computed: true },
             ...CONSTRUCTION_CHILD_ROWS,
-            { id: 'supervision', label: 'Supervisión Técnica (4% de CC)' },
-            { id: 'services', label: 'Conexión de Servicios Públicos (1% de CC)' },
+            { id: 'supervision', label: 'Supervision Tecnica (4% de CC)' },
+            { id: 'services', label: 'Conexion de Servicios Publicos (1% de CC)' },
         ]
     },
     {
         id: 'indirect', label: 'Costo Indirecto', tone: '#8064A2', rows: [
-            { id: 'design', label: 'Diseño Proyecto, Licencias, etc. (3% de Costos)' },
+            { id: 'design', label: 'Diseno Proyecto, Licencias, etc. (3% de Costos)' },
             { id: 'management', label: 'Gerencia de Proyectos (4% de Ventas)' },
-            { id: 'indemnity', label: 'Indemnización, Titulación, etc. (1% de Costos Const.)' },
+            { id: 'indemnity', label: 'Indemnizacion, Titulacion, etc. (1% de Costos Const.)' },
             { id: 'legal-contingency', label: 'Gastos Legales, Imprevistos, Otros (5% CC)' },
         ]
     },
@@ -104,7 +110,7 @@ const SECTIONS: Array<{ id: string; label: string; tone: string; computed?: bool
         id: 'selling', label: 'Gastos de Ventas y Administrativos', tone: '#E11D48', rows: [
             { id: 'sales-plan', label: 'Pago de Planillas' },
             { id: 'marketing', label: 'Publicidad - MKT Digital (1.5% de Ventas)' },
-            { id: 'commission', label: 'Comisión de Ventas (2.5% de Ventas)' },
+            { id: 'commission', label: 'Comision de Ventas (2.5% de Ventas)' },
             { id: 'post-sale', label: 'Post Venta (1% de Ventas)' },
             { id: 'discounts', label: 'Descuentos (bonos) (10% de Ventas)' },
         ]
@@ -301,28 +307,30 @@ type SeedContext = {
     explicit: Map<string, string>;
     knownRowIds: Set<string>;
     labelToRowId: Map<string, string>;
+    categoryByType: Map<string, BankCategory>;
 };
 
 function cashflowRowFromBankMovement(item: BankMovement, context?: SeedContext) {
-    const text = normalizeConcept([item.eerrClassification, item.movementType, item.description].filter(Boolean).join(' '));
+    const movementTypeKey = normalizeConcept(item.movementType);
+    const descriptionKey = normalizeConcept(item.description);
+    const category = movementTypeKey ? context?.categoryByType.get(movementTypeKey) : undefined;
+    const categoryEerr = normalizeConcept(category?.eerrClassification);
+    const eerr = categoryEerr || normalizeConcept(item.eerrClassification);
+    const text = normalizeConcept([
+        category?.movementType,
+        item.movementType,
+        item.description,
+        eerr,
+    ].filter(Boolean).join(' '));
     const deposit = Number(item.depositAmount || 0);
 
     if (context) {
-        const keys = [
-            normalizeConcept(item.movementType),
-            normalizeConcept(item.eerrClassification),
-        ].filter(Boolean);
-        for (const key of keys) {
-            const linked = context.explicit.get(key);
-            if (linked && context.knownRowIds.has(linked)) return linked;
-        }
-    }
+        const linked = movementTypeKey ? context.explicit.get(movementTypeKey) : null;
+        if (linked && context.knownRowIds.has(linked)) return linked;
 
-    // 1) La clasificacion EERR manda: es la que el cliente homologa en el panel.
-    const eerr = normalizeConcept(item.eerrClassification);
-
-    if (context) {
-        const candidates = [normalizeConcept(item.movementType), normalizeConcept(item.description), eerr].filter(Boolean);
+        // La subpartida concreta sale del Tipo/Categoria de Cuentas y bancos.
+        // La Clasif. FC se usa como familia; no debe pisar subpartidas hermanas.
+        const candidates = [movementTypeKey, descriptionKey].filter(Boolean);
         for (const candidate of candidates) {
             const target = context.labelToRowId.get(candidate);
             if (target) return target;
@@ -501,8 +509,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const [hasSavedModel, setHasSavedModel] = useState(false);
     const [savingModel, setSavingModel] = useState(false);
     const [baseYear, setBaseYear] = useState(new Date().getFullYear());
-    // Primer año con data real del sistema en el flujo dinamico: a su izquierda el
-    // cliente carga el historico a mano (el sistema es nuevo, sin años previos).
+    // Primer aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o con data real del sistema en el flujo dinamico: a su izquierda el
+    // cliente carga el historico a mano (el sistema es nuevo, sin aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±os previos).
     const [firstDataYear, setFirstDataYear] = useState(new Date().getFullYear());
     const [editingLabel, setEditingLabel] = useState<string | null>(null);
     const [hidePastYears, setHidePastYears] = useState(false);
@@ -522,12 +530,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
 
     /**
      * Construye las filas base ("seed") con la data real del sistema.
-     * `anchorYear` es el Año 0 definido por el cliente (`startYear`): la data se
-     * coloca en la columna `añoRegistro - anchorYear`. En dinamico SIEMPRE manda
+     * `anchorYear` es el AÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o 0 definido por el cliente (`startYear`): la data se
+     * coloca en la columna `aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±oRegistro - anchorYear`. En dinamico SIEMPRE manda
      * el cliente, porque las columnas se rotulan `startYear + year`; si no se
      * pasara, una venta de 2026 caeria en la columna rotulada 2021.
-     * En estatico se pasa `null` para dejar que el sembrado elija el año base
-     * (año actual sin historial, o el año real mas antiguo si hay historial).
+     * En estatico se pasa `null` para dejar que el sembrado elija el aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o base
+     * (aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o actual sin historial, o el aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o real mas antiguo si hay historial).
      */
     async function buildSeedRows(anchorYear: number | null = null): Promise<{ rows: Row[]; manualFields: Partial<typeof manual>; project: any; baseYear: number; firstDataYear: number; years: number }> {
         const [projectData, plan, budget, statement, salesData, paymentsData] = await Promise.all([
@@ -545,14 +553,30 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             ? await api.get<{ items: BankAccount[] }>(`/bank-accounts/accounts?projectId=${projectId}`).catch(() => ({ items: [] }))
             : { items: [] };
         const bankAccounts = bankAccountsData.items?.length ? bankAccountsData.items : [{ accountKey: 'GENERAL', currency: 'USD' as const }];
-        const bankMovements = usesBankCashflow
+        const rawBankMovements = usesBankCashflow
             ? (await Promise.all(bankAccounts.map((account) => {
                 const params = new URLSearchParams({ projectId: String(projectId), accountKey: account.accountKey });
                 return api.get<{ items: BankMovement[] }>(`/bank-accounts?${params.toString()}`).catch(() => ({ items: [] }));
             }))).flatMap((data) => data.items || [])
             : [];
+        const seenBankMovementKeys = new Set<string>();
+        const bankMovements = rawBankMovements.filter((movement: any) => {
+            const amount = Number(movement.depositAmount || 0) || Number(movement.chargeAmount || 0);
+            const key = [
+                movement.movementDate || '',
+                normalizeConcept(movement.description),
+                normalizeConcept(movement.counterparty),
+                normalizeConcept(movement.movementType),
+                normalizeConcept(movement.eerrClassification),
+                movement.currency || '',
+                amount.toFixed(2),
+            ].join('|');
+            if (seenBankMovementKeys.has(key)) return false;
+            seenBankMovementKeys.add(key);
+            return true;
+        });
         const bankCategories = usesBankCashflow
-            ? await api.get<{ items: Array<{ movementType: string; eerrClassification: string; cashflowRowId?: string | null }> }>(`/bank-accounts/categories?projectId=${projectId}`).catch(() => ({ items: [] }))
+            ? await api.get<{ items: BankCategory[] }>(`/bank-accounts/categories?projectId=${projectId}`).catch(() => ({ items: [] }))
             : { items: [] };
         const lots = plan?.lots || [];
         const budgetItems = budget?.items || [];
@@ -633,12 +657,17 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         }
 
         const explicitLinks = new Map<string, string>();
+        const categoryByType = new Map<string, BankCategory>();
         for (const category of (bankCategories.items || [])) {
+            const typeKey = normalizeConcept(category.movementType);
+            if (typeKey && !categoryByType.has(typeKey)) categoryByType.set(typeKey, category);
+
             const rowId = category.cashflowRowId ? String(category.cashflowRowId) : '';
             if (!rowId) continue;
-            const eerrKey = normalizeConcept(category.eerrClassification);
-            const typeKey = normalizeConcept(category.movementType);
-            if (eerrKey) explicitLinks.set(eerrKey, rowId);
+            // El enlace directo debe salir del tipo/categoria concreta. La EERR
+            // suele ser generica ("Costo de construccion") y usarla aqui puede
+            // mandar todas sus subcategorias a una sola fila, por ejemplo todo a
+            // "Movimiento de tierras".
             if (typeKey) explicitLinks.set(typeKey, rowId);
         }
         const labelToRowId = new Map<string, string>();
@@ -650,6 +679,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             explicit: explicitLinks,
             knownRowIds: new Set(seedRows.map((item) => item.id)),
             labelToRowId,
+            categoryByType,
         };
         const yearOf = (rawDate: any): number | null => {
             if (!rawDate) return null;
@@ -661,14 +691,14 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         const paymentYearOf = (payment: any) => yearOf(payment.paidAt || payment.paid_at || payment.createdAt);
         const paymentYears = paidPayments.map(paymentYearOf).filter((year: number | null): year is number => year !== null);
         const bankYears = bankMovements.map((item) => yearOf(item.movementDate)).filter((year: number | null): year is number => year !== null);
-        // El Año 0 lo define el cliente con `startYear` (editable en supuestos) y las
+        // El AÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o 0 lo define el cliente con `startYear` (editable en supuestos) y las
         // columnas de la tabla se rotulan `startYear + indice`. Por eso la data debe
-        // posicionarse contra ESE año:
-        //  - anchorYear presente (dinamico): el año base es tal cual, y un registro
-        //    muy antiguo simplemente cae en Años anteriores, no en Año 0.
-        //  - sin anchor (estatico): se acota al rango [año actual - 1, ...] para que
+        // posicionarse contra ESE aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o:
+        //  - anchorYear presente (dinamico): el aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o base es tal cual, y un registro
+        //    muy antiguo simplemente cae en AÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±os anteriores, no en AÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o 0.
+        //  - sin anchor (estatico): se acota al rango [aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o actual - 1, ...] para que
         //    una fecha de prueba vieja (2021) no arrastre la proyeccion hacia atras,
-        //    y sin historial se usa el año actual.
+        //    y sin historial se usa el aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o actual.
         const currentYear = new Date().getFullYear();
         const earliestAllowedYear = currentYear - 1;
         const dynamicYears = bankYears.length ? bankYears : [...saleYears, ...paymentYears];
@@ -680,16 +710,16 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         const baseYear = calculatedBaseYear;
         const lastDataYear = realYears.length ? Math.max(...realYears) : baseYear;
         const requiredYears = Math.max(1, Math.min(MAX_PROJECTION_YEARS, lastDataYear - baseYear));
-        // Primer año con data real del sistema dentro del horizonte. Es el limite
+        // Primer aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o con data real del sistema dentro del horizonte. Es el limite
         // del historico: a su izquierda el cliente carga a mano, de ahi en adelante
-        // manda el sistema. Sin data real se asume el año actual.
+        // manda el sistema. Sin data real se asume el aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o actual.
         const firstDataYear = [...saleYears, ...paymentYears, ...bankYears]
             .filter((year) => year >= baseYear)
             .sort((left, right) => left - right)[0] || currentYear;
         /**
-         * Convierte un año calendario al indice de columna. Un año nulo (fecha de
-         * venta/pago invalida o ausente) NO cae en Año 0: devuelve null para que
-         * el registro se ignore en lugar de inflar el primer año.
+         * Convierte un aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o calendario al indice de columna. Un aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o nulo (fecha de
+         * venta/pago invalida o ausente) NO cae en AÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o 0: devuelve null para que
+         * el registro se ignore en lugar de inflar el primer aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o.
          */
         const toSlot = (year: number | null): number | null => {
             if (year === null) return null;
@@ -705,7 +735,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         const spreadByDates = (total: number, years: Array<number | null>) => {
             const series = emptySeries();
             const slots = years.map((year) => toSlot(year)).filter((slot: number | null): slot is number => slot !== null);
-            // Sin fechas utiles no se inventa un Año 0: todo queda en cero.
+            // Sin fechas utiles no se inventa un AÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o 0: todo queda en cero.
             if (!slots.length) return series;
             const counts = emptySeries();
             slots.forEach((slot) => { counts[slot] += 1; });
@@ -729,6 +759,10 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         // dinamico solo toma los lotes realmente vendidos.
         const isStaticSeed = anchorYear === null;
         const soldLots = isStaticSeed ? totalLots : sales.length;
+        const soldLandArea = sales.reduce((sum: number, sale: any) => sum + Number(sale.lotAreaM2 || sale.lotArea || sale.areaM2 || 0), 0);
+        const soldSaleValue = sales.reduce((sum: number, sale: any) => sum + Number(sale.salePrice || 0), 0);
+        const dynamicLotArea = soldLots > 0 ? soldLandArea / soldLots : 0;
+        const dynamicPriceM2 = soldLandArea > 0 ? soldSaleValue / soldLandArea : price;
         const salesYearsList = isStaticSeed
             ? Array.from({ length: Math.round(soldLots) }, () => baseYear)
             : sales.map((sale: any) => yearOf(sale.saleDate));
@@ -748,7 +782,19 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 // usuario decide visualizar la pantalla en soles.
                 addToSeries(targetRow, year, amountInUsd);
             }
-            return { rows: seedRows, manualFields: { landArea, lotArea, totalLots, priceM2: price }, project: projectData, baseYear: calculatedBaseYear, firstDataYear, years: requiredYears };
+            return {
+                rows: seedRows,
+                manualFields: {
+                    landArea: soldLandArea || landArea,
+                    lotArea: dynamicLotArea,
+                    totalLots: soldLots,
+                    priceM2: dynamicPriceM2,
+                },
+                project: projectData,
+                baseYear: calculatedBaseYear,
+                firstDataYear,
+                years: requiredYears,
+            };
         }
         const paymentSeries = (types: string[]) => {
             const series = emptySeries();
@@ -836,7 +882,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         setLoading(true);
         try {
             if (target === 'dinamico') {
-                // Dinamico = data real del sistema ubicada segun el Año 0 que el
+                // Dinamico = data real del sistema ubicada segun el AÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o 0 que el
                 // cliente define en 'startYear'. El modelo dinamico guarda ese
                 // startYear, asi que se lee antes de sembrar para no mover la data
                 // de columna.
@@ -1015,8 +1061,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const baseNumber = (value: string) => parseFormattedNumber(value);
 
     const calculated = useMemo(() => {
-        // Base: filas con los borradores de edición superpuestos para que los totales
-        // de categorías y las columnas de total se recalculen EN VIVO mientras se tipea.
+        // Base: filas con los borradores de ediciÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n superpuestos para que los totales
+        // de categorÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­as y las columnas de total se recalculen EN VIVO mientras se tipea.
         const base = rows.map((item) => ({ ...item, values: normalizeValues(item.values) }));
         const draftValue = (value: string) => baseNumber(value);
         Object.entries(editingDrafts).forEach(([key, draft]) => {
@@ -1059,7 +1105,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
 
     const cellKey = (id: string, year: number) => `${id}:${year}`;
 
-    /** Conserva la fila IGV, que se ingresa manualmente en todos los años del dinamico. */
+    /** Conserva la fila IGV, que se ingresa manualmente en todos los aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±os del dinamico. */
     function collectHistoricalValues(sourceRows: Row[]) {
         const collected: Record<string, number[]> = {};
         sourceRows.forEach((item) => {
@@ -1393,9 +1439,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         } finally { setSavingModel(false); }
     }
 
-    // Guardado automático: al confirmar una celda (Enter/blur) se persiste en BD de
-    // inmediato. Si ya hay una petición en curso se encola la más reciente para no
-    // perder ningún cambio (evita la ventana de debounce que podía perderse al navegar).
+    // Guardado automÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡tico: al confirmar una celda (Enter/blur) se persiste en BD de
+    // inmediato. Si ya hay una peticiÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â³n en curso se encola la mÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¡s reciente para no
+    // perder ningÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Âºn cambio (evita la ventana de debounce que podÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­a perderse al navegar).
     async function runAutosave() {
         do {
             autosaveQueued.current = false;
@@ -1480,6 +1526,41 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         };
         const anchorChanged = mode === 'dinamico' && Number(normalizedManual.startYear) !== Number(manual.startYear);
         setManual(normalizedManual);
+        if (mode === 'dinamico') {
+            setAssumptionsOpen(false);
+            if (anchorChanged) {
+                const sourceRows = rowsRef.current.length ? rowsRef.current : rows;
+                const historyByCalendarYear: Record<string, Record<number, number>> = {};
+                sourceRows.forEach((item) => {
+                    if (item.computed || item.id !== 'igv') return;
+                    normalizeValues(item.values).forEach((value, year) => {
+                        historyByCalendarYear[item.id] = historyByCalendarYear[item.id] || {};
+                        historyByCalendarYear[item.id][baseYear + year] = Number(value || 0);
+                    });
+                });
+                buildSeedRows(normalizedManual.startYear).then((rescoped) => {
+                    const restored = rescoped.rows.map((item) => {
+                        const saved = historyByCalendarYear[item.id];
+                        if (!saved || item.id !== 'igv') return item;
+                        return {
+                            ...item,
+                            values: normalizeValues(item.values).map((cell, year) => saved[rescoped.baseYear + year] ?? cell),
+                        };
+                    });
+                    setBaseYear(rescoped.baseYear);
+                    setFirstDataYear(rescoped.firstDataYear);
+                    rowsRef.current = restored;
+                    setRows(restored);
+                    setManual((current) => ({ ...current, ...rescoped.manualFields, startYear: rescoped.baseYear }));
+                    void persistDynamic({ ...rescoped, rows: restored });
+                    setSaved(true);
+                    setHasSavedModel(true);
+                });
+            } else {
+                scheduleDynamicSave();
+            }
+            return;
+        }
         const saleValue = calculatedRowTotal('income') || draftManual.landArea * draftManual.priceM2;
         const percent = (value: number) => Math.max(0, Math.min(100, Number(value) || 0)) / 100;
         setRows((current) => current.map((item) => {
@@ -1499,47 +1580,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         setAssumptionsOpen(false);
         setSaved(false);
         setHasSavedModel(false);
-        // Si el cliente movio el Año 0, el dinamico se re-siembra contra el nuevo
-        // ancla: la data real (ventas, pagos) debe caer en `añoRegistro - startYear`.
-        if (mode === 'dinamico' && anchorChanged) {
-            // Solo el IGV manual se conserva por año calendario al mover el inicio.
-            const previousRows = rowsRef.current.length ? rowsRef.current : rows;
-            const historyByCalendarYear: Record<string, Record<number, number>> = {};
-            previousRows.forEach((item) => {
-                if (item.computed || item.id !== 'igv') return;
-                normalizeValues(item.values).forEach((value, year) => {
-                    historyByCalendarYear[item.id] = historyByCalendarYear[item.id] || {};
-                    historyByCalendarYear[item.id][baseYear + year] = Number(value || 0);
-                });
-            });
-            setBaseYear(normalizedManual.startYear);
-            const rescoped = await buildSeedRows(normalizedManual.startYear);
-            const restored = rescoped.rows.map((item) => {
-                const saved = historyByCalendarYear[item.id];
-                if (!saved) return item;
-                return {
-                    ...item,
-                    values: normalizeValues(item.values).map((cell, year) => {
-                        const calendarYear = rescoped.baseYear + year;
-                        return saved[calendarYear] !== undefined ? Number(saved[calendarYear] || 0) : cell;
-                    }),
-                };
-            });
-            rowsRef.current = restored;
-            setRows(restored);
-            setFirstDataYear(rescoped.firstDataYear);
-            setManual((current) => ({ ...current, ...rescoped.manualFields, startYear: rescoped.baseYear }));
-            void persistDynamic({ ...rescoped, rows: restored });
-            setSaved(true);
-            setHasSavedModel(true);
-            return;
-        }
         // Lo aplicado se persiste de inmediato: si no, al recargar volvian los
         // valores anteriores del modelo guardado.
         window.setTimeout(() => scheduleAutosave(), 0);
     }
 
-    const lotsSoldRow = calculated.find((item) => item.id === 'lots-sold') || row('lots-sold', 'Venta de lotes por año');
+    const lotsSoldRow = calculated.find((item) => item.id === 'lots-sold') || row('lots-sold', 'Venta de lotes por ano');
     const calculatedValue = (id: string, year = 0) => calculated.find((item) => item.id === id)?.values[year] || 0;
     const calculatedRowTotal = (id: string) => (calculated.find((item) => item.id === id)?.values || empty()).reduce((sum, value) => sum + Number(value || 0), 0);
     const accumulateSeries = (values: number[]) => normalizeValues(values).reduce<number[]>((totals, value, year) => {
@@ -1553,6 +1599,15 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const landAcquisitionTotal = calculatedRowTotal('land-cost') || calculatedRowTotal('land');
     const averageLotArea = totalLots > 0 ? Number(manual.landArea || 0) / totalLots : 0;
     const averageLotPrice = totalLots > 0 ? saleValue / totalLots : 0;
+    const dataSaleValue = mode === 'dinamico' ? saleValue : saleValue;
+    const dataTotalLots = mode === 'dinamico' ? (lotsSoldTotal || Number(manual.totalLots || 0)) : totalLots;
+    const dataLandArea = Number(manual.landArea || 0);
+    const dataPriceM2 = mode === 'dinamico'
+        ? (dataLandArea > 0 ? dataSaleValue / dataLandArea : Number(manual.priceM2 || 0))
+        : Number(manual.priceM2 || 0);
+    const dataAverageLotArea = dataTotalLots > 0 ? dataLandArea / dataTotalLots : 0;
+    const dataAverageLotPrice = dataAverageLotArea * dataPriceM2;
+    const dataVentaTotalLotes = dataAverageLotPrice * dataTotalLots;
 
     const netProfitSeries = calculated.find((item) => item.id === 'net')?.values || empty();
     const adjustedProfitSeries = calculated.find((item) => item.id === 'adjusted')?.values || netProfitSeries;
@@ -1582,12 +1637,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const margin = totalRevenue > 0 ? (totalAdjustedProfit / totalRevenue) * 100 : null;
     const firstNegative = cumulativeProfit.findIndex((value) => value < 0);
     const paybackYear = firstNegative === -1 ? -1 : cumulativeProfit.findIndex((value, year) => year > firstNegative && value >= 0);
-    const paybackValue = paybackYear >= 0 ? `Año ${paybackYear}` : 'No aplica';
+    const paybackValue = paybackYear >= 0 ? `Ano ${paybackYear}` : 'No aplica';
     const paybackHelper = paybackYear >= 0
-        ? 'Año en que se cubre la inversión'
+        ? 'Ano en que se cubre la inversion'
         : firstNegative === -1
-            ? 'No hay déficit acumulado que recuperar'
-            : 'Hay déficit acumulado y no se recupera en el horizonte';
+            ? 'No hay deficit acumulado que recuperar'
+            : 'Hay deficit acumulado y no se recupera en el horizonte';
     const breakEvenLots = averageLotPrice > 0 ? totalCosts / averageLotPrice : null;
     const startYear = Number(manual.startYear) || baseYear;
     const calendarYear = new Date().getFullYear();
@@ -1733,8 +1788,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 <div className="cashflow-no-print flex flex-col gap-4 border-b px-5 py-5 lg:flex-row lg:items-start lg:justify-between" style={{ borderColor: BRAND.border }}>
                     <div>
                         <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold" style={{ background: `${BRAND.blue}14`, color: BRAND.blue }}><FiTrendingUp /> Flujo de caja</div>
-                        <h2 className="mt-3 text-2xl font-bold" style={{ color: BRAND.ink }}>{project?.name || 'Proyecto'} · FLUJO DE CAJA</h2>
-                        <p className="mt-1 text-sm text-slate-500">Moneda de visualización: {currency === 'USD' ? 'dólares' : 'soles'}</p>
+                        <h2 className="mt-3 text-2xl font-bold" style={{ color: BRAND.ink }}>{project?.name || 'Proyecto'} - FLUJO DE CAJA</h2>
+                        <p className="mt-1 text-sm text-slate-500">Moneda de visualizacion: {currency === 'USD' ? 'dolares' : 'soles'}</p>
                     </div>
                     <div className="grid w-full grid-cols-2 gap-2 lg:flex lg:w-auto lg:flex-wrap lg:items-center">
                         <div className="col-span-2 lg:col-span-1">
@@ -1767,7 +1822,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                             );
                         })}
                         <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ background: mode === 'dinamico' ? '#E7F0FE' : '#F1F5F9', color: mode === 'dinamico' ? BRAND.blueDark : '#475569' }}>
-                            {mode === 'dinamico' ? <><FiZap /> Se carga desde Cuentas y bancos</> : <><FiClipboard /> Tú llenas los datos manualmente</>}
+                            {mode === 'dinamico' ? <><FiZap /> Se carga desde Cuentas y bancos</> : <><FiClipboard /> Tu llenas los datos manualmente</>}
                         </span>
                     </div>
                     <div className="flex items-center gap-2">
@@ -1775,7 +1830,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                             <>
                                 {hasSavedModel && <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600"><FiCheck /> Modelo guardado</span>}
                                 <button className="btn-primary min-w-0 justify-center whitespace-nowrap px-3 text-xs sm:text-sm" onClick={saveModel} disabled={savingModel}>
-                                    <FiSave /> {savingModel ? 'Guardando...' : 'Guardar flujo estático'}
+                                    <FiSave /> {savingModel ? 'Guardando...' : 'Guardar flujo estatico'}
                                 </button>
                             </>
                         ) : (
@@ -1783,16 +1838,27 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         )}
                     </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 border-b bg-[#F8FAFC] p-4 lg:grid-cols-6" style={{ borderColor: BRAND.border }}>
-                    {[['Área venta (m²)', 'landArea'], ['Área promedio lote (m²)', 'lotArea'], [`Precio ${currency === 'USD' ? 'US$' : 'S/'}/m²`, 'priceM2'], ['Cuota inicial %', 'initialPercent'], ['Años de proyección', 'years'], ['Año de inicio', 'startYear']].map(([label, key]) => {
+                <div className={`grid grid-cols-2 gap-3 border-b bg-[#F8FAFC] p-4 ${mode === 'dinamico' ? 'lg:grid-cols-7' : 'lg:grid-cols-6'}`} style={{ borderColor: BRAND.border }}>
+                    {(mode === 'dinamico' ? [
+                        ['Venta de Lotes US$', 'income'],
+                        ['Costo de Ventas US$', 'cost-sales'],
+                        ['Gasto de Ventas US$', 'selling'],
+                        ['Gasto Financiero US$', 'financial'],
+                        ['Utilidad AdI US$', 'pre-tax'],
+                        ['Anos de proyeccion', 'years'],
+                        ['Ano de inicio', 'startYear'],
+                    ] : [['Area venta (m2)', 'landArea'], ['Area promedio lote (m2)', 'lotArea'], [`Precio ${currency === 'USD' ? 'US$' : 'S/'}/m2`, 'priceM2'], ['Cuota inicial %', 'initialPercent'], ['Anos de proyeccion', 'years'], ['Ano de inicio', 'startYear']]).map(([label, key]) => {
                         const editable = key === 'initialPercent' || (key === 'years' && mode === 'estatico') || key === 'startYear';
-                        const displayValue = key === 'lotArea'
+                        const dynamicValue = ['income', 'cost-sales', 'selling', 'financial', 'pre-tax'].includes(key)
+                            ? showAmount(calculatedRowTotal(key))
+                            : '';
+                        const displayValue = dynamicValue || (key === 'lotArea'
                             ? formatPlainInteger(averageLotArea)
                             : key === 'priceM2'
                                 ? formatInteger((manual as any)[key])
                                 : key === 'landArea'
                                     ? formatPlainInteger((manual as any)[key])
-                                    : formatPlainInteger((manual as any)[key]);
+                                    : formatPlainInteger((manual as any)[key]));
                         const content = <><p className="text-xs font-semibold text-slate-500">{label}</p><div className="mt-1 flex h-10 items-center justify-between rounded-md border bg-white px-2 text-sm font-semibold tabular-nums sm:px-3" style={{ borderColor: editable ? '#B9D2F4' : BRAND.border, color: BRAND.ink }}><span>{displayValue}</span>{editable && <FiEdit3 className="text-[#1259C4]" aria-hidden="true" />}</div></>;
                         return editable ? <button type="button" key={key} onClick={openAssumptions} className="min-w-0 text-left">{content}</button> : <div key={key} className="min-w-0">{content}</div>;
                     })}
@@ -1803,18 +1869,18 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 <div className="cashflow-no-print flex items-center justify-between gap-3 border-b px-5 py-4" style={{ borderColor: BRAND.border }}>
                     <div>
                         <h3 className="font-semibold" style={{ color: BRAND.ink }}>Indicadores del proyecto</h3>
-                        <p className="text-xs text-slate-500">Se recalculan en tiempo real con la data del modelo · Base contable (utilidad ajustada) · VAN con tasa de descuento del {Number(manual.discountRate) || 10}%.</p>
+                        <p className="text-xs text-slate-500">Se recalculan en tiempo real con la data del modelo - Base contable (utilidad ajustada) - VAN con tasa de descuento del {Number(manual.discountRate) || 10}%.</p>
                     </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-4 lg:grid-cols-7">
                     {[
-                        { label: 'VAN contable', value: showAmount(van), helper: `Tasa ${Number(manual.discountRate) || 10}% · utilidad ajustada descontada`, tone: BRAND.blue },
-                        { label: 'TIR contable', value: tir === null ? '—' : `${(tir * 100).toFixed(2)}%`, helper: tir === null ? 'Requiere utilidad negativa en algún año' : 'Tasa interna de retorno', tone: '#15803D' },
-                        { label: 'ROI contable', value: roi === null ? '—' : `${roi.toFixed(1)}%`, helper: 'Utilidad ajustada / costos totales', tone: '#0EA5A9' },
-                        { label: 'Margen de utilidad', value: margin === null ? '—' : `${margin.toFixed(1)}%`, helper: 'Utilidad ajustada / ventas', tone: '#D97706' },
+                        { label: 'VAN contable', value: showAmount(van), helper: `Tasa ${Number(manual.discountRate) || 10}% - utilidad ajustada descontada`, tone: BRAND.blue },
+                        { label: 'TIR contable', value: tir === null ? '-' : `${(tir * 100).toFixed(2)}%`, helper: tir === null ? 'Requiere utilidad negativa en algun ano' : 'Tasa interna de retorno', tone: '#15803D' },
+                        { label: 'ROI contable', value: roi === null ? '-' : `${roi.toFixed(1)}%`, helper: 'Utilidad ajustada / costos totales', tone: '#0EA5A9' },
+                        { label: 'Margen de utilidad', value: margin === null ? '-' : `${margin.toFixed(1)}%`, helper: 'Utilidad ajustada / ventas', tone: '#D97706' },
                         { label: 'Payback', value: paybackValue, helper: paybackHelper, tone: '#8064A2' },
-                        { label: 'Punto de equilibrio', value: breakEvenLots === null ? '—' : `${formatPlainInteger(breakEvenLots)} lotes`, helper: `Lotes para cubrir costos · ${formatPlainInteger(totalLots)} totales`, tone: '#E11D48' },
-                        { label: 'Capital máximo requerido', value: showAmount(maxCapitalRequired), helper: 'Máx. déficit de caja acumulado', tone: BRAND.blueDark },
+                        { label: 'Punto de equilibrio', value: breakEvenLots === null ? '-' : `${formatPlainInteger(breakEvenLots)} lotes`, helper: `Lotes para cubrir costos - ${formatPlainInteger(totalLots)} totales`, tone: '#E11D48' },
+                        { label: 'Capital maximo requerido', value: showAmount(maxCapitalRequired), helper: 'Max. deficit de caja acumulado', tone: BRAND.blueDark },
                     ].map(({ label, value, helper, tone }) => (
                         <div key={label} className="min-w-0 rounded-xl border bg-white px-3 py-3" style={{ borderColor: `${tone}40` }}>
                             <p className="truncate text-[11px] font-semibold uppercase tracking-wide" style={{ color: tone }} title={label}>{label}</p>
@@ -1829,28 +1895,28 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 <div className="flex flex-col gap-3 border-b px-5 py-4 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: BRAND.border }}>
                     <div>
                         <h3 className="font-semibold" style={{ color: BRAND.ink }}>Estado de resultados proyectado</h3>
-                        <p className="cashflow-no-print text-xs text-slate-500">Valores en US$ · al salir de una celda se te pedirá confirmar el cambio.</p>
+                        <p className="cashflow-no-print text-xs text-slate-500">Valores en US$ - al salir de una celda se te pedira confirmar el cambio.</p>
                     </div>
                     <div className="cashflow-no-print flex items-center gap-2">
                         <button
                             type="button"
                             className="btn-neutral min-w-0 justify-center whitespace-nowrap px-3 text-xs sm:text-sm"
                             onClick={() => setHidePastYears((current) => !current)}
-                            title={hidePastYears ? 'Mostrar todos los años de la proyección' : 'Ocultar años anteriores al año actual y agruparlos'}
+                            title={hidePastYears ? 'Mostrar todos los anos de la proyeccion' : 'Ocultar anos anteriores al ano actual y agruparlos'}
                         >
-                            {hidePastYears ? 'Vista completa' : 'Ocultar años pasados'}
+                            {hidePastYears ? 'Vista completa' : 'Ocultar anos pasados'}
                         </button>
                         {hiddenPastYearIndexes.length > 0 && (
                             <span className="hidden text-[11px] font-semibold text-slate-500 sm:inline">
-                                {hiddenPastYearIndexes.length} año(s) en histórico
+                                {hiddenPastYearIndexes.length} ano(s) en historico
                             </span>
                         )}
                         <FiEdit3 style={{ color: BRAND.blue }} />
                     </div>
                 </div>
-                <p className="cashflow-no-print px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver los años.</p>
+                <p className="cashflow-no-print px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver los anos.</p>
                 {/* [container-type:inline-size] permite usar `cqw` (ancho visible) en las columnas
-                    fijas: en movil Concepto + Total llenan la pantalla y los años se ven al deslizar. */}
+                    fijas: en movil Concepto + Total llenan la pantalla y los aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±os se ven al deslizar. */}
                 <div className="overflow-auto [container-type:inline-size]" style={{ WebkitOverflowScrolling: 'touch' }}>
                     <table className="w-max border-collapse text-xs">
                         <thead className="sticky top-0 z-[15]">
@@ -1863,14 +1929,14 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-3 text-center font-semibold`} style={{ background: BRAND.blue, color: '#fff' }}>{YEARS[year]}</th>
                                 ))}
                                 {showHistoricalColumn && (
-                                    <th className={`${YEAR_COL} border border-slate-200 px-2 py-3 text-center font-semibold`} style={{ background: '#475569', color: '#fff' }}>Años anteriores</th>
+                                    <th className={`${YEAR_COL} border border-slate-200 px-2 py-3 text-center font-semibold`} style={{ background: '#475569', color: '#fff' }}>Anos anteriores</th>
                                 )}
                                 {displayedYearIndexesAfterHistory.map((year) => (
                                     <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-3 text-center font-semibold`} style={{ background: BRAND.blue, color: '#fff' }}>{YEARS[year]}</th>
                                 ))}
                             </tr>
                             <tr>
-                                <th className={`${CONCEPT_COL} border border-slate-200 bg-[#F8FAFC] px-3 py-2 text-left text-[11px] font-semibold md:sticky md:left-0 md:z-20 md:px-4`} style={{ color: BRAND.muted }}><span className="block truncate md:whitespace-normal">Proyección anual</span></th>
+                                <th className={`${CONCEPT_COL} border border-slate-200 bg-[#F8FAFC] px-3 py-2 text-left text-[11px] font-semibold md:sticky md:left-0 md:z-20 md:px-4`} style={{ color: BRAND.muted }}><span className="block truncate md:whitespace-normal">Proyeccion anual</span></th>
                         <th
                           className={`${TOTAL_COL} border px-2 py-2 text-center text-[11px] font-bold leading-tight md:sticky md:left-[232px] md:z-20 ${mode === 'dinamico' ? 'border-slate-200' : 'border-[#B9D2F4] bg-[#EAF2FD] text-[#1259C4]'}`}
                           style={mode === 'dinamico' ? { background: BRAND.blue, color: '#fff' } : undefined}
@@ -1891,7 +1957,6 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                             </tr>
                         </thead>
                         <tbody>
-                            {mode !== 'dinamico' && (
                             <tr className="hover:bg-slate-50">
                                 <td className={`${CONCEPT_COL} border border-slate-200 bg-[#F8FAFC] px-3 py-2.5 font-semibold text-slate-700 md:sticky md:left-0 md:z-[1] md:px-4`}>
                                     <div className="flex items-center gap-2">
@@ -1946,7 +2011,6 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     );
                                 })}
                             </tr>
-                            )}
                             {SECTIONS.filter((section) => !['accumulated-title', 'pre-tax-accumulated', 'adjusted-accumulated', ...COST_SALES_CHILD_SECTION_IDS].includes(section.id)).map((section) => {
                                 const sectionRow = calculated.find((item) => item.id === section.id);
                                 const surface = sectionSurface(section.id, section.computed);
@@ -2132,18 +2196,18 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 <div className="overflow-hidden rounded-lg border bg-white shadow-sm" style={{ borderColor: BRAND.border }}>
                     <div className="border-b px-5 py-4" style={{ borderColor: BRAND.border }}>
                         <h3 className="font-semibold" style={{ color: BRAND.ink }}>Datos</h3>
-                        <p className="mt-1 text-xs text-slate-500">Información base del proyecto</p>
+                        <p className="mt-1 text-xs text-slate-500">Informacion base del proyecto</p>
                     </div>
                     <div className="space-y-2 p-4">
                         {[
                             { label: `Terreno ${currency === 'USD' ? 'US$' : 'S/'}`, value: showAmount(landAcquisitionTotal) },
-                            { label: 'Área venta (m²)', value: formatPlainInteger(manual.landArea) },
-                            { label: 'Nro. de lotes', value: formatPlainInteger(totalLots) },
-                            { label: 'Área promedio por lote (m²)', value: formatPlainInteger(averageLotArea) },
-                            { label: `Precio ${currency === 'USD' ? 'US$' : 'S/'}/m²`, value: showAmount(manual.priceM2) },
-                            { label: `Precio lote prom. ${currency === 'USD' ? 'US$' : 'S/'}`, value: showAmount(averageLotPrice) },
+                            { label: 'Area venta (m2)', value: formatPlainInteger(dataLandArea) },
+                            { label: 'Nro. de lotes', value: formatPlainInteger(dataTotalLots) },
+                            { label: 'Area promedio por lote (m2)', value: formatPlainInteger(dataAverageLotArea) },
+                            { label: `Precio ${currency === 'USD' ? 'US$' : 'S/'}/mÂ²`, value: showAmount(dataPriceM2) },
+                            { label: `Precio lote prom. ${currency === 'USD' ? 'US$' : 'S/'}`, value: showAmount(dataAverageLotPrice) },
                             { label: 'Cuota inicial', value: `${manual.initialPercent}%` },
-                            { label: `Venta total lotes ${currency === 'USD' ? 'US$' : 'S/'}`, value: showAmount(saleValue) },
+                            { label: `Venta total lotes ${currency === 'USD' ? 'US$' : 'S/'}`, value: showAmount(dataVentaTotalLotes) },
                         ].map(({ label, value }) => (
                             <button key={String(label)} type="button" onClick={openAssumptions} className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition hover:brightness-95" style={{ background: '#FFF0B3' }}>
                                 <span className="text-xs font-medium text-slate-700">{label}</span>
@@ -2192,7 +2256,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 <h3 className="font-semibold" style={{ color: BRAND.ink }}>Cambiar a {MODE_LABEL[pendingMode]}</h3>
                                 <p className="mt-1 text-sm text-slate-500">
                                     {pendingMode === 'dinamico'
-                                        ? 'El modelo se cargara con la data real de Cuentas y bancos, agrupada por año y clasificacion. Los años anteriores a la data real quedaran editables para que cargues el historico a mano; el resto se recalcula desde bancos.'
+                                        ? 'El modelo se cargara con la data real de Cuentas y bancos, agrupada por ano y clasificacion. Los anos anteriores a la data real quedaran editables para que cargues el historico a mano; el resto se recalcula desde bancos.'
                                         : 'Podras editar todas las celdas. El flujo dinamico siempre se reconstruye desde Cuentas y bancos.'}
                                 </p>
                             </div>
@@ -2216,7 +2280,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 <div className="min-w-0">
                                     <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: BRAND.blue }}>Nueva subpartida</p>
                                     <h3 className="mt-1 text-lg font-semibold" style={{ color: BRAND.ink }}>Agregar detalle</h3>
-                                    <p className="mt-1 text-sm text-slate-500">Se creará debajo de <b className="font-semibold text-slate-700">{subpartidaModal.parentLabel}</b>.</p>
+                                    <p className="mt-1 text-sm text-slate-500">Se creara debajo de <b className="font-semibold text-slate-700">{subpartidaModal.parentLabel}</b>.</p>
                                 </div>
                             </div>
                         </div>
@@ -2235,7 +2299,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                         }
                                         if (event.key === 'Escape') closeSubpartidaModal();
                                     }}
-                                    placeholder="Ej. Habilitación urbana"
+                                    placeholder="Ej. Habilitacion urbana"
                                 />
                             </label>
                         </div>
@@ -2250,21 +2314,21 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
                     <div className="absolute inset-0 bg-slate-950/40" onClick={() => setAssumptionsOpen(false)} />
                     <div className="relative flex max-h-[90vh] w-full max-w-xl flex-col rounded-xl border bg-white shadow-2xl" style={{ borderColor: BRAND.border }}>
-                        <div className="shrink-0 border-b px-5 py-4" style={{ borderColor: BRAND.border }}><p className="text-xs font-semibold uppercase tracking-wide" style={{ color: BRAND.blue }}>Supuestos del proyecto</p><h3 className="mt-1 text-lg font-semibold" style={{ color: BRAND.ink }}>Editar datos base</h3><p className="mt-1 text-sm text-slate-500">Estos valores afectan los cálculos de todo el modelo.</p></div>
+                        <div className="shrink-0 border-b px-5 py-4" style={{ borderColor: BRAND.border }}><p className="text-xs font-semibold uppercase tracking-wide" style={{ color: BRAND.blue }}>Supuestos del proyecto</p><h3 className="mt-1 text-lg font-semibold" style={{ color: BRAND.ink }}>Editar datos base</h3><p className="mt-1 text-sm text-slate-500">Estos valores afectan los calculos de todo el modelo.</p></div>
                         <div className="grid flex-1 grid-cols-2 gap-3 overflow-y-auto p-5">
                             {[
-                                ['Área venta (m²)', 'landArea'],
-                                ['Área promedio lote (m²)', 'lotArea'],
-                                [`Precio ${currency === 'USD' ? 'US$' : 'S/'}/m²`, 'priceM2'],
+                                ['Area venta (m2)', 'landArea'],
+                                ['Area promedio lote (m2)', 'lotArea'],
+                                [`Precio ${currency === 'USD' ? 'US$' : 'S/'}/m2`, 'priceM2'],
                                 ['Cuota inicial %', 'initialPercent'],
-                                ['Años de proyección', 'years'],
-                                ['Año de inicio', 'startYear'],
+                                ['Anos de proyeccion', 'years'],
+                                ['Ano de inicio', 'startYear'],
                                 ['Alcabala %', 'alcabalaPercent'],
-                                ['Supervisión técnica %', 'supervisionPercent'],
-                                ['Servicios públicos %', 'servicesPercent'],
-                                ['Diseño y licencias %', 'designPercent'],
+                                ['Supervision tecnica %', 'supervisionPercent'],
+                                ['Servicios publicos %', 'servicesPercent'],
+                                ['Diseno y licencias %', 'designPercent'],
                                 ['Gerencia de proyecto %', 'managementPercent'],
-                                ['Indemnización y titulación %', 'indemnityPercent'],
+                                ['Indemnizacion y titulacion %', 'indemnityPercent'],
                                 ['Contingencia legal %', 'contingencyPercent'],
                                 ['Tasa de descuento VAN %', 'discountRate'],
                             ].map(([label, key]) => {
@@ -2306,7 +2370,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     <div className="relative flex max-h-[90vh] w-full max-w-sm flex-col overflow-y-auto rounded-xl border bg-white p-5 shadow-2xl" style={{ borderColor: BRAND.border }}>
                         <div className="mb-4 flex items-start gap-3">
                             <span className="grid h-10 w-10 shrink-0 place-items-center rounded-lg" style={{ background: `${BRAND.blue}14`, color: BRAND.blue }}><FiEdit3 /></span>
-                            <div><h3 className="font-semibold" style={{ color: BRAND.ink }}>Confirmar cambio</h3><p className="mt-1 text-sm text-slate-500">¿Deseas aplicar este dato al modelo financiero?</p></div>
+                            <div><h3 className="font-semibold" style={{ color: BRAND.ink }}>Confirmar cambio</h3><p className="mt-1 text-sm text-slate-500">Deseas aplicar este dato al modelo financiero?</p></div>
                         </div>
                         <div className="rounded-lg border bg-[#F8FAFC] px-3 py-2.5 text-sm" style={{ borderColor: BRAND.border }}><div className="flex justify-between gap-3"><span className="text-slate-500">Valor anterior</span><b>{showAmount(pendingEdit.original)}</b></div><div className="mt-1 flex justify-between gap-3"><span className="text-slate-500">Nuevo valor</span><b style={{ color: BRAND.blue }}>{showAmount(pendingEdit.value)}</b></div></div>
                         <div className="mt-5 flex justify-end gap-2"><button className="btn-neutral" onClick={cancelCellEdit}>Cancelar</button><button className="btn-primary" onClick={applyCellEdit}>Aplicar dato</button></div>

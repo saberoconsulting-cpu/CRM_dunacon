@@ -26,6 +26,24 @@ export class FinancialTransactionEntity {
   @Column({ name: 'payment_id', nullable: true })
   paymentId: number;
 
+  @Column({ name: 'lot_label', type: 'varchar', length: 80, nullable: true })
+  lotLabel: string | null;
+
+  @Column({ name: 'client_label', type: 'varchar', length: 150, nullable: true })
+  clientLabel: string | null;
+
+  @Column({ name: 'payment_method', type: 'varchar', length: 60, nullable: true })
+  paymentMethod: string | null;
+
+  @Column({ name: 'payment_category', type: 'varchar', length: 100, nullable: true })
+  paymentCategory: string | null;
+
+  @Column({ name: 'classification', type: 'varchar', length: 120, nullable: true })
+  classification: string | null;
+
+  @Column({ name: 'agent_name', type: 'varchar', length: 150, nullable: true })
+  agentName: string | null;
+
   @Column({ length: 10 })
   type: string;
 

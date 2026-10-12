@@ -1,8 +1,11 @@
 'use client';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { FiDownload } from 'react-icons/fi';
 import { api, uploadFile } from '@/lib/api';
+import { printHtml } from '@/lib/print';
 import { Field, toast } from '@/components/ui/ui';
+import { Select } from '@/components/ui/Select';
 
 const INK = '#0F172A';
 const BORDER = '#CBD5E1';
@@ -14,6 +17,15 @@ function moneyUsd(value: unknown) {
   const n = Number(value || 0);
   const safe = Number.isFinite(n) ? n : 0;
   return `US$ ${safe.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 type LotCatalogRow = {
@@ -51,9 +63,11 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<LotCatalogRow[]>([]);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('todos');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<LotCatalogRow>(emptyCatalogRow());
+  const [project, setProject] = useState<any>(null);
 
   const load = useCallback(async () => {
     const data = await api.get<any[]>(`/plan/lot-catalog/${projectId}`).catch(() => []);
@@ -75,10 +89,15 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
 
   useEffect(() => { setMounted(true); }, []);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    api.get<any>(`/projects/${projectId}`).then(setProject).catch(() => setProject(null));
+  }, [projectId]);
 
   const filtered = rows.filter((row) => {
     const query = search.trim().toLowerCase();
-    return !query || [row.code, row.address, row.type, row.status, row.client].some((value) => String(value || '').toLowerCase().includes(query));
+    const matchesSearch = !query || [row.code, row.address, row.type, row.status, row.client].some((value) => String(value || '').toLowerCase().includes(query));
+    const matchesStatus = statusFilter === 'todos' || row.status?.toLowerCase() === statusFilter.toLowerCase();
+    return matchesSearch && matchesStatus;
   });
 
   function startEdit(row?: LotCatalogRow) {
@@ -131,6 +150,128 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
     } catch (e: any) { toast(e.message || 'No se pudo eliminar', 'err'); }
   }
 
+  function downloadPDF() {
+    const projectName = project?.name || 'Proyecto';
+    const projectLogoUrl = project?.logoImageUrl || '';
+    const adminLogoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
+    const totalArea = filtered.reduce((sum, row) => sum + Number(row.areaM2 || 0), 0);
+    const totalSale = filtered.reduce((sum, row) => sum + Number(row.salePrice || 0), 0);
+    const totalFinal = filtered.reduce((sum, row) => sum + Number(row.finalPrice || 0), 0);
+    const html = `
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <meta name="viewport" content="width=1120, initial-scale=1" />
+          <style>
+            *{box-sizing:border-box}
+            body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:18px;color:#111827;background:#fff;font-size:10px}
+            .brand{display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:3px solid #374151;padding-bottom:10px;margin-bottom:10px}
+            .brand-copy{min-width:0}
+            .eyebrow{margin:0 0 4px;color:#374151;font-size:9px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+            h1{margin:0;color:#0F172A;font-size:20px;line-height:1.12}
+            .sub{margin:4px 0 0;color:#64748B;font-size:10px}
+            .logos{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex:0 0 auto}
+            .logos img{height:38px;max-width:135px;object-fit:contain}
+            .summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0 12px}
+            .summary div{border:1px solid #E5E7EB;background:#F8FAFC;border-left:4px solid #374151;border-radius:6px;padding:7px 8px;min-width:0}
+            .summary span{display:block;color:#64748B;font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.05em}
+            .summary strong{display:block;margin-top:3px;color:#0F172A;font-size:11px;white-space:nowrap}
+            table{width:100%;border-collapse:collapse;table-layout:fixed;background:white}
+            th{background:#374151;color:white;border:1px solid #374151;padding:6px 5px;text-align:left;font-size:8.5px;line-height:1.1;text-transform:uppercase}
+            td{border:1px solid #E5E7EB;padding:5px 5px;font-size:8.7px;line-height:1.16;vertical-align:top;color:#111827}
+            tbody tr:nth-child(even):not(.total-row){background:#F8FAFC}
+            .num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+            .truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+            .total-row td{background:#E5E7EB;font-weight:800;color:#111827;border-color:#CBD5E1}
+            .footer{margin-top:9px;border-top:1px solid #E5E7EB;padding-top:6px;text-align:right;color:#64748B;font-size:8px}
+            @page{size:A4 landscape;margin:7mm}
+            @media print{
+              body{padding:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+              thead{display:table-header-group}
+              tr{break-inside:avoid;page-break-inside:avoid}
+              .brand,.summary{break-inside:avoid}
+            }
+          </style>
+        </head>
+        <body>
+          <div class="brand">
+            <div class="brand-copy">
+              <p class="eyebrow">Base de lotes del proyecto</p>
+              <h1>${escapeHtml(projectName)}</h1>
+              <p class="sub">${filtered.length} lotes filtrados · ${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+            </div>
+            <div class="logos">
+              ${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}
+              <img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" />
+            </div>
+          </div>
+          <div class="summary">
+            <div><span>Lotes</span><strong>${filtered.length}</strong></div>
+            <div><span>Area total</span><strong>${totalArea.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })} m2</strong></div>
+            <div><span>Precio venta</span><strong>${escapeHtml(moneyUsd(totalSale))}</strong></div>
+            <div><span>Precio final</span><strong>${escapeHtml(moneyUsd(totalFinal))}</strong></div>
+          </div>
+          <table>
+            <colgroup>
+              <col style="width:7%" />
+              <col style="width:14%" />
+              <col style="width:8%" />
+              <col style="width:7%" />
+              <col style="width:10%" />
+              <col style="width:10%" />
+              <col style="width:11%" />
+              <col style="width:11%" />
+              <col style="width:8%" />
+              <col style="width:14%" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Num. de lote</th>
+                <th>Direccion</th>
+                <th>Tipo</th>
+                <th>Area m2</th>
+                <th>Dimensiones</th>
+                <th>Precio m2 (US$)</th>
+                <th>Precio venta (US$)</th>
+                <th>Precio final (US$)</th>
+                <th>Estado</th>
+                <th>Cliente</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.map(row => `
+                <tr>
+                  <td class="truncate">${escapeHtml(row.code)}</td>
+                  <td class="truncate">${escapeHtml(row.address || '-')}</td>
+                  <td class="truncate">${escapeHtml(row.type || '-')}</td>
+                  <td class="num">${Number(row.areaM2 || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+                  <td class="truncate">${escapeHtml(row.dimensions || '-')}</td>
+                  <td class="num">${escapeHtml(moneyUsd(row.priceM2))}</td>
+                  <td class="num">${escapeHtml(moneyUsd(row.salePrice))}</td>
+                  <td class="num">${escapeHtml(moneyUsd(row.finalPrice))}</td>
+                  <td class="truncate">${escapeHtml(row.status || '-')}</td>
+                  <td class="truncate">${escapeHtml(row.client || '-')}</td>
+                </tr>
+              `).join('')}
+              <tr class="total-row">
+                <td colspan="3">Total (${filtered.length} lotes)</td>
+                <td class="num">${totalArea.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+                <td>-</td>
+                <td>${moneyUsd(filtered.reduce((sum, row) => sum + Number(row.priceM2 || 0), 0))}</td>
+                <td class="num">${moneyUsd(totalSale)}</td>
+                <td class="num">${moneyUsd(totalFinal)}</td>
+                <td>-</td>
+                <td>-</td>
+              </tr>
+            </tbody>
+          </table>
+          <div class="footer">Dunacon - CRM Inmobiliario</div>
+        </body>
+      </html>
+    `;
+    printHtml(html);
+  }
+
   if (!canManage) {
     return (
       <div className="flex w-full items-center justify-between gap-3 rounded-lg border bg-white p-4" style={{ borderColor: '#E5E7EB' }}>
@@ -177,14 +318,30 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
-              <input className="input !h-9 mb-3 text-sm" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar lote, direccion, estado..." />
+              <div className="mb-3 flex gap-2">
+                <input className="input !h-9 flex-1 text-sm" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar lote, direccion, estado..." />
+                <Select
+                  value={statusFilter}
+                  onChange={(value) => setStatusFilter(value)}
+                  options={[
+                    { value: 'todos', label: 'Filtrar todos' },
+                    { value: 'vendido', label: 'Vendido' },
+                    { value: 'reservado', label: 'Reservado' },
+                    { value: 'disponible', label: 'Libre' },
+                  ]}
+                  className="!h-9 min-w-[140px]"
+                />
+                <button className="btn-primary !h-9 !px-3 text-xs" onClick={downloadPDF}>
+                  <FiDownload /> Descargar PDF
+                </button>
+              </div>
 
               <div className="overflow-auto rounded-lg border" style={{ borderColor: BORDER }}>
                 <table className="min-w-[1180px] w-full text-xs">
                   <thead className="sticky top-0">
-                    <tr style={{ backgroundColor: NAVY, color: '#FFFFFF' }}>
+                    <tr>
                       {['Num. de lote', 'Direccion', 'Tipo', 'Area m2', 'Dimensiones', 'Precio m2 (US$)', 'Precio venta (US$)', 'Precio final (US$)', 'Estado', 'Cliente', 'Accion'].map((head) => (
-                        <th key={head} className="th-base !py-2 text-left">{head}</th>
+                        <th key={head} className="th-base !py-2 text-left !font-bold !text-white" style={{ backgroundColor: '#374151' }}>{head}</th>
                       ))}
                     </tr>
                   </thead>
@@ -210,6 +367,19 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                       </tr>
                     ))}
                     {filtered.length === 0 && <tr><td className="td-base text-center text-slate-400" colSpan={11}>Aun no hay lotes base para este proyecto.</td></tr>}
+                    {filtered.length > 0 && (
+                      <tr style={{ backgroundColor: '#F3F4F6', fontWeight: 'bold' }}>
+                        <td className="td-base" colSpan={3}>Total ({filtered.length} lotes)</td>
+                        <td className="td-base tabular-nums">{filtered.reduce((sum, row) => sum + Number(row.areaM2 || 0), 0).toLocaleString('es-PE')}</td>
+                        <td className="td-base">-</td>
+                        <td className="td-base tabular-nums">{moneyUsd(filtered.reduce((sum, row) => sum + Number(row.priceM2 || 0), 0))}</td>
+                        <td className="td-base tabular-nums">{moneyUsd(filtered.reduce((sum, row) => sum + Number(row.salePrice || 0), 0))}</td>
+                        <td className="td-base tabular-nums" style={{ color: '#0F8B5F' }}>{moneyUsd(filtered.reduce((sum, row) => sum + Number(row.finalPrice || 0), 0))}</td>
+                        <td className="td-base">-</td>
+                        <td className="td-base">-</td>
+                        <td className="td-base">-</td>
+                      </tr>
+                    )}
                   </tbody>
                 </table>
               </div>

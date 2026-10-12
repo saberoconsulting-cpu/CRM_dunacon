@@ -336,6 +336,11 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
   // (el encabezado ya lo indica) para que no se amontone con el Concepto.
   const showUsdBase = (value: number) => formatCurrency(toDisplay(value), currency);
   const showUsdBaseCompact = (value: number) => showUsdBase(value).replace(/^[^\d-]+/, '').trim();
+  const deviationAmount = (real: number, projected: number, status?: BudgetStatus | string) => {
+    const diff = Number(real || 0) - Number(projected || 0);
+    const enabled = diff > 0 || status === 'terminada';
+    return enabled ? diff : null;
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -599,6 +604,16 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     return 0;
   }
 
+  function aggregateDeviation(items: BudgetTreeItem[]): number {
+    return items.reduce((sum, item) => {
+      if (item.children.length) {
+        const childrenDeviation = aggregateDeviation(item.children);
+        if (childrenDeviation !== 0) return sum + childrenDeviation;
+      }
+      return sum + (deviationAmount(realAmount(item), projectedAmount(item), item.status) || 0);
+    }, 0);
+  }
+
   const budgetTotals = useMemo(() => {
     const categories = Object.fromEntries(itemTree.map((cat) => [
       cat.key,
@@ -722,6 +737,8 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
     const real = realAmount(item);
     const advance = pct(real, projected);
     const hasChildren = item.children.length > 0;
+    const childrenDeviation = hasChildren ? aggregateDeviation(item.children) : 0;
+    const deviation = childrenDeviation !== 0 ? childrenDeviation : deviationAmount(real, projected, item.status);
     const isOpen = printing || !!openItems[item.id];
     return (
       <>
@@ -780,6 +797,16 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
             <span className="budget-status-text" style={{ color: statusMeta(item.status).color, fontWeight: 700 }}>
               {statusMeta(item.status).label}
             </span>
+          </td>
+          <td className="budget-cell-deviation whitespace-nowrap px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: deviation && deviation > 0 ? '#DC2626' : INK }}>
+            {deviation === null ? (
+              <span className="text-slate-300">-</span>
+            ) : (
+              <>
+                <span className="budget-amount-compact md:hidden">{showUsdBaseCompact(deviation)}</span>
+                <span className="budget-amount-full hidden md:inline">{showUsdBase(deviation)}</span>
+              </>
+            )}
           </td>
           <td className="budget-no-print px-1.5 py-3 md:px-3">
             <div className="flex justify-end gap-0.5 sm:gap-1">
@@ -844,16 +871,18 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
           }
           /* Al exportar desde el celular la tabla quedo en su modo reducido
              (Concepto + Proyectado): aqui se fuerzan las columnas para que
-             Real, Avance %, Estado y Acciones reaparezcan en el PDF. */
-          .budget-print-area .budget-table > colgroup > .budget-col-concept { width: 34% !important; }
-          .budget-print-area .budget-table > colgroup > .budget-col-projected { width: 14% !important; }
-          .budget-print-area .budget-table > colgroup > .budget-col-real { width: 14% !important; }
-          .budget-print-area .budget-table > colgroup > .budget-col-advance { width: 11% !important; }
-          .budget-print-area .budget-table > colgroup > .budget-col-status { width: 15% !important; }
-          .budget-print-area .budget-table > colgroup > .budget-col-actions { width: 12% !important; }
+             Real, Avance %, Estado y Desviacion reaparezcan en el PDF. */
+          .budget-print-area .budget-table > colgroup > .budget-col-concept { width: 30% !important; }
+          .budget-print-area .budget-table > colgroup > .budget-col-projected { width: 13% !important; }
+          .budget-print-area .budget-table > colgroup > .budget-col-real { width: 13% !important; }
+          .budget-print-area .budget-table > colgroup > .budget-col-advance { width: 10% !important; }
+          .budget-print-area .budget-table > colgroup > .budget-col-status { width: 13% !important; }
+          .budget-print-area .budget-table > colgroup > .budget-col-deviation { width: 13% !important; }
+          .budget-print-area .budget-table > colgroup > .budget-col-actions { width: 8% !important; }
           .budget-print-area .budget-table .budget-cell-real,
           .budget-print-area .budget-table .budget-cell-advance,
-          .budget-print-area .budget-table .budget-cell-status { display: table-cell !important; }
+          .budget-print-area .budget-table .budget-cell-status,
+          .budget-print-area .budget-table .budget-cell-deviation { display: table-cell !important; }
           .budget-print-area .budget-no-print,
           .budget-print-area .budget-table .budget-col-actions { display: none !important; }
           .budget-print-area th,
@@ -953,13 +982,14 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
             <>
               <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
               <div className="overflow-x-auto [container-type:inline-size]" style={{ WebkitOverflowScrolling: 'touch' }}>
-                <table className="budget-table w-[calc(100cqw_+_440px)] table-fixed border-collapse text-[13px] md:w-full md:min-w-[1120px] md:text-sm">
+                <table className="budget-table w-[calc(100cqw_+_560px)] table-fixed border-collapse text-[13px] md:w-full md:min-w-[1240px] md:text-sm">
                   <colgroup>
                     <col className="budget-col-concept w-[calc(100cqw_-_132px)] md:w-[36%]" />
                     <col className="budget-col-projected w-[132px] md:w-[14%]" />
                     <col className="budget-col-real w-[130px] md:w-[14%]" />
                     <col className="budget-col-advance w-[86px] md:w-[11%]" />
-                    <col className="budget-col-status w-[150px] md:w-[13%]" />
+                    <col className="budget-col-status w-[150px] md:w-[12%]" />
+                    <col className="budget-col-deviation w-[130px] md:w-[11%]" />
                     <col className="budget-col-actions budget-no-print w-[84px] md:w-[12%]" />
                   </colgroup>
                   <thead>
@@ -969,6 +999,7 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                       <th className="budget-cell-real whitespace-nowrap px-2 py-3 text-right md:px-3">Real {symbol}</th>
                       <th className="budget-cell-advance whitespace-nowrap px-1.5 py-3 text-right md:px-3">Avance %</th>
                       <th className="budget-cell-status whitespace-nowrap px-1.5 py-3 text-center md:px-3">Estado</th>
+                      <th className="budget-cell-deviation whitespace-nowrap px-2 py-3 text-right md:px-3">Desviacion {symbol}</th>
                       <th className="budget-no-print px-1.5 py-3 text-right md:px-3">Acciones</th>
                     </tr>
                   </thead>
@@ -977,6 +1008,8 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                       const categoryProjected = budgetTotals.categories[cat.key]?.projected || 0;
                       const categoryReal = budgetTotals.categories[cat.key]?.real || 0;
                       const categoryAdvance = pct(categoryReal, categoryProjected);
+                      const categoryDeviationTotal = aggregateDeviation(cat.roots);
+                      const categoryDeviation = categoryDeviationTotal !== 0 ? categoryDeviationTotal : deviationAmount(categoryReal, categoryProjected);
                       const isOpen = printing || openCats[cat.key] === true;
                       return (
                         <Fragment key={cat.key}>
@@ -1009,6 +1042,16 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                               </span>
                             </td>
                             <td className="budget-cell-status px-1.5 py-3 text-center md:px-3" />
+                            <td className="budget-cell-deviation whitespace-nowrap px-2 py-3 text-right text-xs font-bold tabular-nums sm:text-sm md:px-3" style={{ color: categoryDeviation && categoryDeviation > 0 ? '#DC2626' : INK }}>
+                              {categoryDeviation === null ? (
+                                <span className="text-slate-300">-</span>
+                              ) : (
+                                <>
+                                  <span className="budget-amount-compact md:hidden">{showUsdBaseCompact(categoryDeviation)}</span>
+                                  <span className="budget-amount-full hidden md:inline">{showUsdBase(categoryDeviation)}</span>
+                                </>
+                              )}
+                            </td>
                             <td className="budget-no-print px-1.5 py-3 text-right md:px-3">
                               <button className="btn-neutral !h-8 !px-2 text-xs" title="Agregar partida" onClick={() => openCreate(cat.key)}><FiPlus /><span className="hidden md:inline"> Partida</span></button>
                             </td>
@@ -1033,6 +1076,23 @@ export default function ConstructionBudgetView({ projectId }: { projectId: numbe
                         </span>
                       </td>
                       <td className="budget-cell-status px-1.5 py-4 md:px-3" />
+                      {(() => {
+                        const totalDeviation = itemTree.reduce((sum, cat) => sum + aggregateDeviation(cat.roots), 0);
+                        const fallbackDeviation = deviationAmount(budgetTotals.real, budgetTotals.projected);
+                        const shownDeviation = totalDeviation !== 0 ? totalDeviation : fallbackDeviation;
+                        return (
+                      <td className="budget-cell-deviation whitespace-nowrap px-2 py-4 text-right text-xs font-extrabold tabular-nums sm:text-sm md:px-3" style={{ color: (shownDeviation || 0) > 0 ? '#DC2626' : INK }}>
+                        {shownDeviation === null ? (
+                          <span className="text-slate-300">-</span>
+                        ) : (
+                          <>
+                            <span className="budget-amount-compact md:hidden">{showUsdBaseCompact(shownDeviation || 0)}</span>
+                            <span className="budget-amount-full hidden md:inline">{showUsdBase(shownDeviation || 0)}</span>
+                          </>
+                        )}
+                      </td>
+                        );
+                      })()}
                       <td className="budget-no-print px-1.5 py-4 md:px-3" />
                     </tr>
                   </tbody>

@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Toaster, toast, Field, EmptyState } from '@/components/ui/ui';
@@ -14,6 +14,33 @@ import { Select } from '@/components/ui/Select';
 import { printHtml } from '@/lib/print';
 import { FiDownload, FiHome, FiCheckCircle, FiDollarSign, FiTrendingUp, FiPercent, FiBookmark, FiArrowDownCircle, FiCalendar, FiChevronDown, FiFilter, FiSearch, FiSliders, FiX } from 'react-icons/fi';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  LabelList,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+
+const BLUE = '#1877F2';
+const BORDER = '#E5E7EB';
+const MUTED = '#64748B';
+const INK = '#0F172A';
+const LOT_CHART_STATUSES = [
+  { key: 'disponible', label: 'Disponible', color: '#1B8E4B' },
+  { key: 'vendido', label: 'Vendido', color: '#DC3345' },
+  { key: 'separado', label: 'Separado', color: '#22C7D9' },
+  { key: 'segunda_etapa', label: '2da. Etapa', color: '#64748B' },
+  { key: 'promocion', label: 'En Promocion', color: '#FACC15' },
+];
 
 function SalesMetric({ label, value, icon, tone = '#1877F2' }: { label: string; value: ReactNode; icon: ReactNode; tone?: string }) {
   const text = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
@@ -124,7 +151,7 @@ function parseSaleConditions(conditions?: string | null) {
   };
 }
 
-const PAYMENT_METHODS = ['Contado', 'Al crédito'];
+const PAYMENT_METHODS = ['Contado', 'Al crÃ©dito'];
 
 function todayInput() {
   const date = new Date();
@@ -140,7 +167,11 @@ function readSaleCurrency(): SaleCurrency {
 
 function initialPaymentOf(sale: S) {
   const match = String(sale.conditions || '').match(/Cuota inicial:\s*([0-9]+(?:\.[0-9]+)?)/i);
-  return match ? Number(match[1] || 0) : 0;
+  return Number(sale.cuotaInicial || 0) || (match ? Number(match[1] || 0) : 0);
+}
+
+function financingBalanceOf(sale: S) {
+  return Math.max(0, Number(sale.salePrice || 0) - initialPaymentOf(sale));
 }
 
 function lotFinalPrice(lot: any) {
@@ -149,6 +180,94 @@ function lotFinalPrice(lot: any) {
 
 function formatUsd(value: number | string | null | undefined) {
   return `US$ ${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function shortUsd(n: number) {
+  const value = Number(n || 0);
+  if (Math.abs(value) >= 1000000) return `US$ ${(value / 1000000).toLocaleString('es-PE', { maximumFractionDigits: 1 })}M`;
+  if (Math.abs(value) >= 1000) return `US$ ${(value / 1000).toLocaleString('es-PE', { maximumFractionDigits: 0 })}k`;
+  return `US$ ${value.toLocaleString('es-PE', { maximumFractionDigits: 0 })}`;
+}
+
+function usdWhole(n: number) {
+  return `US$ ${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+}
+
+function pct(n: number) {
+  if (!Number.isFinite(n)) return '0.0%';
+  return `${n.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+function monthKey(dateValue?: string | null) {
+  const date = dateValue ? new Date(dateValue) : null;
+  if (!date || Number.isNaN(date.getTime())) return '';
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function monthLabel(month: string) {
+  const [year, rawMonth] = String(month || '').split('-');
+  const date = new Date(Number(year), Number(rawMonth || 1) - 1, 1);
+  if (Number.isNaN(date.getTime())) return month || '-';
+  return date.toLocaleDateString('es-PE', { month: 'short', year: '2-digit' }).replace('.', '');
+}
+
+function monthLabelShort(month: string) {
+  const [year, rawMonth] = String(month || '').split('-');
+  const date = new Date(Number(year), Number(rawMonth || 1) - 1, 1);
+  if (Number.isNaN(date.getTime())) return String(month || '-');
+  return date.toLocaleDateString('es-PE', { month: 'short' }).replace('.', '');
+}
+
+function lotChartStatus(lot: any) {
+  const raw = String(lot?.status || lot?.sellingStage || '').toLowerCase();
+  if (raw.includes('vendido')) return 'vendido';
+  if (raw.includes('reserv') || raw.includes('adelanto') || raw.includes('primera') || raw.includes('separ')) return 'separado';
+  if (raw.includes('segunda') || raw.includes('2da')) return 'segunda_etapa';
+  if (raw.includes('promo')) return 'promocion';
+  return 'disponible';
+}
+
+function lotChartAmount(lot: any) {
+  const direct = Number(lot?.finalPrice || lot?.salePrice || 0);
+  if (direct > 0) return direct;
+  return Number(lot?.price || lot?.pricePerM2 || 0) * Number(lot?.areaM2 || 0);
+}
+
+function EmptyChart({ text }: { text: string }) {
+  return <div className="grid h-[240px] place-items-center text-center text-sm text-slate-400">{text}</div>;
+}
+
+function ChartMenu({ rows }: { rows: Array<[string, string]> }) {
+  return (
+    <details className="relative">
+      <summary className="grid h-8 w-8 cursor-pointer list-none place-items-center rounded-md border bg-white text-slate-500 hover:bg-slate-50" style={{ borderColor: BORDER }}>
+        <FiSliders />
+      </summary>
+      <div className="absolute right-0 top-9 z-20 w-56 rounded-md border bg-white p-2 shadow-xl" style={{ borderColor: BORDER }}>
+        {rows.map(([label, value]) => (
+          <div key={label} className="flex items-center justify-between gap-3 rounded px-2 py-1.5 text-xs">
+            <span style={{ color: MUTED }}>{label}</span>
+            <b className="tabular-nums" style={{ color: INK }}>{value}</b>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function ChartHeader({ title, subtitle, menuRows, actions }: { title: string; subtitle: string; menuRows: Array<[string, string]>; actions?: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-3 border-b px-4 py-3 sm:flex-row sm:items-start sm:justify-between" style={{ borderColor: BORDER }}>
+      <div className="min-w-0">
+        <h3 className="truncate text-sm font-semibold" style={{ color: INK }}>{title}</h3>
+        <p className="mt-0.5 text-xs" style={{ color: MUTED }}>{subtitle}</p>
+      </div>
+      <div className="flex min-w-0 shrink-0 items-start gap-2">
+        {actions}
+        <ChartMenu rows={menuRows} />
+      </div>
+    </div>
+  );
 }
 
 function saleInstallmentBreakdown(sale: S) {
@@ -202,8 +321,13 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [agents, setAgents] = useState<any[]>([]);
   const [sessionUser, setSessionUser] = useState<any>(null);
   const [lots, setLots] = useState<any[]>([]);
-  // Paginación server-side + filtros (buenas prácticas: page/limit en el API,
-  // reset a página 1 cuando cambia un filtro, debounce en búsqueda).
+  const [cash, setCash] = useState<any>({ salesByMonth: [] });
+  const [chartSales, setChartSales] = useState<S[]>([]);
+  const [salesRange, setSalesRange] = useState<3 | 6>(6);
+  const [salesPeriod, setSalesPeriod] = useState<'month' | 'year'>('month');
+  const [isNarrow, setIsNarrow] = useState(false);
+  // PaginaciÃ³n server-side + filtros (buenas prÃ¡cticas: page/limit en el API,
+  // reset a pÃ¡gina 1 cuando cambia un filtro, debounce en bÃºsqueda).
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
@@ -211,7 +335,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   // Filtros del historial (el backend ya los soporta en ListSalesDto):
-  // estado de aprobación, asesor y rango de fechas de venta.
+  // estado de aprobaciÃ³n, asesor y rango de fechas de venta.
   const [statusFilter, setStatusFilter] = useState('');
   const [agentFilter, setAgentFilter] = useState(0);
   const [fromDate, setFromDate] = useState('');
@@ -287,7 +411,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         totalAmount: Number(s.totalAmount || 0),
         totalCommission: Number(s.totalCommission || 0),
       });
-      // Si la página quedó fuera de rango, volver a la última válida.
+      // Si la pÃ¡gina quedÃ³ fuera de rango, volver a la Ãºltima vÃ¡lida.
       if (page > norm.totalPages && norm.totalPages >= 1) setPage(norm.totalPages);
       if (role === 'admin' || role === 'superadmin') {
         const pendingQuery = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
@@ -303,6 +427,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const timer = window.setTimeout(() => setShowQuoteHint(false), 5000);
     return () => window.clearTimeout(timer);
   }, [open]);
+  useEffect(() => {
+    const onResize = () => setIsNarrow(window.innerWidth < 640);
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
   // Debounce de 400ms para no disparar un request por cada tecla.
   useEffect(() => {
     const t = setTimeout(() => { setDebouncedSearch(search.trim()); }, 400);
@@ -327,7 +457,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     api.get<any[]>('/projects').then(setProjects).catch(() => {});
     api.get<any[]>('/clients').then((d) => setClients(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
     if (role === 'admin' || role === 'superadmin') api.get<any[]>('/users/agents').then(setAgents).catch(() => {});
-    api.get<any[]>('/lots').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
+    const lotQuery = lockedProjectId ? `/lots?projectId=${lockedProjectId}&limit=1000` : '/lots?limit=1000';
+    api.get<any[]>(lotQuery).then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
+    const saleChartQuery = lockedProjectId ? `/sales?projectId=${lockedProjectId}&limit=1000` : '/sales?limit=1000';
+    api.get<unknown>(saleChartQuery)
+      .then((d) => setChartSales(normalizePaginated<S>(d, 1, 1000).items))
+      .catch(() => setChartSales([]));
+    const cashQuery = lockedProjectId ? `/payments/caja?projectId=${lockedProjectId}` : '/payments/caja';
+    api.get<any>(cashQuery).then((d) => setCash(d || { salesByMonth: [] })).catch(() => setCash({ salesByMonth: [] }));
     loadAllSalesQuotes(api, lockedProjectId).then(setQuotes).catch(() => {});
   }, [load, role, lockedProjectId]);
 
@@ -448,7 +585,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   }
 
   // Al elegir un lote, autocompletar el precio con su "Precio Venta" de
-  // Lotización (si no viene de una cotización real seleccionada abajo).
+  // LotizaciÃ³n (si no viene de una cotizaciÃ³n real seleccionada abajo).
   function selectLot(id: number) {
     setLotId(id);
     setSelectedQuoteId(0);
@@ -523,7 +660,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     setClientId(match ? Number(match.id) : 0);
 
     if (!values.lotId) {
-      toast('La cotización no tiene lote asignado. Selecciona el lote manualmente.', 'err');
+      toast('La cotizaciÃ³n no tiene lote asignado. Selecciona el lote manualmente.', 'err');
       return;
     }
 
@@ -570,7 +707,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     return Number(created.id);
   }
 
-  // Calculadora en vivo: comisión, saldo a financiar, tramos de cuotas.
+  // Calculadora en vivo: comisiÃ³n, saldo a financiar, tramos de cuotas.
   useEffect(() => {
     if (!open || !salePrice) { setPreview(null); return; }
     const t = setTimeout(() => {
@@ -632,7 +769,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
           ? [conditions.trim(), `Cotizacion Q${selectedQuoteId}`].filter(Boolean).join(' | ')
           : (conditions || undefined),
       });
-      toast('Separación registrada. Queda pendiente de validación.');
+      toast('SeparaciÃ³n registrada. Queda pendiente de validaciÃ³n.');
       setOpen(false); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setClientId(0); setClientName(''); setConditions(''); setSalePrice(0);
       setPaymentMethod('Contado'); setTotalCuotas(0); setCuotaInicial(0); setInitialPaymentMode('contado'); setInitialParts(3); setGraceMonths(0); setApplyInterest(false); setInterestType('sin_intereses'); setTea(0);
       setSaleDate(todayInput()); setAgentId(responsibleUserId); setPreview(null);
@@ -643,18 +780,23 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
 
   async function aprobar(s: any) {
     const suffix = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
-    try { await api.post(`/sales/approve/${s.id}${suffix}`); toast('Separación aprobada. Lote vendido.'); load(); }
+    try { await api.post(`/sales/approve/${s.id}${suffix}`); toast('SeparaciÃ³n aprobada. Lote vendido.'); load(); }
     catch (e: any) { toast(e.message, 'err'); }
   }
   async function rechazar(s: any) {
     const suffix = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
-    try { await api.post(`/sales/reject/${s.id}${suffix}`); toast('Separación rechazada. Lote liberado.'); load(); }
+    try { await api.post(`/sales/reject/${s.id}${suffix}`); toast('SeparaciÃ³n rechazada. Lote liberado.'); load(); }
     catch (e: any) { toast(e.message, 'err'); }
   }
 
   async function exportSalePdf(s: S) {
     const schedule: any[] = await api.get<any[]>(`/sales/${s.id}/schedule`).catch(() => []);
     const project = projects.find((p: any) => Number(p.id) === Number(s.projectId));
+    const knownLot = lots.find((lot: any) => Number(lot.id) === Number(s.lotId));
+    const lotDetail = knownLot || await api.get<any>(`/lots/${s.lotId}`).catch(() => null);
+    const lotAddress = lotDetail
+      ? (lotDetail.address || lotDetail.streetAddress || lotDetail.blockAddress || lotDetail.catalogAddress || lotDetail.streetName || lotDetail.blockName || '')
+      : '';
     const adminLogoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
     const projectLogoUrl = project?.logoImageUrl || '';
     const formaPago = Number(s.totalCuotas || 0) > 0 ? 'Al credito' : 'Contado';
@@ -725,16 +867,20 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const detailRows = [
       ['Proyecto', project?.name || `Proyecto ${s.projectId}`],
       ['Lote', s.lotCode || `Lote ${s.lotId}`],
+      ['Direccion', lotAddress || '-'],
+      ['Ãrea', s.lotAreaM2 ? `${Number(s.lotAreaM2).toLocaleString('es-PE', { maximumFractionDigits: 2 })} m2` : '-'],
       ['Cliente', s.clientName || '-'],
-      ['Agente', s.agentName || '-'],
       ['Precio Venta', usdMoney(salePriceValue)],
       ['Fecha', formatDate(s.saleDate)],
+      ['Agente', s.agentName || '-'],
       ['Forma de Pago', formaPago],
+      ['Cuota Inicial', usdMoney(cuotaInicialPen)],
       ['Nro de Cuotas de financiamiento', financingInstallments],
-      ['Comision', usdMoney(commission)],
+      ['Cuotas sin interÃ©s', noInterestInstallments],
       ['Saldo a Financiar', usdMoney(saldoFin)],
       ['Interes', interestType === 'tea' ? `Con TEA = ${teaValue}%` : 'Sin intereses'],
       ['Estado', s.approvalStatus === 'pendiente' ? 'Pendiente' : 'Aprobada'],
+      ['ComisiÃ³n', usdMoney(commission)],
     ];
     const detailSplitAt = Math.ceil(detailRows.length / 2);
     const detailLeft = detailRows.slice(0, detailSplitAt);
@@ -820,6 +966,63 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const soldArea = rows.reduce((sum, row) => sum + Number(row.lotAreaM2 || 0), 0);
   const financingTotal = [...rows, ...pending].reduce((sum, row) => sum + Number(row.financingBase || 0), 0);
   const initialPaymentTotal = [...rows, ...pending].reduce((sum, row) => sum + initialPaymentOf(row), 0);
+  const financingBalanceTotal = [...rows, ...pending].reduce((sum, row) => sum + financingBalanceOf(row), 0);
+  const visibleInitialPaymentTotal = rows.reduce((sum, row) => sum + initialPaymentOf(row), 0);
+  const visibleFinancingBalanceTotal = rows.reduce((sum, row) => sum + financingBalanceOf(row), 0);
+  const visibleInstallmentsTotal = rows.reduce((sum, row) => sum + Number(row.totalCuotas || 0), 0);
+  const chartLots = lots.filter((lot: any) => !lockedProjectId || Number(lot.projectId) === Number(lockedProjectId));
+  const lotStatusRows = LOT_CHART_STATUSES.map((status) => {
+    const statusLots = chartLots.filter((lot: any) => lotChartStatus(lot) === status.key);
+    return {
+      ...status,
+      count: statusLots.length,
+      amount: statusLots.reduce((sum: number, lot: any) => sum + lotChartAmount(lot), 0),
+    };
+  });
+  const lotCountRows = lotStatusRows.filter((row) => row.count > 0);
+  const lotAmountRows = lotStatusRows.filter((row) => row.amount > 0);
+  const salesByMonthFallback = (() => {
+    const totals: Record<string, number> = {};
+    for (const sale of chartSales) {
+      const key = monthKey(sale.saleDate);
+      if (!key) continue;
+      totals[key] = (totals[key] || 0) + Number(sale.salePrice || 0);
+    }
+    return Object.keys(totals).sort().map((month) => ({ month, monto: totals[month] }));
+  })();
+  const salesByMonthFromCash = ((cash?.salesByMonth || []) as { month: string; monto: number }[])
+    .filter((row) => row?.month)
+    .map((row) => ({ month: String(row.month), monto: Number(row.monto || 0) }));
+  const salesByMonth = salesByMonthFromCash.length ? salesByMonthFromCash : salesByMonthFallback;
+  const rangeMonths = (() => {
+    const now = new Date();
+    const months: string[] = [];
+    for (let offset = salesRange - 1; offset >= 0; offset--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - offset, 1);
+      months.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+    }
+    return months;
+  })();
+  const salesRangeRows = rangeMonths.map((month) => ({
+    label: month,
+    monto: Number(salesByMonth.find((row) => row.month === month)?.monto || 0),
+  }));
+  const salesByYear = (() => {
+    const totals: Record<string, number> = {};
+    for (const row of salesByMonth) {
+      const year = String(row.month || '').slice(0, 4);
+      if (!year) continue;
+      totals[year] = (totals[year] || 0) + Number(row.monto || 0);
+    }
+    return Object.keys(totals).sort().map((label) => ({ label, monto: totals[label] }));
+  })();
+  const monthlySalesChartRows = salesPeriod === 'year' ? salesByYear : salesRangeRows;
+  const salesChartTotal = monthlySalesChartRows.reduce((sum, row) => sum + row.monto, 0);
+  const salesChartLast = monthlySalesChartRows[monthlySalesChartRows.length - 1];
+  const salesChartPrev = monthlySalesChartRows[monthlySalesChartRows.length - 2];
+  const salesChartTrend = salesChartPrev && salesChartPrev.monto > 0
+    ? ((salesChartLast?.monto || 0) - salesChartPrev.monto) / salesChartPrev.monto * 100
+    : ((salesChartLast?.monto || 0) > 0 ? 100 : 0);
 
   return (
     <>
@@ -834,14 +1037,118 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             setExchangeRate={setDisplayRate}
           />
         </div>
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-3">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 xl:gap-3">
           <SalesMetric label="Area Vendida m2" value={soldArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} icon={<FiHome />} tone="#1259C4" />
           <SalesMetric label="Lotes vendidos" value={String(totalSales)} icon={<FiCheckCircle />} tone="#0F8B5F" />
           <SalesMetric label="Monto total vendido" value={show(total)} icon={<FiDollarSign />} tone="#171717" />
           <SalesMetric label="Financiamiento D." value={show(financingTotal)} icon={<FiTrendingUp />} tone="#1259C4" />
-          <SalesMetric label="Comisiones devengadas" value={show(comm)} icon={<FiPercent />} tone="#B45309" />
           <SalesMetric label="Separaciones" value={pending.length} icon={<FiBookmark />} tone="#0E7490" />
-          <SalesMetric label="Pago Inicial" value={show(initialPaymentTotal)} icon={<FiArrowDownCircle />} tone="#1259C4" />
+          <SalesMetric label="Comisiones devengadas" value={show(comm)} icon={<FiPercent />} tone="#B45309" />
+          <SalesMetric label="Cuota Inicial" value={show(initialPaymentTotal)} icon={<FiArrowDownCircle />} tone="#1259C4" />
+          <SalesMetric label="Saldo a Financiar" value={show(financingBalanceTotal)} icon={<FiTrendingUp />} tone="#7C3AED" />
+        </div>
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
+          <div className="card overflow-hidden p-0">
+            <ChartHeader
+              title="VENTA DE LOTES - NRO. DE LOTES"
+              subtitle="Distribucion por estado"
+              menuRows={lotStatusRows.map((row) => [row.label, String(row.count)] as [string, string])}
+            />
+            {lotCountRows.length ? (
+              <div className="px-3 pt-3">
+                <div className="mx-auto h-[230px] w-full max-w-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={lotCountRows} dataKey="count" nameKey="label" outerRadius={92} label={({ value }) => String(value)}>
+                        {lotCountRows.map((row) => <Cell key={row.key} fill={row.color} />)}
+                      </Pie>
+                      <Tooltip formatter={(value: number, _name: string, item: any) => [`${value} lotes`, item?.payload?.label || '']} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 px-2 pb-3 text-[10px] sm:grid-cols-3">
+                  {lotStatusRows.map((row) => (
+                    <span key={row.key} className="inline-flex min-w-0 items-center gap-1.5 truncate" style={{ color: MUTED }}>
+                      <span className="h-2.5 w-2.5 shrink-0" style={{ background: row.color }} /> {row.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            ) : <EmptyChart text="Sin lotes para graficar." />}
+          </div>
+
+          <div className="card overflow-hidden p-0">
+            <ChartHeader
+              title="VENTA DE LOTES US$"
+              subtitle="Monto por estado"
+              menuRows={lotStatusRows.map((row) => [row.label, usdWhole(row.amount)] as [string, string])}
+            />
+            {lotAmountRows.length ? (
+              <div className="h-[300px] w-full px-2 pt-4 pb-3 sm:px-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={lotStatusRows} layout="vertical" margin={{ left: 10, right: 42, top: 8, bottom: 8 }}>
+                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" horizontal={false} />
+                    <XAxis type="number" tickFormatter={shortUsd} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <YAxis type="category" dataKey="label" width={82} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
+                    <Tooltip formatter={(value: number) => usdWhole(Number(value || 0))} />
+                    <Bar dataKey="amount" name="MONTO EN US$" radius={[0, 3, 3, 0]}>
+                      {lotStatusRows.map((row) => <Cell key={row.key} fill={row.color} />)}
+                      <LabelList dataKey="amount" position="right" formatter={(value: number) => Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} style={{ fill: INK, fontSize: 10, fontWeight: 700 }} />
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+                <div className="mt-1 flex justify-center text-[10px] font-semibold" style={{ color: MUTED }}>
+                  <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-7" style={{ background: '#1B8E4B' }} /> MONTO EN US$</span>
+                </div>
+              </div>
+            ) : <EmptyChart text="Sin montos para graficar." />}
+          </div>
+
+          <div className="card overflow-hidden p-0">
+            <ChartHeader
+              title={`Ventas por ${salesPeriod === 'year' ? 'ano' : 'mes'} (US$)`}
+              subtitle={salesPeriod === 'year' ? 'Historico por ano' : (salesRange === 3 ? 'Ultimos 3 meses' : 'Ultimos 6 meses')}
+              menuRows={[
+                [salesPeriod === 'year' ? 'Ano actual' : 'Mes actual', usdWhole(salesChartLast?.monto || 0)],
+                [salesPeriod === 'year' ? 'Ano anterior' : 'Mes anterior', usdWhole(salesChartPrev?.monto || 0)],
+                ['Variacion', pct(salesChartTrend)],
+                ['Total vendido', usdWhole(salesChartTotal)],
+              ]}
+              actions={
+                <div className="flex flex-wrap items-center gap-1">
+                  {([['month', 'Mes'], ['year', 'Ano']] as const).map(([value, label]) => {
+                    const active = salesPeriod === value;
+                    return (
+                      <button key={value} type="button" onClick={() => setSalesPeriod(value)} className="h-7 rounded-md border px-2 text-[11px] font-semibold transition-colors" style={{ borderColor: active ? BLUE : BORDER, background: active ? BLUE : '#fff', color: active ? '#fff' : MUTED }}>
+                        {label}
+                      </button>
+                    );
+                  })}
+                  {salesPeriod === 'month' && ([3, 6] as const).map((value) => {
+                    const active = salesRange === value;
+                    return (
+                      <button key={value} type="button" onClick={() => setSalesRange(value)} className="h-7 rounded-md border px-2 text-[11px] font-semibold transition-colors" style={{ borderColor: active ? BLUE : BORDER, background: active ? BLUE : '#fff', color: active ? '#fff' : MUTED }}>
+                        {value}m
+                      </button>
+                    );
+                  })}
+                </div>
+              }
+            />
+            {monthlySalesChartRows.length ? (
+              <div className="h-[300px] w-full px-2 pt-4 pb-3 sm:px-4">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={monthlySalesChartRows} margin={{ left: 0, right: 12, top: 12, bottom: 4 }}>
+                    <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
+                    <XAxis dataKey="label" tickFormatter={salesPeriod === 'year' ? (v: string) => v : (isNarrow ? monthLabelShort : monthLabel)} tick={{ fontSize: isNarrow ? 10 : 11, fill: MUTED }} axisLine={false} tickLine={false} interval="preserveStartEnd" minTickGap={isNarrow ? 16 : 8} tickMargin={6} />
+                    <YAxis tickFormatter={shortUsd} tick={{ fontSize: isNarrow ? 10 : 11, fill: MUTED }} axisLine={false} tickLine={false} width={isNarrow ? 44 : 62} tickMargin={4} />
+                    <Tooltip formatter={(value: number) => usdWhole(Number(value || 0))} labelFormatter={(label: string) => (salesPeriod === 'year' ? label : monthLabel(label))} cursor={{ stroke: BLUE, strokeWidth: 1, strokeDasharray: '4 4' }} />
+                    <Area type="monotone" dataKey="monto" name="Vendido" stroke={BLUE} strokeWidth={3} fill={BLUE} fillOpacity={0.08} activeDot={{ r: 5, stroke: '#fff', strokeWidth: 2 }} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            ) : <EmptyChart text="Sin ventas para mostrar." />}
+          </div>
         </div>
         <div className="rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-[#F2F7FF] shadow-[0_10px_24px_rgba(15,23,42,0.04)]">
           <div className="flex flex-col gap-3 rounded-t-2xl border-b border-slate-200/80 bg-white/60 px-4 py-3 backdrop-blur-sm">
@@ -929,12 +1236,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         {isAdmin && pending.length > 0 && (
           <div className="card p-0 overflow-auto">
             <h3 className="font-semibold px-4 pt-4">Separaciones por aprobar ({pending.length})</h3>
-            <table className="table-base table-head-plomo mt-2" style={{ width: '100%', minWidth: 900 }}>
+            <table className="table-base table-head-plomo mt-2" style={{ width: '100%', minWidth: 1080 }}>
               <thead><tr>
                 <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
-                <th className="th-base">Precio final</th><th className="th-base">Forma de pago</th><th className="th-base">Cuotas</th>
-                <th className="th-base !whitespace-normal">Cuota sin interés</th><th className="th-base !whitespace-normal">Cuota con interés</th><th className="th-base">Fecha</th>
-                <th className="th-base">Agente</th><th className="th-base">Comisión</th><th className="th-base" style={{ textAlign: 'center' }}>Acción</th>
+                <th className="th-base">Precio final</th><th className="th-base">Forma de pago</th><th className="th-base !whitespace-normal">Cuota Inicial</th><th className="th-base !whitespace-normal">Saldo a Financiar</th><th className="th-base">Cuotas</th>
+                <th className="th-base !whitespace-normal">Cuota sin interÃ©s</th><th className="th-base !whitespace-normal">Cuota con interÃ©s</th><th className="th-base">Fecha</th>
+                <th className="th-base">Agente</th><th className="th-base">ComisiÃ³n</th><th className="th-base" style={{ textAlign: 'center' }}>AcciÃ³n</th>
                 <th className="th-base" style={{ textAlign: 'center' }}>Ficha</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
@@ -942,14 +1249,16 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   <tr key={s.id}>
                     <td className="td-base text-slate-400">V{s.id}</td>
                     <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
-                    <td className="td-base">{s.clientName || '—'}</td>
+                    <td className="td-base">{s.clientName || 'â€”'}</td>
                     <td className="td-base font-medium">{show(s.salePrice)}</td>
-                    <td className="td-base">{s.totalCuotas ? 'Al crédito' : 'Contado'}</td>
+                    <td className="td-base">{s.totalCuotas ? 'Al crÃ©dito' : 'Contado'}</td>
+                    <td className="td-base font-medium whitespace-nowrap">{show(initialPaymentOf(s))}</td>
+                    <td className="td-base font-medium whitespace-nowrap">{show(financingBalanceOf(s))}</td>
                     <td className="td-base">{s.totalCuotas || 0}</td>
                     <td className="td-base whitespace-nowrap">{saleInstallmentBreakdown(s).noInterest ? `${show(saleInstallmentBreakdown(s).noInterestAmount)} (${saleInstallmentBreakdown(s).noInterest})` : '-'}</td>
                     <td className="td-base whitespace-nowrap">{saleInstallmentBreakdown(s).withInterest ? `${show(saleInstallmentBreakdown(s).withInterestAmount)} (${saleInstallmentBreakdown(s).withInterest})` : '-'}</td>
                     <td className="td-base">{formatDate(s.saleDate)}</td>
-                    <td className="td-base">{s.agentName || '—'}</td>
+                    <td className="td-base">{s.agentName || 'â€”'}</td>
                     <td className="td-base">{show(s.commission)}</td>
                     <td className="td-base" style={{ textAlign: 'center' }}>
                       <button type="button" className="inline-grid h-8 w-8 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
@@ -970,15 +1279,15 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         )}
 
         <div className="card p-0 overflow-auto">
-          {loading ? <p className="p-4 text-slate-400">Cargando…</p>
-            : rows.length === 0 ? <EmptyState text="Aún no hay ventas registradas." /> : (
+          {loading ? <p className="p-4 text-slate-400">Cargandoâ€¦</p>
+            : rows.length === 0 ? <EmptyState text="AÃºn no hay ventas registradas." /> : (
             <>
-            <table className="table-base table-head-plomo" style={{ width: '100%', minWidth: 900 }}>
+            <table className="table-base table-head-plomo" style={{ width: '100%', minWidth: 1080 }}>
               <thead><tr>
                 <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')} title="Ordenar por fecha de registro">Id{sortArrow('createdAt')}</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
-                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('salePrice')}>Precio final{sortArrow('salePrice')}</th><th className="th-base">Forma de pago</th><th className="th-base">Cuotas</th>
-                <th className="th-base !whitespace-normal">Cuota sin interés</th><th className="th-base !whitespace-normal">Cuota con interés</th><th className="th-base">Estado</th>
-                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('saleDate')}>Fecha{sortArrow('saleDate')}</th><th className="th-base">Agente</th><th className="th-base">Comisión</th>
+                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('salePrice')}>Precio final{sortArrow('salePrice')}</th><th className="th-base">Forma de pago</th><th className="th-base !whitespace-normal">Cuota Inicial</th><th className="th-base !whitespace-normal">Saldo a Financiar</th><th className="th-base">Cuotas</th>
+                <th className="th-base !whitespace-normal">Cuota sin interÃ©s</th><th className="th-base !whitespace-normal">Cuota con interÃ©s</th><th className="th-base">Estado</th>
+                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('saleDate')}>Fecha{sortArrow('saleDate')}</th><th className="th-base">Agente</th><th className="th-base">ComisiÃ³n</th>
                 <th className="th-base" style={{ textAlign: 'center' }}>Ficha</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
@@ -986,15 +1295,17 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   <tr key={s.id}>
                     <td className="td-base text-slate-400">V{s.id}</td>
                     <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
-                    <td className="td-base">{s.clientName || '—'}</td>
+                    <td className="td-base">{s.clientName || 'â€”'}</td>
                     <td className="td-base font-medium">{show(s.salePrice)}</td>
-                    <td className="td-base">{s.totalCuotas ? 'Al crédito' : 'Contado'}</td>
+                    <td className="td-base">{s.totalCuotas ? 'Al crÃ©dito' : 'Contado'}</td>
+                    <td className="td-base font-medium whitespace-nowrap">{show(initialPaymentOf(s))}</td>
+                    <td className="td-base font-medium whitespace-nowrap">{show(financingBalanceOf(s))}</td>
                     <td className="td-base">{s.totalCuotas || 'Contado'}</td>
                     <td className="td-base whitespace-nowrap">{saleInstallmentBreakdown(s).noInterest ? `${show(saleInstallmentBreakdown(s).noInterestAmount)} (${saleInstallmentBreakdown(s).noInterest})` : '-'}</td>
                     <td className="td-base whitespace-nowrap">{saleInstallmentBreakdown(s).withInterest ? `${show(saleInstallmentBreakdown(s).withInterestAmount)} (${saleInstallmentBreakdown(s).withInterest})` : '-'}</td>
                     <td className="td-base">{s.approvalStatus === 'pendiente' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#FEF3C7', color:'#92400E' }}>Pendiente</span> : <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#D1FAE5', color:'#065F46' }}>Aprobada</span>}</td>
                     <td className="td-base">{formatDate(s.saleDate)}</td>
-                    <td className="td-base">{s.agentName || '—'}</td>
+                    <td className="td-base">{s.agentName || 'â€”'}</td>
                     <td className="td-base">{show(s.commission)}</td>
                     <td className="td-base" style={{ textAlign: 'center' }}>
                       <button type="button" className="inline-grid h-8 w-8 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
@@ -1008,7 +1319,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <tr style={{ background: '#0B2F6E' }}>
                   <td className="td-base font-bold text-white" colSpan={3}>Totales ({totalSales})</td>
                   <td className="td-base font-bold text-white">{show(total)}</td>
-                  <td className="td-base" colSpan={7}></td>
+                  <td className="td-base"></td>
+                  <td className="td-base font-bold text-white">{show(visibleInitialPaymentTotal)}</td>
+                  <td className="td-base font-bold text-white">{show(visibleFinancingBalanceTotal)}</td>
+                  <td className="td-base font-bold text-white">{visibleInstallmentsTotal.toLocaleString('es-PE')}</td>
+                  <td className="td-base" colSpan={5}></td>
                   <td className="td-base font-bold text-white">{show(comm)}</td>
                   <td className="td-base"></td>
                 </tr>
@@ -1035,7 +1350,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               </div>
               {/* Moneda de trabajo: los campos de monto se capturan en esta moneda
                   y se registran siempre en soles (S/). El tipo de cambio se
-                  conserva al alternar, así el monto real no cambia. */}
+                  conserva al alternar, asÃ­ el monto real no cambia. */}
               <div className="mt-2.5 flex flex-wrap items-center gap-2">
                 <div className="inline-flex overflow-hidden rounded-lg border border-[#D9E7FF] bg-white p-0.5" role="group" aria-label="Moneda de la ficha">
                   {(['USD'] as SaleCurrency[]).map((option) => (
@@ -1047,13 +1362,13 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                       style={saleCurrency === option ? { background: '#1259C4' } : undefined}
                       onClick={() => setSaleCurrency('USD')}
                     >
-                      {option === 'PEN' ? 'Soles (S/)' : 'Dólares (US$)'}
+                      {option === 'PEN' ? 'Soles (S/)' : 'DÃ³lares (US$)'}
                     </button>
                   ))}
                 </div>
                 <span className="text-[11px] text-slate-500">
                   {saleCurrency === 'USD'
-                    ? `Captura en US$ · se registra en S/ al tipo de cambio ${exchangeRateDisplay ? exchangeRateDisplay.toLocaleString('es-PE', { maximumFractionDigits: 4 }) : '-'}`
+                    ? `Captura en US$ Â· se registra en S/ al tipo de cambio ${exchangeRateDisplay ? exchangeRateDisplay.toLocaleString('es-PE', { maximumFractionDigits: 4 }) : '-'}`
                     : 'Captura y registro en soles (S/)'}
                 </span>
               </div>
@@ -1114,7 +1429,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                         <span className="min-w-0">
                           <span className="block font-semibold text-slate-800">Lote {q.lotCode || q.lotId}</span>
                           <span className="mt-0.5 block truncate text-xs text-slate-500">
-                            {q.clientName || 'Sin cliente'} · {q.paymentMethod === 'credito' ? `Al crédito · ${Number(q.totalCuotas || 0)} cuotas` : 'Contado'}
+                            {q.clientName || 'Sin cliente'} Â· {q.paymentMethod === 'credito' ? `Al crÃ©dito Â· ${Number(q.totalCuotas || 0)} cuotas` : 'Contado'}
                           </span>
                         </span>
                         <span className="shrink-0 rounded-md bg-[#EEF5FF] px-2 py-1 text-xs font-semibold text-[#1259C4]">
@@ -1136,12 +1451,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             {false && (
             <div className="mx-4 rounded-lg border p-3 mb-4 text-sm sm:mx-6" style={{ borderColor: '#BFDBFE', background: '#EFF6FF' }}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p style={{ color: '#1259C4' }}>Para registrar una venta primero selecciona una cotización. Si no existe, genera una y vuelve a cargarla aquí.</p>
+                  <p style={{ color: '#1259C4' }}>Para registrar una venta primero selecciona una cotizaciÃ³n. Si no existe, genera una y vuelve a cargarla aquÃ­.</p>
                   <a
                     className="btn-primary"
                     href={quoteProjectId ? `/projects/${quoteProjectId}/quotes${lotId ? `?lotId=${lotId}` : ''}` : '/projects'}
                   >
-                    Generar cotización
+                    Generar cotizaciÃ³n
                   </a>
                 </div>
             </div>
@@ -1166,10 +1481,10 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <Select
                   value={lotId}
                   onChange={(v) => selectLot(Number(v))}
-                  options={[{ value: 0, label: 'Selecciona…' }, ...lotOptions.map((l: any) => ({ value: l.id, label: lotOptionLabel(l), hint: formatUsd(lotReferencePrice(l)) }))]}
+                  options={[{ value: 0, label: 'Seleccionaâ€¦' }, ...lotOptions.map((l: any) => ({ value: l.id, label: lotOptionLabel(l), hint: formatUsd(lotReferencePrice(l)) }))]}
                 />
               </Field>
-              <div className="hidden"><Field label="Cliente"><Select value={clientId} onChange={(v) => setClientId(Number(v))} options={[{ value: 0, label: '— Sin asignar —' }, ...clients.map((c: any) => ({ value: c.id, label: (c.fullName || c.full_name || '— Sin nombre —') }))]} /></Field></div>
+              <div className="hidden"><Field label="Cliente"><Select value={clientId} onChange={(v) => setClientId(Number(v))} options={[{ value: 0, label: 'â€” Sin asignar â€”' }, ...clients.map((c: any) => ({ value: c.id, label: (c.fullName || c.full_name || 'â€” Sin nombre â€”') }))]} /></Field></div>
               <Field label="Responsable">
                 <div className="input flex items-center bg-slate-50 text-slate-700">
                   {responsibleUserName}
@@ -1401,3 +1716,4 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     </>
   );
 }
+

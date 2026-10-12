@@ -174,6 +174,11 @@ export class LotsService {
       price: Number(lot.price || 0) || Number(catalog?.priceM2 || 0),
       salePrice: lot.salePrice != null ? Number(lot.salePrice) : Number(catalog?.salePrice || 0) || null,
       finalPrice: lot.finalPrice != null ? Number(lot.finalPrice) : Number(catalog?.finalPrice || 0) || null,
+      clientName: client?.fullName || null,
+      streetName: street?.name || null,
+      streetAddress: street?.address || lot.address || catalog?.address || null,
+      blockName: street?.name || null,
+      blockAddress: street?.address || lot.address || catalog?.address || null,
     };
     const balance = Number(lotWithCatalog.finalPrice || lotWithCatalog.salePrice || lotWithCatalog.price || 0) - totalPaid;
     return { lot: lotWithCatalog, history, payments, client, agent, street, block: street, plan, totalPaid, balance };

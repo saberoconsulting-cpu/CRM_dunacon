@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Put, UseGuards } from '@nestjs/common';
 import { Roles } from '../../../shared/application/decorators/roles.decorator';
 import { RolesGuard } from '../../../shared/application/guards/roles.guard';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
@@ -12,6 +12,17 @@ export class SettingsController {
 
   @Get()
   getAll() { return this.settings.get(); }
+
+  @Get('value/:key')
+  getValue(@Param('key') key: string) {
+    return this.settings.getValue(key);
+  }
+
+  @Put('value/:key')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  setValue(@Param('key') key: string, @Body() body: Record<string, any>) {
+    return this.settings.setValue(key, String(body.value ?? ''));
+  }
 
   @Put()
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)

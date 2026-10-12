@@ -17,8 +17,8 @@ import { comparePaymentsForDisplay, paymentConcept, paymentConceptLabel, payment
 // Estado comercial al que conduce cada tipo de pago
 const TYPE_STATUS: Record<string, string> = {
   reserva: 'reservado',
-  adelanto: 'adelanto',
-  primera_cuota: 'primera_cuota',
+  adelanto: 'reservado',
+  primera_cuota: 'vendido',
 };
 
 @Injectable()
@@ -32,6 +32,10 @@ export class PaymentsService {
     private readonly historyRepo: Repository<LotStatusHistoryEntity>,
     @InjectRepository(FinancialTransactionEntity)
     private readonly txnRepo: Repository<FinancialTransactionEntity>,
+    @InjectRepository(ClientEntity)
+    private readonly clientRepo: Repository<ClientEntity>,
+    @InjectRepository(UserEntity)
+    private readonly userRepo: Repository<UserEntity>,
     @InjectRepository(SaleEntity)
     private readonly saleRepo: Repository<SaleEntity>,
     @InjectRepository(SaleInstallmentEntity)
@@ -116,12 +120,20 @@ export class PaymentsService {
       // Finanzas solo debe reconocer dinero cobrado. Si el pago nace pendiente,
       // el ingreso se crea cuando se marque o apruebe como pagado.
       if (savedPayment.status === 'pagado') {
+        const client = clientId ? await manager.findOne(ClientEntity, { where: { id: clientId } }) : null;
+        const agent = agentId ? await manager.findOne(UserEntity, { where: { id: agentId } }) : null;
         await manager.save(FinancialTransactionEntity, {
           projectId: dto.projectId,
           lotId: dto.lotId,
           clientId,
           paymentId: savedPayment.id,
           createdBy: actorId,
+          lotLabel: lot?.code || null,
+          clientLabel: client?.fullName || null,
+          paymentMethod: savedPayment.paymentMethod || null,
+          paymentCategory: savedPayment.type,
+          classification: 'Venta de Lote',
+          agentName: agent?.name || null,
           type: 'ingreso',
           category: dto.type,
           concept: `Pago ${dto.type} del lote ${lot?.code ?? ''}`,
@@ -174,6 +186,8 @@ export class PaymentsService {
     agentId?: number;
     status?: string;
     type?: string;
+    from?: string;
+    to?: string;
     page?: number;
     limit?: number;
   }) {
@@ -186,6 +200,8 @@ export class PaymentsService {
       if (filters.agentId) qb.andWhere('p.agent_id = :agentId', { agentId: filters.agentId });
       if (filters.status) qb.andWhere('p.status = :status', { status: filters.status });
       if (filters.type) qb.andWhere('p.type = :type', { type: filters.type });
+      if (filters.from) qb.andWhere("COALESCE(p.paid_at, p.due_date, p.created_at) >= :from", { from: filters.from });
+      if (filters.to) qb.andWhere("COALESCE(p.paid_at, p.due_date, p.created_at) < (:to::date + INTERVAL '1 day')", { to: filters.to });
       return qb;
     };
 
@@ -303,12 +319,20 @@ export class PaymentsService {
     const existing = await this.txnRepo.findOne({ where: { paymentId: payment.id, type: 'ingreso' } });
     if (existing) return existing;
     const lot = payment.lotId ? await this.lotRepo.findOne({ where: { id: payment.lotId } }) : null;
+    const client = payment.clientId ? await this.clientRepo.findOne({ where: { id: payment.clientId } }) : null;
+    const agent = payment.agentId ? await this.userRepo.findOne({ where: { id: payment.agentId } }) : null;
     return this.txnRepo.save({
       projectId: payment.projectId,
       lotId: payment.lotId,
       clientId: payment.clientId,
       paymentId: payment.id,
       createdBy: actorId ?? payment.createdBy,
+      lotLabel: lot?.code || null,
+      clientLabel: client?.fullName || null,
+      paymentMethod: payment.paymentMethod || null,
+      paymentCategory: payment.type,
+      classification: 'Venta de Lote',
+      agentName: agent?.name || null,
       type: 'ingreso',
       category: payment.type,
       concept: `Pago ${payment.type} del lote ${lot?.code ?? ''}`,

@@ -30,6 +30,8 @@ export class SalesService {
     private readonly lotRepo: Repository<LotEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
+    @InjectRepository(ClientEntity)
+    private readonly clientRepo: Repository<ClientEntity>,
     @InjectRepository(SaleInstallmentEntity)
     private readonly instRepo: Repository<SaleInstallmentEntity>,
     @InjectRepository(AuditLogEntity)
@@ -417,13 +419,19 @@ export class SalesService {
       order: { createdAt: 'DESC' } as any,
     });
     if (agentId && sale && Number(sale.agentId) !== Number(agentId)) return { sale: null, installments: [] };
+    const client = sale?.clientId
+      ? await this.clientRepo.findOne({ where: { id: sale.clientId } })
+      : null;
     const installments = sale
       ? await this.instRepo.find({
           where: { saleId: sale.id },
           order: { installmentNo: 'ASC' } as any,
         })
       : [];
-    return { sale, installments };
+    return {
+      sale: sale ? { ...sale, clientName: client?.fullName || null } : null,
+      installments,
+    };
   }
 
   /** Separaciones pendientes de aprobación (Admin/Tesorería). */

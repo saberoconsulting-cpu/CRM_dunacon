@@ -16,6 +16,30 @@ export class CreateExpenseDto {
   @IsNotEmpty()
   category!: string;
 
+  @IsOptional()
+  @IsString()
+  lotLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  clientLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentCategory?: string;
+
+  @IsOptional()
+  @IsString()
+  classification?: string;
+
+  @IsOptional()
+  @IsString()
+  agentName?: string;
+
   @IsString()
   @IsNotEmpty()
   concept!: string;
@@ -36,6 +60,38 @@ export class CreateAdditionalIncomeDto {
   @IsNotEmpty()
   concept!: string;
 
+  @IsOptional()
+  @IsString()
+  category?: string;
+
+  @IsOptional()
+  @IsString()
+  lotLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  clientLabel?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentMethod?: string;
+
+  @IsOptional()
+  @IsString()
+  paymentCategory?: string;
+
+  @IsOptional()
+  @IsString()
+  classification?: string;
+
+  @IsOptional()
+  @IsString()
+  agentName?: string;
+
   @IsNumber()
   amount!: number;
+
+  @IsOptional()
+  @IsString()
+  txnDate?: string;
 }

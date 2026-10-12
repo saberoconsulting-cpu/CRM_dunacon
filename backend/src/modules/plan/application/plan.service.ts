@@ -21,10 +21,15 @@ import { UpsertProjectLotCatalogDto } from './dto/project-lot-catalog.dto';
 const COMMERCIALLY_LOCKED_STATUSES = ['vendido', 'alquilado', 'reservado', 'adelanto', 'primera_cuota'];
 const LOT_STATUS_LABEL_TEXT: Record<string, string> = {
   vendido: 'vendido',
-  alquilado: 'alquilado',
-  reservado: 'reservado (separado)',
-  adelanto: 'con adelanto',
-  primera_cuota: 'en primera cuota',
+  alquilado: 'vendido',
+  reservado: 'reservado',
+  adelanto: 'reservado',
+  primera_cuota: 'vendido',
+};
+const normalizeLotStatus = (status?: string | null) => {
+  if (status === 'adelanto') return 'reservado';
+  if (status === 'primera_cuota' || status === 'alquilado') return 'vendido';
+  return status || undefined;
 };
 @Injectable()
 export class PlanService {
@@ -313,7 +318,7 @@ export class PlanService {
       points: dto.points,
       areaM2: String(dto.areaM2 ?? 0),
       price: String(dto.price ?? 0),
-      status: dto.status || 'disponible',
+      status: normalizeLotStatus(dto.status) || 'disponible',
       agentId: dto.agentId,
       type: dto.type,
       dimensions: dto.dimensions,
@@ -370,15 +375,16 @@ export class PlanService {
     if (dto.dimensions !== undefined) lot.dimensions = dto.dimensions;
     if (dto.salePrice !== undefined) lot.salePrice = String(dto.salePrice);
     if (dto.finalPrice !== undefined) lot.finalPrice = String(dto.finalPrice);
-    if (dto.status !== undefined && dto.status !== lot.status) {
+    const normalizedStatus = normalizeLotStatus(dto.status);
+    if (normalizedStatus !== undefined && normalizedStatus !== lot.status) {
       await this.historyRepo.save({
         lotId,
         fromStatus: lot.status,
-        toStatus: dto.status,
+        toStatus: normalizedStatus,
         userId: actorId,
         createdAt: dto.statusDate ? new Date(dto.statusDate) : undefined,
       });
-      lot.status = dto.status;
+      lot.status = normalizedStatus;
     }
     const saved = await this.lotRepo.save(lot);
     await this.audit(actorId, 'EDITAR_LOTE', 'lots', lotId);

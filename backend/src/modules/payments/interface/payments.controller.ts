@@ -31,6 +31,8 @@ export class PaymentsController {
     @Query('agentId') agentId?: string,
     @Query('status') status?: string,
     @Query('type') type?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @CurrentUser() user?: AuthUser,
@@ -41,6 +43,8 @@ export class PaymentsController {
       agentId: user?.role === UserRole.AGENT ? user.id : (agentId ? Number(agentId) : undefined),
       status,
       type,
+      from,
+      to,
       page: page ? Number(page) : undefined,
       limit: limit ? Number(limit) : undefined,
     });

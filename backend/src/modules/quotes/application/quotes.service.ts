@@ -27,6 +27,13 @@ export class QuotesService {
   }
 
   async create(dto: CreateQuoteDto, actorId: number) {
+    const lot = await this.lotRepo.findOne({ where: { id: dto.lotId } });
+    if (!lot) throw new BadRequestException('Lote no encontrado');
+    const blockedStatuses = ['vendido', 'reservado'];
+    if (blockedStatuses.includes(String(lot.status || '').toLowerCase())) {
+      throw new BadRequestException(`No se puede generar cotizacion ni financiamiento para un lote ${lot.status}.`);
+    }
+
     const bonoDescuento = Number(dto.bonoDescuentoUsd || 0);
     const bonoEspecial = Number(dto.bonoEspecialUsd || 0);
     const finalPrice = Math.max(0, Number(dto.lotPriceUsd) - bonoDescuento - bonoEspecial);

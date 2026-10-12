@@ -46,10 +46,17 @@ export class FinancesService {
       projectId: dto.projectId,
       campaignId: dto.campaignId,
       createdBy: actorId,
+      lotLabel: dto.lotLabel || null,
+      clientLabel: dto.clientLabel || null,
+      paymentMethod: dto.paymentMethod || null,
+      paymentCategory: dto.paymentCategory || dto.category,
+      classification: dto.classification || dto.expenseClass || null,
+      agentName: dto.agentName || null,
       type: 'egreso',
       category: dto.category,
       concept: dto.concept,
       amount: String(dto.amount),
+      txnDate: dto.expenseDate ? new Date(dto.expenseDate) : new Date(),
     });
     await this.audit(actorId, 'REGISTRAR_EGRESO', 'expenses', saved.id);
     this.gateway.emitToAll('expense.created', saved);
@@ -61,9 +68,16 @@ export class FinancesService {
       projectId: dto.projectId,
       createdBy: actorId,
       type: 'ingreso',
-      category: 'otros_ingresos',
+      category: dto.category || dto.paymentCategory || 'otros_ingresos',
+      lotLabel: dto.lotLabel || null,
+      clientLabel: dto.clientLabel || null,
+      paymentMethod: dto.paymentMethod || null,
+      paymentCategory: dto.paymentCategory || dto.category || 'otros_ingresos',
+      classification: dto.classification || 'Ingreso',
+      agentName: dto.agentName || null,
       concept: dto.concept,
       amount: String(dto.amount),
+      txnDate: dto.txnDate ? new Date(dto.txnDate) : new Date(),
     });
     await this.audit(actorId, 'REGISTRAR_INGRESO_EXTRA', 'financial_transactions', txn.id);
     this.gateway.emitToAll('payment.created', txn);
@@ -188,6 +202,12 @@ export class FinancesService {
             OR LOWER(t.category) LIKE :term
             OR LOWER(COALESCE(l.code, '')) LIKE :term
             OR LOWER(COALESCE(c.full_name, '')) LIKE :term
+            OR LOWER(COALESCE(t.lot_label, '')) LIKE :term
+            OR LOWER(COALESCE(t.client_label, '')) LIKE :term
+            OR LOWER(COALESCE(t.payment_method, '')) LIKE :term
+            OR LOWER(COALESCE(t.payment_category, '')) LIKE :term
+            OR LOWER(COALESCE(t.classification, '')) LIKE :term
+            OR LOWER(COALESCE(t.agent_name, '')) LIKE :term
             OR LOWER(COALESCE(p.payment_method, '')) LIKE :term)`,
           { term: `%${filters.search.toLowerCase()}%` },
         );
@@ -205,6 +225,12 @@ export class FinancesService {
           .addSelect('t.project_id', 'projectId')
           .addSelect('t.lot_id', 'lotId')
           .addSelect('t.client_id', 'clientId')
+          .addSelect('t.lot_label', 'lotLabel')
+          .addSelect('t.client_label', 'clientLabel')
+          .addSelect('t.payment_method', 'txnPaymentMethod')
+          .addSelect('t.payment_category', 'paymentCategory')
+          .addSelect('t.classification', 'classification')
+          .addSelect('t.agent_name', 'agentName')
           .addSelect('t.type', 'type')
           .addSelect('t.category', 'category')
           .addSelect('t.concept', 'concept')
@@ -258,9 +284,12 @@ export class FinancesService {
       projectId: r.projectId != null ? Number(r.projectId) : null,
       lotId: r.lotId != null ? Number(r.lotId) : null,
       clientId: r.clientId != null ? Number(r.clientId) : null,
-      lotCode: r.lotCode || null,
-      clientName: r.clientName || null,
-      paymentMethod: r.paymentMethod || null,
+      lotCode: r.lotCode || r.lotLabel || null,
+      clientName: r.clientName || r.clientLabel || null,
+      paymentMethod: r.txnPaymentMethod || r.paymentMethod || null,
+      paymentCategory: r.paymentCategory || null,
+      classification: r.classification || null,
+      agentName: r.agentName || null,
       type: r.type,
       category: r.category,
       concept: r.concept,

@@ -8,6 +8,7 @@ import { LotEntity } from '../../../shared/infrastructure/entities/lot.entity';
 import { PaymentEntity } from '../../../shared/infrastructure/entities/payment.entity';
 import { SaleEntity } from '../../../shared/infrastructure/entities/sale.entity';
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
+import { UserEntity } from '../../../shared/infrastructure/entities/user.entity';
 import { CreateClientDto, AddContactDto } from './dto/client.dto';
 
 @Injectable()
@@ -50,7 +51,10 @@ export class ClientsService {
   }) {
     const page = Math.max(1, filters.page ?? 1);
     const limit = Math.min(200, Math.max(1, filters.limit ?? 20));
-    const qb = this.clientRepo.createQueryBuilder('c');
+    const qb = this.clientRepo
+      .createQueryBuilder('c')
+      .leftJoin(UserEntity, 'u', 'u.id = c.agent_id')
+      .addSelect('u.name', 'agentName');
     if (filters.projectId) qb.where('c.project_interest_id = :projectId', { projectId: filters.projectId });
     if (filters.agentId) qb.andWhere('c.agent_id = :agentId', { agentId: filters.agentId });
     if (filters.channel) qb.andWhere('c.source = :channel', { channel: filters.channel });
@@ -59,10 +63,14 @@ export class ClientsService {
     if (filters.search) {
       qb.andWhere('(c.full_name ILIKE :s OR c.phone ILIKE :s OR c.email ILIKE :s)', { s: `%${filters.search}%` });
     }
-    qb.orderBy('c.created_at', 'DESC');
+    qb.orderBy('c.createdAt', 'DESC');
     const total = await qb.clone().getCount();
     qb.skip((page - 1) * limit).take(limit);
-    const items = await qb.getMany();
+    const { entities, raw } = await qb.getRawAndEntities();
+    const items = entities.map((client, index) => ({
+      ...client,
+      agentName: raw[index]?.agentName || null,
+    }));
     return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
   }
 

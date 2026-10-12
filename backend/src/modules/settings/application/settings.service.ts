@@ -49,4 +49,20 @@ export class SettingsService {
     }
     return this.get();
   }
+
+  async getValue(key: string) {
+    const found = await this.repo.findOne({ where: { key } });
+    return { key, value: found?.value || '' };
+  }
+
+  async setValue(key: string, value: string) {
+    const found = await this.repo.findOne({ where: { key } });
+    if (found) {
+      found.value = value;
+      await this.repo.save(found);
+    } else {
+      await this.repo.save(this.repo.create({ key, value }));
+    }
+    return { key, value };
+  }
 }

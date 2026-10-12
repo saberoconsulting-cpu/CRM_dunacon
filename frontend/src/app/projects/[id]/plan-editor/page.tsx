@@ -9,7 +9,7 @@ import InteractivePlan from '@/components/features/plan/InteractivePlan';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import ProjectLotCatalogPanel from '@/components/features/plan/ProjectLotCatalogPanel';
 import { api, getSessionUser } from '@/lib/api';
-import { Block, Lot, formatMoney } from '@/lib/types';
+import { Block, Lot } from '@/lib/types';
 
 export default function PlanEditorPage() {
   const params = useParams<{ id: string }>();
@@ -45,6 +45,11 @@ export default function PlanEditorPage() {
 
   const totalArea = lots.reduce((sum, lot) => sum + Number(lot.areaM2 || 0), 0);
   const totalValue = lots.reduce((sum, lot) => sum + Number(lot.salePrice ?? lot.price ?? 0), 0);
+
+  function formatUsd(n: number | string | undefined | null): string {
+    const v = Number(n || 0);
+    return 'US$ ' + v.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  }
 
   const summary: { value: number; label: string; icon: React.ReactNode; tone: string }[] = [
     { value: streets.length, label: 'Calles', icon: <FiMap />, tone: '#1259C4' },
@@ -127,7 +132,7 @@ export default function PlanEditorPage() {
                   </div>
                   <div className="min-w-0 rounded-lg border px-3 py-2" style={{ borderColor: '#E5E7EB' }}>
                     <span className="block truncate text-[11px] font-semibold" style={{ color: '#111827' }}>Valor de venta</span>
-                    <span className="mt-1 block text-center text-sm font-bold tabular-nums" style={{ color: '#0F8B5F' }}>{formatMoney(totalValue)}</span>
+                    <span className="mt-1 block text-center text-sm font-bold tabular-nums" style={{ color: '#0F8B5F' }}>{formatUsd(totalValue)}</span>
                   </div>
                 </div>
               </div>

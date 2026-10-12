@@ -20,6 +20,7 @@ import type { Currency } from '@/lib/currency';
 
 type MonthRow = {
   month: number;
+  year?: number;
   name: string;
   saldoInicial: number;
   abonos: number;
@@ -29,7 +30,7 @@ type MonthRow = {
 };
 
 type AnnualReport = {
-  year: number;
+  year: number | 'all';
   currency: string;
   availableYears: number[];
   openingBalance: number;
@@ -66,7 +67,7 @@ export default function AnnualReportPanel({ projectId, accountKey, currency, acc
   refreshKey?: number;
 }) {
   const [report, setReport] = useState<AnnualReport | null>(null);
-  const [year, setYear] = useState<number | null>(null);
+  const [year, setYear] = useState<number | 'all' | null>(null);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
   const [chartCurrency, setChartCurrency] = useState<Currency>(currency);
@@ -111,8 +112,9 @@ export default function AnnualReportPanel({ projectId, accountKey, currency, acc
     saldo: Number(conv(month.saldoFinal).toFixed(2)),
   })), [report, factor, chartCurrency]);
 
-  const years = report?.availableYears?.length ? report.availableYears : [year || new Date().getFullYear()];
+  const years = report?.availableYears?.length ? report.availableYears : [typeof year === 'number' ? year : new Date().getFullYear()];
   const totals = report?.totals;
+  const isAllYears = year === 'all' || report?.year === 'all';
 
   return (
     <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: '#E2E8F0' }}>
@@ -123,8 +125,9 @@ export default function AnnualReportPanel({ projectId, accountKey, currency, acc
             className="ml-1 font-bold"
             style={{ backgroundColor: SELECT_BG, padding: '4px 10px', border: `1px solid ${SELECT_BORDER}`, borderRadius: 4 }}
             value={year ?? ''}
-            onChange={(event) => setYear(Number(event.target.value))}
+            onChange={(event) => setYear(event.target.value === 'all' ? 'all' : Number(event.target.value))}
           >
+            <option value="all">Todos</option>
             {years.map((option) => <option key={option} value={option}>{option}</option>)}
           </select>
         </h3>
@@ -144,7 +147,7 @@ export default function AnnualReportPanel({ projectId, accountKey, currency, acc
           <table style={{ width: '100%', borderCollapse: 'collapse', border: CELL_BORDER }}>
             <thead>
               <tr style={{ backgroundColor: HEADER_BG, color: '#000', borderBottom: '2px solid #000' }}>
-                <th style={cellHead}>Mes</th>
+                <th style={cellHead}>{isAllYears ? 'Ano' : 'Mes'}</th>
                 <th style={cellHead}>Saldo Inicial US$</th>
                 <th style={cellHead}>Abonos US$</th>
                 <th style={cellHead}>Pagos US$</th>
@@ -153,7 +156,7 @@ export default function AnnualReportPanel({ projectId, accountKey, currency, acc
             </thead>
             <tbody>
               {(report?.months || []).map((month) => (
-                <tr key={month.month} style={{ backgroundColor: month.movimientos ? '#fff' : '#F8FAFC' }}>
+                <tr key={`${month.year || report?.year || ''}-${month.month}`} style={{ backgroundColor: month.movimientos ? '#fff' : '#F8FAFC' }}>
                   <td style={{ border: CELL_BORDER, padding: 3, textAlign: 'left', fontSize: 10, whiteSpace: 'nowrap', color: '#0F172A' }}>{month.name}</td>
                   <td style={cellBody}>{money(month.saldoInicial, 'US$')}</td>
                   <td style={{ ...cellBody, color: month.abonos > 0 ? '#16A36A' : '#94A3B8' }}>
@@ -177,7 +180,9 @@ export default function AnnualReportPanel({ projectId, accountKey, currency, acc
             </tfoot>
           </table>
           <p className="mt-2 text-xs" style={{ color: '#64748B' }}>
-            El saldo inicial de cada mes se arrastra desde el cierre del mes anterior, y el saldo final refleja los abonos y pagos del periodo.
+            {isAllYears
+              ? 'El saldo inicial de cada ano se arrastra desde el cierre del ano anterior, y el saldo final refleja los abonos y pagos del periodo.'
+              : 'El saldo inicial de cada mes se arrastra desde el cierre del mes anterior, y el saldo final refleja los abonos y pagos del periodo.'}
           </p>
         </div>
       )}
@@ -185,7 +190,7 @@ export default function AnnualReportPanel({ projectId, accountKey, currency, acc
       <div style={{ backgroundColor: '#FFFFFF', padding: 15 }}>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <span className="flex items-center gap-2 font-bold" style={{ color: '#1E293B' }}>
-            <FiBarChart2 /> Comparativa Mensual: Abonos vs. Pagos
+            <FiBarChart2 /> {isAllYears ? 'Comparativa Anual' : 'Comparativa Mensual'}: Abonos vs. Pagos
           </span>
           <div className="flex items-center gap-2">
             <label className="text-xs" style={{ color: '#64748B' }}>Moneda:</label>

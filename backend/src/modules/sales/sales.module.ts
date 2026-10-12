@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { SaleEntity } from '../../shared/infrastructure/entities/sale.entity';
 import { SaleInstallmentEntity } from '../../shared/infrastructure/entities/sale-installment.entity';
 import { LotEntity } from '../../shared/infrastructure/entities/lot.entity';
+import { ClientEntity } from '../../shared/infrastructure/entities/client.entity';
 import { UserEntity } from '../../shared/infrastructure/entities/user.entity';
 import { AuditLogEntity } from '../../shared/infrastructure/entities/audit-log.entity';
 import { WebsocketModule } from '../../shared/infrastructure/websocket/websocket.module';
@@ -16,6 +17,7 @@ import { SalesService } from './application/sales.service';
       SaleEntity,
       SaleInstallmentEntity,
       LotEntity,
+      ClientEntity,
       UserEntity,
       AuditLogEntity,
     ]),

@@ -7,7 +7,21 @@ import { PaginationBar } from '@/components/ui/PaginationBar';
 import { Select } from '@/components/ui/Select';
 import { formatDate } from '@/lib/types';
 
-type C = { id: number; full_name: string; phone?: string | null; email?: string | null; source?: string; pipeline_status: string; agent_id?: number | null; created_at: string };
+type C = {
+  id: number;
+  full_name?: string;
+  fullName?: string;
+  phone?: string | null;
+  email?: string | null;
+  source?: string;
+  pipeline_status?: string;
+  pipelineStatus?: string;
+  agent_id?: number | null;
+  agentId?: number | null;
+  agentName?: string | null;
+  created_at?: string;
+  createdAt?: string;
+};
 const SOURCES = ['facebook', 'tiktok', 'instagram', 'web', 'referidos', 'otro'];
 const PIPELINE: any = { nuevo: 'Nuevo', contactado: 'Contactado', visito: 'Visitó', reservado: 'Reservado', compro: 'Compró', perdido: 'Perdido' };
 const PCOLOR: any = { nuevo: ['#EEF2FF', '#3730A3'], contactado: ['#F3F4F6', '#374151'], visito: ['#FFF6E4', '#B45309'], reservado: ['#E7F0FE', '#1259C4'], compro: ['#EAF7EE', '#125A3B'], perdido: ['#F1F5F9', '#64748B'] };
@@ -85,6 +99,25 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
     catch (e: any) { toast(e.message, 'err'); }
   }
 
+  async function cambiarAgente(c: C, agentId: number) {
+    const payload = {
+      fullName: c.fullName || c.full_name || '',
+      phone: c.phone || undefined,
+      email: c.email || undefined,
+      source: c.source || 'web',
+      projectInterestId: lockedProjectId || undefined,
+      agentId: agentId || null,
+      pipelineStatus: c.pipelineStatus || c.pipeline_status || 'nuevo',
+    };
+    try {
+      await api.post(`/clients/update/${c.id}`, payload);
+      toast('Agente actualizado');
+      load();
+    } catch (e: any) {
+      toast(e.message, 'err');
+    }
+  }
+
   const contados = meta.total || rows.length;
 
   return (
@@ -93,9 +126,9 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
       <div className="space-y-5">
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard label="Clientes / leads" value={contados} />
-          <StatCard label="Reservados" value={rows.filter((r) => r.pipeline_status === 'reservado').length} color="#1259C4" />
-          <StatCard label="Compraron" value={rows.filter((r) => r.pipeline_status === 'compro').length} color="#125A3B" />
-          <StatCard label="Contactados +" value={rows.filter((r) => ['contactado', 'visito'].includes(r.pipeline_status)).length} color="#3730A3" />
+          <StatCard label="Reservados" value={rows.filter((r) => (r.pipelineStatus || r.pipeline_status) === 'reservado').length} color="#1259C4" />
+          <StatCard label="Compraron" value={rows.filter((r) => (r.pipelineStatus || r.pipeline_status) === 'compro').length} color="#125A3B" />
+          <StatCard label="Contactados +" value={rows.filter((r) => ['contactado', 'visito'].includes(r.pipelineStatus || r.pipeline_status || '')).length} color="#3730A3" />
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-[#F3F8FF] shadow-[0_12px_28px_rgba(15,23,42,0.04)]">
@@ -142,7 +175,7 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
             <div className="overflow-x-auto">
               <table className="table-base table-head-plomo">
                 <thead><tr>
-                  <th className="th-base">Item</th><th className="th-base">Nombre</th><th className="th-base">Contacto</th><th className="th-base">Canal</th>
+                  <th className="th-base">Item</th><th className="th-base">Nombre</th><th className="th-base">Contacto</th><th className="th-base">Canal</th><th className="th-base">Agente</th>
                   <th className="th-base">Estado</th><th className="th-base">Etapa contrato</th><th className="th-base">Fecha</th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
@@ -166,9 +199,24 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
                           </span>
                         </td>
                         <td className="td-base">
-                          <select className="input !h-9 !w-40 !rounded-lg !text-xs border-slate-200 bg-white shadow-sm" value={ps} onChange={(e) => mover(c, e.target.value)}>
-                            {Object.keys(PIPELINE).map((k) => <option key={k} value={k}>{PIPELINE[k]}</option>)}
-                          </select>
+                          {role === 'agent' ? (
+                            <span className="text-sm font-semibold text-slate-700">{c.agentName || currentAgentName || 'Sin asignar'}</span>
+                          ) : (
+                            <Select
+                              className="w-44 [&_.select-trigger]:!h-9 [&_.select-trigger]:!rounded-xl [&_.select-trigger]:!text-xs [&_.select-trigger]:!font-semibold"
+                              value={Number(c.agentId ?? c.agent_id ?? 0)}
+                              onChange={(value) => cambiarAgente(c, Number(value))}
+                              options={[{ value: 0, label: 'Sin asignar' }, ...agents.map((a) => ({ value: Number(a.id), label: String(a.name || '') }))]}
+                            />
+                          )}
+                        </td>
+                        <td className="td-base">
+                          <Select
+                            className="w-40 [&_.select-trigger]:!h-9 [&_.select-trigger]:!rounded-xl [&_.select-trigger]:!text-xs [&_.select-trigger]:!font-semibold"
+                            value={ps}
+                            onChange={(value) => mover(c, value)}
+                            options={Object.keys(PIPELINE).map((k) => ({ value: k, label: PIPELINE[k] }))}
+                          />
                         </td>
                         <td className="td-base"><span className="badge" style={{ background: pc[0], color: pc[1] }}>{PIPELINE[ps] || ps}</span></td>
                         <td className="td-base text-slate-600">{formatDate(created)}</td>

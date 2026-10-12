@@ -408,20 +408,23 @@ export class BankAccountsService {
    *   Saldo Inicial(m>1)  = Saldo Final(m-1).
    *   Saldo Final(m)      = Saldo Inicial(m) + Abonos(m) - Pagos(m).
    */
-  async annualReport(projectId: number, year?: number, currency?: string, accountKey = 'GENERAL') {
+  async annualReport(projectId: number, year?: number | 'all', currency?: string, accountKey = 'GENERAL') {
     if (!projectId) throw new BadRequestException('Proyecto requerido');
+    const selectedCurrency = (currency || 'USD').toUpperCase().slice(0, 3);
 
     const years = await this.movementRepo.createQueryBuilder('m')
       .select("EXTRACT(YEAR FROM m.movement_date)", 'value')
       .where('m.project_id = :projectId', { projectId })
+      .andWhere('m.currency = :selectedCurrency', { selectedCurrency })
+      .andWhere('m.account_key = :accountKey', { accountKey })
       .andWhere('m.movement_date IS NOT NULL')
       .groupBy("EXTRACT(YEAR FROM m.movement_date)")
       .orderBy("EXTRACT(YEAR FROM m.movement_date)", 'DESC')
       .getRawMany();
     const availableYears = years.map((row) => Number(row.value)).filter(Boolean);
 
-    const selectedYear = Number(year) || availableYears[0] || new Date().getFullYear();
-    const selectedCurrency = (currency || 'USD').toUpperCase().slice(0, 3);
+    const allYears = year === 'all';
+    const selectedYear = allYears ? null : (Number(year) || availableYears[0] || new Date().getFullYear());
 
     // Para encadenar los saldos se traen TODOS los movimientos previos al anio
     // (de cualquier fecha anterior), no solo los del anio seleccionado.
@@ -436,29 +439,54 @@ export class BankAccountsService {
     const openingBalance = await this.getOpeningBalance(projectId, selectedCurrency, accountKey, items);
 
     // Saldo Inicial del anio = saldo acumulado al cierre del anio anterior.
+    // En modo "Todos", se arranca desde el saldo inicial de la cuenta y se
+    // encadenan todos los meses de todos los anios disponibles.
     let running = openingBalance;
-    for (const item of items) {
-      const itemYear = yearOf(item.movementDate);
-      if (itemYear !== null && itemYear >= selectedYear) break;
-      running += Number(item.depositAmount || 0) - Number(item.chargeAmount || 0);
+    if (selectedYear !== null) {
+      for (const item of items) {
+        const itemYear = yearOf(item.movementDate);
+        if (itemYear !== null && itemYear >= selectedYear) break;
+        running += Number(item.depositAmount || 0) - Number(item.chargeAmount || 0);
+      }
     }
     const openingOfYear = round2(running);
 
-    const monthly = MONTH_NAMES.map((name, index) => ({
-      month: index + 1,
-      name,
-      saldoInicial: 0,
-      abonos: 0,
-      pagos: 0,
-      saldoFinal: 0,
-      movimientos: 0,
-    }));
+    const yearsToRender = allYears
+      ? [...availableYears].sort((a, b) => a - b)
+      : [selectedYear || new Date().getFullYear()];
+    const monthly = allYears
+      ? yearsToRender.map((reportYear) => ({
+        month: 0,
+        year: reportYear,
+        name: String(reportYear),
+        saldoInicial: 0,
+        abonos: 0,
+        pagos: 0,
+        saldoFinal: 0,
+        movimientos: 0,
+      }))
+      : MONTH_NAMES.map((name, index) => ({
+        month: index + 1,
+        year: selectedYear || new Date().getFullYear(),
+        name,
+        saldoInicial: 0,
+        abonos: 0,
+        pagos: 0,
+        saldoFinal: 0,
+        movimientos: 0,
+      }));
+    const bucketByYear = new Map(monthly.map((bucket: any) => [bucket.year, bucket]));
+    const bucketByYearMonth = new Map(monthly.map((bucket: any) => [`${bucket.year}-${String(bucket.month).padStart(2, '0')}`, bucket]));
 
     for (const item of items) {
-      if (yearOf(item.movementDate) !== selectedYear) continue;
+      const itemYear = yearOf(item.movementDate);
+      if (selectedYear !== null && itemYear !== selectedYear) continue;
       const month = monthOf(item.movementDate);
-      if (month === null) continue;
-      const bucket = monthly[month - 1];
+      if (itemYear === null || month === null) continue;
+      const bucket = allYears
+        ? bucketByYear.get(itemYear)
+        : bucketByYearMonth.get(`${itemYear}-${String(month).padStart(2, '0')}`);
+      if (!bucket) continue;
       bucket.abonos += Number(item.depositAmount || 0);
       bucket.pagos += Number(item.chargeAmount || 0);
       bucket.movimientos += 1;
@@ -481,7 +509,7 @@ export class BankAccountsService {
       : openingOfYear;
 
     return {
-      year: selectedYear,
+      year: allYears ? 'all' : selectedYear,
       currency: selectedCurrency,
       availableYears,
       openingBalance: openingOfYear,

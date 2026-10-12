@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { FiAlertTriangle, FiArrowRight, FiDownload, FiEye, FiFileText, FiCreditCard, FiDollarSign, FiTrendingUp, FiCheckCircle, FiRefreshCw } from 'react-icons/fi';
+import { FiDownload, FiEye, FiFileText, FiCreditCard, FiDollarSign, FiTrendingUp, FiCheckCircle, FiRefreshCw } from 'react-icons/fi';
 import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
 import { KpiCard, KPI_GRID_6 } from '@/components/ui/Metrics';
 import { PaginationBar } from '@/components/ui/PaginationBar';
@@ -29,6 +29,18 @@ const fmtUsd = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { 
 const fmtUsdHeader = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtPen = (n: number) => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const PAY_LABEL: Record<string, string> = { contado: 'Contado', credito: 'Credito' };
+
+function todayInput() {
+  const date = new Date();
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 10);
+}
+
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
 
 function calcFixedPayment(principal: number, months: number, teaPct: number) {
   const p = Math.max(0, Number(principal || 0));
@@ -204,7 +216,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
   const generatedAt = new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' });
   const saldo = Math.max(0, Number(quote.finalPriceUsd || 0) - Number(quote.cuotaInicialUsd || 0));
   const start = new Date(quote.createdAt || Date.now());
-  const dueDate = (m: number) => new Date(start.getFullYear(), start.getMonth() + m, start.getDate()).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const dueDate = (m: number) => addDays(start, Math.max(1, Number(m || 1)) * 30).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const rows: ScheduleRow[] = Array.isArray(plan?.rows) ? plan.rows : [];
   const totalInstallments = Number(quote.totalCuotas || 0);
   // CUOTA INICIAL: pago aparte que se descuenta del precio final. El saldo se
@@ -220,12 +232,16 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
     ? Math.max(0, financingInstallments - graceMonths)
     : 0;
   const noInterestInstallments = quote.interestType === 'tea' ? graceMonths : financingInstallments;
-  const noInterestCuotaUsd = Number(plan?.graceCuota || 0) || (financingInstallments ? saldo / financingInstallments : 0);
+  const noInterestCuotaUsd = noInterestInstallments > 0
+    ? (Number(plan?.graceCuota || 0) || (financingInstallments ? saldo / financingInstallments : 0))
+    : 0;
   const saldoAfterNoInterest = Math.max(0, saldo - noInterestCuotaUsd * noInterestInstallments);
   const recalculatedInterestCuotaUsd = quote.interestType === 'tea'
     ? calcFixedPayment(saldoAfterNoInterest, interestInstallments, Number(quote.tea || 0))
     : (interestInstallments ? saldoAfterNoInterest / interestInstallments : 0);
-  const interestCuotaUsd = recalculatedInterestCuotaUsd || Number(plan?.interestCuota || 0) || Number(quote.valorCuotaUsd || 0);
+  const interestCuotaUsd = interestInstallments > 0
+    ? (recalculatedInterestCuotaUsd || Number(plan?.interestCuota || 0) || Number(quote.valorCuotaUsd || 0))
+    : 0;
   const scheduleTotals = rows.reduce((totals, row) => ({
     amortizacionCapital: totals.amortizacionCapital + Number(row.amortizacionCapital || 0),
     amortizacionExtraordinaria: totals.amortizacionExtraordinaria + Number(row.amortizacionExtraordinaria || 0),
@@ -267,6 +283,8 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
     ['Direccion', lotAddress],
     ['Area', `${Number(lot?.areaM2 || 0).toLocaleString('es-PE')} m2`],
     ['Precio US$/m2', fmtUsd(Number(quote.pricePerM2Usd || 0))],
+    ['Precio de venta', fmtUsd(Number(quote.lotPriceUsd || 0))],
+    ['Fecha de cotizacion', quoteDate],
     ['Forma de pago', PAY_LABEL[quote.paymentMethod] || quote.paymentMethod],
     ['Tipo de cambio', `S/ ${Number(quote.exchangeRate || 0).toFixed(4)}`],
   ];
@@ -346,6 +364,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           .schedule-table th:nth-child(6),.schedule-table td:nth-child(6){width:11%}
           .schedule-table th:nth-child(7),.schedule-table td:nth-child(7){width:14%}
           .schedule-table th:nth-child(8),.schedule-table td:nth-child(8){width:14%}
+          .schedule-start{margin:0 0 8px;color:#111827;font-size:12px}
           .plan-section{margin-top:12px}
           .plan-title{margin-top:0}
           .plan-card{border:1px solid #E5E7EB;border-radius:12px;overflow:hidden;margin:8px 0 12px;background:#F8FAFC;break-inside:avoid;box-shadow:0 8px 24px rgba(15,23,42,.06)}
@@ -522,7 +541,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
             <div class="finance-highlight"><span>Cuotas sin interés <em class="tiny">(${noInterestInstallments})</em></span><strong>${escapeHtml(fmtUsd(noInterestCuotaUsd))}</strong></div>
             <div class="finance-highlight"><span>Cuotas con interés <em class="tiny">(${interestInstallments})</em></span><strong>${escapeHtml(fmtUsd(interestCuotaUsd))}</strong></div>
           </div>
-          ${isFinancing ? `<h2>CRONOGRAMA DEL FINANCIAMIENTO</h2><table class="schedule-table"><thead><tr><th>Mes</th><th>Fecha</th><th>Saldo inicial</th><th>Amort. capital</th><th>Amort. extra</th><th>Interes</th><th>Cuota</th><th>Saldo final</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody></table>` : ''}
+          ${isFinancing ? `<h2>CRONOGRAMA DEL FINANCIAMIENTO</h2><p class="schedule-start">Fecha de inicio del financiamiento: <b>${escapeHtml(quoteDate)}</b>. 1era cuota: <b>${escapeHtml(dueDate(1))}</b>.</p><table class="schedule-table"><thead><tr><th>Mes</th><th>Fecha</th><th>Saldo inicial</th><th>Amort. capital</th><th>Amort. extra</th><th>Interes</th><th>Cuota</th><th>Saldo final</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody></table>` : ''}
           </div>
         ` : ''}
         <div class="footer">Dunacon - CRM Inmobiliario</div>
@@ -624,7 +643,6 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [lots, setLots] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [doc, setDoc] = useState<{ id: number; type: 'cotizacion' | 'financiamiento' } | null>(null);
-  const [missingFinalPriceLot, setMissingFinalPriceLot] = useState<any | null>(null);
   // Paginación server-side + filtros (buenas prácticas: page/limit en URL del API,
   // reset a página 1 cuando cambia un filtro, debounce en búsqueda).
   const [page, setPage] = useState(1);
@@ -736,11 +754,19 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'es', { numeric: true }));
   })();
   const lotsOfStreet = streetId ? availableLots.filter((l: any) => Number(l.streetId ?? l.blockId ?? 0) === streetId) : availableLots;
+  const quoteBlockedLotStatuses = ['vendido', 'reservado'];
+  const isQuoteBlockedLot = (lot: any) => quoteBlockedLotStatuses.includes(String(lot?.status || '').toLowerCase());
+  const selectableLotsOfStreet = lotsOfStreet.filter((lot: any) => !isQuoteBlockedLot(lot));
   const selectedLot = lots.find((l: any) => l.id === lotId);
 
   function selectLot(id: number) {
-    setLotId(id);
     const lot = lots.find((l: any) => l.id === id);
+    if (lot && isQuoteBlockedLot(lot)) {
+      toast(`No se puede generar cotizacion ni financiamiento para un lote ${lot.status}.`, 'err');
+      resetLot();
+      return;
+    }
+    setLotId(id);
     if (lot) {
       const lotStreetId = Number((lot as any).streetId ?? (lot as any).blockId ?? 0);
       if (lotStreetId) setStreetId(lotStreetId);
@@ -754,7 +780,6 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
       setCuotaInicialUsd(0);
       setInitialPaymentMode('contado');
       setInitialParts(3);
-      if (!Number(lot.finalPrice || 0)) setMissingFinalPriceLot(lot);
     }
   }
 
@@ -764,14 +789,6 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     setStreetId(0);
     setPricePerM2Usd(0);
     setLotPriceUsd(0);
-    setMissingFinalPriceLot(null);
-  }
-
-  function goToLotFile(lot: any) {
-    const projectId = Number(lot?.projectId || lockedProjectId || selectedLot?.projectId || 0);
-    const targetLotId = Number(lot?.id || lotId || 0);
-    if (!projectId || !targetLotId) return;
-    window.location.href = `/projects/${projectId}/lots?lotId=${targetLotId}&focus=edit`;
   }
 
   function onPricePerM2Change(v: number) {
@@ -795,6 +812,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
 
   async function guardar() {
     if (!lotId) return toast('Selecciona un lote', 'err');
+    if (selectedLot && isQuoteBlockedLot(selectedLot)) return toast(`No se puede generar cotizacion ni financiamiento para un lote ${selectedLot.status}.`, 'err');
     if (!clientName.trim()) return toast('Ingresa el nombre del cliente', 'err');
     if (!clientEmail.trim()) return toast('Ingresa el correo electronico del cliente', 'err');
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clientEmail.trim())) return toast('Ingresa un correo valido (debe incluir @ y dominio)', 'err');
@@ -837,14 +855,6 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     <>
       <Toaster />
       <div className="space-y-5">
-        <div className="flex justify-end">
-          <CurrencyToggle
-            currency={currency}
-            setCurrency={setCurrency}
-            exchangeRate={displayExchangeRate}
-            setExchangeRate={setDisplayExchangeRate}
-          />
-        </div>
         <div className={`mb-4 ${KPI_GRID_6}`}>
           <QuoteKpi
             label="Nro. Cotizaciones"
@@ -882,7 +892,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             accent="#1259C4"
           />
           <QuoteKpi
-            label={`Cuota Contado ${currency === 'PEN' ? 'S/' : 'US$'}`}
+            label={`VENTA CONTADO ${currency === 'PEN' ? 'S/' : 'US$'}`}
             value={formatQuoteAmountCard(stats?.cuotaContadoTotal)}
             helper="Cuotas al contado"
             icon={<FiDollarSign />}
@@ -896,7 +906,15 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
               <h3 className="font-semibold">Cotizaciones de lotes</h3>
               <p className="text-sm mt-0.5" style={{ color: '#6B7280' }}>Calcula el financiamiento y genera la cotizacion y el cronograma de pagos para el cliente.</p>
             </div>
-            <button className="btn-primary" onClick={() => setOpen(true)}>Nueva cotizacion</button>
+            <div className="flex flex-wrap items-end justify-end gap-3">
+              <CurrencyToggle
+                currency={currency}
+                setCurrency={setCurrency}
+                exchangeRate={displayExchangeRate}
+                setExchangeRate={setDisplayExchangeRate}
+              />
+              <button className="btn-primary" onClick={() => setOpen(true)}>Nueva cotizacion</button>
+            </div>
           </div>
           <div className="flex flex-col gap-2 mt-4 sm:flex-row sm:flex-wrap sm:items-center">
             <input
@@ -1028,13 +1046,16 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                   onChange={(value) => selectLot(Number(value))}
                   options={[
                     { value: '0', label: 'Selecciona...' },
-                    ...lotsOfStreet.map((l: any) => ({ value: String(l.id), label: l.code })),
+                    ...selectableLotsOfStreet.map((l: any) => ({ value: String(l.id), label: l.code })),
                   ]}
                 />
               </Field>
             </div>
             {streetId > 0 && lotsOfStreet.length === 0 && (
               <p className="text-xs text-slate-500 mb-2">Esta calle no tiene lotes disponibles.</p>
+            )}
+            {streetId > 0 && lotsOfStreet.length > 0 && selectableLotsOfStreet.length === 0 && (
+              <p className="text-xs font-semibold text-red-600 mb-2">Los lotes de esta calle ya estan vendidos o reservados.</p>
             )}
             {/* Datos del lote: cajas fijas siempre visibles; solo cambian sus valores al elegir un lote. */}
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -1212,7 +1233,10 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
               </>
             )}
 
-            <Field label="Tipo de cambio (S/ por US$)"><input type="number" step="0.01" className="input" value={exchangeRate || ''} onChange={(e) => setExchangeRate(Number(e.target.value || 0))} /></Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Tipo de cambio (S/ por US$)"><input type="number" step="0.01" className="input" value={exchangeRate || ''} onChange={(e) => setExchangeRate(Number(e.target.value || 0))} /></Field>
+              <Field label="Fecha de cotizacion"><input type="date" className="input" value={todayInput()} readOnly /></Field>
+            </div>
 
             <div className="flex justify-end gap-2 pt-4 mt-1 border-t">
               <button className="btn-neutral" onClick={() => setOpen(false)}>Cancelar</button>
@@ -1221,40 +1245,6 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
           </div>
         </div>
       )}
-
-      <Modal
-        open={!!missingFinalPriceLot}
-        onClose={() => setMissingFinalPriceLot(null)}
-        title="Precio final pendiente"
-        width="max-w-md"
-      >
-        <div className="space-y-4">
-          <div className="flex gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-md bg-amber-50 text-amber-600">
-              <FiAlertTriangle />
-            </span>
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-slate-800">
-                Lote {missingFinalPriceLot?.code || lotId} sin precio final.
-              </p>
-              <p className="mt-1 text-sm leading-5 text-slate-600">
-                La cotizacion se hara con el precio general de venta. Si ya tienes el monto real, actualiza el precio final en la ficha del lote.
-              </p>
-            </div>
-          </div>
-          <div className="rounded-md border bg-slate-50 px-3 py-2 text-xs text-slate-600" style={{ borderColor: '#E5E7EB' }}>
-            Precio tomado: <b>{fmtUsd(lotPriceUsd)}</b>
-          </div>
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <button type="button" className="btn-neutral" onClick={() => setMissingFinalPriceLot(null)}>
-              Omitir
-            </button>
-            <button type="button" className="btn-primary" onClick={() => goToLotFile(missingFinalPriceLot)}>
-              Ir a ficha <FiArrowRight />
-            </button>
-          </div>
-        </div>
-      </Modal>
       {doc && <QuoteDocumentModal doc={doc} onClose={() => setDoc(null)} />}
     </>
   );
