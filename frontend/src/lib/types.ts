@@ -33,7 +33,7 @@ export const LOT_STATUS_COLOR: Record<LotStatus, string> = {
   segunda_etapa: '#0EA5E9',
 };
 
-// Identidad de marca (usada en planos/grÃ¡ficos)
+// Identidad de marca (usada en planos/gráficos)
 export const BRAND = {
   blue: '#1877F2',
   blueHover: '#166FE0',
@@ -184,7 +184,7 @@ export interface PaymentItem {
   note?: string;
 }
 
-// Utility para formatear moneda en Soles (PerÃº)
+// Utility para formatear moneda en Soles (Perú)
 export function formatMoney(n: number | string | undefined | null): string {
   const v = Number(n || 0);
   return 'S/ ' + v.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });

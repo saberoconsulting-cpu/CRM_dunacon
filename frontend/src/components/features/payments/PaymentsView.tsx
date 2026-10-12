@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { Toaster, toast, Field, EmptyState } from '@/components/ui/ui';
 import { KpiCard } from '@/components/ui/Metrics';
@@ -42,8 +42,8 @@ type P = {
 const TYPE_LABEL: any = { reserva: 'Reserva', adelanto: 'Cuota inicial', cuota_inicial: 'Cuota inicial', primera_cuota: 'Cuota 1', cuota: 'Cuota' };
 const BADGE: any = { pagado: ['#EAF7EE', '#257849'], pendiente: ['#FFF6E4', '#B45309'], vencido: ['#E7F0FE', '#1259C4'] };
 const METHODS = [
-  ['yape', 'Yape / Plin (QR)'], ['transferencia', 'Transferencia bancaria'], ['deposito', 'DepÃ³sito en banco'],
-  ['cheque_gerencia', 'Cheque de gerencia'], ['tarjeta', 'Tarjeta de dÃ©bito/crÃ©dito'],
+  ['yape', 'Yape / Plin (QR)'], ['transferencia', 'Transferencia bancaria'], ['deposito', 'Depósito en banco'],
+  ['cheque_gerencia', 'Cheque de gerencia'], ['tarjeta', 'Tarjeta de débito/crédito'],
   ['efectivo', 'Efectivo / oficina'], ['otro', 'Otro'],
 ];
 const METHOD_LABEL: Record<string, string> = Object.fromEntries(METHODS.map(([v, l]) => [v, l]));
@@ -207,14 +207,15 @@ function FinanceTooltip({ active, payload, label, formatter = money }: any) {
   );
 }
 
-function KpiTile({ label, value, helper, icon, accent }: {
+function KpiTile({ label, value, helper, icon, accent, truncateLabel = true }: {
   label: string;
   value: string;
   helper: string;
   icon: JSX.Element;
   accent: string;
+  truncateLabel?: boolean;
 }) {
-  return <KpiCard label={label} value={value} helper={helper} icon={icon} tone={accent} truncateLabel valueAlign="center" />;
+  return <KpiCard label={label} value={value} helper={helper} icon={icon} tone={accent} truncateLabel={truncateLabel} valueAlign="center" />;
 }
 
 function EmptyChart({ text }: { text: string }) {
@@ -256,7 +257,7 @@ function PaymentMethodRanking({ items, formatter = money }: { items: Array<{ nam
           <div key={item.method} className="space-y-1.5">
             <div className="flex items-center justify-between gap-3 text-xs">
               <span className="min-w-0 truncate font-semibold" style={{ color: INK }}>{item.name}</span>
-              <span className="shrink-0 tabular-nums" style={{ color: MUTED }}>{formatter(item.value)} Â· {item.count}</span>
+              <span className="shrink-0 tabular-nums" style={{ color: MUTED }}>{formatter(item.value)} · {item.count}</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-slate-100">
               <div className="h-full rounded-full" style={{ width: `${Math.max(5, (item.value / max) * 100)}%`, background: color }} />
@@ -507,7 +508,7 @@ export function PaymentReceiptPdf({ sale, installment, projectName }: { sale: an
   const clientName = sale.client?.fullName || sale.clientName || '-';
   const lotCode = sale.lot?.code || sale.lotCode || `Lote ${sale.sale?.lotId ?? ''}`;
   const isInitial = !installment.installmentNo;
-  const cuotaLabel = isInitial ? 'Cuota inicial' : `Cuota NÂ° ${installment.installmentNo}`;
+  const cuotaLabel = isInitial ? 'Cuota inicial' : `Cuota N° ${installment.installmentNo}`;
   const amountPen = Number(installment.amount || 0);
   const tc = pay?.exchangeRate != null ? Number(pay.exchangeRate) : null;
   const amountUsd = pay?.amountUsd != null ? Number(pay.amountUsd) : (tc && tc > 0 ? amountPen / tc : null);
@@ -540,8 +541,8 @@ export function PaymentReceiptPdf({ sale, installment, projectName }: { sale: an
     ['Tipo de cambio (TC)', tc ? String(tc) : '-'],
     ['Monto en soles (S/)', formatMoney(amountPen)],
     ['Monto en dolares (US$)', amountUsd != null ? `US$ ${Number(amountUsd).toFixed(2)}` : '-'],
-    ['NÂ° operacion bancaria', pay?.bankOperationNumber || '-'],
-    ['NÂ° boleta', pay?.receiptNumber || '-'],
+    ['N° operacion bancaria', pay?.bankOperationNumber || '-'],
+    ['N° boleta', pay?.receiptNumber || '-'],
     ['Medio de pago', pay?.paymentMethod || '-'],
     ['Referencia', pay?.reference || '-'],
     ['Estado', estado],
@@ -601,7 +602,7 @@ export function ClientPaymentHistoryPdf({ sale, projectName }: { sale: any; proj
     ].filter(Boolean) as Array<{ label: string; url: string }>;
     if (!imgs.length) continue;
     evidenceItems.push(`<div class="evidence-group">
-      <p class="evidence-title">${escapeHtml(r.conceptLabel || (r.installmentNo ? `Cuota ${r.installmentNo}` : 'Pago'))}${p.paidAt ? ' â€” pagada el ' + escapeHtml(formatDate(p.paidAt)) : ''}</p>
+      <p class="evidence-title">${escapeHtml(r.conceptLabel || (r.installmentNo ? `Cuota ${r.installmentNo}` : 'Pago'))}${p.paidAt ? ' — pagada el ' + escapeHtml(formatDate(p.paidAt)) : ''}</p>
       <div class="evidence">${imgs.map((i) => `<div class="evidence-item"><span>${escapeHtml(i.label)}</span><img src="${escapeHtml(i.url)}" alt="${escapeHtml(i.label)}" /></div>`).join('')}</div>
     </div>`);
   }
@@ -617,7 +618,7 @@ export function ClientPaymentHistoryPdf({ sale, projectName }: { sale: any; proj
     if (!imgs.length) continue;
     const concepto = TYPE_LABEL[p.type] || p.type || 'Pago';
     evidenceItems.push(`<div class="evidence-group">
-      <p class="evidence-title">${escapeHtml(concepto)}${p.paidAt ? ' â€” pagada el ' + escapeHtml(formatDate(p.paidAt)) : ''}</p>
+      <p class="evidence-title">${escapeHtml(concepto)}${p.paidAt ? ' — pagada el ' + escapeHtml(formatDate(p.paidAt)) : ''}</p>
       <div class="evidence">${imgs.map((i) => `<div class="evidence-item"><span>${escapeHtml(i.label)}</span><img src="${escapeHtml(i.url)}" alt="${escapeHtml(i.label)}" /></div>`).join('')}</div>
     </div>`);
   }
@@ -682,12 +683,12 @@ export function ClientPaymentHistoryPdf({ sale, projectName }: { sale: any; proj
       </div>
       <h2>Plan de pagos (reserva, cuota inicial y cuotas, en orden)</h2>
       <table>
-        <thead><tr><th>Concepto</th><th>Vence</th><th class="num">Monto US$</th><th>TC</th><th>Fecha pago</th><th class="num">Pagado US$</th><th>NÂ° Op. Bco</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Concepto</th><th>Vence</th><th class="num">Monto US$</th><th>TC</th><th>Fecha pago</th><th class="num">Pagado US$</th><th>N° Op. Bco</th><th>Estado</th></tr></thead>
         <tbody>${bodyRows || '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody>
       </table>
       ${otherRows ? `<h2>Otros pagos (abonos extra)</h2>
       <table>
-        <thead><tr><th>Concepto</th><th>Vence</th><th class="num">Monto US$</th><th>TC</th><th>Fecha pago</th><th class="num">Pagado US$</th><th>NÂ° Op. Bco</th><th>Estado</th></tr></thead>
+        <thead><tr><th>Concepto</th><th>Vence</th><th class="num">Monto US$</th><th>TC</th><th>Fecha pago</th><th class="num">Pagado US$</th><th>N° Op. Bco</th><th>Estado</th></tr></thead>
         <tbody>${otherRows}</tbody>
       </table>` : ''}
       ${evidenceSection}
@@ -714,7 +715,6 @@ function ChartHeader({ title, subtitle, menuRows, actions }: { title: string; su
 export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: number }) {
   const [rows, setRows] = useState<P[]>([]);
   const [status, setStatus] = useState('');
-  const [pdfMonth, setPdfMonth] = useState(currentMonthValue);
   const [overdue, setOverdue] = useState<P[]>([]);
   const [showOverdueAlert, setShowOverdueAlert] = useState(true);
   const [showMoreKpis, setShowMoreKpis] = useState(false);
@@ -954,9 +954,9 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   useEffect(() => {
     load();
     api.get<{ overdue: P[] }>('/payments/alerts').then((a) => setOverdue(a?.overdue || [])).catch(() => setOverdue([]));
-    api.get<any[]>('/lots?limit=200').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
-    api.get<any>('/projects').then((d) => setPayProjects(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
-    api.get<any[]>('/clients?limit=500').then((d) => setClients(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
+    api.get<any[]>('/lots?limit=200').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => { });
+    api.get<any>('/projects').then((d) => setPayProjects(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => { });
+    api.get<any[]>('/clients?limit=500').then((d) => setClients(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => { });
   }, [load]);
 
   useEffect(() => {
@@ -967,7 +967,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
   useEffect(() => {
     const q = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
-    api.get<any>(`/payments/caja${q}`).then(setCash).catch(() => {});
+    api.get<any>(`/payments/caja${q}`).then(setCash).catch(() => { });
   }, [lockedProjectId]);
 
   useEffect(() => {
@@ -1014,7 +1014,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const availableLots = payProjectId ? lots.filter((l: any) => Number(l.projectId) === Number(payProjectId)) : lots;
   // Indice de proyectos para resolver nombre y logo al generar los PDF.
   const projectsById = new Map<number, any>(payProjects.map((p: any) => [Number(p.id), p]));
-  // Al elegir el lote, precargar su cliente asignado (si tiene) â€” igual se
+  // Al elegir el lote, precargar su cliente asignado (si tiene) — igual se
   // puede cambiar a mano con el selector de Cliente.
   async function selectLot(id: number) {
     setLotId(id);
@@ -1044,8 +1044,8 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     if (!amount) return toast('Ingresa monto', 'err');
     if (!dueDate) return toast('Ingresa la fecha de vencimiento', 'err');
     if (!note.trim()) return toast('Ingresa una nota', 'err');
-    if (!regBankOp.trim()) return toast('Ingresa el NÂ° de operacion bancaria', 'err');
-    if (!regReceiptNo.trim()) return toast('Ingresa el NÂ° de boleta', 'err');
+    if (!regBankOp.trim()) return toast('Ingresa el N° de operacion bancaria', 'err');
+    if (!regReceiptNo.trim()) return toast('Ingresa el N° de boleta', 'err');
     if (!(Number(regCuotaValue) > 0)) return toast('Ingresa el valor de la cuota', 'err');
     if (!regBankOpFile) return toast('Adjunta la foto de la operacion bancaria', 'err');
     if (!regReceiptFile) return toast('Adjunta la foto de la boleta', 'err');
@@ -1083,19 +1083,19 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   function pickRegBankOp(f?: File) {
     if (!f) { setRegBankOpFile(null); setRegBankOpUrl(''); return; }
     setRegBankOpFile(f);
-    if (window) { try { if (regBankOpUrl.startsWith('blob:')) URL.revokeObjectURL(regBankOpUrl); } catch {} setRegBankOpUrl(URL.createObjectURL(f)); }
+    if (window) { try { if (regBankOpUrl.startsWith('blob:')) URL.revokeObjectURL(regBankOpUrl); } catch { } setRegBankOpUrl(URL.createObjectURL(f)); }
   }
 
   function pickRegReceipt(f?: File) {
     if (!f) { setRegReceiptFile(null); setRegReceiptUrl(''); return; }
     setRegReceiptFile(f);
-    if (window) { try { if (regReceiptUrl.startsWith('blob:')) URL.revokeObjectURL(regReceiptUrl); } catch {} setRegReceiptUrl(URL.createObjectURL(f)); }
+    if (window) { try { if (regReceiptUrl.startsWith('blob:')) URL.revokeObjectURL(regReceiptUrl); } catch { } setRegReceiptUrl(URL.createObjectURL(f)); }
   }
 
   function pickVoucher(f?: File) {
     if (!f) { setVoucher(null); setVoucherUrl(''); return; }
     setVoucher(f);
-    if (window) { try { if (voucherUrl.startsWith('blob:')) URL.revokeObjectURL(voucherUrl); } catch {} setVoucherUrl(URL.createObjectURL(f)); }
+    if (window) { try { if (voucherUrl.startsWith('blob:')) URL.revokeObjectURL(voucherUrl); } catch { } setVoucherUrl(URL.createObjectURL(f)); }
   }
 
   function openEditPayment(payment: P) {
@@ -1112,20 +1112,20 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   function pickEditVoucher(f?: File) {
     if (!f) { setEditVoucher(null); setEditVoucherUrl(editingPayment?.voucherUrl || ''); return; }
     setEditVoucher(f);
-    if (window) { try { if (editVoucherUrl.startsWith('blob:')) URL.revokeObjectURL(editVoucherUrl); } catch {} setEditVoucherUrl(URL.createObjectURL(f)); }
+    if (window) { try { if (editVoucherUrl.startsWith('blob:')) URL.revokeObjectURL(editVoucherUrl); } catch { } setEditVoucherUrl(URL.createObjectURL(f)); }
   }
 
   function pickApprovalDoc(f?: File) {
     if (!f) { setApprovalDoc(null); setApprovalDocUrl(editingPayment?.approvalDocumentUrl || ''); return; }
     setApprovalDoc(f);
-    if (window) { try { if (approvalDocUrl.startsWith('blob:')) URL.revokeObjectURL(approvalDocUrl); } catch {} setApprovalDocUrl(URL.createObjectURL(f)); }
+    if (window) { try { if (approvalDocUrl.startsWith('blob:')) URL.revokeObjectURL(approvalDocUrl); } catch { } setApprovalDocUrl(URL.createObjectURL(f)); }
   }
 
   async function approvePayment() {
     const target = editingPayment;
     if (!target) return;
     if (!approvalBankOp.trim() || !approvalReceiptNo.trim() || !approvalReceiptValue) {
-      return toast('Completa NÂ° Op. Bco, NÂ° Boleta y Valor Bol para aprobar el pago', 'err');
+      return toast('Completa N° Op. Bco, N° Boleta y Valor Bol para aprobar el pago', 'err');
     }
     try {
       if (editVoucher) await uploadFile(`/payments/voucher/${target.id}`, editVoucher);
@@ -1179,13 +1179,15 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   }
 
   async function exportMonthPdf() {
-    if (!pdfMonth) return toast('Selecciona un mes para descargar el PDF', 'err');
+    if (!payFromDate && !payToDate) return toast('Selecciona un rango de fechas para descargar el PDF', 'err');
 
     const q = new URLSearchParams();
     if (status) q.set('status', status);
     if (lockedProjectId) q.set('projectId', String(lockedProjectId));
     q.set('page', '1');
     q.set('limit', '500');
+    if (payFromDate) q.set('from', payFromDate);
+    if (payToDate) q.set('to', payToDate);
 
     let sourceRows = rows;
     try {
@@ -1197,12 +1199,21 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
     const monthRows = sourceRows.filter((payment) => {
       const rawDate = payment.paidAt || payment.dueDate || '';
-      return rawDate ? String(rawDate).slice(0, 7) === pdfMonth : false;
+      if (!rawDate) return false;
+      
+      if (payFromDate && rawDate < payFromDate) return false;
+      if (payToDate && rawDate > payToDate) return false;
+      
+      return true;
     });
-    if (!monthRows.length) return toast('No hay pagos para ese mes', 'err');
+    if (!monthRows.length) return toast('No hay pagos para ese rango de fechas', 'err');
 
     const total = monthRows.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
-    const monthName = monthLabel(pdfMonth);
+    const dateRange = payFromDate && payToDate 
+      ? `${formatDate(payFromDate)} - ${formatDate(payToDate)}`
+      : payFromDate 
+        ? `Desde ${formatDate(payFromDate)}`
+        : `Hasta ${formatDate(payToDate)}`;
     const generatedAt = new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' });
     const bodyRows = monthRows.map((payment) => `
       <tr>
@@ -1220,7 +1231,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     printHtml(`
       <html>
         <head>
-          <title>Historial de pagos - ${escapeHtml(monthName)}</title>
+          <title>Historial de pagos - ${escapeHtml(dateRange)}</title>
           <style>
             body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#111827;background:white}
             .brand{display:flex;justify-content:space-between;gap:20px;border-bottom:3px solid #1259C4;padding-bottom:12px;margin-bottom:16px}
@@ -1244,7 +1255,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
           <div class="brand">
             <div>
               <p class="eyebrow">Historial de pagos</p>
-              <h1>${escapeHtml(monthName)}</h1>
+              <h1>${escapeHtml(dateRange)}</h1>
               <p>Generado ${escapeHtml(generatedAt)}</p>
             </div>
             <div style="text-align:right">
@@ -1421,10 +1432,10 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
       };
     });
   const clientReportRows = allClientReportRows.filter((row) => {
-      const term = paySearch.trim().toLowerCase();
-      if (!term) return true;
-      return `${row.lotCode} ${row.clientName}`.toLowerCase().includes(term);
-    });
+    const term = paySearch.trim().toLowerCase();
+    if (!term) return true;
+    return `${row.lotCode} ${row.clientName}`.toLowerCase().includes(term);
+  });
   const clientReportTotals = clientReportRows.reduce((acc, row) => {
     acc.area += row.area;
     acc.salePrice += row.salePrice;
@@ -1492,12 +1503,43 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     : ((salesChartLast?.monto || 0) > 0 ? 100 : 0);
   // Formato corto para ejes de graficos segun la moneda activa.
   const shortCurrency = currency === 'USD' ? shortUsd : shortMoney;
-  const paymentVsDelinquency = mergeByMonth(lastSixMonths, overdueByMonth.slice(-6))
-    .map((row) => ({
-      ...row,
-      pagado: currency === 'USD' ? Number(row.pagado || 0) / exchangeRate : Number(row.pagado || 0),
-      moroso: currency === 'USD' ? Number(row.moroso || 0) / exchangeRate : Number(row.moroso || 0),
-    }));
+  const paymentVsDelinquency = (() => {
+    if (salesPeriod === 'year') {
+      // Agrupar por año
+      const paidByYear: Record<string, number> = {};
+      const overdueByYear: Record<string, number> = {};
+      
+      for (const row of byMonth) {
+        const year = String(row.month || '').slice(0, 4);
+        if (!year) continue;
+        paidByYear[year] = (paidByYear[year] || 0) + Number(row.monto || 0);
+      }
+      
+      for (const row of overdueByMonth) {
+        const year = String(row.month || '').slice(0, 4);
+        if (!year) continue;
+        overdueByYear[year] = (overdueByYear[year] || 0) + Number(row.monto || 0);
+      }
+      
+      const years = Array.from(new Set([...Object.keys(paidByYear), ...Object.keys(overdueByYear)])).sort();
+      return years.map((year) => ({
+        month: year,
+        pagado: currency === 'USD' ? (paidByYear[year] || 0) / exchangeRate : (paidByYear[year] || 0),
+        moroso: currency === 'USD' ? (overdueByYear[year] || 0) / exchangeRate : (overdueByYear[year] || 0),
+      }));
+    } else {
+      // Usar rango de meses
+      const paidRange = byMonth.filter((r) => rangeMonths.includes(r.month));
+      const overdueRange = overdueByMonth.filter((r) => rangeMonths.includes(r.month));
+      
+      return mergeByMonth(paidRange, overdueRange)
+        .map((row) => ({
+          ...row,
+          pagado: currency === 'USD' ? Number(row.pagado || 0) / exchangeRate : Number(row.pagado || 0),
+          moroso: currency === 'USD' ? Number(row.moroso || 0) / exchangeRate : Number(row.moroso || 0),
+        }));
+    }
+  })();
   const currentCollected = lastValue(byMonth);
   const previousCollected = previousValue(byMonth);
   const collectedTrend = variation(currentCollected, previousCollected);
@@ -1515,7 +1557,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
       <div className="space-y-5">
         {overdue.length > 0 && showOverdueAlert && (
           <div className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm" style={{ background: '#E7F0FE', borderColor: '#A9C9FB', color: '#1259C4' }}>
-            <span><b>{overdue.length}</b> cuotas vencidas detectadas. RegÃ­stralas para actualizar la cartera.</span>
+            <span><b>{overdue.length}</b> cuotas vencidas detectadas. Regístralas para actualizar la cartera.</span>
             <button
               type="button"
               className="grid h-7 w-7 shrink-0 place-items-center rounded-md hover:bg-white/60"
@@ -1529,13 +1571,13 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
         )}
         <div className="relative">
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-3">
-            <KpiTile label="Cuotas Iniciales" value={show(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} />
-            <KpiTile label="Cuotas Financiamiento" value={String(metrics.financedCuotas || 0)} helper="Cronograma generado" icon={<FiTrendingUp />} accent={BLUE} />
-            <KpiTile label="Cuotas Pendientes US$" value={show(metrics.pendingAmount || 0)} helper="Saldo pendiente" icon={<FiDollarSign />} accent={BLUE} />
-            <KpiTile label="Pago Mora" value={String(metrics.overduePayments || 0)} helper={show(metrics.overdueAmount || 0)} icon={<FiAlertTriangle />} accent={RED} />
-            <KpiTile label="Morosidad %" value={pct(delinquencyRate)} helper="Mora sobre pendientes" icon={<FiActivity />} accent={AMBER} />
-            <KpiTile label="Pagos por vencer" value={String(metrics.upcomingPayments || 0)} helper="Max 30 dias" icon={<FiCreditCard />} accent={BLUE_DARK} />
-            <KpiTile label="Pago por vencer US$" value={show(metrics.upcomingAmount || 0)} helper="Max 30 dias" icon={<FiDollarSign />} accent={BLUE_DARK} />
+            <KpiTile label="Cuotas Iniciales" value={show(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} truncateLabel={false} />
+            <KpiTile label="Cuotas Financiamiento" value={String(metrics.financedCuotas || 0)} helper="Cronograma generado" icon={<FiTrendingUp />} accent={BLUE} truncateLabel={false} />
+            <KpiTile label="Cuotas Pendientes US$" value={show(metrics.pendingAmount || 0)} helper="Saldo pendiente" icon={<FiDollarSign />} accent={BLUE} truncateLabel={false} />
+            <KpiTile label="Pago Mora" value={String(metrics.overduePayments || 0)} helper={show(metrics.overdueAmount || 0)} icon={<FiAlertTriangle />} accent={RED} truncateLabel={false} />
+            <KpiTile label="Morosidad %" value={pct(delinquencyRate)} helper="Mora sobre pendientes" icon={<FiActivity />} accent={AMBER} truncateLabel={false} />
+            <KpiTile label="Pagos por vencer" value={String(metrics.upcomingPayments || 0)} helper="Max 30 dias" icon={<FiCreditCard />} accent={BLUE_DARK} truncateLabel={false} />
+            <KpiTile label="Pago por vencer US$" value={show(metrics.upcomingAmount || 0)} helper="Max 30 dias" icon={<FiDollarSign />} accent={BLUE_DARK} truncateLabel={false} />
           </div>
 
           <button
@@ -1547,20 +1589,20 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             aria-expanded={showMoreKpis}
             title={showMoreKpis ? 'Ocultar indicadores' : 'Ver mas indicadores'}
           >
-            <span className="lg:hidden">{showMoreKpis ? 'Ocultar indicadores' : 'Ver mÃ¡s indicadores'}</span>
+            <span className="lg:hidden">{showMoreKpis ? 'Ocultar indicadores' : 'Ver más indicadores'}</span>
             <FiChevronDown style={{ transform: showMoreKpis ? 'rotate(180deg)' : 'none', transition: 'transform .2s ease' }} />
           </button>
         </div>
 
         {showMoreKpis && (
           <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-3">
-            <KpiTile label="Total venta (lotes)" value={String(metrics.totalSaleLots || 0)} helper={show(metrics.totalSaleAmount || 0)} icon={<FiTrendingUp />} accent={BLUE} />
-            <KpiTile label="Total Venta" value={show(metrics.totalSaleAmount || 0)} helper="Ventas y separaciones" icon={<FiDollarSign />} accent={BLUE} />
-            <KpiTile label="Pago Inicial US$" value={show(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} />
-            <KpiTile label="Financiamiento D." value={show(metrics.financingAmount || 0)} helper="Monto financiado" icon={<FiTrendingUp />} accent={BLUE_DARK} />
-            <KpiTile label="Pagos Mora US$" value={show(metrics.overdueAmount || 0)} helper="Cuotas vencidas" icon={<FiDollarSign />} accent={RED} />
-            <KpiTile label="Pago de Cuotas" value={String(metrics.paidCuotas || 0)} helper={show(metrics.paidCuotasAmount || 0)} icon={<FiCreditCard />} accent={GREEN} />
-            <KpiTile label="Pago de Cuotas US$" value={show(metrics.paidCuotasAmount || 0)} helper="Cuotas pagadas" icon={<FiDollarSign />} accent={GREEN} />
+            <KpiTile label="Total venta (lotes)" value={String(metrics.totalSaleLots || 0)} helper={show(metrics.totalSaleAmount || 0)} icon={<FiTrendingUp />} accent={BLUE} truncateLabel={false} />
+            <KpiTile label="Total Venta" value={show(metrics.totalSaleAmount || 0)} helper="Ventas y separaciones" icon={<FiDollarSign />} accent={BLUE} truncateLabel={false} />
+            <KpiTile label="Pago Inicial US$" value={show(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} truncateLabel={false} />
+            <KpiTile label="Financiamiento D." value={show(metrics.financingAmount || 0)} helper="Monto financiado" icon={<FiTrendingUp />} accent={BLUE_DARK} truncateLabel={false} />
+            <KpiTile label="Pagos Mora US$" value={show(metrics.overdueAmount || 0)} helper="Cuotas vencidas" icon={<FiDollarSign />} accent={RED} truncateLabel={false} />
+            <KpiTile label="Pago de Cuotas" value={String(metrics.paidCuotas || 0)} helper={show(metrics.paidCuotasAmount || 0)} icon={<FiCreditCard />} accent={GREEN} truncateLabel={false} />
+            <KpiTile label="Pago de Cuotas US$" value={show(metrics.paidCuotasAmount || 0)} helper="Cuotas pagadas" icon={<FiDollarSign />} accent={GREEN} truncateLabel={false} />
           </div>
         )}
 
@@ -1601,14 +1643,34 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
           <div className="card overflow-hidden p-0">
             <ChartHeader
-              title="Pagos vs Morosidad"
-              subtitle="Ultimos 6 meses"
+              title={`Pagos vs Morosidad - ${salesPeriod === 'year' ? 'Año' : 'Mes'}`}
+              subtitle={salesPeriod === 'year' ? 'Histórico por año' : (salesRange === 3 ? 'Últimos 3 meses' : 'Últimos 6 meses')}
               menuRows={[
                 ['Pagado actual', show(currentCollected)],
                 ['Moroso actual', show(currentOverdue)],
                 ['Mora mes anterior', show(previousOverdue)],
                 ['Morosidad', pct(currentDelinquencyRate || delinquencyRate)],
               ]}
+              actions={
+                <div className="flex flex-wrap items-center gap-1">
+                  {([['month', 'Mes'], ['year', 'Año']] as const).map(([value, label]) => {
+                    const active = salesPeriod === value;
+                    return (
+                      <button key={value} type="button" onClick={() => setSalesPeriod(value)} className="h-7 rounded-md border px-2 text-[11px] font-semibold transition-colors" style={{ borderColor: active ? BLUE : BORDER, background: active ? BLUE : '#fff', color: active ? '#fff' : MUTED }}>
+                        {label}
+                      </button>
+                    );
+                  })}
+                  {salesPeriod === 'month' && ([3, 6] as const).map((value) => {
+                    const active = salesRange === value;
+                    return (
+                      <button key={value} type="button" onClick={() => setSalesRange(value)} className="h-7 rounded-md border px-2 text-[11px] font-semibold transition-colors" style={{ borderColor: active ? BLUE : BORDER, background: active ? BLUE : '#fff', color: active ? '#fff' : MUTED }}>
+                        {value}m
+                      </button>
+                    );
+                  })}
+                </div>
+              }
             />
             {paymentVsDelinquency.length ? (
               <div className="w-full px-2 pt-4 pb-3 sm:h-[330px] sm:px-4 sm:pt-5">
@@ -1618,7 +1680,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                       <CartesianGrid stroke="#E5E7EB" strokeDasharray="4 4" vertical={false} />
                       <XAxis
                         dataKey="month"
-                        tickFormatter={isNarrow ? monthLabelShort : monthLabel}
+                        tickFormatter={salesPeriod === 'year' ? (v: string) => v : (isNarrow ? monthLabelShort : monthLabel)}
                         tick={{ fontSize: isNarrow ? 10 : 11, fill: MUTED }}
                         axisLine={false}
                         tickLine={false}
@@ -1676,215 +1738,209 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 </div>
               )}
             </div>
-            <div className="flex w-full min-w-0 flex-col gap-2 xl:w-auto xl:flex-row xl:flex-nowrap xl:items-center">
-              <Select
-                value={status}
-                onChange={setStatus}
-                className="w-full xl:!w-auto"
-                options={[{ value: '', label: 'Estado: todos' }, { value: 'pagado', label: 'Pagado' }, { value: 'pendiente', label: 'Pendiente' }, { value: 'vencido', label: 'Vencido' }]}
-              />
-              <input
-                className="input w-full xl:!w-64"
-                placeholder="Buscar por lote, cliente o referencia"
-                value={paySearch}
-                onChange={(e) => setPaySearch(e.target.value)}
-                aria-label="Buscar por codigo de lote o nombre de cliente"
-              />
-              <input
-                className="input w-full xl:!w-auto"
-                type="date"
-                value={payFromDate}
-                onChange={(e) => setPayFromDate(e.target.value)}
-                aria-label="Fecha desde"
-                title="Desde"
-              />
-              <input
-                className="input w-full xl:!w-auto"
-                type="date"
-                value={payToDate}
-                onChange={(e) => setPayToDate(e.target.value)}
-                aria-label="Fecha hasta"
-                title="Hasta"
-              />
+            <div className="flex w-full min-w-0 flex-col gap-2 xl:w-full xl:flex-row xl:flex-nowrap xl:items-center">
+              <div className="flex flex-col gap-2 xl:flex-row xl:flex-nowrap xl:items-center">
+                <Select
+                  value={status}
+                  onChange={setStatus}
+                  className="w-full xl:!w-auto"
+                  options={[{ value: '', label: 'Estado: todos' }, { value: 'pagado', label: 'Pagado' }, { value: 'pendiente', label: 'Pendiente' }, { value: 'vencido', label: 'Vencido' }]}
+                />
+                <input
+                  className="input w-full xl:!w-64"
+                  placeholder="Buscar por lote, cliente o referencia"
+                  value={paySearch}
+                  onChange={(e) => setPaySearch(e.target.value)}
+                  aria-label="Buscar por codigo de lote o nombre de cliente"
+                />
+              </div>
+              <div className="flex flex-col gap-2 xl:flex-row xl:flex-nowrap xl:items-center xl:ml-auto">
+                <input
+                  className="input w-full xl:!w-auto"
+                  type="date"
+                  value={payFromDate}
+                  onChange={(e) => setPayFromDate(e.target.value)}
+                  aria-label="Fecha desde"
+                  title="Desde"
+                />
+                <input
+                  className="input w-full xl:!w-auto"
+                  type="date"
+                  value={payToDate}
+                  onChange={(e) => setPayToDate(e.target.value)}
+                  aria-label="Fecha hasta"
+                  title="Hasta"
+                />
               {(payFromDate || payToDate) && (
                 <button type="button" className="btn-neutral !h-10 w-full whitespace-nowrap text-xs xl:w-auto" onClick={() => { setPayFromDate(''); setPayToDate(''); }}>
                   Limpiar fechas
                 </button>
               )}
-              <div className="flex w-full flex-col gap-2 xl:w-auto xl:flex-row xl:flex-nowrap xl:items-center">
-                <input
-                  className="input w-full xl:!w-auto"
-                  type="month"
-                  value={pdfMonth}
-                  onChange={(e) => setPdfMonth(e.target.value)}
-                  aria-label="Mes para descargar PDF"
-                />
-                {historyView === 'operation' ? (
-                  <button className="btn-outline w-full whitespace-nowrap xl:w-auto" type="button" onClick={exportMonthPdf}>Descargar PDF</button>
-                ) : null}
-                {historyView === 'operation' && (
-                  <button className="btn-primary w-full whitespace-nowrap xl:w-auto" onClick={() => setOpen(true)}>Registrar pago</button>
-                )}
+              {historyView === 'operation' ? (
+                <button className="btn-outline w-full whitespace-nowrap xl:w-auto" type="button" onClick={exportMonthPdf}>Descargar PDF</button>
+              ) : null}
+              {historyView === 'operation' && (
+                <button className="btn-primary w-full whitespace-nowrap xl:w-auto" onClick={() => setOpen(true)}>Registrar pago</button>
+              )}
               </div>
             </div>
           </div>
         </div>
         {historyView === 'operation' ? (
-        <div className="card p-0 overflow-auto">
-          {loading ? <p className="p-4 text-slate-400">Cargandoâ€¦</p>
-            : filteredRows.length === 0 ? <EmptyState text={paySearch ? 'No hay pagos que coincidan con la busqueda.' : 'No hay pagos con esos filtros.'} />
-            : (
-            <>
-            <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
-            <table className="table-base table-head-plomo" style={{ width: '100%', minWidth: 1320 }}>
-              <thead><tr>
-                <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Area</th><th className="th-base">Cliente</th>
-                <th className="th-base">Precio venta</th><th className="th-base">Tipo de pago</th>
-                <th className="th-base whitespace-nowrap">Inicial US$</th><th className="th-base whitespace-nowrap">Cuota Financ. US$</th>
-                <th className="th-base">Medio de pago</th><th className="th-base">Evidencia</th><th className="th-base">Monto registrado</th><th className="th-base">Pagado US$</th>
-                <th className="th-base">Estado</th><th className="th-base">Vence</th><th className="th-base">Pagado</th>
-                <th className="th-base">Recepciona pago</th>
-                <th className="th-base">Acciones</th>
-              </tr></thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredRows.map((p) => (
-                  <tr key={p.id}>
-                    <td className="td-base text-slate-400">P{p.id}</td>
-                    <td className="td-base font-medium">{p.lotCode || `Lote ${p.lotId}`}</td>
-                    <td className="td-base tabular-nums">{operationAreaOf(p) ? operationAreaOf(p).toLocaleString('es-PE', { maximumFractionDigits: 2 }) : '—'}</td>
-                    <td className="td-base">{p.clientName || '—'}</td>
-                    <td className="td-base">{p.salePrice ? show(p.salePrice) : '—'}</td>
-                    <td className="td-base capitalize">{p.conceptLabel || TYPE_LABEL[p.type] || p.type}</td>
-                    <td className="td-base tabular-nums">{operationInitialOf(p) ? usdMoney(operationInitialOf(p)) : '—'}</td>
-                    <td className="td-base tabular-nums">{operationFinancingCuotaOf(p) ? usdMoney(operationFinancingCuotaOf(p)) : '—'}</td>
-                    <td className="td-base capitalize">{METHOD_LABEL[p.paymentMethod || ''] || p.paymentMethod || '—'}</td>
-                    <td className="td-base"><EvidenceButton pay={p} /></td>
-                    <td className="td-base font-medium">{show(p.amount)}</td>
-                    <td className="td-base tabular-nums">{(() => {
-                      if (p.status !== 'pagado') return '—';
-                      const tc = Number(p.exchangeRate || exchangeRate || 0);
-                      const usd = p.amountUsd != null ? Number(p.amountUsd) : (tc > 0 ? Number(p.amount || 0) / tc : 0);
-                      return usd > 0 ? `US$ ${usd.toFixed(2)}` : '—';
-                    })()}</td>
-                    <td className="td-base">
-                      <div className="flex flex-col items-start gap-1.5">
-                        {st(p)}
-                        {p.status === 'pendiente' && (
-                          <button
-                            type="button"
-                            className="row-action row-action--primary"
-                            onClick={() => openEditPayment(p)}
-                            title={payCanMark ? 'Aprobar o editar este pago' : 'Editar este pago'}
-                          >
-                            <FiEdit3 /> {payCanMark ? 'Aprobar' : 'Editar'}
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                    <td className="td-base">{formatDate(p.dueDate)}</td>
-                    <td className="td-base">{formatDate(p.paidAt)}</td>
-                    <td className="td-base">{p.receivedByName || '—'}</td>
-                    <td className="td-base">
-                      <button
-                        type="button"
-                        className="row-action"
-                        onClick={() => openHistory(p)}
-                        title="Ver historial de cuotas del cliente"
-                      >
-                        <FiClock /> Historial
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr style={{ background: '#0B2F6E' }}>
-                  <td className="td-base font-bold text-white" colSpan={2}>Totales ({filteredRows.length})</td>
-                  <td className="td-base font-bold text-white">{totalOperationArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td>
-                  <td className="td-base"></td>
-                  <td className="td-base font-bold text-white">{show(totalPrecioVenta)}</td>
-                  <td className="td-base"></td>
-                  <td className="td-base font-bold text-white">{usdMoney(totalOperationInitial)}</td>
-                  <td className="td-base font-bold text-white">{usdMoney(totalOperationFinancingCuota)}</td>
-                  <td className="td-base" colSpan={2}></td>
-                  <td className="td-base font-bold text-white">{show(totalRegistrado)}</td>
-                  <td className="td-base font-bold text-white">{totalPagadoUsd > 0 ? `US$ ${totalPagadoUsd.toFixed(2)}` : '—'}</td>
-                  <td className="td-base font-bold text-white" colSpan={5} style={{ background: '#16A34A' }}>% Pago: {pctPago.toFixed(1)}%</td>
-                </tr>
-              </tfoot>
-            </table>
-            </>
-            )}
+          <div className="card p-0 overflow-auto">
+            {loading ? <p className="p-4 text-slate-400">Cargando…</p>
+              : filteredRows.length === 0 ? <EmptyState text={paySearch ? 'No hay pagos que coincidan con la busqueda.' : 'No hay pagos con esos filtros.'} />
+                : (
+                  <>
+                    <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
+                    <table className="table-base table-head-plomo" style={{ width: '100%', minWidth: 1320 }}>
+                      <thead><tr>
+                        <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Área m²</th><th className="th-base">Cliente</th>
+                        <th className="th-base">Precio venta</th><th className="th-base">Tipo de pago</th>
+                        <th className="th-base whitespace-nowrap">Inicial US$</th><th className="th-base whitespace-nowrap">Cuota Financ. US$</th>
+                        <th className="th-base">Medio de pago</th><th className="th-base">Evidencia</th><th className="th-base">Monto registrado</th><th className="th-base">Pagado US$</th>
+                        <th className="th-base">Estado</th><th className="th-base">Pagado</th>
+                        <th className="th-base">Recepciona pago</th>
+                        <th className="th-base">Acciones</th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {filteredRows.map((p) => (
+                          <tr key={p.id}>
+                            <td className="td-base text-slate-400">P{p.id}</td>
+                            <td className="td-base font-medium">{p.lotCode || `Lote ${p.lotId}`}</td>
+                            <td className="td-base tabular-nums">{operationAreaOf(p) ? `${operationAreaOf(p).toLocaleString('es-PE', { maximumFractionDigits: 2 })} m²` : '—'}</td>
+                            <td className="td-base">{p.clientName || '—'}</td>
+                            <td className="td-base">{p.salePrice ? show(p.salePrice) : '—'}</td>
+                            <td className="td-base capitalize">{p.conceptLabel || TYPE_LABEL[p.type] || p.type}</td>
+                            <td className="td-base tabular-nums">{operationInitialOf(p) ? usdMoney(operationInitialOf(p)) : '—'}</td>
+                            <td className="td-base tabular-nums">{operationFinancingCuotaOf(p) ? usdMoney(operationFinancingCuotaOf(p)) : '—'}</td>
+                            <td className="td-base capitalize">{METHOD_LABEL[p.paymentMethod || ''] || p.paymentMethod || '—'}</td>
+                            <td className="td-base"><EvidenceButton pay={p} /></td>
+                            <td className="td-base font-medium">{show(p.amount)}</td>
+                            <td className="td-base tabular-nums">{(() => {
+                              if (p.status !== 'pagado') return '—';
+                              const tc = Number(p.exchangeRate || exchangeRate || 0);
+                              const usd = p.amountUsd != null ? Number(p.amountUsd) : (tc > 0 ? Number(p.amount || 0) / tc : 0);
+                              return usd > 0 ? `US$ ${usd.toFixed(2)}` : '—';
+                            })()}</td>
+                            <td className="td-base">
+                              <div className="flex flex-col items-start gap-1.5">
+                                {st(p)}
+                                {p.status === 'pendiente' && (
+                                  <button
+                                    type="button"
+                                    className="row-action row-action--primary"
+                                    onClick={() => openEditPayment(p)}
+                                    title={payCanMark ? 'Aprobar o editar este pago' : 'Editar este pago'}
+                                  >
+                                    <FiEdit3 /> {payCanMark ? 'Aprobar' : 'Editar'}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                            <td className="td-base">{formatDate(p.paidAt)}</td>
+                            <td className="td-base">{p.receivedByName || '—'}</td>
+                            <td className="td-base">
+                              <button
+                                type="button"
+                                className="row-action"
+                                onClick={() => openHistory(p)}
+                                title="Ver historial de cuotas del cliente"
+                              >
+                                <FiClock /> Historial
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: '#0B2F6E' }}>
+                          <td className="td-base font-bold text-white" colSpan={2}>Totales ({filteredRows.length})</td>
+                          <td className="td-base font-bold text-white">{totalOperationArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} m²</td>
+                          <td className="td-base"></td>
+                          <td className="td-base font-bold text-white">{show(totalPrecioVenta)}</td>
+                          <td className="td-base"></td>
+                          <td className="td-base font-bold text-white">{usdMoney(totalOperationInitial)}</td>
+                          <td className="td-base font-bold text-white">{usdMoney(totalOperationFinancingCuota)}</td>
+                          <td className="td-base" colSpan={2}></td>
+                          <td className="td-base font-bold text-white">{show(totalRegistrado)}</td>
+                          <td className="td-base font-bold text-white">{totalPagadoUsd > 0 ? `US$ ${totalPagadoUsd.toFixed(2)}` : '—'}</td>
+                          <td className="td-base font-bold text-white" colSpan={5} style={{ background: '#16A34A' }}>% Pago: {pctPago.toFixed(1)}%</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </>
+                )}
             <div className="bg-white p-3 border-t" style={{ borderColor: '#F0F1F3' }}>
               <PaginationBar compact label="Pagos" page={page} totalPages={meta.totalPages} total={meta.total} limit={limit} setPage={setPage} />
             </div>
-        </div>
+          </div>
         ) : (
-        <div className="card p-0 overflow-auto">
-          {clientReportRows.length === 0 ? <EmptyState text={paySearch ? 'No hay clientes que coincidan con la busqueda.' : 'No hay ventas para el reporte por cliente.'} />
-            : (
-            <>
-            <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
-            <table className="table-base" style={{ width: '100%', minWidth: 1300 }}>
-              <thead>
-                <tr style={{ background: '#808080', color: '#fff' }}>
-                  <th className="th-base !bg-[#808080] !text-white">Id</th>
-                  <th className="th-base !bg-[#808080] !text-white">Lote</th>
-                  <th className="th-base !bg-[#808080] !text-white">Area (m2)</th>
-                  <th className="th-base !bg-[#808080] !text-white">Cliente</th>
-                  <th className="th-base !bg-[#808080] !text-white">Precio Venta US$</th>
-                  <th className="th-base !bg-[#808080] !text-white">Cuota Inicial US$</th>
-                  <th className="th-base !bg-[#808080] !text-white">Total Cuotas Financ.</th>
-                  <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. Pagadas (#)</th>
-                  <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. Pagadas US$</th>
-                  <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. por Pagar (#)</th>
-                  <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. por Pagar US$</th>
-                  <th className="th-base !bg-[#808080] !text-white">Pago Intereses US$</th>
-                  <th className="th-base !bg-[#808080] !text-white">Cuotas en mora #</th>
-                  <th className="th-base !bg-[#808080] !text-white">Cuotas en mora US$</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {clientReportRows.map((row, index) => (
-                  <tr key={`${row.id}-${row.lotCode}`}>
-                    <td className="td-base text-center">{index + 1}</td>
-                    <td className="td-base font-medium">{row.lotCode}</td>
-                    <td className="td-base tabular-nums">{row.area.toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td>
-                    <td className="td-base">{row.clientName}</td>
-                    <td className="td-base tabular-nums">{usdMoney(row.salePrice)}</td>
-                    <td className="td-base tabular-nums">{usdMoney(row.initialUsd)}</td>
-                    <td className="td-base tabular-nums">{row.totalCuotas}</td>
-                    <td className="td-base tabular-nums">{row.paidCount}</td>
-                    <td className="td-base tabular-nums">{usdMoney(row.paidUsd)}</td>
-                    <td className="td-base tabular-nums">{row.pendingCount}</td>
-                    <td className="td-base tabular-nums">{usdMoney(row.pendingUsd)}</td>
-                    <td className="td-base tabular-nums">{usdMoney(row.interestUsd)}</td>
-                    <td className="td-base tabular-nums">{row.overdueCount}</td>
-                    <td className="td-base tabular-nums">{usdMoney(row.overdueUsd)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr style={{ background: '#000080' }}>
-                  <td className="td-base font-bold text-white" colSpan={2}>Total</td>
-                  <td className="td-base font-bold text-white">{clientReportTotals.area.toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td>
-                  <td className="td-base font-bold text-white"></td>
-                  <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.salePrice)}</td>
-                  <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.initialUsd)}</td>
-                  <td className="td-base font-bold text-white">{clientReportTotals.totalCuotas}</td>
-                  <td className="td-base font-bold text-white">{clientReportTotals.paidCount}</td>
-                  <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.paidUsd)}</td>
-                  <td className="td-base font-bold text-white">{clientReportTotals.pendingCount}</td>
-                  <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.pendingUsd)}</td>
-                  <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.interestUsd)}</td>
-                  <td className="td-base font-bold text-white">{clientReportTotals.overdueCount}</td>
-                  <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.overdueUsd)}</td>
-                </tr>
-              </tfoot>
-            </table>
-            </>
-            )}
-        </div>
+          <div className="card p-0 overflow-auto">
+            {clientReportRows.length === 0 ? <EmptyState text={paySearch ? 'No hay clientes que coincidan con la busqueda.' : 'No hay ventas para el reporte por cliente.'} />
+              : (
+                <>
+                  <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
+                  <table className="table-base" style={{ width: '100%', minWidth: 1300 }}>
+                    <thead>
+                      <tr style={{ background: '#808080', color: '#fff' }}>
+                        <th className="th-base !bg-[#808080] !text-white">Id</th>
+                        <th className="th-base !bg-[#808080] !text-white">Lote</th>
+                        <th className="th-base !bg-[#808080] !text-white">Area (m2)</th>
+                        <th className="th-base !bg-[#808080] !text-white">Cliente</th>
+                        <th className="th-base !bg-[#808080] !text-white">Precio Venta US$</th>
+                        <th className="th-base !bg-[#808080] !text-white">Cuota Inicial US$</th>
+                        <th className="th-base !bg-[#808080] !text-white">Total Cuotas Financ.</th>
+                        <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. Pagadas (#)</th>
+                        <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. Pagadas US$</th>
+                        <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. por Pagar (#)</th>
+                        <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. por Pagar US$</th>
+                        <th className="th-base !bg-[#808080] !text-white">Pago Intereses US$</th>
+                        <th className="th-base !bg-[#808080] !text-white">Cuotas en mora #</th>
+                        <th className="th-base !bg-[#808080] !text-white">Cuotas en mora US$</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {clientReportRows.map((row, index) => (
+                        <tr key={`${row.id}-${row.lotCode}`}>
+                          <td className="td-base text-center">{index + 1}</td>
+                          <td className="td-base font-medium">{row.lotCode}</td>
+                          <td className="td-base tabular-nums">{row.area.toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td>
+                          <td className="td-base">{row.clientName}</td>
+                          <td className="td-base tabular-nums">{usdMoney(row.salePrice)}</td>
+                          <td className="td-base tabular-nums">{usdMoney(row.initialUsd)}</td>
+                          <td className="td-base tabular-nums">{row.totalCuotas}</td>
+                          <td className="td-base tabular-nums">{row.paidCount}</td>
+                          <td className="td-base tabular-nums">{usdMoney(row.paidUsd)}</td>
+                          <td className="td-base tabular-nums">{row.pendingCount}</td>
+                          <td className="td-base tabular-nums">{usdMoney(row.pendingUsd)}</td>
+                          <td className="td-base tabular-nums">{usdMoney(row.interestUsd)}</td>
+                          <td className="td-base tabular-nums">{row.overdueCount}</td>
+                          <td className="td-base tabular-nums">{usdMoney(row.overdueUsd)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#000080' }}>
+                        <td className="td-base font-bold text-white" colSpan={2}>Total</td>
+                        <td className="td-base font-bold text-white">{clientReportTotals.area.toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td>
+                        <td className="td-base font-bold text-white"></td>
+                        <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.salePrice)}</td>
+                        <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.initialUsd)}</td>
+                        <td className="td-base font-bold text-white">{clientReportTotals.totalCuotas}</td>
+                        <td className="td-base font-bold text-white">{clientReportTotals.paidCount}</td>
+                        <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.paidUsd)}</td>
+                        <td className="td-base font-bold text-white">{clientReportTotals.pendingCount}</td>
+                        <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.pendingUsd)}</td>
+                        <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.interestUsd)}</td>
+                        <td className="td-base font-bold text-white">{clientReportTotals.overdueCount}</td>
+                        <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.overdueUsd)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </>
+              )}
+          </div>
         )}
       </div>
       {open && (
@@ -1897,7 +1953,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 <p className="text-[10px] font-bold uppercase tracking-widest" style={{ color: '#1877F2' }}>Pagos de lotes</p>
                 <h3 className="font-semibold" style={{ fontSize: 17 }}>Registrar pago</h3>
               </div>
-              <button type="button" className="grid h-8 w-8 place-items-center rounded-lg border bg-white text-slate-400 hover:text-slate-600 hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => setOpen(false)} aria-label="Cerrar">âœ•</button>
+              <button type="button" className="grid h-8 w-8 place-items-center rounded-lg border bg-white text-slate-400 hover:text-slate-600 hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => setOpen(false)} aria-label="Cerrar">✕</button>
             </div>
 
             {/* Cuerpo */}
@@ -1918,7 +1974,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                     <div className="border-b px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide" style={{ borderColor: '#F1F5F9', color: MUTED }}>
                       {searchResults.length === 1
                         ? '1 resultado'
-                        : `${searchResults.length} resultados â€” elige el lote a pagar`}
+                        : `${searchResults.length} resultados — elige el lote a pagar`}
                     </div>
                     <div className="max-h-64 overflow-y-auto">
                       {searchResults.map((r: any, i: number) => (
@@ -1932,14 +1988,14 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                           <span className="min-w-0">
                             <span className="block truncate text-sm font-semibold" style={{ color: INK }}>
                               {r.lotCode ? `Lote ${r.lotCode}` : 'Sin lote asignado'}
-                              {r.clientName ? ` Â· ${r.clientName}` : ''}
+                              {r.clientName ? ` · ${r.clientName}` : ''}
                             </span>
                             <span className="block truncate text-[11px]" style={{ color: MUTED }}>
-                              {r.projectName ? `${r.projectName} Â· ` : ''}
+                              {r.projectName ? `${r.projectName} · ` : ''}
                               {r.price ? show(r.price) : 'Sin precio'}
                               {r.summary?.nextInstallmentNo
-                                ? ` Â· cuota ${r.summary.nextInstallmentNo} de ${r.summary.totalCuotas}`
-                                : (r.hasSale ? ' Â· todas pagadas' : '')}
+                                ? ` · cuota ${r.summary.nextInstallmentNo} de ${r.summary.totalCuotas}`
+                                : (r.hasSale ? ' · todas pagadas' : '')}
                             </span>
                           </span>
                           {r.hasSale ? (
@@ -1956,104 +2012,104 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 )}
                 {!payContextLoading && !paySearchPicked && searchResults.length === 0 && payClientSearch.trim().length >= 2 && (
                   <p className="mt-2 text-xs text-amber-600">
-                    No se encontro ningun lote o cliente con Â«{payClientSearch.trim()}Â».
+                    No se encontro ningun lote o cliente con «{payClientSearch.trim()}».
                   </p>
                 )}
               </div>
               {activeSale && (
                 <>
-                <div className="rounded-lg border bg-white p-3" style={{ borderColor: '#BBF7D0' }}>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="min-w-0">
-                      <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Pago autocompletado</p>
+                  <div className="rounded-lg border bg-white p-3" style={{ borderColor: '#BBF7D0' }}>
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Pago autocompletado</p>
+                        {activeSale.summary?.nextConceptLabel || activeSale.summary?.nextInstallmentNo ? (
+                          <p className="mt-0.5 truncate text-sm font-bold" style={{ color: activeSale.summary.nextIsOverdue ? RED : INK }}>
+                            {activeSale.summary.nextConceptLabel || `Cuota ${activeSale.summary.nextInstallmentNo}`} · {show(activeSale.summary.nextAmount)}
+                            {activeSale.summary.nextDueDate ? ` · vence ${formatDate(activeSale.summary.nextDueDate)}` : ''}
+                            {activeSale.summary.nextIsOverdue ? ' · en mora' : ''}
+                          </p>
+                        ) : (
+                          <p className="mt-0.5 text-sm font-bold" style={{ color: GREEN }}>No hay cuotas pendientes.</p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                          <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">
+                            Se registrara como: <b>{activeSale.summary?.nextConceptLabel || (activeSale.summary?.nextInstallmentNo ? `Cuota ${activeSale.summary.nextInstallmentNo}` : 'Pago')}</b>
+                          </span>
+                          <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-700">
+                            Descuenta saldo: <b>si</b>
+                          </span>
+                          <span className="rounded-md bg-blue-50 px-2 py-1 text-blue-700">
+                            Saldo luego: <b>{show(Math.max(0, Number(activeSale.summary?.balanceAmount || 0) - Number(activeSale.summary?.nextAmount || 0)))}</b>
+                          </span>
+                          <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">
+                            TC aplicado: <b>{historyRate.toFixed(4)}</b>
+                          </span>
+                        </div>
+                        {/* Aviso de coherencia: si el monto capturado no cuadra con la
+                          cuota que toca, el saldo quedaria descuadrado. */}
+                        {Number(activeSale.summary?.nextAmount || 0) > 0
+                          && Math.abs(Number(amount || 0) - Number(activeSale.summary.nextAmount)) > 0.01 && (
+                            <p className="mt-2 rounded-md px-2 py-1 text-[11px] font-semibold" style={{ background: '#FFF6E4', color: '#B45309' }}>
+                              El monto capturado ({show(amount)}) no coincide con la cuota que le toca ({show(activeSale.summary.nextAmount)}). Se descontara el monto capturado.
+                            </p>
+                          )}
+                      </div>
+                      <button type="button" className="row-action shrink-0" onClick={() => setShowHistory((v) => !v)}>
+                        <FiClock /> {showHistory ? 'Ocultar' : 'Historial'}
+                      </button>
+                    </div>
+                    {showHistory && (
+                      <div className="mt-3 rounded-lg border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold">Historial de cuotas</span>
+                          <button type="button" className="btn-primary !h-7 text-xs" onClick={() => PaymentHistoryPdf({ sale: activeSale })}>Descargar PDF</button>
+                        </div>
+                        <InstallmentGrid sale={activeSale} compact formatter={show} />
+                      </div>
+                    )}
+                  </div>
+                  <div className="hidden">
+                    <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+                      <div><span className="block text-[10px] font-bold uppercase text-slate-500">Lote</span><b>{activeSale.lot?.code || activeSale.sale.lotId}</b></div>
+                      <div><span className="block text-[10px] font-bold uppercase text-slate-500">Cliente</span><b>{activeSale.client?.fullName || 'Sin cliente'}</b></div>
+                      <div><span className="block text-[10px] font-bold uppercase text-slate-500">Forma de pago</span><b>{activeSale.sale.paymentMethod}</b></div>
+                      <div><span className="block text-[10px] font-bold uppercase text-slate-500">Precio de venta</span><b>{show(activeSale.sale.salePrice)}</b></div>
+                      <div><span className="block text-[10px] font-bold uppercase text-slate-500">Cuota inicial</span><b>{show(activeSale.sale.cuotaInicial)}</b></div>
+                      <div><span className="block text-[10px] font-bold uppercase text-slate-500">Plazo</span><b>{activeSale.sale.totalCuotas} meses</b></div>
+                      <div><span className="block text-[10px] font-bold uppercase text-slate-500">Interes</span><b>{activeSale.sale.interestType === 'tea' ? `TEA ${activeSale.sale.tea}%` : 'Sin intereses'}</b></div>
+                      <div><span className="block text-[10px] font-bold uppercase text-slate-500">Valor cuota</span><b>{show(activeSale.sale.valorCuota)}</b></div>
+                      <div><span className="block text-[10px] font-bold uppercase text-slate-500">Estado</span><b>{activeSale.sale.approvalStatus}</b></div>
+                    </div>
+
+                    <div className="rounded-lg border bg-white px-3 py-2" style={{ borderColor: '#BBF7D0' }}>
+                      <p className="text-[10px] font-bold uppercase text-slate-500">Cuota que le toca pagar</p>
                       {activeSale.summary?.nextConceptLabel || activeSale.summary?.nextInstallmentNo ? (
-                        <p className="mt-0.5 truncate text-sm font-bold" style={{ color: activeSale.summary.nextIsOverdue ? RED : INK }}>
-                          {activeSale.summary.nextConceptLabel || `Cuota ${activeSale.summary.nextInstallmentNo}`} Â· {show(activeSale.summary.nextAmount)}
-                          {activeSale.summary.nextDueDate ? ` Â· vence ${formatDate(activeSale.summary.nextDueDate)}` : ''}
-                          {activeSale.summary.nextIsOverdue ? ' Â· en mora' : ''}
+                        <p className="mt-0.5 text-sm font-bold" style={{ color: activeSale.summary.nextIsOverdue ? RED : AMBER }}>
+                          {activeSale.summary.nextConceptLabel || `Cuota N. ${activeSale.summary.nextInstallmentNo}`} — {show(activeSale.summary.nextAmount)} — {formatDate(activeSale.summary.nextDueDate)}
+                          {activeSale.summary.nextIsOverdue ? ' — EN MORA' : ''}
                         </p>
                       ) : (
-                        <p className="mt-0.5 text-sm font-bold" style={{ color: GREEN }}>No hay cuotas pendientes.</p>
+                        <p className="mt-0.5 text-sm font-bold" style={{ color: GREEN }}>Todas las cuotas estan pagadas.</p>
                       )}
-                      <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
-                        <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">
-                          Se registrara como: <b>{activeSale.summary?.nextConceptLabel || (activeSale.summary?.nextInstallmentNo ? `Cuota ${activeSale.summary.nextInstallmentNo}` : 'Pago')}</b>
-                        </span>
-                        <span className="rounded-md bg-emerald-50 px-2 py-1 text-emerald-700">
-                          Descuenta saldo: <b>si</b>
-                        </span>
-                        <span className="rounded-md bg-blue-50 px-2 py-1 text-blue-700">
-                          Saldo luego: <b>{show(Math.max(0, Number(activeSale.summary?.balanceAmount || 0) - Number(activeSale.summary?.nextAmount || 0)))}</b>
-                        </span>
-                        <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">
-                          TC aplicado: <b>{historyRate.toFixed(4)}</b>
-                        </span>
-                      </div>
-                      {/* Aviso de coherencia: si el monto capturado no cuadra con la
-                          cuota que toca, el saldo quedaria descuadrado. */}
-                      {Number(activeSale.summary?.nextAmount || 0) > 0
-                        && Math.abs(Number(amount || 0) - Number(activeSale.summary.nextAmount)) > 0.01 && (
-                        <p className="mt-2 rounded-md px-2 py-1 text-[11px] font-semibold" style={{ background: '#FFF6E4', color: '#B45309' }}>
-                          El monto capturado ({show(amount)}) no coincide con la cuota que le toca ({show(activeSale.summary.nextAmount)}). Se descontara el monto capturado.
-                        </p>
-                      )}
-                    </div>
-                    <button type="button" className="row-action shrink-0" onClick={() => setShowHistory((v) => !v)}>
-                      <FiClock /> {showHistory ? 'Ocultar' : 'Historial'}
-                    </button>
-                  </div>
-                  {showHistory && (
-                    <div className="mt-3 rounded-lg border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
-                      <div className="mb-3 flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold">Historial de cuotas</span>
-                        <button type="button" className="btn-primary !h-7 text-xs" onClick={() => PaymentHistoryPdf({ sale: activeSale })}>Descargar PDF</button>
-                      </div>
-                      <InstallmentGrid sale={activeSale} compact formatter={show} />
-                    </div>
-                  )}
-                </div>
-                <div className="hidden">
-                  <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
-                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Lote</span><b>{activeSale.lot?.code || activeSale.sale.lotId}</b></div>
-                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Cliente</span><b>{activeSale.client?.fullName || 'Sin cliente'}</b></div>
-                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Forma de pago</span><b>{activeSale.sale.paymentMethod}</b></div>
-                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Precio de venta</span><b>{show(activeSale.sale.salePrice)}</b></div>
-                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Cuota inicial</span><b>{show(activeSale.sale.cuotaInicial)}</b></div>
-                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Plazo</span><b>{activeSale.sale.totalCuotas} meses</b></div>
-                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Interes</span><b>{activeSale.sale.interestType === 'tea' ? `TEA ${activeSale.sale.tea}%` : 'Sin intereses'}</b></div>
-                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Valor cuota</span><b>{show(activeSale.sale.valorCuota)}</b></div>
-                    <div><span className="block text-[10px] font-bold uppercase text-slate-500">Estado</span><b>{activeSale.sale.approvalStatus}</b></div>
-                  </div>
-
-                  <div className="rounded-lg border bg-white px-3 py-2" style={{ borderColor: '#BBF7D0' }}>
-                    <p className="text-[10px] font-bold uppercase text-slate-500">Cuota que le toca pagar</p>
-                    {activeSale.summary?.nextConceptLabel || activeSale.summary?.nextInstallmentNo ? (
-                      <p className="mt-0.5 text-sm font-bold" style={{ color: activeSale.summary.nextIsOverdue ? RED : AMBER }}>
-                        {activeSale.summary.nextConceptLabel || `Cuota N. ${activeSale.summary.nextInstallmentNo}`} â€” {show(activeSale.summary.nextAmount)} â€” {formatDate(activeSale.summary.nextDueDate)}
-                        {activeSale.summary.nextIsOverdue ? ' â€” EN MORA' : ''}
+                      <p className="mt-0.5 text-[11px]" style={{ color: MUTED }}>
+                        Orden de cobro: reserva → cuota inicial → cuotas. Cobrado {show(activeSale.summary?.collectedAmount || 0)} de {show(activeSale.sale?.salePrice || 0)}.
                       </p>
-                    ) : (
-                      <p className="mt-0.5 text-sm font-bold" style={{ color: GREEN }}>Todas las cuotas estan pagadas.</p>
-                    )}
-                    <p className="mt-0.5 text-[11px]" style={{ color: MUTED }}>
-                      Orden de cobro: reserva â†’ cuota inicial â†’ cuotas. Cobrado {show(activeSale.summary?.collectedAmount || 0)} de {show(activeSale.sale?.salePrice || 0)}.
-                    </p>
-                  </div>
-
-                  <button type="button" className="btn-neutral !h-8 w-full text-xs" onClick={() => setShowHistory((v) => !v)}>
-                    {showHistory ? 'Ocultar historial de pagos' : 'Ver historial de pagos'}
-                  </button>
-
-                  {showHistory && (
-                    <div className="rounded-lg border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
-                      <div className="mb-3 flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold">Historial de cuotas</span>
-                        <button type="button" className="btn-primary !h-7 text-xs" onClick={() => PaymentHistoryPdf({ sale: activeSale })}>Descargar PDF</button>
-                      </div>
-                      <InstallmentGrid sale={activeSale} compact formatter={show} />
                     </div>
-                  )}
-                </div>
+
+                    <button type="button" className="btn-neutral !h-8 w-full text-xs" onClick={() => setShowHistory((v) => !v)}>
+                      {showHistory ? 'Ocultar historial de pagos' : 'Ver historial de pagos'}
+                    </button>
+
+                    {showHistory && (
+                      <div className="rounded-lg border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
+                        <div className="mb-3 flex items-center justify-between gap-2">
+                          <span className="text-xs font-semibold">Historial de cuotas</span>
+                          <button type="button" className="btn-primary !h-7 text-xs" onClick={() => PaymentHistoryPdf({ sale: activeSale })}>Descargar PDF</button>
+                        </div>
+                        <InstallmentGrid sale={activeSale} compact formatter={show} />
+                      </div>
+                    )}
+                  </div>
                 </>
               )}
 
@@ -2062,7 +2118,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   <Select
                     value={payProjectId}
                     onChange={(v) => { setPayProjectId(Number(v)); setLotId(0); setClientId(0); }}
-                    options={[{ value: 0, label: 'Selecciona el proyectoâ€¦' }, ...payProjects.map((pr: any) => ({ value: pr.id, label: pr.name }))]}
+                    options={[{ value: 0, label: 'Selecciona el proyecto…' }, ...payProjects.map((pr: any) => ({ value: pr.id, label: pr.name }))]}
                   />
                 </Field>
               )}
@@ -2071,11 +2127,11 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   <Select
                     value={lotId}
                     onChange={(v) => selectLot(Number(v))}
-                    options={[{ value: 0, label: payProjectId ? 'Selecciona el loteâ€¦' : 'Primero elige un proyecto' }, ...availableLots.map((l: any) => ({ value: l.id, label: `Lote ${l.code} â€” ${show(l.price)}` }))]}
+                    options={[{ value: 0, label: payProjectId ? 'Selecciona el lote…' : 'Primero elige un proyecto' }, ...availableLots.map((l: any) => ({ value: l.id, label: `Lote ${l.code} — ${show(l.price)}` }))]}
                   />
                 </Field>
                 <Field label="Cliente">
-                  <Select value={clientId} onChange={(v) => setClientId(Number(v))} options={[{ value: 0, label: 'â€” Sin asignar â€”' }, ...clients.map((c: any) => ({ value: c.id, label: (c.fullName || c.full_name || 'â€” Sin nombre â€”') }))]} />
+                  <Select value={clientId} onChange={(v) => setClientId(Number(v))} options={[{ value: 0, label: '— Sin asignar —' }, ...clients.map((c: any) => ({ value: c.id, label: (c.fullName || c.full_name || '— Sin nombre —') }))]} />
                 </Field>
                 <Field label="Tipo de pago">
                   <Select value={payType} onChange={setPayType} options={[{ value: 'reserva', label: 'Reserva' }, { value: 'adelanto', label: 'Cuota inicial' }, { value: 'primera_cuota', label: 'Cuota normal' }, { value: 'cuota', label: 'Cuota' }]} />
@@ -2093,7 +2149,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   <Select value={payMethod} onChange={setPayMethod} options={METHODS.map(([v, label]) => ({ value: v, label }))} />
                 </Field>
               </div>
-              <Field label="Referencia (n.Âº operaciÃ³n Yape/banco)">
+              <Field label="Referencia (n.º operación Yape/banco)">
                 <input className="input" value={reference} onChange={(e) => setReference(e.target.value)} placeholder="Ej: YAP-48592910 / 0293-4521-1000" />
               </Field>
               <Field label="Comprobante (baucher o captura)">
@@ -2149,8 +2205,8 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   Operacion bancaria y boleta (se revisan al aprobar el pago)
                 </p>
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Field label="NÂ° Op. Bco"><input className="input" value={regBankOp} onChange={(e) => setRegBankOp(e.target.value)} placeholder="Ej: 0293-4521-1000" /></Field>
-                  <Field label="NÂ° Boleta"><input className="input" value={regReceiptNo} onChange={(e) => setRegReceiptNo(e.target.value)} placeholder="Ej: B001-4521" /></Field>
+                  <Field label="N° Op. Bco"><input className="input" value={regBankOp} onChange={(e) => setRegBankOp(e.target.value)} placeholder="Ej: 0293-4521-1000" /></Field>
+                  <Field label="N° Boleta"><input className="input" value={regReceiptNo} onChange={(e) => setRegReceiptNo(e.target.value)} placeholder="Ej: B001-4521" /></Field>
                 </div>
                 <AmountField
                   label="Valor de la cuota"
@@ -2233,7 +2289,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                       <th className="th-base">Lote</th>
                       <th className="th-base">Tipo de pago</th>
                       <th className="th-base">Medio</th>
-                      <th className="th-base">Ãrea</th>
+                      <th className="th-base">Área</th>
                       <th className="th-base">Monto</th>
                       <th className="th-base">Estado</th>
                     </tr>
@@ -2317,8 +2373,8 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   </div>
                 )}
                 <div className="grid grid-cols-2 gap-3">
-                  <Field label="NÂ° Op. Bco"><input className="input" value={approvalBankOp} onChange={(e) => setApprovalBankOp(e.target.value)} /></Field>
-                  <Field label="NÂ° Boleta"><input className="input" value={approvalReceiptNo} onChange={(e) => setApprovalReceiptNo(e.target.value)} /></Field>
+                  <Field label="N° Op. Bco"><input className="input" value={approvalBankOp} onChange={(e) => setApprovalBankOp(e.target.value)} /></Field>
+                  <Field label="N° Boleta"><input className="input" value={approvalReceiptNo} onChange={(e) => setApprovalReceiptNo(e.target.value)} /></Field>
                 </div>
                 <Field label="Valor Bol"><input type="number" step="0.01" className="input" value={approvalReceiptValue} onChange={(e) => setApprovalReceiptValue(e.target.value)} /></Field>
                 <Field label="Adj. doc (opcional)">
@@ -2368,34 +2424,34 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   const initialFeeAmount = paymentHistoryInitialFeeAmount(historySale);
                   return (
                     <>
-                {!historySale.sale && (
-                  <p className="rounded-md border bg-amber-50 px-3 py-2 text-xs" style={{ borderColor: '#FDE68A', color: '#B45309' }}>
-                    Este lote aun no tiene una venta o financiamiento registrado. Abajo se listan los pagos
-                    que ya se registraron y de cada uno puedes descargar su ficha.
-                  </p>
-                )}
-                {/* Resumen en tarjetas (2 filas) y todo en US$: los importes se
+                      {!historySale.sale && (
+                        <p className="rounded-md border bg-amber-50 px-3 py-2 text-xs" style={{ borderColor: '#FDE68A', color: '#B45309' }}>
+                          Este lote aun no tiene una venta o financiamiento registrado. Abajo se listan los pagos
+                          que ya se registraron y de cada uno puedes descargar su ficha.
+                        </p>
+                      )}
+                      {/* Resumen en tarjetas (2 filas) y todo en US$: los importes se
                     dividen por el TC de la venta para mostrarlos siempre en dolares. */}
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-                  <MiniMetric label="Precio de venta" value={showUsd(historySale.sale?.salePrice || 0)} />
-                  <MiniMetric
-                    label="Reserva"
-                    value={historySale.summary?.reservaAmount ? showUsd(historySale.summary.reservaAmount) : 'No aplica'}
-                    color={historySale.summary?.reservaAmount ? (historySale.summary?.reservaPaid ? GREEN : AMBER) : MUTED}
-                  />
-                  <MiniMetric
-                    label="Cuota inicial"
-                    value={showUsd(initialFeeAmount)}
-                    color={historySale.summary?.cuotaInicialPaid ? GREEN : AMBER}
-                  />
-                  <MiniMetric label="Cobrado" value={showUsd(historySale.summary?.collectedAmount || 0)} color={GREEN} />
-                  <MiniMetric label="Saldo" value={showUsd(historySale.summary?.balanceAmount || 0)} color={BLUE_DARK} />
-                  <MiniMetric label="Cuotas Pagadas US$" value={showUsd(installmentTotals.paid)} color={GREEN} />
-                  <MiniMetric label="Cuotas por pagar US$" value={showUsd(installmentTotals.pending)} color={BLUE_DARK} />
-                  <MiniMetric label="Cuotas en Atraso US$" value={showUsd(installmentTotals.overdue)} color={RED} />
-                  <MiniMetric label="Le toca pagar" value={historySale.summary?.nextConceptLabel || (historySale.summary?.nextInstallmentNo ? `Cuota ${historySale.summary.nextInstallmentNo}` : 'Todo pagado')} color={AMBER} />
-                  <MiniMetric label="Valor de la Cuota US$" value={showUsd(historySale.summary?.nextAmount || 0)} />
-                </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                        <MiniMetric label="Precio de venta" value={showUsd(historySale.sale?.salePrice || 0)} />
+                        <MiniMetric
+                          label="Reserva"
+                          value={historySale.summary?.reservaAmount ? showUsd(historySale.summary.reservaAmount) : 'No aplica'}
+                          color={historySale.summary?.reservaAmount ? (historySale.summary?.reservaPaid ? GREEN : AMBER) : MUTED}
+                        />
+                        <MiniMetric
+                          label="Cuota inicial"
+                          value={showUsd(initialFeeAmount)}
+                          color={historySale.summary?.cuotaInicialPaid ? GREEN : AMBER}
+                        />
+                        <MiniMetric label="Cobrado" value={showUsd(historySale.summary?.collectedAmount || 0)} color={GREEN} />
+                        <MiniMetric label="Saldo" value={showUsd(historySale.summary?.balanceAmount || 0)} color={BLUE_DARK} />
+                        <MiniMetric label="Cuotas Pagadas US$" value={showUsd(installmentTotals.paid)} color={GREEN} />
+                        <MiniMetric label="Cuotas por pagar US$" value={showUsd(installmentTotals.pending)} color={BLUE_DARK} />
+                        <MiniMetric label="Cuotas en Atraso US$" value={showUsd(installmentTotals.overdue)} color={RED} />
+                        <MiniMetric label="Le toca pagar" value={historySale.summary?.nextConceptLabel || (historySale.summary?.nextInstallmentNo ? `Cuota ${historySale.summary.nextInstallmentNo}` : 'Todo pagado')} color={AMBER} />
+                        <MiniMetric label="Valor de la Cuota US$" value={showUsd(historySale.summary?.nextAmount || 0)} />
+                      </div>
                     </>
                   );
                 })()}
@@ -2422,7 +2478,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                         <th className="th-base">TC</th>
                         <th className="th-base">Fecha pago</th>
                         <th className="th-base">Pagado US$</th>
-                        <th className="th-base">NÂ° Op. Bco</th>
+                        <th className="th-base">N° Op. Bco</th>
                         <th className="th-base">Estado</th>
                         <th className="th-base">Evidencia</th>
                         <th className="th-base">Ficha</th>
@@ -2469,6 +2525,36 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                         );
                       })}
                     </tbody>
+                    <tfoot>
+                      <tr style={{ background: '#1877F2' }}>
+                        <td className="td-base text-white" colSpan={2}>Total</td>
+                        <td className="td-base tabular-nums text-white">
+                          {(() => {
+                            const total = (historySale.plan || historySale.installments || []).reduce(
+                              (sum: number, r: any) => {
+                                const isInitial = r.kind === 'reserva' || r.kind === 'cuota_inicial';
+                                return isInitial ? sum : sum + Number(r.amount || 0);
+                              }, 0
+                            );
+                            return showUsd(total);
+                          })()}
+                        </td>
+                        <td className="td-base" colSpan={2}></td>
+                        <td className="td-base tabular-nums text-white">
+                          {(() => {
+                            const total = (historySale.plan || historySale.installments || []).reduce((sum: number, r: any) => {
+                              const pay = r.payment;
+                              if (!pay || !r.paid) return sum;
+                              const tc = Number(pay.exchangeRate || exchangeRate || 0);
+                              const usd = pay.amountUsd != null ? Number(pay.amountUsd) : (tc > 0 ? Number(r.amount || 0) / tc : 0);
+                              return sum + usd;
+                            }, 0);
+                            return total > 0 ? `US$ ${total.toFixed(2)}` : '-';
+                          })()}
+                        </td>
+                        <td className="td-base" colSpan={4}></td>
+                      </tr>
+                    </tfoot>
                   </table>
                 </div>
               </div>
@@ -2481,7 +2567,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 }
 
 // Combina dos series mensuales (pagado / moroso) en un solo arreglo por mes,
-// para el grÃ¡fico de doble eje.
+// para el gráfico de doble eje.
 function mergeByMonth(paid: { month: string; monto: number }[], overdue: { month: string; monto: number }[]) {
   const months = Array.from(new Set([...paid.map((r) => r.month), ...overdue.map((r) => r.month)])).sort();
   const paidMap = Object.fromEntries(paid.map((r) => [r.month, r.monto]));

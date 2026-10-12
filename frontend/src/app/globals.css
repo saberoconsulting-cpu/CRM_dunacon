@@ -21,6 +21,20 @@ body {
   font-size: 14px;
 }
 
+/* KPI labels: permitir texto en múltiples líneas cuando truncateLabel es false */
+.kpi-grid-6 .kpi-label-text,
+.kpi-grid-8 .kpi-label-text,
+.kpi-grid-3 .kpi-label-text,
+.kpi-tile-top .kpi-label {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  line-height: 1.3 !important;
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2 !important;
+  -webkit-box-orient: vertical !important;
+}
+
 /* Regla base de titulos. Va en @layer base para que las utilidades de
    Tailwind (p. ej. text-white) puedan sobrescribir el color sin pelear
    por especificidad ni orden de emision. */

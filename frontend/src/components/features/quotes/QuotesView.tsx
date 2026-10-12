@@ -632,8 +632,8 @@ function QuoteDocumentModal({ doc, onClose }: { doc: { id: number; type: 'cotiza
   );
 }
 
-function QuoteKpi({ label, value, helper, icon, accent }: { label: string; value: string; helper: string; icon: React.ReactNode; accent: string }) {
-  return <KpiCard label={label} value={value} helper={helper} icon={icon} tone={accent} truncateLabel valueAlign="center" />;
+function QuoteKpi({ label, value, helper, icon, accent, truncateLabel = true }: { label: string; value: string; helper: string; icon: React.ReactNode; accent: string; truncateLabel?: boolean }) {
+  return <KpiCard label={label} value={value} helper={helper} icon={icon} tone={accent} truncateLabel={truncateLabel} valueAlign="center" />;
 }
 
 export default function QuotesView({ lockedProjectId }: { lockedProjectId?: number }) {
@@ -862,6 +862,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             helper="Total registradas"
             icon={<FiFileText />}
             accent="#0B2F6E"
+            truncateLabel={false}
           />
           <QuoteKpi
             label="Cotizado al Crédito"
@@ -869,6 +870,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             helper="Financiamiento"
             icon={<FiCreditCard />}
             accent="#1877F2"
+            truncateLabel={false}
           />
           <QuoteKpi
             label="Cotizado al Contado"
@@ -876,6 +878,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             helper="Pago directo"
             icon={<FiCheckCircle />}
             accent="#16A36A"
+            truncateLabel={false}
           />
           <QuoteKpi
             label={`Monto Cotizado ${currency === 'PEN' ? 'S/' : 'US$'}`}
@@ -883,6 +886,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             helper="Suma de cotizaciones"
             icon={<FiDollarSign />}
             accent="#0B2F6E"
+            truncateLabel={false}
           />
           <QuoteKpi
             label={`Cuota Inicial ${currency === 'PEN' ? 'S/' : 'US$'}`}
@@ -890,6 +894,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             helper="Iniciales cotizadas"
             icon={<FiTrendingUp />}
             accent="#1259C4"
+            truncateLabel={false}
           />
           <QuoteKpi
             label={`VENTA CONTADO ${currency === 'PEN' ? 'S/' : 'US$'}`}
@@ -897,6 +902,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             helper="Cuotas al contado"
             icon={<FiDollarSign />}
             accent="#0B2F6E"
+            truncateLabel={false}
           />
         </div>
 

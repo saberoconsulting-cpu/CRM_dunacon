@@ -42,7 +42,7 @@ const LOT_CHART_STATUSES = [
   { key: 'promocion', label: 'En Promocion', color: '#FACC15' },
 ];
 
-function SalesMetric({ label, value, icon, tone = '#1877F2' }: { label: string; value: ReactNode; icon: ReactNode; tone?: string }) {
+function SalesMetric({ label, value, icon, tone = '#1877F2', truncateLabel = true }: { label: string; value: ReactNode; icon: ReactNode; tone?: string; truncateLabel?: boolean }) {
   const text = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
   const len = text.length;
   const valueSize = len > 13 ? 'sm:text-[13px] lg:text-sm' : len > 10 ? 'sm:text-sm lg:text-base' : 'sm:text-base lg:text-[18px]';
@@ -53,7 +53,7 @@ function SalesMetric({ label, value, icon, tone = '#1877F2' }: { label: string; 
       value={<span className={valueSize}>{value}</span>}
       icon={icon}
       tone={tone}
-      truncateLabel
+      truncateLabel={truncateLabel}
     />
   );
 }
@@ -151,7 +151,7 @@ function parseSaleConditions(conditions?: string | null) {
   };
 }
 
-const PAYMENT_METHODS = ['Contado', 'Al crÃ©dito'];
+const PAYMENT_METHODS = ['Contado', 'Al crédito'];
 
 function todayInput() {
   const date = new Date();
@@ -326,8 +326,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [salesRange, setSalesRange] = useState<3 | 6>(6);
   const [salesPeriod, setSalesPeriod] = useState<'month' | 'year'>('month');
   const [isNarrow, setIsNarrow] = useState(false);
-  // PaginaciÃ³n server-side + filtros (buenas prÃ¡cticas: page/limit en el API,
-  // reset a pÃ¡gina 1 cuando cambia un filtro, debounce en bÃºsqueda).
+  // Paginación server-side + filtros (buenas prácticas: page/limit en el API,
+  // reset a página 1 cuando cambia un filtro, debounce en búsqueda).
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
@@ -335,7 +335,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   // Filtros del historial (el backend ya los soporta en ListSalesDto):
-  // estado de aprobaciÃ³n, asesor y rango de fechas de venta.
+  // estado de aprobación, asesor y rango de fechas de venta.
   const [statusFilter, setStatusFilter] = useState('');
   const [agentFilter, setAgentFilter] = useState(0);
   const [fromDate, setFromDate] = useState('');
@@ -411,7 +411,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         totalAmount: Number(s.totalAmount || 0),
         totalCommission: Number(s.totalCommission || 0),
       });
-      // Si la pÃ¡gina quedÃ³ fuera de rango, volver a la Ãºltima vÃ¡lida.
+      // Si la página quedó fuera de rango, volver a la última válida.
       if (page > norm.totalPages && norm.totalPages >= 1) setPage(norm.totalPages);
       if (role === 'admin' || role === 'superadmin') {
         const pendingQuery = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
@@ -585,7 +585,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   }
 
   // Al elegir un lote, autocompletar el precio con su "Precio Venta" de
-  // LotizaciÃ³n (si no viene de una cotizaciÃ³n real seleccionada abajo).
+  // Lotización (si no viene de una cotización real seleccionada abajo).
   function selectLot(id: number) {
     setLotId(id);
     setSelectedQuoteId(0);
@@ -660,7 +660,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     setClientId(match ? Number(match.id) : 0);
 
     if (!values.lotId) {
-      toast('La cotizaciÃ³n no tiene lote asignado. Selecciona el lote manualmente.', 'err');
+      toast('La cotización no tiene lote asignado. Selecciona el lote manualmente.', 'err');
       return;
     }
 
@@ -707,7 +707,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     return Number(created.id);
   }
 
-  // Calculadora en vivo: comisiÃ³n, saldo a financiar, tramos de cuotas.
+  // Calculadora en vivo: comisión, saldo a financiar, tramos de cuotas.
   useEffect(() => {
     if (!open || !salePrice) { setPreview(null); return; }
     const t = setTimeout(() => {
@@ -769,7 +769,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
           ? [conditions.trim(), `Cotizacion Q${selectedQuoteId}`].filter(Boolean).join(' | ')
           : (conditions || undefined),
       });
-      toast('SeparaciÃ³n registrada. Queda pendiente de validaciÃ³n.');
+      toast('Separación registrada. Queda pendiente de validación.');
       setOpen(false); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setClientId(0); setClientName(''); setConditions(''); setSalePrice(0);
       setPaymentMethod('Contado'); setTotalCuotas(0); setCuotaInicial(0); setInitialPaymentMode('contado'); setInitialParts(3); setGraceMonths(0); setApplyInterest(false); setInterestType('sin_intereses'); setTea(0);
       setSaleDate(todayInput()); setAgentId(responsibleUserId); setPreview(null);
@@ -780,12 +780,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
 
   async function aprobar(s: any) {
     const suffix = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
-    try { await api.post(`/sales/approve/${s.id}${suffix}`); toast('SeparaciÃ³n aprobada. Lote vendido.'); load(); }
+    try { await api.post(`/sales/approve/${s.id}${suffix}`); toast('Separación aprobada. Lote vendido.'); load(); }
     catch (e: any) { toast(e.message, 'err'); }
   }
   async function rechazar(s: any) {
     const suffix = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
-    try { await api.post(`/sales/reject/${s.id}${suffix}`); toast('SeparaciÃ³n rechazada. Lote liberado.'); load(); }
+    try { await api.post(`/sales/reject/${s.id}${suffix}`); toast('Separación rechazada. Lote liberado.'); load(); }
     catch (e: any) { toast(e.message, 'err'); }
   }
 
@@ -876,11 +876,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       ['Forma de Pago', formaPago],
       ['Cuota Inicial', usdMoney(cuotaInicialPen)],
       ['Nro de Cuotas de financiamiento', financingInstallments],
-      ['Cuotas sin interÃ©s', noInterestInstallments],
+      ['Cuotas sin interés', noInterestInstallments],
       ['Saldo a Financiar', usdMoney(saldoFin)],
       ['Interes', interestType === 'tea' ? `Con TEA = ${teaValue}%` : 'Sin intereses'],
       ['Estado', s.approvalStatus === 'pendiente' ? 'Pendiente' : 'Aprobada'],
-      ['ComisiÃ³n', usdMoney(commission)],
+      ['Comisión', usdMoney(commission)],
     ];
     const detailSplitAt = Math.ceil(detailRows.length / 2);
     const detailLeft = detailRows.slice(0, detailSplitAt);
@@ -1037,15 +1037,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             setExchangeRate={setDisplayRate}
           />
         </div>
-        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-8 xl:gap-3">
-          <SalesMetric label="Area Vendida m2" value={soldArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} icon={<FiHome />} tone="#1259C4" />
-          <SalesMetric label="Lotes vendidos" value={String(totalSales)} icon={<FiCheckCircle />} tone="#0F8B5F" />
-          <SalesMetric label="Monto total vendido" value={show(total)} icon={<FiDollarSign />} tone="#171717" />
-          <SalesMetric label="Financiamiento D." value={show(financingTotal)} icon={<FiTrendingUp />} tone="#1259C4" />
-          <SalesMetric label="Separaciones" value={pending.length} icon={<FiBookmark />} tone="#0E7490" />
-          <SalesMetric label="Comisiones devengadas" value={show(comm)} icon={<FiPercent />} tone="#B45309" />
-          <SalesMetric label="Cuota Inicial" value={show(initialPaymentTotal)} icon={<FiArrowDownCircle />} tone="#1259C4" />
-          <SalesMetric label="Saldo a Financiar" value={show(financingBalanceTotal)} icon={<FiTrendingUp />} tone="#7C3AED" />
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-3">
+          <SalesMetric label="Area Vendida m2" value={soldArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} icon={<FiHome />} tone="#1259C4" truncateLabel={false} />
+          <SalesMetric label="Lotes vendidos" value={String(totalSales)} icon={<FiCheckCircle />} tone="#0F8B5F" truncateLabel={false} />
+          <SalesMetric label="Monto total vendido" value={show(total)} icon={<FiDollarSign />} tone="#171717" truncateLabel={false} />
+          <SalesMetric label="Separaciones" value={pending.length} icon={<FiBookmark />} tone="#0E7490" truncateLabel={false} />
+          <SalesMetric label="Comisiones devengadas" value={show(comm)} icon={<FiPercent />} tone="#B45309" truncateLabel={false} />
+          <SalesMetric label="Cuota Inicial" value={show(initialPaymentTotal)} icon={<FiArrowDownCircle />} tone="#1259C4" truncateLabel={false} />
+          <SalesMetric label="Saldo a Financiar" value={show(financingBalanceTotal)} icon={<FiTrendingUp />} tone="#7C3AED" truncateLabel={false} />
         </div>
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
           <div className="card overflow-hidden p-0">
@@ -1240,8 +1239,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               <thead><tr>
                 <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
                 <th className="th-base">Precio final</th><th className="th-base">Forma de pago</th><th className="th-base !whitespace-normal">Cuota Inicial</th><th className="th-base !whitespace-normal">Saldo a Financiar</th><th className="th-base">Cuotas</th>
-                <th className="th-base !whitespace-normal">Cuota sin interÃ©s</th><th className="th-base !whitespace-normal">Cuota con interÃ©s</th><th className="th-base">Fecha</th>
-                <th className="th-base">Agente</th><th className="th-base">ComisiÃ³n</th><th className="th-base" style={{ textAlign: 'center' }}>AcciÃ³n</th>
+                <th className="th-base !whitespace-normal">Cuota sin interés</th><th className="th-base !whitespace-normal">Cuota con interés</th><th className="th-base">Fecha</th>
+                <th className="th-base">Agente</th><th className="th-base">Comisión</th><th className="th-base" style={{ textAlign: 'center' }}>Acción</th>
                 <th className="th-base" style={{ textAlign: 'center' }}>Ficha</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
@@ -1249,16 +1248,16 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   <tr key={s.id}>
                     <td className="td-base text-slate-400">V{s.id}</td>
                     <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
-                    <td className="td-base">{s.clientName || 'â€”'}</td>
+                    <td className="td-base">{s.clientName || '—'}</td>
                     <td className="td-base font-medium">{show(s.salePrice)}</td>
-                    <td className="td-base">{s.totalCuotas ? 'Al crÃ©dito' : 'Contado'}</td>
+                    <td className="td-base">{s.totalCuotas ? 'Al crédito' : 'Contado'}</td>
                     <td className="td-base font-medium whitespace-nowrap">{show(initialPaymentOf(s))}</td>
                     <td className="td-base font-medium whitespace-nowrap">{show(financingBalanceOf(s))}</td>
                     <td className="td-base">{s.totalCuotas || 0}</td>
                     <td className="td-base whitespace-nowrap">{saleInstallmentBreakdown(s).noInterest ? `${show(saleInstallmentBreakdown(s).noInterestAmount)} (${saleInstallmentBreakdown(s).noInterest})` : '-'}</td>
                     <td className="td-base whitespace-nowrap">{saleInstallmentBreakdown(s).withInterest ? `${show(saleInstallmentBreakdown(s).withInterestAmount)} (${saleInstallmentBreakdown(s).withInterest})` : '-'}</td>
                     <td className="td-base">{formatDate(s.saleDate)}</td>
-                    <td className="td-base">{s.agentName || 'â€”'}</td>
+                    <td className="td-base">{s.agentName || '—'}</td>
                     <td className="td-base">{show(s.commission)}</td>
                     <td className="td-base" style={{ textAlign: 'center' }}>
                       <button type="button" className="inline-grid h-8 w-8 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
@@ -1279,15 +1278,15 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         )}
 
         <div className="card p-0 overflow-auto">
-          {loading ? <p className="p-4 text-slate-400">Cargandoâ€¦</p>
-            : rows.length === 0 ? <EmptyState text="AÃºn no hay ventas registradas." /> : (
+          {loading ? <p className="p-4 text-slate-400">Cargando…</p>
+            : rows.length === 0 ? <EmptyState text="Aún no hay ventas registradas." /> : (
             <>
             <table className="table-base table-head-plomo" style={{ width: '100%', minWidth: 1080 }}>
               <thead><tr>
                 <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')} title="Ordenar por fecha de registro">Id{sortArrow('createdAt')}</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
                 <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('salePrice')}>Precio final{sortArrow('salePrice')}</th><th className="th-base">Forma de pago</th><th className="th-base !whitespace-normal">Cuota Inicial</th><th className="th-base !whitespace-normal">Saldo a Financiar</th><th className="th-base">Cuotas</th>
-                <th className="th-base !whitespace-normal">Cuota sin interÃ©s</th><th className="th-base !whitespace-normal">Cuota con interÃ©s</th><th className="th-base">Estado</th>
-                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('saleDate')}>Fecha{sortArrow('saleDate')}</th><th className="th-base">Agente</th><th className="th-base">ComisiÃ³n</th>
+                <th className="th-base !whitespace-normal">Cuota sin interés</th><th className="th-base !whitespace-normal">Cuota con interés</th><th className="th-base">Estado</th>
+                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('saleDate')}>Fecha{sortArrow('saleDate')}</th><th className="th-base">Agente</th><th className="th-base">Comisión</th>
                 <th className="th-base" style={{ textAlign: 'center' }}>Ficha</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
@@ -1295,9 +1294,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   <tr key={s.id}>
                     <td className="td-base text-slate-400">V{s.id}</td>
                     <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
-                    <td className="td-base">{s.clientName || 'â€”'}</td>
+                    <td className="td-base">{s.clientName || '—'}</td>
                     <td className="td-base font-medium">{show(s.salePrice)}</td>
-                    <td className="td-base">{s.totalCuotas ? 'Al crÃ©dito' : 'Contado'}</td>
+                    <td className="td-base">{s.totalCuotas ? 'Al crédito' : 'Contado'}</td>
                     <td className="td-base font-medium whitespace-nowrap">{show(initialPaymentOf(s))}</td>
                     <td className="td-base font-medium whitespace-nowrap">{show(financingBalanceOf(s))}</td>
                     <td className="td-base">{s.totalCuotas || 'Contado'}</td>
@@ -1305,7 +1304,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     <td className="td-base whitespace-nowrap">{saleInstallmentBreakdown(s).withInterest ? `${show(saleInstallmentBreakdown(s).withInterestAmount)} (${saleInstallmentBreakdown(s).withInterest})` : '-'}</td>
                     <td className="td-base">{s.approvalStatus === 'pendiente' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#FEF3C7', color:'#92400E' }}>Pendiente</span> : <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#D1FAE5', color:'#065F46' }}>Aprobada</span>}</td>
                     <td className="td-base">{formatDate(s.saleDate)}</td>
-                    <td className="td-base">{s.agentName || 'â€”'}</td>
+                    <td className="td-base">{s.agentName || '—'}</td>
                     <td className="td-base">{show(s.commission)}</td>
                     <td className="td-base" style={{ textAlign: 'center' }}>
                       <button type="button" className="inline-grid h-8 w-8 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
@@ -1350,7 +1349,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               </div>
               {/* Moneda de trabajo: los campos de monto se capturan en esta moneda
                   y se registran siempre en soles (S/). El tipo de cambio se
-                  conserva al alternar, asÃ­ el monto real no cambia. */}
+                  conserva al alternar, así el monto real no cambia. */}
               <div className="mt-2.5 flex flex-wrap items-center gap-2">
                 <div className="inline-flex overflow-hidden rounded-lg border border-[#D9E7FF] bg-white p-0.5" role="group" aria-label="Moneda de la ficha">
                   {(['USD'] as SaleCurrency[]).map((option) => (
@@ -1362,7 +1361,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                       style={saleCurrency === option ? { background: '#1259C4' } : undefined}
                       onClick={() => setSaleCurrency('USD')}
                     >
-                      {option === 'PEN' ? 'Soles (S/)' : 'DÃ³lares (US$)'}
+                      {option === 'PEN' ? 'Soles (S/)' : 'Dólares (US$)'}
                     </button>
                   ))}
                 </div>
@@ -1429,7 +1428,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                         <span className="min-w-0">
                           <span className="block font-semibold text-slate-800">Lote {q.lotCode || q.lotId}</span>
                           <span className="mt-0.5 block truncate text-xs text-slate-500">
-                            {q.clientName || 'Sin cliente'} Â· {q.paymentMethod === 'credito' ? `Al crÃ©dito Â· ${Number(q.totalCuotas || 0)} cuotas` : 'Contado'}
+                            {q.clientName || 'Sin cliente'} Â· {q.paymentMethod === 'credito' ? `Al crédito Â· ${Number(q.totalCuotas || 0)} cuotas` : 'Contado'}
                           </span>
                         </span>
                         <span className="shrink-0 rounded-md bg-[#EEF5FF] px-2 py-1 text-xs font-semibold text-[#1259C4]">
@@ -1451,12 +1450,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             {false && (
             <div className="mx-4 rounded-lg border p-3 mb-4 text-sm sm:mx-6" style={{ borderColor: '#BFDBFE', background: '#EFF6FF' }}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <p style={{ color: '#1259C4' }}>Para registrar una venta primero selecciona una cotizaciÃ³n. Si no existe, genera una y vuelve a cargarla aquÃ­.</p>
+                  <p style={{ color: '#1259C4' }}>Para registrar una venta primero selecciona una cotización. Si no existe, genera una y vuelve a cargarla aquí.</p>
                   <a
                     className="btn-primary"
                     href={quoteProjectId ? `/projects/${quoteProjectId}/quotes${lotId ? `?lotId=${lotId}` : ''}` : '/projects'}
                   >
-                    Generar cotizaciÃ³n
+                    Generar cotización
                   </a>
                 </div>
             </div>
@@ -1481,10 +1480,10 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <Select
                   value={lotId}
                   onChange={(v) => selectLot(Number(v))}
-                  options={[{ value: 0, label: 'Seleccionaâ€¦' }, ...lotOptions.map((l: any) => ({ value: l.id, label: lotOptionLabel(l), hint: formatUsd(lotReferencePrice(l)) }))]}
+                  options={[{ value: 0, label: 'Selecciona…' }, ...lotOptions.map((l: any) => ({ value: l.id, label: lotOptionLabel(l), hint: formatUsd(lotReferencePrice(l)) }))]}
                 />
               </Field>
-              <div className="hidden"><Field label="Cliente"><Select value={clientId} onChange={(v) => setClientId(Number(v))} options={[{ value: 0, label: 'â€” Sin asignar â€”' }, ...clients.map((c: any) => ({ value: c.id, label: (c.fullName || c.full_name || 'â€” Sin nombre â€”') }))]} /></Field></div>
+              <div className="hidden"><Field label="Cliente"><Select value={clientId} onChange={(v) => setClientId(Number(v))} options={[{ value: 0, label: '— Sin asignar —' }, ...clients.map((c: any) => ({ value: c.id, label: (c.fullName || c.full_name || '— Sin nombre —') }))]} /></Field></div>
               <Field label="Responsable">
                 <div className="input flex items-center bg-slate-50 text-slate-700">
                   {responsibleUserName}
