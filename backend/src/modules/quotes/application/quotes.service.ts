@@ -254,7 +254,7 @@ export class QuotesService {
         'SUM(CASE WHEN q.payment_method = :contado THEN 1 ELSE 0 END) AS "contado"',
         'COALESCE(SUM(q.final_price_usd), 0) AS "montoTotal"',
         'COALESCE(SUM(q.cuota_inicial_usd), 0) AS "cuotaInicialTotal"',
-        'COALESCE(SUM(q.valor_cuota_usd), 0) AS "cuotaContadoTotal"',
+        'COALESCE(SUM(CASE WHEN q.payment_method = :contado THEN q.valor_cuota_usd ELSE 0 END), 0) AS "cuotaContadoTotal"',
       ])
       .setParameters({ credito: 'credito', contado: 'contado' });
 

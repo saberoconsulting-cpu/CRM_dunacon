@@ -774,23 +774,51 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         <>
         <section className="space-y-4">
           <h2 className="text-2xl font-black tracking-normal" style={{ color: '#001BFF' }}>FINANZAS</h2>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4 2xl:grid-cols-7">
-            {dashboardCards.map((card) => (
-              <div key={card.label} className="min-h-[104px] rounded-lg border bg-white p-3 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
-                <p className="min-h-8 text-center text-[10px] font-bold uppercase leading-snug text-slate-600">{card.label}</p>
-                {card.manual ? (
-                  <input
-                    className="mt-1 w-full border-0 bg-transparent text-center text-base font-black text-blue-700 outline-none sm:text-lg"
-                    value={financeDashManual[card.manual]}
-                    onChange={(e) => setFinanceDashManual((current) => ({ ...current, [card.manual!]: e.target.value }))}
-                    placeholder="0"
-                  />
-                ) : (
-                  <p className="mt-1 truncate text-center text-base font-black text-blue-700 sm:text-lg">{compactUsd(card.value)}</p>
-                )}
-                <p className="mt-2 truncate text-[10px] text-slate-500">- {card.note}</p>
-              </div>
-            ))}
+          
+          {/* Indicadores Proyectados */}
+          <div>
+            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-700">Indicadores Proyectados</h3>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 2xl:grid-cols-7">
+              {dashboardCards.slice(0, 7).map((card) => (
+                <div key={card.label} className="min-h-[104px] rounded-lg border bg-white p-3 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
+                  <p className="min-h-8 text-center text-[10px] font-bold uppercase leading-snug text-slate-600">{card.label}</p>
+                  {card.manual ? (
+                    <input
+                      className="mt-1 w-full border-0 bg-transparent text-center text-base font-black text-blue-700 outline-none sm:text-lg"
+                      value={financeDashManual[card.manual]}
+                      onChange={(e) => setFinanceDashManual((current) => ({ ...current, [card.manual!]: e.target.value }))}
+                      placeholder="0"
+                    />
+                  ) : (
+                    <p className="mt-1 truncate text-center text-base font-black text-blue-700 sm:text-lg">{compactUsd(card.value)}</p>
+                  )}
+                  <p className="mt-2 truncate text-[10px] text-slate-500">- {card.note}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Indicadores Operación Real */}
+          <div>
+            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-700">Indicadores Operación Real</h3>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 2xl:grid-cols-7">
+              {dashboardCards.slice(7).map((card) => (
+                <div key={card.label} className="min-h-[104px] rounded-lg border bg-white p-3 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
+                  <p className="min-h-8 text-center text-[10px] font-bold uppercase leading-snug text-slate-600">{card.label}</p>
+                  {card.manual ? (
+                    <input
+                      className="mt-1 w-full border-0 bg-transparent text-center text-base font-black text-blue-700 outline-none sm:text-lg"
+                      value={financeDashManual[card.manual]}
+                      onChange={(e) => setFinanceDashManual((current) => ({ ...current, [card.manual!]: e.target.value }))}
+                      placeholder="0"
+                    />
+                  ) : (
+                    <p className="mt-1 truncate text-center text-base font-black text-blue-700 sm:text-lg">{compactUsd(card.value)}</p>
+                  )}
+                  <p className="mt-2 truncate text-[10px] text-slate-500">- {card.note}</p>
+                </div>
+              ))}
+            </div>
           </div>
           <div className="rounded-lg border bg-white p-3 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
             <div className="mb-1 flex items-center justify-between gap-3">
