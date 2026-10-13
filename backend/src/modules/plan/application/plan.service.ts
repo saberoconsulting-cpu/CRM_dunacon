@@ -7,6 +7,8 @@ import { PlanEntity } from '../../../shared/infrastructure/entities/plan.entity'
 import { BlockEntity } from '../../../shared/infrastructure/entities/block.entity';
 import { LotEntity } from '../../../shared/infrastructure/entities/lot.entity';
 import { ProjectLotCatalogEntity } from '../../../shared/infrastructure/entities/project-lot-catalog.entity';
+import { SaleEntity } from '../../../shared/infrastructure/entities/sale.entity';
+import { ClientEntity } from '../../../shared/infrastructure/entities/client.entity';
 import { LotStatusHistoryEntity } from '../../../shared/infrastructure/entities/lot-status-history.entity';
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
@@ -172,7 +174,44 @@ export class PlanService {
 
   // ---------- LOTES ----------
   async listLotCatalog(projectId: number) {
-    return this.lotCatalogRepo.find({ where: { projectId }, order: { code: 'ASC' } });
+    const rows = await this.lotCatalogRepo
+      .createQueryBuilder('cat')
+      .leftJoin(LotEntity, 'lot', 'lot.project_id = cat.project_id AND lot.code = cat.code')
+      .leftJoin(
+        SaleEntity,
+        'sale',
+        `sale.id = (
+          SELECT s2.id
+            FROM sales s2
+           WHERE s2.lot_id = lot.id
+             AND s2.status <> 'rechazada'
+             AND s2.approval_status <> 'rechazada'
+           ORDER BY s2.id DESC
+           LIMIT 1
+        )`,
+      )
+      .leftJoin(ClientEntity, 'client', 'client.id = sale.client_id')
+      .select([
+        'cat.id AS "id"',
+        'cat.project_id AS "projectId"',
+        'cat.code AS "code"',
+        'cat.address AS "address"',
+        'cat.type AS "type"',
+        'cat.area_m2 AS "areaM2"',
+        'cat.dimensions AS "dimensions"',
+        'cat.price_m2 AS "priceM2"',
+        'cat.sale_price AS "salePrice"',
+        'cat.discount AS "discount"',
+        'cat.created_at AS "createdAt"',
+        'cat.updated_at AS "updatedAt"',
+      ])
+      .addSelect('COALESCE(sale.sale_price, 0)', 'finalPrice')
+      .addSelect('COALESCE(lot.selling_stage, lot.status, \'Disponible\')', 'status')
+      .addSelect('COALESCE(client.full_name, \'\')', 'client')
+      .where('cat.project_id = :projectId', { projectId })
+      .orderBy('cat.code', 'ASC')
+      .getRawMany();
+    return rows;
   }
 
   async importLotCatalog(projectId: number, file: Express.Multer.File, actorId: number) {
@@ -218,9 +257,6 @@ export class PlanService {
         priceM2: String(this.parseMoney(data.priceM2)),
         salePrice: String(this.parseMoney(data.salePrice)),
         discount: String(this.parseMoney(data.discount)),
-        finalPrice: String(this.parseMoney(data.finalPrice)),
-        status: this.cleanText(data.status) || 'Disponible',
-        client: this.cleanText(data.client),
       };
       if (byCode.has(key) || existingRawCodes.has(rawKey)) {
         updated += 1;
@@ -256,9 +292,9 @@ export class PlanService {
     if (text.includes('precio') && text.includes('m2')) return 'priceM2';
     if (text.includes('precio') && text.includes('venta')) return 'salePrice';
     if (text.includes('bono') || text.includes('dscto') || text.includes('descuento')) return 'discount';
-    if (text.includes('precio') && text.includes('final')) return 'finalPrice';
-    if (text.includes('estado')) return 'status';
-    if (text.includes('cliente')) return 'client';
+    if (text.includes('precio') && text.includes('final')) return '';
+    if (text.includes('estado')) return '';
+    if (text.includes('cliente')) return '';
     return '';
   }
 
@@ -286,9 +322,9 @@ export class PlanService {
     row.priceM2 = String(dto.priceM2 ?? 0);
     row.salePrice = String(dto.salePrice ?? 0);
     row.discount = String(dto.discount ?? 0);
-    row.finalPrice = String(dto.finalPrice ?? 0);
-    row.status = dto.status || 'Disponible';
-    row.client = dto.client || null;
+    if (!row.finalPrice) row.finalPrice = '0';
+    if (!row.status) row.status = 'Disponible';
+    if (!row.client) row.client = null;
     const saved = await this.lotCatalogRepo.save(row);
     await this.audit(actorId, rowId ? 'EDITAR_LOTE_BASE' : 'CREAR_LOTE_BASE', 'project_lot_catalog', saved.id);
     return saved;
@@ -334,6 +370,23 @@ export class PlanService {
   async updateLot(lotId: number, dto: UpdateLotDto, actorId: number) {
     const lot = await this.lotRepo.findOne({ where: { id: lotId } });
     if (!lot) throw new NotFoundException('Lote no encontrado');
+    const isSold = lot.status === 'vendido' || lot.sellingStage === 'vendido';
+    const isSeparated = lot.sellingStage === 'separado';
+    if (isSold) {
+      throw new BadRequestException('El lote esta vendido: la ficha se puede ver, pero no se puede editar.');
+    }
+    if (isSeparated) {
+      const lockedSeparatedFields: { key: string; label: string }[] = [
+        { key: 'clientId', label: 'el cliente' },
+        { key: 'finalPrice', label: 'el precio final' },
+      ];
+      const touchedSeparated = lockedSeparatedFields.filter((field) => dto[field.key as keyof UpdateLotDto] !== undefined);
+      if (touchedSeparated.length > 0) {
+        throw new BadRequestException(
+          `El lote esta separado: no se puede modificar ${touchedSeparated.map((field) => field.label).join(', ')}.`,
+        );
+      }
+    }
 
     // Un lote vendido, reservado o alquilado ya generó una operación real: sus
     // datos comerciales (estado, precios) quedan congelados para que nadie

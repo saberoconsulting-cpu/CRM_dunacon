@@ -97,15 +97,20 @@ export class SalesService {
     }
 
     const quote = dto.quoteId ? await this.dataSource.getRepository(QuoteEntity).findOne({ where: { id: dto.quoteId } }) : null;
+    if (!quote) {
+      throw new BadRequestException('Selecciona una cotizacion antes de registrar la venta.');
+    }
+    if (Number(quote.lotId) !== Number(lot.id) || Number(quote.projectId) !== Number(dto.projectId)) {
+      throw new BadRequestException('La cotizacion seleccionada no corresponde al lote o proyecto de la venta.');
+    }
+    const quoteFinalPrice = Number(quote.finalPriceUsd || 0);
+    if (!(quoteFinalPrice > 0)) {
+      throw new BadRequestException('La cotizacion seleccionada no tiene precio final.');
+    }
+    if (Math.abs(Number(dto.salePrice || 0) - quoteFinalPrice) > 0.01) {
+      throw new BadRequestException('El precio de venta debe coincidir con el precio final de la cotizacion.');
+    }
     const catalog = await this.dataSource.getRepository(ProjectLotCatalogEntity).findOne({ where: { projectId: lot.projectId, code: lot.code } }).catch(() => null);
-    const finalPrice = Number(lot.finalPrice || 0) || Number(catalog?.finalPrice || 0);
-    const hasFinalPrice = finalPrice > 0;
-    if (!hasFinalPrice) {
-      throw new BadRequestException('Actualiza en la ficha del lote el precio final antes de registrar la venta.');
-    }
-    if (Math.abs(Number(dto.salePrice || 0) - finalPrice) > 0.01) {
-      throw new BadRequestException('El precio de venta debe coincidir con el precio final de la ficha del lote.');
-    }
 
     const assignedAgentId = Number(dto.agentId || actorId);
     const agent = await this.userRepo.findOne({ where: { id: assignedAgentId } });
@@ -172,6 +177,13 @@ export class SalesService {
         tea: String(dto.interestType === 'tea' ? Number(dto.tea || 0) : 0),
       });
       const savedSale = await manager.save(sale);
+      if (!(Number(lot.finalPrice || 0) > 0)) {
+        await manager.update(LotEntity, { id: lot.id }, { finalPrice: String(quoteFinalPrice) });
+        lot.finalPrice = String(quoteFinalPrice);
+      }
+      if (catalog && !(Number(catalog.finalPrice || 0) > 0)) {
+        await manager.update(ProjectLotCatalogEntity, { id: catalog.id }, { finalPrice: String(quoteFinalPrice) });
+      }
 
       // El lote queda "separado" hasta aprobación. Compromiso ATOMICO:
       // solo gana si sigue disponible; evita que dos agentes vendan/reserven a la vez.

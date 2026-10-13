@@ -1,7 +1,7 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { FiDownload, FiEye, FiFileText, FiCreditCard, FiDollarSign, FiTrendingUp, FiCheckCircle, FiRefreshCw } from 'react-icons/fi';
+import { FiDownload, FiEye, FiFileText, FiCreditCard, FiDollarSign, FiTrendingUp, FiCheckCircle, FiRefreshCw, FiTrash2 } from 'react-icons/fi';
 import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
 import { KpiCard, KPI_GRID_6 } from '@/components/ui/Metrics';
 import { PaginationBar } from '@/components/ui/PaginationBar';
@@ -654,6 +654,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     total: number; credito: number; contado: number;
     montoTotal: number; cuotaInicialTotal: number; cuotaContadoTotal: number;
   } | null>(null);
+  const [deletingId, setDeletingId] = useState(0);
   const [fPayment, setFPayment] = useState('');
   const [sort, setSort] = useState('createdAt');
   const [order, setOrder] = useState<'ASC' | 'DESC'>('DESC');
@@ -716,11 +717,12 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
 
   useEffect(() => { load(); }, [load]);
   // Cargar resumen de estadísticas (totales, monto, cuotas).
-  useEffect(() => {
+  const loadStats = useCallback(() => {
     api.get<any>('/quotes/summary' + (lockedProjectId ? `?projectId=${lockedProjectId}` : ''))
       .then(setStats)
       .catch(() => { });
   }, [lockedProjectId, fPayment]);
+  useEffect(() => { loadStats(); }, [loadStats]);
   // Debounce de 400ms para no disparar un request por cada tecla.
   useEffect(() => {
     const t = setTimeout(() => { setDebouncedSearch(search.trim()); }, 400);
@@ -838,6 +840,21 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
       });
       toast('Cotizacion generada'); setOpen(false); resetForm(); setPage(1); load();
     } catch (e: any) { toast(e.message, 'err'); }
+  }
+
+  async function deleteQuote(q: Q) {
+    if (!window.confirm(`Eliminar la cotizacion Q${q.id}? Quedara guardada para auditoria.`)) return;
+    setDeletingId(q.id);
+    try {
+      await api.delete(`/quotes/${q.id}`);
+      toast('Cotizacion eliminada del listado');
+      await load();
+      loadStats();
+    } catch (e: any) {
+      toast(e.message, 'err');
+    } finally {
+      setDeletingId(0);
+    }
   }
 
   function toggleSort(field: string) {
@@ -987,6 +1004,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                           <td className="td-base whitespace-nowrap">
                             <button className="btn-secondary !h-7 !px-2 text-xs mr-1" onClick={() => setDoc({ id: q.id, type: 'cotizacion' })}><FiEye /> Ver Cotizacion</button>
                             {q.paymentMethod === 'credito' && <button className="btn-secondary !h-7 !px-2 text-xs" onClick={() => setDoc({ id: q.id, type: 'financiamiento' })}><FiEye /> Ver Financiamiento</button>}
+                            <button className="btn-danger !h-7 !px-2 text-xs ml-1" disabled={deletingId === q.id} onClick={() => deleteQuote(q)}><FiTrash2 /> Eliminar</button>
                           </td>
                         </tr>
                       ))}

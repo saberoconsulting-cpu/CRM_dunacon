@@ -584,15 +584,15 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     setPriceIssueModal({ title, message, lotId: modalLotId || undefined });
   }
 
-  // Al elegir un lote, autocompletar el precio con su "Precio Venta" de
-  // Lotización (si no viene de una cotización real seleccionada abajo).
+  // Al elegir un lote manualmente no fija precio: la cotizacion elegida es la
+  // fuente del precio final que se usara en la venta.
   function selectLot(id: number) {
     setLotId(id);
     setSelectedQuoteId(0);
     setSelectedQuoteSnapshot(null);
+    setSalePrice(0);
     const lot = lots.find((l: any) => l.id === id);
     if (lot) {
-      setSalePrice(lotFinalPrice(lot));
       if (lot.clientId) {
         setClientId(Number(lot.clientId));
         const client = clients.find((c: any) => Number(c.id) === Number(lot.clientId));
@@ -615,19 +615,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
           quoteLot = lot;
           setLots((current) => (current.some((l: any) => Number(l.id) === Number(lot.id)) ? current : [lot, ...current]));
         }
-      } catch { /* si falla, se bloquea por falta de precio final */ }
-    }
-    const lotFinal = lotFinalPrice(quoteLot);
-    if (!(lotFinal > 0)) {
-      setProjectId(Number(quoteLot?.projectId || values.projectId));
-      setLotId(values.lotId);
-      setSalePrice(0);
-      openPriceIssueModal(
-        'Falta precio final',
-        'Este lote aun no tiene registrado el precio final.',
-        values.lotId,
-      );
-      return;
+      } catch { /* si falla, igual se puede registrar desde la cotizacion */ }
     }
 
     setExchangeRate(values.exchangeRate);
@@ -637,7 +625,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     setProjectId(Number(quoteLot?.projectId || values.projectId));
     setLotId(values.lotId);
     setClientName(values.clientName);
-    setSalePrice(lotFinal);
+    setSalePrice(values.salePriceUsd);
     setPaymentMethod(values.paymentMethod);
     setCuotaInicial(values.cuotaInicialUsd);
     setTotalCuotas(values.totalCuotas);
@@ -739,21 +727,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     }
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
-      const finalPrice = lotFinalPrice(lot);
-      if (!(finalPrice > 0)) {
-        openPriceIssueModal(
-          'Falta precio final',
-          'Este lote aun no tiene registrado el precio final.',
-          Number(lotId),
-        );
-        return;
-      }
       const resolvedClientId = clientId || await assignClientByName(false);
       if (!resolvedClientId) return;
       const sale = selectedQuote || null;
       await api.post('/sales', {
         projectId: lockedProjectId || projectId || lot?.projectId || 1, lotId: Number(lotId),
-        clientId: resolvedClientId, agentId: effectiveAgentId, salePrice: finalPrice,
+        clientId: resolvedClientId, agentId: effectiveAgentId, salePrice,
         exchangeRate: Number(exchangeRate) > 0 ? Number(exchangeRate) : undefined,
         paymentMethod,
         totalCuotas: paymentMethod === 'Contado' ? undefined : (totalCuotas || undefined),
@@ -1492,7 +1471,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             </div>
             {lotId > 0 && salePrice > 0 && (
               <p className="text-xs mt-1" style={{ color: '#1259C4' }}>
-                {'Precio final cargado desde la ficha del lote.'}
+                {'Precio final cargado desde la cotizacion.'}
                 {' '}Se registra en US$ {round2(salePriceUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (S/ {round2(salePricePen).toLocaleString('es-PE', { maximumFractionDigits: 2 })}).
               </p>
             )}

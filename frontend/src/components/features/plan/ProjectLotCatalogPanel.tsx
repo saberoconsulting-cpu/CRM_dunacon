@@ -28,6 +28,16 @@ function escapeHtml(value: unknown) {
     .replace(/'/g, '&#039;');
 }
 
+function statusLabel(value?: string | null) {
+  const key = String(value || '').toLowerCase();
+  if (key === 'segunda_etapa') return '2da. Etapa';
+  if (key === 'promocion') return 'En Promocion';
+  if (key === 'separado') return 'Separado';
+  if (key === 'vendido') return 'Vendido';
+  if (key === 'disponible') return 'Disponible';
+  return value || '-';
+}
+
 type LotCatalogRow = {
   id?: number;
   code: string;
@@ -115,8 +125,10 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
       priceM2: Number(draft.priceM2) || 0,
       salePrice: Number(draft.salePrice) || 0,
       discount: Number(draft.discount) || 0,
-      finalPrice: Number(draft.finalPrice) || 0,
     };
+    delete (payload as Partial<LotCatalogRow>).finalPrice;
+    delete (payload as Partial<LotCatalogRow>).status;
+    delete (payload as Partial<LotCatalogRow>).client;
     try {
       if (editingId) await api.post(`/plan/lot-catalog/update/${projectId}/${editingId}`, payload);
       else await api.post(`/plan/lot-catalog/${projectId}`, payload);
@@ -214,15 +226,15 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
           <table>
             <colgroup>
               <col style="width:7%" />
-              <col style="width:14%" />
+              <col style="width:13%" />
+              <col style="width:6%" />
+              <col style="width:6%" />
+              <col style="width:9%" />
               <col style="width:8%" />
-              <col style="width:7%" />
-              <col style="width:10%" />
-              <col style="width:10%" />
-              <col style="width:11%" />
-              <col style="width:11%" />
+              <col style="width:9%" />
+              <col style="width:9%" />
               <col style="width:8%" />
-              <col style="width:14%" />
+              <col style="width:20%" />
             </colgroup>
             <thead>
               <tr>
@@ -243,13 +255,13 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                 <tr>
                   <td class="truncate">${escapeHtml(row.code)}</td>
                   <td class="truncate">${escapeHtml(row.address || '-')}</td>
-                  <td class="truncate">${escapeHtml(row.type || '-')}</td>
-                  <td class="num">${Number(row.areaM2 || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
+                  <td class="truncate" style="text-align:center">${escapeHtml(row.type || '-')}</td>
+                  <td class="num" style="text-align:center">${Number(row.areaM2 || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
                   <td class="truncate">${escapeHtml(row.dimensions || '-')}</td>
                   <td class="num">${escapeHtml(moneyUsd(row.priceM2))}</td>
                   <td class="num">${escapeHtml(moneyUsd(row.salePrice))}</td>
                   <td class="num">${escapeHtml(moneyUsd(row.finalPrice))}</td>
-                  <td class="truncate">${escapeHtml(row.status || '-')}</td>
+                  <td class="truncate">${escapeHtml(statusLabel(row.status))}</td>
                   <td class="truncate">${escapeHtml(row.client || '-')}</td>
                 </tr>
               `).join('')}
@@ -325,9 +337,11 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                   onChange={(value) => setStatusFilter(value)}
                   options={[
                     { value: 'todos', label: 'Filtrar todos' },
+                    { value: 'disponible', label: 'Disponible' },
                     { value: 'vendido', label: 'Vendido' },
-                    { value: 'reservado', label: 'Reservado' },
-                    { value: 'disponible', label: 'Libre' },
+                    { value: 'segunda_etapa', label: '2da. Etapa' },
+                    { value: 'separado', label: 'Separado' },
+                    { value: 'promocion', label: 'En Promocion' },
                   ]}
                   className="!h-9 min-w-[140px]"
                 />
@@ -337,7 +351,7 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
               </div>
 
               <div className="overflow-auto rounded-lg border" style={{ borderColor: BORDER }}>
-                <table className="min-w-[1180px] w-full text-xs">
+                <table className="min-w-[1120px] w-full text-xs">
                   <thead className="sticky top-0">
                     <tr>
                       {['Num. de lote', 'Direccion', 'Tipo', 'Area m2', 'Dimensiones', 'Precio m2 (US$)', 'Precio venta (US$)', 'Precio final (US$)', 'Estado', 'Cliente', 'Accion'].map((head) => (
@@ -350,13 +364,13 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                       <tr key={row.id || row.code}>
                         <td className="td-base font-semibold">{row.code}</td>
                         <td className="td-base">{row.address || '-'}</td>
-                        <td className="td-base">{row.type || '-'}</td>
-                        <td className="td-base tabular-nums">{Number(row.areaM2 || 0).toLocaleString('es-PE')}</td>
+                        <td className="td-base text-center">{row.type || '-'}</td>
+                        <td className="td-base text-center tabular-nums">{Number(row.areaM2 || 0).toLocaleString('es-PE')}</td>
                         <td className="td-base">{row.dimensions || '-'}</td>
                         <td className="td-base tabular-nums">{moneyUsd(row.priceM2)}</td>
                         <td className="td-base tabular-nums font-semibold">{moneyUsd(row.salePrice)}</td>
                         <td className="td-base tabular-nums font-semibold" style={{ color: '#0F8B5F' }}>{moneyUsd(row.finalPrice)}</td>
-                        <td className="td-base">{row.status || '-'}</td>
+                        <td className="td-base">{statusLabel(row.status)}</td>
                         <td className="td-base">{row.client || '-'}</td>
                         <td className="td-base">
                           <div className="flex gap-1.5">
@@ -370,7 +384,7 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                     {filtered.length > 0 && (
                       <tr style={{ backgroundColor: '#F3F4F6', fontWeight: 'bold' }}>
                         <td className="td-base" colSpan={3}>Total ({filtered.length} lotes)</td>
-                        <td className="td-base tabular-nums">{filtered.reduce((sum, row) => sum + Number(row.areaM2 || 0), 0).toLocaleString('es-PE')}</td>
+                        <td className="td-base text-center tabular-nums">{filtered.reduce((sum, row) => sum + Number(row.areaM2 || 0), 0).toLocaleString('es-PE')}</td>
                         <td className="td-base">-</td>
                         <td className="td-base tabular-nums">{moneyUsd(filtered.reduce((sum, row) => sum + Number(row.priceM2 || 0), 0))}</td>
                         <td className="td-base tabular-nums">{moneyUsd(filtered.reduce((sum, row) => sum + Number(row.salePrice || 0), 0))}</td>
@@ -390,7 +404,7 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
               <div className="flex max-h-[88vh] w-full max-w-3xl flex-col rounded-lg border bg-white shadow-2xl" style={{ borderColor: BORDER }}>
                 <div className="shrink-0 border-b px-4 py-3" style={{ borderColor: BORDER }}>
                   <h3 className="text-base font-bold" style={{ color: NAVY }}>{editingId ? `Editar lote ${draft.code || ''}` : 'Crear lote base'}</h3>
-                  <p className="mt-1 text-xs text-slate-500">Estos datos alimentan el selector al dibujar el lote en el plano.</p>
+                  <p className="mt-1 text-xs text-slate-500">Estos datos alimentan el selector al dibujar el lote en el plano. Precio final, estado y cliente los completa el sistema.</p>
                 </div>
                 <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-y-auto p-4 md:grid-cols-3">
                   <Field label="Num. de lote"><input autoFocus className="input !h-9" value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} /></Field>
@@ -400,9 +414,6 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                   <Field label="Dimensiones"><input className="input !h-9" value={draft.dimensions || ''} onChange={(e) => setDraft({ ...draft, dimensions: e.target.value })} /></Field>
                   <Field label="Precio m2 (US$)"><input className="input !h-9" type="number" value={draft.priceM2 || ''} onChange={(e) => setDraft({ ...draft, priceM2: Number(e.target.value) })} /></Field>
                   <Field label="Precio venta (US$)"><input className="input !h-9" type="number" value={draft.salePrice || ''} onChange={(e) => setDraft({ ...draft, salePrice: Number(e.target.value) })} /></Field>
-                  <Field label="Precio final (US$)"><input className="input !h-9" type="number" value={draft.finalPrice || ''} onChange={(e) => setDraft({ ...draft, finalPrice: Number(e.target.value) })} /></Field>
-                  <Field label="Estado"><input className="input !h-9" value={draft.status || ''} onChange={(e) => setDraft({ ...draft, status: e.target.value })} /></Field>
-                  <Field label="Cliente"><input className="input !h-9" value={draft.client || ''} onChange={(e) => setDraft({ ...draft, client: e.target.value })} /></Field>
                 </div>
                 <div className="flex shrink-0 justify-end gap-2 border-t px-4 py-3" style={{ borderColor: BORDER }}>
                   <button className="btn-neutral !h-9 px-3" onClick={() => { setEditorOpen(false); setEditingId(null); setDraft(emptyCatalogRow()); }}>Cancelar</button>

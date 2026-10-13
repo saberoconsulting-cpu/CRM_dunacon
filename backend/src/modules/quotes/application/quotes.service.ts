@@ -101,6 +101,7 @@ export class QuotesService {
         'l.selling_stage AS "lotSellingStage"',
       ]);
 
+    qb.andWhere('q.deleted_at IS NULL');
     if (filters.projectId) qb.andWhere('q.project_id = :projectId', { projectId: filters.projectId });
     if (actorId) qb.andWhere('q.created_by = :actorId', { actorId });
     if (filters.lotId) qb.andWhere('q.lot_id = :lotId', { lotId: filters.lotId });
@@ -198,9 +199,23 @@ export class QuotesService {
     return this.quoteRepo.save(quote);
   }
 
-  async getOne(id: number, actorId?: number) {
+  async remove(id: number, deletedBy: number, actorId?: number) {
     const quote = await this.quoteRepo.findOne({ where: { id } });
     if (!quote) throw new NotFoundException('Cotizacion no encontrada');
+    this.assertOwner(quote, actorId);
+    if (quote.deletedAt) return { ok: true };
+    if (String(quote.status || '').toLowerCase() === 'convertida') {
+      throw new BadRequestException('No se puede eliminar una cotizacion convertida en venta.');
+    }
+    quote.deletedAt = new Date();
+    quote.deletedBy = deletedBy || null;
+    await this.quoteRepo.save(quote);
+    return { ok: true };
+  }
+
+  async getOne(id: number, actorId?: number) {
+    const quote = await this.quoteRepo.findOne({ where: { id } });
+    if (!quote || quote.deletedAt) throw new NotFoundException('Cotizacion no encontrada');
     this.assertOwner(quote, actorId);
 
     const [lot, project] = await Promise.all([
@@ -213,7 +228,7 @@ export class QuotesService {
 
   async schedule(id: number, actorId?: number) {
     const quote = await this.quoteRepo.findOne({ where: { id } });
-    if (!quote) return { rows: [], graceMonths: 0, interestMonths: 0, graceCuota: 0, interestCuota: 0, totalInteres: 0, totalPagar: 0, saldoAlFinGracia: 0, initialPlan: null, saldoAFinanciar: 0 };
+    if (!quote || quote.deletedAt) return { rows: [], graceMonths: 0, interestMonths: 0, graceCuota: 0, interestCuota: 0, totalInteres: 0, totalPagar: 0, saldoAlFinGracia: 0, initialPlan: null, saldoAFinanciar: 0 };
     this.assertOwner(quote, actorId);
     const finalPrice = Math.max(0, Number(quote.finalPriceUsd));
     const cuotaInicial = Math.max(0, Number(quote.cuotaInicialUsd));
@@ -258,6 +273,7 @@ export class QuotesService {
       ])
       .setParameters({ credito: 'credito', contado: 'contado' });
 
+    qb.andWhere('q.deleted_at IS NULL');
     if (projectId) qb.andWhere('q.project_id = :projectId', { projectId });
     if (actorId) qb.andWhere('q.created_by = :actorId', { actorId });
 

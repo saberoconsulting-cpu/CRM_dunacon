@@ -77,6 +77,12 @@ export class QuoteEntity {
   @Column({ name: 'created_by', nullable: true })
   createdBy: number;
 
+  @Column({ name: 'deleted_by', type: 'bigint', nullable: true })
+  deletedBy?: number | null;
+
+  @Column({ name: 'deleted_at', type: 'timestamptz', nullable: true })
+  deletedAt?: Date | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

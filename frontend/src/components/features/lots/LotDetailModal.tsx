@@ -341,7 +341,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
     // Defensa en profundidad: si el lote esta vendido/separado no se envian ni el
     // estado ni los precios. El backend tambien lo rechaza, pero asi el usuario
     // nunca llega a ver un error de servidor por algo que la UI ya bloquea.
-    if (saleLocked) return toast('Este lote ya está vendido o separado: su estado y sus precios no se editan.', 'err');
+    if (soldEditLocked) return toast('Este lote esta vendido: se puede ver, pero no se puede editar.', 'err');
     setWorking(true);
     try {
       await api.post(`/plan/lot/update/${lot.id}`, {
@@ -356,7 +356,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
           price: fromEditValue(lotData.price) || undefined,
         } : {}),
         salePrice: fromEditValue(lotizacion.salePrice) || undefined,
-        finalPrice: fromEditValue(lotizacion.finalPrice) || undefined,
+        ...(separatedEditLocked ? {} : { finalPrice: fromEditValue(lotizacion.finalPrice) || undefined }),
         status: lotizacion.status,
         statusDate: lotizacion.statusDate || undefined,
       });
@@ -662,13 +662,17 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const lotType = lot.type || EMPTY;
   const statusLabel = LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status || EMPTY;
   const statusBadgeColor = lot.status === 'vendido' ? SOLD_GREEN : tableStatusColor;
-  const quoteBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status);
+  const soldEditLocked = lot.status === 'vendido' || lot.sellingStage === 'vendido';
+  const separatedEditLocked = lot.sellingStage === 'separado';
+  const quoteBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status) || separatedEditLocked;
   const missingFinalPrice = !(Number(lot.finalPrice || 0) > 0);
-  const sellBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status) || missingFinalPrice;
+  const sellBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status) || separatedEditLocked || missingFinalPrice;
   // `saleLocked` congela la parte comercial de la ficha (estado y precios). El
   // backend aplica el mismo candado, asi que no es solo cosmético: aunque se
   // fuerce la peticion, el servidor la rechaza.
-  const saleLocked = BLOCKED_ACTION_STATUSES.includes(lot.status);
+  const saleLocked = soldEditLocked || BLOCKED_ACTION_STATUSES.includes(lot.status);
+  const finalPriceLocked = soldEditLocked || separatedEditLocked || BLOCKED_ACTION_STATUSES.includes(lot.status);
+  const canSaveLotEdit = !soldEditLocked;
   const detailCards = [
     { label: 'Num. de lote', value: lot.code || EMPTY },
     { label: 'Direccion', value: address },
@@ -793,12 +797,13 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
 
                       <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: MUTED }}>Datos del lote</p>
                       <div className="grid items-start gap-3 md:grid-cols-2">
-                        <div><Field label="Num. de lote *"><input className="input" value={lotData.code} onChange={(e) => setLotData({ ...lotData, code: e.target.value })} /></Field></div>
+                        <div><Field label="Num. de lote *"><input className="input" value={lotData.code} onChange={(e) => setLotData({ ...lotData, code: e.target.value })} disabled={soldEditLocked} readOnly={soldEditLocked} /></Field></div>
                         <div>
                           <Field label="Calle (plano)">
                             <Select
                               value={String(lotData.streetId || '')}
                               onChange={(v) => setLotData({ ...lotData, streetId: Number(v) })}
+                              disabled={soldEditLocked}
                               options={[
                                 { value: '', label: 'Sin calle dibujada' },
                                 ...streets.map((s: any) => ({ value: String(s.id), label: `${s.name}${s.address ? ` - ${s.address}` : ''}` })),
@@ -816,6 +821,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                               list="lot-address-options"
                               value={lotData.address}
                               onChange={(e) => setLotData({ ...lotData, address: e.target.value })}
+                              disabled={soldEditLocked}
+                              readOnly={soldEditLocked}
                               placeholder="Ej. Las Palmeras - Nro 1"
                             />
                             <datalist id="lot-address-options">
@@ -830,27 +837,27 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                             </span>
                           </Field>
                         </div>
-                        <div><Field label="Tipo"><input className="input" value={lotData.type} onChange={(e) => setLotData({ ...lotData, type: e.target.value })} placeholder="Ej. Residencial" /></Field></div>
+                        <div><Field label="Tipo"><input className="input" value={lotData.type} onChange={(e) => setLotData({ ...lotData, type: e.target.value })} placeholder="Ej. Residencial" disabled={soldEditLocked} readOnly={soldEditLocked} /></Field></div>
                         <div className="grid gap-3 md:col-span-2 md:grid-cols-3">
-                          <Field label="Area (m2)"><input type="number" className="input" value={lotData.areaM2 || ''} onChange={(e) => setLotData({ ...lotData, areaM2: Number(e.target.value) })} /></Field>
-                          <Field label="Dimensiones"><input className="input" value={lotData.dimensions} onChange={(e) => setLotData({ ...lotData, dimensions: e.target.value })} placeholder="Ej. 10m x 30m" /></Field>
-                          <Field label="Precio m2 (US$)"><input type="number" className="input" value={toEditValue(lotData.price)} onChange={(e) => setLotData({ ...lotData, price: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field>
+                          <Field label="Area (m2)"><input type="number" className="input" value={lotData.areaM2 || ''} onChange={(e) => setLotData({ ...lotData, areaM2: Number(e.target.value) })} disabled={soldEditLocked} readOnly={soldEditLocked} /></Field>
+                          <Field label="Dimensiones"><input className="input" value={lotData.dimensions} onChange={(e) => setLotData({ ...lotData, dimensions: e.target.value })} placeholder="Ej. 10m x 30m" disabled={soldEditLocked} readOnly={soldEditLocked} /></Field>
+                          <Field label="Precio m2 (US$)"><input type="number" className="input" value={toEditValue(lotData.price)} onChange={(e) => setLotData({ ...lotData, price: fromEditValue(e.target.value) })} disabled={soldEditLocked} readOnly={soldEditLocked} /></Field>
                         </div>
                       </div>
 
                       <p className="mb-2 mt-1 text-[11px] font-semibold uppercase tracking-[0.06em]" style={{ color: MUTED }}>Estado y comercial</p>
-                      {saleLocked && (
+                      {(soldEditLocked || separatedEditLocked) && (
                         <div className="mb-2 rounded-xl border p-3 text-xs" style={{ borderColor: '#BFDBFE', background: '#EFF6FF', color: '#1E40AF' }}>
-                          <b>🔒 Lote {LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status}.</b> El estado y los precios de un lote vendido o reservado estan congelados para no alterar la operacion ya registrada ni liberar el lote para revenderlo. Solo una devolucion debe liberar el lote y cambiarlo a disponible.
+                          <b>Lote {LOT_STATUS_LABEL[lot.status as LotStatus] || lot.status}.</b> {soldEditLocked ? 'Se puede ver, pero no se puede editar.' : 'Separado: el cliente y el precio final estan protegidos.'}
                         </div>
                       )}
                       <div className="grid items-start gap-3 md:grid-cols-2">
                         <div><Field label="Estado"><Select value={lotizacion.status} onChange={(v) => setLotizacion({ ...lotizacion, status: v })} disabled={saleLocked} options={LOT_STATUS_SELECT_OPTIONS} /></Field></div>
                         <div><Field label="Fecha de estado"><input type="date" className="input" value={lotizacion.statusDate} onChange={(e) => setLotizacion({ ...lotizacion, statusDate: e.target.value })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
-                        <div><Field label="Precio venta (US$)"><input type="number" className="input" value={toEditValue(lotizacion.salePrice)} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
-                        <div><Field label="Precio final (US$)"><input type="number" className="input" value={toEditValue(lotizacion.finalPrice)} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: fromEditValue(e.target.value) })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
+                        <div><Field label="Precio venta (US$)"><input type="number" className="input" value={toEditValue(lotizacion.salePrice)} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: fromEditValue(e.target.value) })} disabled={soldEditLocked} readOnly={soldEditLocked} /></Field></div>
+                        <div><Field label="Precio final (US$)"><input type="number" className="input" value={toEditValue(lotizacion.finalPrice)} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: fromEditValue(e.target.value) })} disabled={finalPriceLocked} readOnly={finalPriceLocked} /></Field></div>
                         <div className="md:col-span-2 md:flex md:justify-end">
-                          <button onClick={saveLotizacion} disabled={working || saleLocked} className="btn-secondary w-full md:w-auto md:min-w-32" title={saleLocked ? 'El lote está bloqueado: libera el lote para editar estado y precios' : undefined}>{working ? 'Guardando...' : saleLocked ? 'Bloqueado' : 'Guardar'}</button>
+                          <button onClick={saveLotizacion} disabled={working || soldEditLocked} className="btn-secondary w-full md:w-auto md:min-w-32" title={soldEditLocked ? 'El lote esta vendido: se puede ver, pero no editar' : undefined}>{working ? 'Guardando...' : soldEditLocked ? 'Bloqueado' : 'Guardar'}</button>
                         </div>
                       </div>
                       <p className="mt-2 text-[11px]" style={{ color: MUTED }}>

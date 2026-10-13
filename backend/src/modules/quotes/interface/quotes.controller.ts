@@ -1,5 +1,5 @@
 // modules/quotes/interface/quotes.controller.ts
-import { Body, Controller, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { QuotesService } from '../application/quotes.service';
 import { CreateQuoteDto, UpdateQuoteStatusDto, RecalculateQuoteDto } from '../application/dto/quote.dto';
 import { ListQuotesDto } from '../application/dto/list-quotes.dto';
@@ -46,5 +46,10 @@ export class QuotesController {
   @Patch(':id/recalculate')
   recalculate(@Param('id', ParseIntPipe) id: number, @Body() dto: RecalculateQuoteDto, @CurrentUser() user: AuthUser) {
     return this.quotesService.recalculate(id, dto, user.role === UserRole.AGENT ? user.id : undefined);
+  }
+
+  @Delete(':id')
+  remove(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.quotesService.remove(id, user.id, user.role === UserRole.AGENT ? user.id : undefined);
   }
 }

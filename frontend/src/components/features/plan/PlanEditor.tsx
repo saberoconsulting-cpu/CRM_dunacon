@@ -392,11 +392,10 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
         points: draft,
         areaM2: Number(lotInfo.area) || 0,
         price: Number(lotInfo.price) || 0,
-        status: lotInfo.catalogStatus?.toLowerCase() === 'vendido' ? 'vendido' : 'disponible',
+        status: 'disponible',
         type: lotInfo.type || undefined,
         dimensions: lotInfo.dimensions || undefined,
         salePrice: lotInfo.salePrice || undefined,
-        finalPrice: lotInfo.finalPrice || undefined,
       });
       toast('Lote guardado');
       setDraft([]);
@@ -495,8 +494,10 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
       priceM2: Number(catalogDraft.priceM2) || 0,
       salePrice: Number(catalogDraft.salePrice) || 0,
       discount: Number(catalogDraft.discount) || 0,
-      finalPrice: Number(catalogDraft.finalPrice) || 0,
     };
+    delete (payload as Partial<LotCatalogRow>).finalPrice;
+    delete (payload as Partial<LotCatalogRow>).status;
+    delete (payload as Partial<LotCatalogRow>).client;
     try {
       if (editingCatalogId) await api.post(`/plan/lot-catalog/update/${projectId}/${editingCatalogId}`, payload);
       else await api.post(`/plan/lot-catalog/${projectId}`, payload);
@@ -827,14 +828,7 @@ export default function PlanEditor({ projectId }: { projectId: number }) {
                     <Field label="Dimensiones"><input className="input !h-9 text-sm" value={lotInfo.dimensions} onChange={(e) => setLotInfo({ ...lotInfo, dimensions: e.target.value })} placeholder="10m x 30m" /></Field>
                     <Field label="Precio US$/m2"><input type="number" className="input !h-9 text-sm" value={lotInfo.price || ''} onChange={(e) => setLotInfo({ ...lotInfo, price: Number(e.target.value) })} /></Field>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Precio venta US$"><input type="number" className="input !h-9 text-sm" value={lotInfo.salePrice || ''} onChange={(e) => setLotInfo({ ...lotInfo, salePrice: Number(e.target.value) })} /></Field>
-                    <Field label="Precio final US$"><input type="number" className="input !h-9 text-sm" value={lotInfo.finalPrice || ''} onChange={(e) => setLotInfo({ ...lotInfo, finalPrice: Number(e.target.value) })} /></Field>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Estado base"><input className="input !h-9 text-sm" value={lotInfo.catalogStatus} onChange={(e) => setLotInfo({ ...lotInfo, catalogStatus: e.target.value })} /></Field>
-                    <Field label="Cliente base"><input className="input !h-9 text-sm" value={lotInfo.client} onChange={(e) => setLotInfo({ ...lotInfo, client: e.target.value })} /></Field>
-                  </div>
+                  <Field label="Precio venta US$"><input type="number" className="input !h-9 text-sm" value={lotInfo.salePrice || ''} onChange={(e) => setLotInfo({ ...lotInfo, salePrice: Number(e.target.value) })} /></Field>
                   <div className="grid grid-cols-2 gap-2 pt-1">
                     <button className="btn-primary w-full" onClick={() => {
                       // Se resuelve la calle dibujada por nombre; si el campo trae una
