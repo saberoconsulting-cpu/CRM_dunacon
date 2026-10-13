@@ -286,8 +286,8 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
             <thead><tr>
               <th className="th-base !px-2" style={{ textAlign: 'left' }}>Lote</th>
               <th className="th-base !px-2" style={{ textAlign: 'left' }}>Dirección</th>
-              <th className="th-base !px-2" style={{ textAlign: 'left' }}>Tipo</th>
-              <th className="th-base !px-2" style={{ textAlign: 'left' }}>Area</th>
+              <th className="th-base !px-2" style={{ textAlign: 'center' }}>Tipo</th>
+              <th className="th-base !px-2" style={{ textAlign: 'center' }}>Area</th>
               <th className="th-base !px-2" style={{ textAlign: 'right' }}>{moneyLabel}/m2</th>
               <th className="th-base !px-2" style={{ textAlign: 'right' }}>Precio de venta {moneyLabel}</th>
               <th className="th-base !px-2" style={{ textAlign: 'right' }}>Precio final {moneyLabel}</th>
@@ -300,8 +300,8 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                 <tr key={l.id} onClick={() => setSelected({ id: l.id })} className="cursor-pointer hover:bg-slate-50">
                   <td className="td-base !px-2 font-semibold" style={{ textAlign: 'left' }}>{l.code}</td>
                   <td className="td-base !px-2 truncate text-slate-500" style={{ textAlign: 'left' }} title={l.address || l.streetAddress || l.blockAddress || '—'}>{l.address || l.streetAddress || l.blockAddress || '—'}</td>
-                  <td className="td-base !px-2 truncate text-slate-500" style={{ textAlign: 'left' }} title={l.type || '—'}>{l.type || '—'}</td>
-                  <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'left' }}>{l.areaM2} m²</td>
+                  <td className="td-base !px-2 truncate text-center text-slate-500" style={{ textAlign: 'center' }} title={l.type || '—'}>{l.type || '—'}</td>
+                  <td className="td-base !px-2 text-center tabular-nums" style={{ textAlign: 'center' }}>{l.areaM2} m²</td>
                   <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'right' }}>{l.price ? formatLotMoney(l.price) : '—'}</td>
                   <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'right' }}>{l.salePrice ? formatLotMoney(l.salePrice) : '—'}</td>
                   <td className="td-base !px-2 tabular-nums" style={{ textAlign: 'right' }}>{l.finalPrice ? formatLotMoney(l.finalPrice) : '—'}</td>
@@ -337,7 +337,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
               <tr style={{ background: '#0B2F6E' }}>
                 <td className="td-base !px-2 font-bold text-white" style={{ textAlign: 'left' }}>{items.length}</td>
                 <td className="td-base !px-2 font-bold text-white" colSpan={2} style={{ textAlign: 'left' }}>Totales</td>
-                <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'left' }}>{t.totalArea.toLocaleString('es-PE')} m²</td>
+                <td className="td-base !px-2 text-center font-bold text-white tabular-nums" style={{ textAlign: 'center' }}>{t.totalArea.toLocaleString('es-PE')} m²</td>
                 <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{t.totalPrice ? `${formatLotMoney(t.totalPrice)}/m²` : '—'}</td>
                 <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatLotMoney(t.totalVenta)}</td>
                 <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatLotMoney(t.totalFinal)}</td>
@@ -468,8 +468,8 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                     <thead><tr>
                       <th className="th-base" style={{ textAlign: 'left' }}>Nro. Lote</th>
                       <th className="th-base" style={{ textAlign: 'left' }}>Dirección</th>
-                      <th className="th-base" style={{ textAlign: 'left' }}>Tipo</th>
-                      <th className="th-base" style={{ textAlign: 'left' }}>Area</th>
+                      <th className="th-base" style={{ textAlign: 'center' }}>Tipo</th>
+                      <th className="th-base" style={{ textAlign: 'center' }}>Area</th>
                       <th className="th-base" style={{ textAlign: 'right' }}>Precio {moneyLabel}/m2</th>
                       <th className="th-base" style={{ textAlign: 'right' }}>Precio de venta {moneyLabel}</th>
                       <th className="th-base" style={{ textAlign: 'right' }}>Precio final {moneyLabel}</th>
@@ -482,8 +482,8 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                         <tr key={l.id} onClick={() => setSelected({ id: l.id })} className="cursor-pointer hover:bg-slate-50">
                           <td className="td-base font-semibold" style={{ textAlign: 'left' }}>{l.code}</td>
                           <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.address || g.blockAddress || '—'}>{l.address || g.blockAddress || '—'}</td>
-                          <td className="td-base truncate text-slate-500" style={{ textAlign: 'left' }} title={l.type || '—'}>{l.type || '—'}</td>
-                          <td className="td-base" style={{ textAlign: 'left' }}>{l.areaM2} m²</td>
+                          <td className="td-base truncate text-center text-slate-500" style={{ textAlign: 'center' }} title={l.type || '—'}>{l.type || '—'}</td>
+                          <td className="td-base text-center" style={{ textAlign: 'center' }}>{l.areaM2} m²</td>
                           <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.price ? formatLotMoney(l.price) : '—'}</td>
                           <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.salePrice ? formatLotMoney(l.salePrice) : '—'}</td>
                           <td className="td-base tabular-nums" style={{ textAlign: 'right' }}>{l.finalPrice ? formatLotMoney(l.finalPrice) : '—'}</td>

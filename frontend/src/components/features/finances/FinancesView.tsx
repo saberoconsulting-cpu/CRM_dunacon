@@ -11,17 +11,25 @@ import { FiEdit3, FiSearch, FiTrash2, FiX } from 'react-icons/fi';
 type T = {
   id: number; type: string; category: string; concept: string; amount: string; txnDate: string; projectId?: number | null;
   lotId?: number | null; clientId?: number | null; lotCode?: string | null; clientName?: string | null; paymentMethod?: string | null;
-  paymentCategory?: string | null; classification?: string | null; agentName?: string | null;
+  paymentCategory?: string | null; categoryCode?: string | null; classification?: string | null; agentName?: string | null;
 };
 
 type BankMovement = {
   id: number;
+  accountKey?: string | null;
   movementDate?: string | null;
   monthLabel?: string | null;
   description?: string | null;
   counterparty?: string | null;
   depositAmount?: string | number;
   movementType?: string | null;
+  eerrClassification?: string | null;
+  code?: string | null;
+};
+
+type BankAccount = {
+  accountKey: string;
+  currency?: string | null;
 };
 
 type FinanceDashManual = {
@@ -38,6 +46,7 @@ type FinanceDashManual = {
   commitmentRows: Array<{ priority: string; creditor: string; amount: string }>;
   structureRows: Array<{ label: string; amount: string }>;
 };
+type FinanceDashManualField = 'boletasEmitidas' | 'totalAcciones' | 'factorActualizacion' | 'accionesAVender' | 'compromisoTerreno';
 
 type FinanceDashData = {
   budget: Record<string, number>;
@@ -46,6 +55,7 @@ type FinanceDashData = {
   dynamicFlow: any;
   payments: any;
   salesOverdue: { count: number; amount: number };
+  paymentRowsOverdue: { count: number; amount: number };
   loans: { amount: number; interest: number; updated: number };
   extraIncome: number;
 };
@@ -54,16 +64,16 @@ type FinanceClassRow = {
   key: string;
   sourceId?: number;
   code: string;
+  category?: string;
   movementType: string;
   eerrClassification: string;
-  cashflowRowId: string;
+  cashflowRowId?: string;
   paymentMethod: string;
   sortOrder: string;
   custom?: boolean;
   deleted?: boolean;
 };
 
-const CATS = ['marketing', 'mantenimiento', 'obra', 'administracion', 'comisiones', 'otros'];
 const FINANCE_PAYMENT_CATEGORIES = ['cuota_inicial', 'cuota', 'lote', 'separacion', 'mantenimiento', 'operacion', 'prestamo', 'otros'];
 const FINANCE_CLASSIFICATIONS = ['Venta de Lote', 'Compra de Lote', 'Operacion', 'Financiamiento', 'Ingreso Extraordinario', 'Otros'];
 const PAYMENT_LABEL: Record<string, string> = {
@@ -83,11 +93,30 @@ function usd(value: number) {
 }
 
 function compactUsd(value: number) {
-  return `US$${Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+  return `US$ ${Math.round(Number(value || 0)).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
 function num(value: unknown) {
   return Number(value || 0) || 0;
+}
+
+function plainText(value: unknown) {
+  return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+}
+
+function isLoanMovement(item: Partial<BankMovement>) {
+  const text = [
+    item.movementType,
+    item.eerrClassification,
+    item.code,
+    item.description,
+  ].map(plainText).join(' ');
+  return text.includes('prestamo');
+}
+
+function paymentRowUsd(payment: any) {
+  const usd = payment?.amountUsd != null ? Number(payment.amountUsd) : Number(payment?.amount || 0);
+  return Number.isFinite(usd) ? usd : 0;
 }
 
 function cashflowTotal(model: any, id: string) {
@@ -98,6 +127,41 @@ function cashflowTotal(model: any, id: string) {
 
 function firstPositive(...values: number[]) {
   return values.find((value) => Number(value || 0) > 0) || 0;
+}
+
+function cleanCategoryCode(value: unknown) {
+  return String(value || '').replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 3);
+}
+
+function defaultFinanceClassRows(): FinanceClassRow[] {
+  return [
+    { key: 'default-pp', paymentMethod: 'Deposito', movementType: 'Ingreso', code: 'PP', category: 'Prestamo', eerrClassification: 'Financiamiento', sortOrder: '1', custom: true },
+    { key: 'default-pv', paymentMethod: '', movementType: 'Ingreso', code: 'PV', category: 'Pago venta de lote', eerrClassification: 'Venta de Lote', sortOrder: '2', custom: true },
+    { key: 'default-pci', paymentMethod: '', movementType: 'Ingreso', code: 'PCI', category: 'Cuota Inicial', eerrClassification: 'Venta de Lote', sortOrder: '3', custom: true },
+    { key: 'default-pc', paymentMethod: '', movementType: 'Ingreso', code: 'PC', category: 'Cuota', eerrClassification: 'Venta de Lote', sortOrder: '4', custom: true },
+    { key: 'default-po', paymentMethod: '', movementType: 'Egreso', code: 'PO', category: 'Obra', eerrClassification: 'Inversion/Construccion', sortOrder: '5', custom: true },
+    { key: 'default-pm', paymentMethod: '', movementType: 'Egreso', code: 'PM', category: 'Mantenimiento', eerrClassification: 'Operacion (G&A, com, admin)', sortOrder: '6', custom: true },
+    { key: 'default-mk', paymentMethod: '', movementType: 'Egreso', code: 'MK', category: 'Marketing', eerrClassification: 'Operacion (G&A, com, admin)', sortOrder: '7', custom: true },
+    { key: 'default-ad', paymentMethod: '', movementType: 'Egreso', code: 'AD', category: 'Administracion', eerrClassification: 'Operacion (G&A, com, admin)', sortOrder: '8', custom: true },
+    { key: 'default-co', paymentMethod: '', movementType: 'Egreso', code: 'CO', category: 'Comisiones', eerrClassification: 'Operacion (G&A, com, admin)', sortOrder: '9', custom: true },
+    { key: 'default-pe', paymentMethod: '', movementType: 'Egreso', code: 'PE', category: 'Pago Extraordinario', eerrClassification: 'Otros', sortOrder: '10', custom: true },
+  ];
+}
+
+function normalizeFinanceClassRows(rows: any[]): FinanceClassRow[] {
+  return rows.map((row, index) => ({
+    key: String(row.key || `row-${index + 1}`),
+    sourceId: row.sourceId != null ? Number(row.sourceId) : undefined,
+    code: cleanCategoryCode(row.code),
+    category: String(row.category || row.paymentCategory || (row.code && String(row.code).length > 3 ? row.code : '') || row.movementType || ''),
+    movementType: String(row.movementType === 'egreso' ? 'Egreso' : row.movementType === 'ingreso' ? 'Ingreso' : row.movementType || 'Ingreso'),
+    eerrClassification: String(row.eerrClassification || ''),
+    cashflowRowId: String(row.cashflowRowId || ''),
+    paymentMethod: String(row.paymentMethod || ''),
+    sortOrder: String(row.sortOrder || index + 1),
+    custom: row.custom !== false,
+    deleted: Boolean(row.deleted),
+  })).filter((row) => !row.deleted);
 }
 
 const defaultFinanceDashManual = (): FinanceDashManual => ({
@@ -157,7 +221,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const inf = (k: string, v: any) => setIForm((p: any) => ({ ...p, [k]: v }));
   // Moneda unica de la pantalla: `show()` convierte los montos (que vienen en
   // soles de la base de datos) a la moneda activa antes de pintarlos.
-  const { format: show } = useDisplayCurrency();
+  const { format: show, toDisplay } = useDisplayCurrency();
   const loanSettingsKey = lockedProjectId ? `loan_manual_${lockedProjectId}` : '';
   const financeDashSettingsKey = lockedProjectId ? `finance_dashboard_${lockedProjectId}` : '';
   const financeClassSettingsKey = lockedProjectId ? `finance_classification_${lockedProjectId}` : '';
@@ -195,13 +259,19 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     if (!lockedProjectId || !showLoans) return;
     setLoanLoading(true);
     try {
-      const q = new URLSearchParams();
-      q.set('projectId', String(lockedProjectId));
-      q.set('movementType', 'PRESTAMO');
-      if (loanFrom) q.set('from', loanFrom);
-      if (loanTo) q.set('to', loanTo);
-      const data = await api.get<any>(`/bank-accounts?${q.toString()}`);
-      setLoanRows(Array.isArray(data) ? data : (data?.items || []));
+      const accountsData = await api.get<{ items?: BankAccount[] }>(`/bank-accounts/accounts?projectId=${lockedProjectId}`).catch(() => ({ items: [] }));
+      const accounts = accountsData.items?.length ? accountsData.items : [{ accountKey: 'GENERAL' }];
+      const responses = await Promise.all(accounts.map((account) => {
+        const q = new URLSearchParams();
+        q.set('projectId', String(lockedProjectId));
+        q.set('accountKey', account.accountKey);
+        if (loanFrom) q.set('from', loanFrom);
+        if (loanTo) q.set('to', loanTo);
+        return api.get<any>(`/bank-accounts?${q.toString()}`).catch(() => ({ items: [] }));
+      }));
+      setLoanRows(responses
+        .flatMap((data) => Array.isArray(data) ? data : (data?.items || []))
+        .filter(isLoanMovement));
     } catch (e: any) {
       toast(e.message || 'No se pudieron cargar los prestamos', 'err');
       setLoanRows([]);
@@ -215,29 +285,42 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const loadFinanceDash = useCallback(async () => {
     if (!lockedProjectId) return;
     try {
-      const [budget, statement, staticFlow, dynamicFlow, payments, salesContext, bank, loanSetting] = await Promise.all([
+      const [budget, statement, staticFlow, dynamicFlow, payments, paymentsList, salesContext, bankAccountsData, loanSetting] = await Promise.all([
         api.get<any>(`/construction-budget?projectId=${lockedProjectId}`).catch(() => ({})),
         api.get<any>(`/finances/income-statement?projectId=${lockedProjectId}`).catch(() => ({})),
         api.get<any>(`/cashflow/model?projectId=${lockedProjectId}&mode=estatico`).catch(() => null),
         api.get<any>(`/cashflow/model?projectId=${lockedProjectId}&mode=dinamico`).catch(() => null),
         api.get<any>(`/payments/caja?projectId=${lockedProjectId}`).catch(() => ({})),
+        api.get<any>(`/payments?projectId=${lockedProjectId}&limit=1000`).catch(() => ({ items: [] })),
         api.get<any>(`/sales/payment-context?projectId=${lockedProjectId}`).catch(() => ({ sales: [] })),
-        api.get<any>(`/bank-accounts?projectId=${lockedProjectId}&limit=500`).catch(() => ({ items: [] })),
+        api.get<{ items?: BankAccount[] }>(`/bank-accounts/accounts?projectId=${lockedProjectId}`).catch(() => ({ items: [] })),
         api.get<{ value?: string }>(`/settings/value/${encodeURIComponent(loanSettingsKey)}`).catch(() => ({ value: '' })),
       ]);
-      const movements = Array.isArray(bank) ? bank : (bank?.items || []);
+      const bankAccounts = bankAccountsData.items?.length ? bankAccountsData.items : [{ accountKey: 'GENERAL' }];
+      const bankResponses = await Promise.all(bankAccounts.map((account) => {
+        const q = new URLSearchParams();
+        q.set('projectId', String(lockedProjectId));
+        q.set('accountKey', account.accountKey);
+        return api.get<any>(`/bank-accounts?${q.toString()}`).catch(() => ({ items: [] }));
+      }));
+      const movements = bankResponses.flatMap((data) => Array.isArray(data) ? data : (data?.items || []));
       const extraIncome = movements
-        .filter((item: any) => num(item.depositAmount) > 0 && !String(item.movementType || '').toLowerCase().includes('prestamo'))
+        .filter((item: any) => num(item.depositAmount) > 0 && !isLoanMovement(item))
         .reduce((sum: number, item: any) => sum + num(item.depositAmount), 0);
       let loanParsed: any = {};
       try { loanParsed = loanSetting?.value ? JSON.parse(loanSetting.value) : {}; } catch { loanParsed = {}; }
       const loanManualData = loanParsed?.manual && typeof loanParsed.manual === 'object' ? loanParsed.manual : {};
       const loanInterest = Object.values(loanManualData).reduce((sum: number, item: any) => sum + num(item?.interest), 0);
-      const loanRowsData = movements.filter((item: any) => String(item.movementType || '').toLowerCase().includes('prestamo'));
+      const loanRowsData = movements.filter(isLoanMovement);
       const loanAmount = loanRowsData.reduce((sum: number, item: any) => sum + num(item.depositAmount), 0);
       const overduePlanRows = (Array.isArray(salesContext?.sales) ? salesContext.sales : [])
         .flatMap((sale: any) => Array.isArray(sale?.plan) ? sale.plan : (Array.isArray(sale?.installments) ? sale.installments : []))
         .filter((row: any) => row?.overdue && !row?.paid);
+      const today = new Date().toISOString().slice(0, 10);
+      const paymentRows = Array.isArray(paymentsList) ? paymentsList : (paymentsList?.items || []);
+      const overduePaymentRows = paymentRows
+        .filter((payment: any) => String(payment.status || '') !== 'pagado')
+        .filter((payment: any) => payment.dueDate && String(payment.dueDate).slice(0, 10) < today);
       setFinanceDash({
         budget: {
           ...(budget?.summary?.categories || budget?.categories || budget || {}),
@@ -251,6 +334,10 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           count: overduePlanRows.length,
           amount: overduePlanRows.reduce((sum: number, row: any) => sum + num(row.amount), 0),
         },
+        paymentRowsOverdue: {
+          count: overduePaymentRows.length,
+          amount: overduePaymentRows.reduce((sum: number, row: any) => sum + paymentRowUsd(row), 0),
+        },
         loans: { amount: loanAmount, interest: loanInterest, updated: loanAmount + loanInterest },
         extraIncome,
       });
@@ -262,62 +349,53 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   useEffect(() => { loadFinanceDash(); }, [loadFinanceDash]);
 
   useEffect(() => {
-    if ((!showClassification && !openExp && !openIn) || !lockedProjectId || !financeClassSettingsKey) return;
+    if (!showClassification && !openExp && !openIn) return;
     let alive = true;
     setFinanceClassLoaded(false);
-    Promise.all([
-      api.get<any>(`/bank-accounts/categories?projectId=${lockedProjectId}`).catch(() => ({ items: [] })),
-      api.get<{ value?: string }>(`/settings/value/${encodeURIComponent(financeClassSettingsKey)}`).catch(() => ({ value: '' })),
-    ]).then(([categories, saved]) => {
-      if (!alive) return;
-      let parsed: any = {};
-      try { parsed = saved?.value ? JSON.parse(saved.value) : {}; } catch { parsed = {}; }
-      const savedRows = Array.isArray(parsed?.rows) ? parsed.rows : [];
-      const savedBySource = new Map(savedRows.filter((row: any) => row.sourceId).map((row: any) => [Number(row.sourceId), row]));
-      const baseRows: FinanceClassRow[] = (Array.isArray(categories?.items) ? categories.items : []).map((item: any, index: number) => {
-        const savedRow: any = savedBySource.get(Number(item.id)) || {};
-        return {
-          key: `source-${item.id}`,
-          sourceId: Number(item.id),
-          code: String(savedRow.code ?? item.code ?? ''),
-          movementType: String(savedRow.movementType ?? item.movementType ?? ''),
-          eerrClassification: String(savedRow.eerrClassification ?? item.eerrClassification ?? ''),
-          cashflowRowId: String(savedRow.cashflowRowId ?? item.cashflowRowId ?? ''),
-          paymentMethod: String(savedRow.paymentMethod ?? ''),
-          sortOrder: String(savedRow.sortOrder ?? item.sortOrder ?? index + 1),
-          deleted: Boolean(savedRow.deleted),
-        };
+    api.get<{ value?: string }>(`/settings/value/${encodeURIComponent(financeClassSettingsKey)}`)
+      .then((res) => {
+        if (!alive) return;
+        let parsed: any = {};
+        try { parsed = res?.value ? JSON.parse(res.value) : {}; } catch { parsed = {}; }
+        const rows = Array.isArray(parsed?.rows) && parsed.rows.length
+          ? normalizeFinanceClassRows(parsed.rows)
+          : defaultFinanceClassRows();
+        setFinanceClassRows(rows);
+      })
+      .catch(() => {
+        if (alive) setFinanceClassRows(defaultFinanceClassRows());
+      })
+      .finally(() => {
+        if (alive) setFinanceClassLoaded(true);
       });
-      const customRows = savedRows
-        .filter((row: any) => row.custom && !row.sourceId)
-        .map((row: any, index: number) => ({
-          key: String(row.key || `custom-${Date.now()}-${index}`),
-          code: String(row.code || ''),
-          movementType: String(row.movementType || ''),
-          eerrClassification: String(row.eerrClassification || ''),
-          cashflowRowId: String(row.cashflowRowId || ''),
-          paymentMethod: String(row.paymentMethod || ''),
-          sortOrder: String(row.sortOrder || baseRows.length + index + 1),
-          custom: true,
-        }));
-      setFinanceClassRows([...baseRows, ...customRows].filter((row) => !row.deleted));
-    }).catch((error: any) => {
-      if (alive) toast(error?.message || 'No se pudo cargar clasificacion', 'err');
-    }).finally(() => {
-      if (alive) setFinanceClassLoaded(true);
-    });
     return () => { alive = false; };
-  }, [showClassification, openExp, openIn, lockedProjectId, financeClassSettingsKey]);
+    const defaultData: FinanceClassRow[] = [
+      { key: 'default-1', paymentMethod: 'Deposito', movementType: 'Ingreso', code: 'Prestamo', eerrClassification: 'Financiamiento', sortOrder: '1', custom: true },
+      { key: 'default-2', paymentMethod: 'Yape', movementType: 'Ingreso', code: 'Prestamo', eerrClassification: 'Financiamiento', sortOrder: '2', custom: true },
+      { key: 'default-3', paymentMethod: 'Efectivo', movementType: 'Ingreso', code: 'Prestamo', eerrClassification: 'Financiamiento', sortOrder: '3', custom: true },
+      { key: 'default-4', paymentMethod: '', movementType: 'Egreso', code: 'Obra', eerrClassification: 'Inversión/Construcción', sortOrder: '4', custom: true },
+      { key: 'default-5', paymentMethod: '', movementType: 'Egreso', code: 'Mantenimiento', eerrClassification: 'Operación (G&A, com, admin)', sortOrder: '5', custom: true },
+      { key: 'default-6', paymentMethod: '', movementType: 'Egreso', code: 'Marketing', eerrClassification: 'Operación (G&A, com, admin)', sortOrder: '6', custom: true },
+      { key: 'default-7', paymentMethod: '', movementType: 'Egreso', code: 'Administración', eerrClassification: 'Operación (G&A, com, admin)', sortOrder: '7', custom: true },
+      { key: 'default-8', paymentMethod: '', movementType: 'Egreso', code: 'Comisiones', eerrClassification: 'Operación (G&A, com, admin)', sortOrder: '8', custom: true },
+      { key: 'default-9', paymentMethod: '', movementType: 'Egreso', code: 'Pago Extraordinario', eerrClassification: 'Venta de Lote', sortOrder: '9', custom: true },
+      { key: 'default-10', paymentMethod: '', movementType: 'Ingreso', code: 'Cuota Inicial', eerrClassification: 'Venta de Lote', sortOrder: '10', custom: true },
+      { key: 'default-11', paymentMethod: '', movementType: 'Ingreso', code: 'Cuota', eerrClassification: 'Venta de Lote', sortOrder: '11', custom: true },
+    ];
+    setFinanceClassRows(defaultData);
+    setFinanceClassLoaded(true);
+  }, [showClassification, openExp, openIn, financeClassSettingsKey]);
 
   useEffect(() => {
-    if (!showClassification || !financeClassSettingsKey || !financeClassLoaded) return;
+    if (!showClassification || !financeClassSettingsKey || !lockedProjectId || !financeClassLoaded) return;
     const timer = setTimeout(() => {
+      const rowsToSave = financeClassRows.map((row) => ({ ...row, code: cleanCategoryCode(row.code) }));
       api.put(`/settings/value/${encodeURIComponent(financeClassSettingsKey)}`, {
-        value: JSON.stringify({ rows: financeClassRows }),
+        value: JSON.stringify({ rows: rowsToSave }),
       }).catch(() => toast('No se pudo guardar la clasificacion de Finanzas', 'err'));
     }, 600);
     return () => clearTimeout(timer);
-  }, [showClassification, financeClassSettingsKey, financeClassLoaded, financeClassRows]);
+  }, [showClassification, financeClassSettingsKey, financeClassRows, lockedProjectId, financeClassLoaded]);
 
   useEffect(() => {
     if (!showLoans || !loanSettingsKey) return;
@@ -408,6 +486,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         clientLabel: eForm.clientLabel || null,
         paymentMethod: eForm.paymentMethod || null,
         paymentCategory: eForm.paymentCategory || eForm.category || 'otros',
+        categoryCode: eForm.categoryCode || null,
         classification: eForm.classification || eForm.expenseClass || 'Operacion',
         agentName: eForm.agentName || null,
         category: eForm.category || eForm.paymentCategory || 'otros',
@@ -427,6 +506,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         clientLabel: iForm.clientLabel || null,
         paymentMethod: iForm.paymentMethod || null,
         paymentCategory: iForm.paymentCategory || iForm.category || 'otros_ingresos',
+        categoryCode: iForm.categoryCode || null,
         classification: iForm.classification || 'Ingreso',
         agentName: iForm.agentName || null,
         category: iForm.category || iForm.paymentCategory || 'otros_ingresos',
@@ -440,7 +520,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
 
   const normalized = (value: unknown) => String(value || '').trim().toLowerCase();
   const categoryOptions = Array.from(new Set([
-    ...financeClassRows.map((row) => row.movementType).filter(Boolean),
+    ...financeClassRows.map((row) => row.category || row.code).filter(Boolean),
     ...FINANCE_PAYMENT_CATEGORIES,
   ]));
 
@@ -464,14 +544,18 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     const update = kind === 'income' ? inf : ef;
     update('category', value);
     update('paymentCategory', value);
-    const row = financeClassRows.find((item) => normalized(item.movementType) === normalized(value));
+    const row = financeClassRows.find((item) => normalized(item.category) === normalized(value) || normalized(item.code) === normalized(value));
     if (!row) {
       if (!value.trim() || normalized(value) === 'otros') {
         update('classification', '');
         update('paymentMethod', '');
+        update('categoryCode', '');
       }
       return;
     }
+    update('category', row.category || value);
+    update('paymentCategory', row.category || value);
+    update('categoryCode', row.code || '');
     update('classification', row.eerrClassification || '');
     if (row.paymentMethod) update('paymentMethod', row.paymentMethod);
   }
@@ -527,11 +611,12 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const gastosFinancieros = cashflowTotal(financeDash?.staticFlow, 'financial') + cashflowTotal(financeDash?.staticFlow, 'tax');
   const ventaLotesReal = cashflowTotal(financeDash?.dynamicFlow, 'income') || num(statement?.ingresos);
   const pagoCuotasLotes = num(paymentsMetrics.initialPaymentAmount) + num(paymentsMetrics.paidCuotasAmount);
-  const ingresosExtra = num(financeDash?.extraIncome);
-  const boletasEmitidas = num(financeDashManual.boletasEmitidas);
+  const ingresosExtra = toDisplay(totalAmount);
+  const boletasEmitidas = num(paymentsMetrics.receiptCount);
+  const boletasEmitidasMonto = num(paymentsMetrics.receiptAmount);
   const cuotasPorCobrar = Math.max(0, ingresoVentaLotes - pagoCuotasLotes);
-  const cuotasMora = firstPositive(num(paymentsMetrics.overdueAmount), num(financeDash?.salesOverdue.amount));
-  const cuotasMoraCount = firstPositive(num(paymentsMetrics.overduePayments), num(financeDash?.salesOverdue.count));
+  const cuotasMora = num(financeDash?.paymentRowsOverdue.amount);
+  const cuotasMoraCount = num(financeDash?.paymentRowsOverdue.count);
   const cuentasPorPagar = num(paymentsMetrics.pendingAmount);
   const totalAcciones = num(financeDashManual.totalAcciones);
   const sociosBase = financeDashManual.socios;
@@ -597,7 +682,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     ...financeDashManual.commitmentRows.map((row, index) => [row.priority || String(sociosRows.length + 4 + index), row.creditor || 'Nuevo acreedor', num(row.amount)] as [string, string, number]),
   ] as Array<[string, string, number] | [string, string, number, string]>;
   const compromisoTotal = compromisoRows.reduce((sum, [, , value]) => sum + num(value), 0);
-  const dashboardCards = [
+  const dashboardCards: Array<{ label: string; value: number; note: string; color: string; manual?: FinanceDashManualField }> = [
     { label: 'Ingreso Venta de Lotes', value: ingresoVentaLotes, note: `${num(paymentsMetrics.totalSaleLots)} lotes`, color: '#16A36A' },
     { label: 'Ppto de Obra US$', value: pptoObra, note: `Avance Real: ${compactUsd(cashflowTotal(financeDash?.dynamicFlow, 'direct'))}`, color: '#16A36A' },
     { label: 'Costo del Terreno US$', value: costoTerreno, note: `Deuda: ${compactUsd(cashflowTotal(financeDash?.dynamicFlow, 'land'))}`, color: '#2563EB' },
@@ -607,8 +692,8 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     { label: 'Gastos Financieros US$', value: gastosFinancieros, note: 'Flujo de caja', color: '#CA8A04' },
     { label: 'Venta de Lotes Real', value: ventaLotesReal, note: `${num(paymentsMetrics.totalSaleLots)} lotes`, color: '#16A36A' },
     { label: 'Pago Cuotas de Lotes', value: pagoCuotasLotes, note: `${num(paymentsMetrics.paidCuotas)} cuotas`, color: '#16A36A' },
-    { label: 'Ingresos Extraordinarios US$', value: ingresosExtra, note: 'Cuentas y bancos', color: '#2563EB' },
-    { label: 'Boletas Emitidas US$', value: boletasEmitidas, note: 'Editable', color: '#2563EB', manual: 'boletasEmitidas' as const },
+    { label: 'Ingresos Extraordinarios US$', value: ingresosExtra, note: 'Flujo financiero', color: '#2563EB' },
+    { label: 'Facturas / Boletas', value: boletasEmitidas, note: `Total: ${compactUsd(boletasEmitidasMonto)}`, color: '#2563EB' },
     { label: 'Cuotas por Cobrar US$', value: cuotasPorCobrar, note: `${num(paymentsMetrics.pendingCuotas)} cuotas`, color: '#DC2626' },
     { label: 'Cuotas en Mora', value: cuotasMora, note: `${cuotasMoraCount} cuotas`, color: '#DC2626' },
     { label: 'Cuentas por Pagar US$', value: cuentasPorPagar, note: 'Cuotas pendientes', color: '#CA8A04' },
@@ -645,12 +730,12 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const rowIconButton = 'inline-flex h-7 w-7 items-center justify-center rounded-md border bg-white text-slate-600 transition hover:bg-slate-50 hover:text-blue-700';
   const rowDangerButton = 'inline-flex h-7 w-7 items-center justify-center rounded-md border bg-white text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600';
   const updateFinanceClassRow = (key: string, patch: Partial<FinanceClassRow>) => {
-    setFinanceClassRows((rows) => rows.map((row) => row.key === key ? { ...row, ...patch } : row));
+    setFinanceClassRows((rows) => rows.map((row) => row.key === key ? { ...row, ...patch, ...(patch.code !== undefined ? { code: cleanCategoryCode(patch.code) } : {}) } : row));
   };
   const addFinanceClassRow = () => {
     setFinanceClassRows((rows) => [
       ...rows,
-      { key: `custom-${Date.now()}`, code: '', movementType: 'Nuevo concepto', eerrClassification: '', cashflowRowId: '', paymentMethod: '', sortOrder: String(rows.length + 1), custom: true },
+      { key: `custom-${Date.now()}`, code: '', category: 'Nueva categoria', movementType: 'Ingreso', eerrClassification: '', cashflowRowId: '', paymentMethod: '', sortOrder: String(rows.length + 1), custom: true },
     ]);
   };
   const removeFinanceClassRow = (key: string) => {
@@ -658,8 +743,10 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   };
   const saveFinanceClassificationNow = (rows = financeClassRows) => {
     if (!financeClassSettingsKey) return;
+    const invalid = rows.find((row) => cleanCategoryCode(row.code).length < 2);
+    if (invalid) return toast('El codigo debe tener minimo 2 letras y maximo 3', 'err');
     api.put(`/settings/value/${encodeURIComponent(financeClassSettingsKey)}`, {
-      value: JSON.stringify({ rows }),
+      value: JSON.stringify({ rows: rows.map((row) => ({ ...row, code: cleanCategoryCode(row.code) })) }),
     }).then(() => toast('Clasificacion guardada')).catch(() => toast('No se pudo guardar la clasificacion de Finanzas', 'err'));
   };
 
@@ -790,9 +877,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                       placeholder="0"
                     />
                   ) : (
-                    <p className="mt-1 truncate text-center text-base font-black text-blue-700 sm:text-lg">{compactUsd(card.value)}</p>
+                    <p className="mt-1 break-words text-center text-base font-black text-blue-700 sm:text-lg">{compactUsd(card.value)}</p>
                   )}
-                  <p className="mt-2 truncate text-[10px] text-slate-500">- {card.note}</p>
+                  <p className="mt-2 break-words text-[10px] text-slate-500">- {card.note}</p>
                 </div>
               ))}
             </div>
@@ -813,9 +900,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                       placeholder="0"
                     />
                   ) : (
-                    <p className="mt-1 truncate text-center text-base font-black text-blue-700 sm:text-lg">{compactUsd(card.value)}</p>
+                    <p className="mt-1 break-words text-center text-base font-black text-blue-700 sm:text-lg">{compactUsd(card.value)}</p>
                   )}
-                  <p className="mt-2 truncate text-[10px] text-slate-500">- {card.note}</p>
+                  <p className="mt-2 break-words text-[10px] text-slate-500">- {card.note}</p>
                 </div>
               ))}
             </div>
@@ -1002,7 +1089,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
               <Select
                 value={cat}
                 onChange={setCat}
-                options={[{ value: '', label: 'Todas las categorias' }, ...CATS.map((c) => ({ value: c, label: c }))]}
+                options={[{ value: '', label: 'Todas las categorias' }, ...categoryOptions.map((c) => ({ value: c, label: c.replaceAll('_', ' ') }))]}
               />
             </div>
             {(cat || search || typeFilter) && (
@@ -1015,10 +1102,10 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             {loading ? <p className="p-4 text-slate-400">Cargando...</p>
               : txns.length === 0 ? <p className="p-6 text-center text-sm text-slate-400">Aun no hay movimientos.</p>
               : (
-              <table className="table-base table-head-plomo" style={{ minWidth: 1120 }}>
+              <table className="table-base table-head-plomo" style={{ minWidth: 1180 }}>
                 <thead><tr>
                   <th className="th-base">Id.</th><th className="th-base">Lote</th><th className="th-base">Cliente/Proveedor</th><th className="th-base">Modo de Pago</th>
-                  <th className="th-base">Tipo</th><th className="th-base">Tipo de Pago/Categoria</th><th className="th-base">Clasificacion</th><th className="th-base">Agente</th><th className="th-base">Concepto</th>
+                  <th className="th-base">Tipo</th><th className="th-base">Codigo</th><th className="th-base">Tipo de Pago/Categoria</th><th className="th-base">Clasificacion</th><th className="th-base">Agente</th><th className="th-base">Concepto</th>
                   <th className="th-base">Monto US$</th><th className="th-base">Fecha</th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1029,6 +1116,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                       <td className="td-base">{t.clientName || (t.clientId ? `#${t.clientId}` : '-')}</td>
                       <td className="td-base">{paymentLabel(t.paymentMethod)}</td>
                       <td className="td-base"><span className="badge" style={{ background: t.type === 'ingreso' ? '#EAF7EE' : '#E7F0FE', color: t.type === 'ingreso' ? '#125A3B' : '#1259C4' }}>{t.type}</span></td>
+                      <td className="td-base text-center font-bold">{t.categoryCode || '-'}</td>
                       <td className="td-base capitalize">{t.paymentCategory || t.category}</td>
                       <td className="td-base">{t.classification || '-'}</td>
                       <td className="td-base">{t.agentName || '-'}</td>
@@ -1040,7 +1128,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#0B2F6E' }}>
-                    <td className="td-base font-bold text-white" colSpan={9}>Totales ({meta.total})</td>
+                    <td className="td-base font-bold text-white" colSpan={10}>Totales ({meta.total})</td>
                     <td className="td-base font-bold text-white tabular-nums">{show(totalAmount)}</td>
                     <td className="td-base" />
                   </tr>
@@ -1066,25 +1154,42 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
           <div className="overflow-auto p-3">
             {!financeClassLoaded ? <p className="p-4 text-slate-400">Cargando clasificacion...</p> : (
-              <table className="table-base table-head-plomo" style={{ width: 800, minWidth: 800 }}>
+              <table className="table-base table-head-plomo" style={{ width: 980, minWidth: 980 }}>
                 <thead>
                   <tr>
-                    <th className="th-base">Item</th>
-                    <th className="th-base">Cod.</th>
-                    <th className="th-base">Categoria</th>
-                    <th className="th-base">Clasif. FC</th>
-                    <th className="th-base">Medio de pago</th>
+                    <th className="th-base">Codigo</th>
+                    <th className="th-base">Modo de Pago</th>
+                    <th className="th-base">Tipo</th>
+                    <th className="th-base">Categorias</th>
+                    <th className="th-base">Clasificación</th>
                     <th className="th-base">Accion</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {financeClassRows.map((row, index) => (
                     <tr key={row.key}>
-                      <td className="td-base w-20 text-center font-semibold">{index + 1}</td>
-                      <td className="td-base w-24"><input className="input input-ghost !h-7" value={row.code} onChange={(e) => updateFinanceClassRow(row.key, { code: e.target.value.toUpperCase() })} /></td>
-                      <td className="td-base"><input className="input input-ghost !h-7" value={row.movementType} onChange={(e) => updateFinanceClassRow(row.key, { movementType: e.target.value })} /></td>
-                      <td className="td-base"><input className="input input-ghost !h-7" value={row.eerrClassification} onChange={(e) => updateFinanceClassRow(row.key, { eerrClassification: e.target.value })} /></td>
-                      <td className="td-base"><input className="input !h-8" placeholder="Ej. Yape, transferencia" value={row.paymentMethod} onChange={(e) => updateFinanceClassRow(row.key, { paymentMethod: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') { const value = (e.target as HTMLInputElement).value; const nextRows = financeClassRows.map((item) => item.key === row.key ? { ...item, paymentMethod: value } : item); setFinanceClassRows(nextRows); (e.target as HTMLInputElement).blur(); saveFinanceClassificationNow(nextRows); } }} /></td>
+                      <td className="td-base w-[90px]">
+                        <input
+                          className={`input input-ghost !h-7 text-center font-bold uppercase ${row.code && row.code.length < 2 ? '!border-red-300 !text-red-600' : ''}`}
+                          value={row.code}
+                          maxLength={3}
+                          onChange={(e) => updateFinanceClassRow(row.key, { code: e.target.value })}
+                        />
+                      </td>
+                      <td className="td-base"><input className="input input-ghost !h-7" value={row.paymentMethod} onChange={(e) => updateFinanceClassRow(row.key, { paymentMethod: e.target.value })} /></td>
+                      <td className="td-base" style={{ background: row.movementType === 'Ingreso' ? '#EAF7EE' : row.movementType === 'Egreso' ? '#FFF7ED' : 'transparent' }}>
+                        <Select
+                          value={row.movementType}
+                          onChange={(v) => updateFinanceClassRow(row.key, { movementType: v })}
+                          options={[
+                            { value: 'Ingreso', label: 'Ingreso' },
+                            { value: 'Egreso', label: 'Egreso' }
+                          ]}
+                          className="input-ghost !h-7"
+                        />
+                      </td>
+                      <td className="td-base"><input className="input input-ghost !h-7" value={row.category || ''} onChange={(e) => updateFinanceClassRow(row.key, { category: e.target.value })} /></td>
+                      <td className="td-base" style={{ background: row.eerrClassification === 'Financiamiento' ? '#E0F2FE' : row.eerrClassification === 'Inversión/Construcción' ? '#ECFDF5' : row.eerrClassification === 'Operación (G&A, com, admin)' ? '#FEF3C7' : row.eerrClassification === 'Venta de Lote' ? '#FEE2E2' : 'transparent' }}><input className="input input-ghost !h-7" value={row.eerrClassification} onChange={(e) => updateFinanceClassRow(row.key, { eerrClassification: e.target.value })} /></td>
                       <td className="td-base text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button><button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeFinanceClassRow(row.key)}><FiTrash2 size={13} /></button></div></td>
                     </tr>
                   ))}
@@ -1100,19 +1205,17 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-4 sm:max-h-[92vh] sm:p-6">
             <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Registrar egreso</h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Referencia / Detalle"><input className="input" list="finance-lots-expense" value={eForm.lotLabel || ''} onChange={(e) => applyLotToForm('expense', e.target.value)} placeholder="Manual u opcional: L-23" /></Field>
+              <Field label="Lote/Otros"><input className="input" list="finance-lots-expense" value={eForm.lotLabel || ''} onChange={(e) => applyLotToForm('expense', e.target.value)} placeholder="Busca lote o escribe otros" /></Field>
               <Field label="Cliente/Proveedor"><input className="input" value={eForm.clientLabel || ''} onChange={(e) => ef('clientLabel', e.target.value)} /></Field>
               <Field label="Modo de Pago"><input className="input" list="finance-payment-methods" value={eForm.paymentMethod || ''} onChange={(e) => ef('paymentMethod', e.target.value)} /></Field>
               <Field label="Tipo de Pago/Categoria"><input className="input" list="finance-categories" value={eForm.category || ''} onChange={(e) => applyCategoryToForm('expense', e.target.value)} placeholder="Escribe iniciales y selecciona" /></Field>
+              <Field label="Codigo"><input className="input uppercase" value={eForm.categoryCode || ''} maxLength={3} onChange={(e) => ef('categoryCode', cleanCategoryCode(e.target.value))} /></Field>
               <Field label="Clasificacion"><input className="input" list="finance-classifications" value={eForm.classification || ''} onChange={(e) => ef('classification', e.target.value)} /></Field>
               <Field label="Agente"><input className="input" value={eForm.agentName || ''} onChange={(e) => ef('agentName', e.target.value)} /></Field>
               <Field label="Monto US$ *"><input type="number" className="input" value={eForm.amount || ''} onChange={(e) => ef('amount', e.target.value)} /></Field>
               <Field label="Fecha"><input type="date" className="input" value={eForm.txnDate || todayInput()} onChange={(e) => ef('txnDate', e.target.value)} /></Field>
             </div>
             <Field label="Concepto *"><input className="input" value={eForm.concept || ''} onChange={(e) => ef('concept', e.target.value)} /></Field>
-            <Field label="Clasificacion de la inversion/gasto">
-              <Select value={eForm.expenseClass || 'operacion'} onChange={(v) => ef('expenseClass', v)} options={[{ value: 'operacion', label: 'Operacion (G&A, comisiones, admin)' }, { value: 'inversion', label: 'Inversion / Construccion' }, { value: 'financiamiento', label: 'Financiamiento' }, { value: 'compra_terreno', label: 'Compra de terreno' }]} />
-            </Field>
             {!lockedProjectId && (
               <Field label="Proyecto"><Select value={eForm.projectId || ''} onChange={(v) => ef('projectId', v ? Number(v) : null)} options={[{ value: '', label: '-' }, ...projects.map((p: any) => ({ value: p.id, label: p.name }))]} /></Field>
             )}
@@ -1129,10 +1232,11 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-4 sm:max-h-[92vh] sm:p-6">
             <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Registrar ingreso adicional</h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <Field label="Referencia / Lote"><input className="input" list="finance-lots-income" value={iForm.lotLabel || ''} onChange={(e) => applyLotToForm('income', e.target.value)} placeholder="Opcional: escribe L-23" /></Field>
+              <Field label="Lote/Otros"><input className="input" list="finance-lots-income" value={iForm.lotLabel || ''} onChange={(e) => applyLotToForm('income', e.target.value)} placeholder="Busca lote o escribe otros" /></Field>
               <Field label="Cliente/Proveedor"><input className="input" value={iForm.clientLabel || ''} onChange={(e) => inf('clientLabel', e.target.value)} /></Field>
               <Field label="Modo de Pago"><input className="input" list="finance-payment-methods" value={iForm.paymentMethod || ''} onChange={(e) => inf('paymentMethod', e.target.value)} /></Field>
               <Field label="Tipo de Pago/Categoria"><input className="input" list="finance-categories" value={iForm.category || ''} onChange={(e) => applyCategoryToForm('income', e.target.value)} placeholder="Escribe iniciales y selecciona" /></Field>
+              <Field label="Codigo"><input className="input uppercase" value={iForm.categoryCode || ''} maxLength={3} onChange={(e) => inf('categoryCode', cleanCategoryCode(e.target.value))} /></Field>
               <Field label="Clasificacion"><input className="input" list="finance-classifications" value={iForm.classification || ''} onChange={(e) => inf('classification', e.target.value)} /></Field>
               <Field label="Agente"><input className="input" value={iForm.agentName || ''} onChange={(e) => inf('agentName', e.target.value)} /></Field>
               <Field label="Monto US$ *"><input type="number" className="input" value={iForm.amount || ''} onChange={(e) => inf('amount', e.target.value)} /></Field>

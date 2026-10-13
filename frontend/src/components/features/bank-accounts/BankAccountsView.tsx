@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FiAlertCircle, FiArrowDown, FiArrowUp, FiCheckCircle, FiChevronDown, FiChevronLeft, FiChevronRight, FiCreditCard, FiDownload, FiEdit3, FiPlus, FiRefreshCw, FiSave, FiSettings, FiTrash2, FiUploadCloud, FiX } from 'react-icons/fi';
+import { FiAlertCircle, FiArrowUp, FiCheckCircle, FiChevronDown, FiChevronLeft, FiChevronRight, FiCreditCard, FiDownload, FiEdit3, FiPlus, FiRefreshCw, FiSave, FiSettings, FiTrash2, FiUploadCloud, FiX } from 'react-icons/fi';
 import { Toaster, toast, Field } from '@/components/ui/ui';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import AnnualReportPanel from '@/components/features/bank-accounts/AnnualReportPanel';
@@ -164,7 +164,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({ ...emptyFilters });
   const [page, setPage] = useState(1);
-  const [dateSort, setDateSort] = useState<'asc' | 'desc'>('asc');
+  const dateSort: 'asc' = 'asc';
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<Movement | null>(null);
   const [deleting, setDeleting] = useState<Movement | null>(null);
@@ -696,9 +696,9 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 <FiPlus /> <span className="sm:hidden">Agregar</span><span className="hidden sm:inline">Agregar cuenta</span>
               </button>
             </div>
-            <div className="grid w-full grid-cols-2 gap-2 lg:w-[430px] lg:shrink-0">
-              <div className="flex h-10 min-w-0 items-center justify-center rounded-md border bg-white px-2" style={{ borderColor: BORDER }}>
-                <CurrencyToggle currency={currency} setCurrency={setCurrency} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} className="justify-center" />
+            <div className="grid w-full grid-cols-1 gap-2 min-[420px]:grid-cols-2 lg:w-[430px] lg:shrink-0">
+              <div className="flex min-h-10 min-w-0 items-center justify-center rounded-md border bg-white px-2 py-1 min-[420px]:col-span-2" style={{ borderColor: BORDER }}>
+                <CurrencyToggle currency={currency} setCurrency={setCurrency} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} className="w-full justify-center" />
               </div>
               <button className="btn-neutral !h-10 w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm" onClick={load} disabled={loading}>
                 <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar
@@ -842,19 +842,14 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
         <section className="overflow-hidden rounded-md border bg-white shadow-sm" style={{ borderColor: BORDER }}>
           <div className="flex flex-col gap-3 border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between" style={{ borderColor: BORDER }}>
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <button
-                type="button"
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border bg-[#F8FAFC] px-2.5 text-xs font-semibold transition-colors hover:bg-slate-100"
+              <span
+                className="inline-flex h-8 items-center gap-1 rounded-md border bg-[#F8FAFC] px-2 text-[11px] font-semibold"
                 style={{ borderColor: BORDER, color: MUTED }}
-                aria-label={`Ordenar por fecha ${dateSort === 'asc' ? 'descendente' : 'ascendente'}`}
-                onClick={() => {
-                  setDateSort((current) => current === 'asc' ? 'desc' : 'asc');
-                  setPage(1);
-                }}
+                aria-label="Orden por fecha ascendente"
               >
-                {dateSort === 'asc' ? <FiArrowUp aria-hidden="true" /> : <FiArrowDown aria-hidden="true" />}
-                Orden: fecha {dateSort === 'asc' ? 'ascendente' : 'descendente'}
-              </button>
+                <FiArrowUp aria-hidden="true" size={13} />
+                Ascendente
+              </span>
             </div>
             <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-[140px_140px_minmax(200px,1fr)_160px_160px_auto]">
               <input

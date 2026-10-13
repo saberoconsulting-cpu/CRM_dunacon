@@ -10,6 +10,7 @@ import { UserEntity } from '../../../shared/infrastructure/entities/user.entity'
 import { BlockEntity } from '../../../shared/infrastructure/entities/block.entity';
 import { PlanEntity } from '../../../shared/infrastructure/entities/plan.entity';
 import { ProjectLotCatalogEntity } from '../../../shared/infrastructure/entities/project-lot-catalog.entity';
+import { SaleEntity } from '../../../shared/infrastructure/entities/sale.entity';
 
 @Injectable()
 export class LotsService {
@@ -56,6 +57,8 @@ export class LotsService {
       .leftJoinAndSelect(ClientEntity, 'c', 'c.id = l.client_id')
       .leftJoinAndSelect(BlockEntity, 'b', 'b.id = l.street_id')
       .leftJoin(ProjectLotCatalogEntity, 'cat', 'cat.project_id = l.project_id AND cat.code = l.code')
+      .leftJoin(SaleEntity, 'sale', 'sale.id = (SELECT MAX(s2.id) FROM sales s2 WHERE s2.lot_id = l.id)')
+      .leftJoin(ClientEntity, 'saleClient', 'saleClient.id = sale.client_id')
       .select([
         'l.id', 'l.projectId', 'l.planId', 'l.streetId', 'l.code', 'l.address',
         'l.areaM2', 'l.price', 'l.status', 'l.clientId', 'l.agentId',
@@ -66,6 +69,7 @@ export class LotsService {
       .addSelect([
         'u.name AS "agentName"', 'c.full_name AS "clientName"', 'l.selling_stage AS "sellingStage"',
         'l.type AS "type"', 'l.dimensions AS "dimensions"', 'l.sale_price AS "salePrice"', 'l.final_price AS "finalPrice"',
+        'sale.sale_price AS "saleFinalPrice"', 'saleClient.full_name AS "saleClientName"', 'sale.client_id AS "saleClientId"',
         'b.name AS "streetName"', 'b.address AS "streetAddress"',
         'cat.address AS "catalogAddress"', 'cat.type AS "catalogType"', 'cat.dimensions AS "catalogDimensions"',
         'cat.price_m2 AS "catalogPriceM2"', 'cat.sale_price AS "catalogSalePrice"', 'cat.final_price AS "catalogFinalPrice"',
@@ -99,14 +103,14 @@ export class LotsService {
       price: Number(r.l_price || 0) || Number(r.catalogPriceM2 || 0),
       status: r.l_status,
       sellingStage: r.sellingStage || undefined,
-      clientId: r.l_client_id ? Number(r.l_client_id) : null,
+      clientId: r.saleClientId ? Number(r.saleClientId) : (r.l_client_id ? Number(r.l_client_id) : null),
       agentId: r.l_agent_id ? Number(r.l_agent_id) : null,
       agentName: r.agentName || null,
-      clientName: r.clientName || null,
+      clientName: r.saleClientName || r.clientName || null,
       type: r.type || r.catalogType || null,
       dimensions: r.dimensions || r.catalogDimensions || null,
       salePrice: r.salePrice != null ? Number(r.salePrice) : (Number(r.catalogSalePrice || 0) || null),
-      finalPrice: r.finalPrice != null ? Number(r.finalPrice) : (Number(r.catalogFinalPrice || 0) || null),
+      finalPrice: r.saleFinalPrice != null ? Number(r.saleFinalPrice) : (r.finalPrice != null ? Number(r.finalPrice) : (Number(r.catalogFinalPrice || 0) || null)),
       planVoucherUrl: r.l_plan_voucher_url || null,
       streetName: r.streetName || null,
       streetAddress: r.streetAddress || r.l_address || r.catalogAddress || null,
@@ -164,6 +168,11 @@ export class LotsService {
       .filter((p) => p.status === 'pagado')
       .reduce((s, p) => s + Number(p.amount), 0);
     const catalog = await this.lotCatalogRepo.findOne({ where: { projectId: lot.projectId, code: lot.code } }).catch(() => null);
+    const sale = await this.lotRepo.manager.getRepository(SaleEntity).findOne({
+      where: { lotId: lot.id },
+      order: { createdAt: 'DESC' } as any,
+    });
+    const saleClient = sale?.clientId ? await this.clientRepo.findOne({ where: { id: sale.clientId } }) : null;
     const lotWithCatalog = {
       ...lot,
       blockId: lot.streetId,
@@ -173,8 +182,9 @@ export class LotsService {
       areaM2: Number(lot.areaM2 || 0) || Number(catalog?.areaM2 || 0),
       price: Number(lot.price || 0) || Number(catalog?.priceM2 || 0),
       salePrice: lot.salePrice != null ? Number(lot.salePrice) : Number(catalog?.salePrice || 0) || null,
-      finalPrice: lot.finalPrice != null ? Number(lot.finalPrice) : Number(catalog?.finalPrice || 0) || null,
-      clientName: client?.fullName || null,
+      finalPrice: sale?.salePrice != null ? Number(sale.salePrice) : (lot.finalPrice != null ? Number(lot.finalPrice) : Number(catalog?.finalPrice || 0) || null),
+      clientName: saleClient?.fullName || client?.fullName || null,
+      clientId: sale?.clientId || lot.clientId || null,
       streetName: street?.name || null,
       streetAddress: street?.address || lot.address || catalog?.address || null,
       blockName: street?.name || null,

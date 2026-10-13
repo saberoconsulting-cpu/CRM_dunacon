@@ -34,6 +34,10 @@ export class CreateExpenseDto {
 
   @IsOptional()
   @IsString()
+  categoryCode?: string;
+
+  @IsOptional()
+  @IsString()
   classification?: string;
 
   @IsOptional()
@@ -79,6 +83,10 @@ export class CreateAdditionalIncomeDto {
   @IsOptional()
   @IsString()
   paymentCategory?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryCode?: string;
 
   @IsOptional()
   @IsString()

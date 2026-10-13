@@ -36,7 +36,9 @@ export class QuotesService {
 
     const bonoDescuento = Number(dto.bonoDescuentoUsd || 0);
     const bonoEspecial = Number(dto.bonoEspecialUsd || 0);
-    const finalPrice = Math.max(0, Number(dto.lotPriceUsd) - bonoDescuento - bonoEspecial);
+    const finalPrice = dto.finalPriceUsd != null
+      ? Math.max(0, Number(dto.finalPriceUsd || 0))
+      : Math.max(0, Number(dto.lotPriceUsd) - bonoDescuento - bonoEspecial);
     const cuotaInicial = dto.paymentMethod === 'credito' ? Math.max(0, Number(dto.cuotaInicialUsd || 0)) : 0;
     const totalCuotas = dto.paymentMethod === 'credito' ? Math.max(0, Number(dto.totalCuotas || 0)) : 0;
     const saldoAFinanciar = Math.max(0, finalPrice - cuotaInicial);
@@ -79,6 +81,7 @@ export class QuotesService {
       valorCuotaUsd: String(valorCuota),
       exchangeRate: String(dto.exchangeRate),
       createdBy: actorId,
+      createdAt: dto.quoteDate ? new Date(`${dto.quoteDate}T12:00:00`) : undefined,
     });
     return this.quoteRepo.save(quote);
   }

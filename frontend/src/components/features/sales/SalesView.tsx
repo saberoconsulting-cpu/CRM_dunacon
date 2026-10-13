@@ -170,8 +170,21 @@ function initialPaymentOf(sale: S) {
   return Number(sale.cuotaInicial || 0) || (match ? Number(match[1] || 0) : 0);
 }
 
+function paymentMethodOf(sale: S) {
+  const match = String(sale.conditions || '').match(/Forma de pago:\s*([^|]+)/i);
+  const method = (match ? match[1] : '').trim();
+  if (method) return method;
+  return Number(sale.totalCuotas || 0) > 0 ? 'Al credito' : 'Contado';
+}
+
 function financingBalanceOf(sale: S) {
+  if (paymentMethodOf(sale).toLowerCase().includes('contado')) return 0;
   return Math.max(0, Number(sale.salePrice || 0) - initialPaymentOf(sale));
+}
+
+function quoteIdOfSale(sale: S) {
+  const match = String(sale.conditions || '').match(/Cotizacion\s*Q(\d+)/i);
+  return match ? Number(match[1]) : 0;
 }
 
 function lotFinalPrice(lot: any) {
@@ -374,16 +387,51 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [saleCurrency, setSaleCurrencyState] = useState<SaleCurrency>('PEN');
   const queryLotId = Number(searchParams?.get('lotId') || 0);
   const shouldOpenSale = searchParams?.get('openSale') === '1';
-  // Moneda unica de la pantalla: `show()` convierte los montos a la moneda activa.
-  // (No se aplica al formulario de registro, que trabaja siempre en soles con su
-  // propio tipo de cambio `exchangeRate`.)
+  // Moneda unica de la pantalla. En ventas los importes base vienen en US$,
+  // por eso se convierten a soles multiplicando por el tipo de cambio.
   const {
     currency,
     setCurrency,
     exchangeRate: displayRate,
     setExchangeRate: setDisplayRate,
-    format: show,
   } = useDisplayCurrency();
+  const showSaleAmount = useCallback((amountUsd: number | string | null | undefined) => {
+    const usd = Number(amountUsd || 0);
+    const value = currency === 'PEN' ? usd * displayRate : usd;
+    const symbol = currency === 'PEN' ? 'S/' : 'US$';
+    return `${symbol} ${value.toLocaleString(currency === 'PEN' ? 'es-PE' : 'en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  }, [currency, displayRate]);
+  const quoteForSale = useCallback((sale: S) => {
+    const quoteId = quoteIdOfSale(sale);
+    if (quoteId) return quotes.find((q: any) => Number(q.id) === quoteId) || null;
+    return quotes
+      .filter((q: any) => Number(q.lotId) === Number(sale.lotId) && ['convertida', 'aprobada'].includes(String(q.status || '')))
+      .sort((a: any, b: any) => Number(b.id || 0) - Number(a.id || 0))[0] || null;
+  }, [quotes]);
+  const saleFinancials = useCallback((sale: S) => {
+    const quote = quoteForSale(sale);
+    const salePrice = quote ? Number(quote.finalPriceUsd || 0) : Number(sale.salePrice || 0);
+    const totalCuotas = quote ? Number(quote.totalCuotas || 0) : Number(sale.totalCuotas || 0);
+    const cuotaInicial = quote && totalCuotas > 0 ? Number(quote.cuotaInicialUsd || 0) : initialPaymentOf(sale);
+    const balance = paymentMethodOf(sale).toLowerCase().includes('contado') ? 0 : Math.max(0, salePrice - cuotaInicial);
+    const interestType = quote ? String(quote.interestType || 'sin_intereses') : String(sale.interestType || 'sin_intereses');
+    const graceMonths = quote ? Number(quote.graceMonths || 0) : parseSaleConditions(sale.conditions).graceMonths;
+    const noInterest = totalCuotas > 0
+      ? (interestType === 'tea' ? Math.min(totalCuotas, Math.max(0, graceMonths)) : totalCuotas)
+      : 0;
+    const withInterest = Math.max(0, totalCuotas - noInterest);
+    const simpleCuota = totalCuotas > 0 ? balance / totalCuotas : 0;
+    return {
+      salePrice,
+      cuotaInicial,
+      balance,
+      totalCuotas,
+      noInterest,
+      withInterest,
+      noInterestAmount: noInterest > 0 ? simpleCuota : 0,
+      withInterestAmount: withInterest > 0 ? Number(quote?.valorCuotaUsd || sale.valorCuota || 0) : 0,
+    };
+  }, [quoteForSale]);
 
   useEffect(() => { if (lockedProjectId) setProjectId(lockedProjectId); }, [lockedProjectId]);
 
@@ -794,39 +842,42 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       : '';
     const adminLogoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
     const projectLogoUrl = project?.logoImageUrl || '';
-    const formaPago = Number(s.totalCuotas || 0) > 0 ? 'Al credito' : 'Contado';
-    const salePriceValue = Number(s.salePrice || 0);
+    const financials = saleFinancials(s);
+    const quote = quoteForSale(s);
+    const formaPago = paymentMethodOf(s);
+    const salePriceValue = financials.salePrice;
     const commission = Number(s.commission || 0);
-    const valorCuota = Number(s.valorCuota || schedule[0]?.amount || 0);
+    const valorCuota = financials.withInterestAmount || financials.noInterestAmount || Number(s.valorCuota || schedule[0]?.amount || 0);
     const paidInstallments = schedule.filter((row) => row.status === 'pagado').length;
 
     // --- Resumen de financiamiento (mismo criterio que la cotizacion) ---
-    // `cuotaInicial` y `exchangeRate` vienen del API; lo que la venta guarda
-    // como texto (TC via cotizacion, cuotas sin interes y forma de pago de la
-    // inicial) se recupera de `conditions`.
+    // `cuotaInicial`, cuotas sin interes y forma de pago de la inicial se
+    // recuperan de la venta/conditions. Los montos ya estan en US$.
     const parsedConditions = parseSaleConditions(s.conditions);
-    // El TC de la cotizacion convertida es la referencia para pasar a US$;
-    // si la venta no tiene cotizacion se cae al TC referencial del sistema.
-    const exchangeRate = Number(s.exchangeRate || 0) || DEFAULT_EXCHANGE_RATE;
-    const cuotaInicialPen = Number(s.cuotaInicial || 0);
-    const totalCuotasValue = Number(s.totalCuotas || 0);
-    const teaValue = Number(s.tea || 0) || parsedConditions.tea;
-    const interestType = s.interestType || (teaValue > 0 ? 'tea' : 'sin_intereses');
-    const graceMonthsSaved = parsedConditions.graceMonths;
-    const initialPaymentMode = parsedConditions.initialPaymentMode || 'contado';
-    const initialParts = Math.max(2, parsedConditions.initialParts || 0 || 2);
-    const saldoFin = Math.max(0, salePriceValue - cuotaInicialPen);
+    const cuotaInicialPen = financials.cuotaInicial;
+    const totalCuotasValue = financials.totalCuotas;
+    const teaValue = quote ? Number(quote.tea || 0) : (Number(s.tea || 0) || parsedConditions.tea);
+    const interestType = quote ? String(quote.interestType || 'sin_intereses') : (s.interestType || (teaValue > 0 ? 'tea' : 'sin_intereses'));
+    const initialPaymentMode = quote ? (quote.initialPaymentMode === 'partes' ? 'partes' : 'contado') : (parsedConditions.initialPaymentMode || 'contado');
+    const initialParts = Math.max(2, Number(quote?.initialParts || parsedConditions.initialParts || 2));
+    const saldoFin = financials.balance;
     // Cuotas del FINANCIAMIENTO: el cronograma de amortizacion tiene exactamente
     // estas filas (la cuota inicial se descuenta del precio y no forma parte del
     // saldo financiado, por eso no se resta 1).
     const financingInstallments = Math.max(0, totalCuotasValue);
-    const graceMonths = Math.min(financingInstallments, Math.max(0, graceMonthsSaved));
-    const interestInstallments = interestType === 'tea' ? Math.max(0, financingInstallments - graceMonths) : 0;
-    const noInterestInstallments = interestType === 'tea' ? graceMonths : financingInstallments;
+    const noInterestInstallments = financials.noInterest;
+    const interestInstallments = financials.withInterest;
 
     // Importes tomados del cronograma real (fuente de verdad) y, si no esta,
     // recalculados con el mismo importe de cuota que ya trae la venta.
-    const cuotas = schedule.map((row) => Number(row.amount || 0));
+    const quoteNoInterestAmount = financials.noInterestAmount;
+    const quoteInterestAmount = financials.withInterestAmount;
+    const cuotas = quote
+      ? [
+        ...Array.from({ length: noInterestInstallments }, () => quoteNoInterestAmount),
+        ...Array.from({ length: interestInstallments }, () => quoteInterestAmount),
+      ]
+      : schedule.map((row) => Number(row.amount || 0));
     const cuotasSinInteres = cuotas.slice(0, noInterestInstallments);
     const cuotasConInteres = cuotas.slice(noInterestInstallments);
     const noInterestCuotaUsd = cuotasSinInteres.length
@@ -838,10 +889,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const interestCuotaPen = promedio(cuotasConInteres, interestCuotaUsd);
     const totalCuotasPen = cuotas.reduce((a, b) => a + b, 0);
     // --- Moneda de la ficha: TODO el documento se expresa en US$ ---
-    // Los importes se guardan en soles en la base; aqui se dividen por el TC
-    // (columna de la cotizacion o TC referencial) y se formatean con 2
-    // decimales estilo US para que la ficha sea coherente de punta a punta.
-    const usd = (pen: number) => (exchangeRate > 0 ? Number(pen || 0) / exchangeRate : 0);
+    // Los importes de ventas ya estan guardados en dolares; no se convierten.
+    const usd = (amountUsd: number) => Number(amountUsd || 0);
     const fmtUsdFin = (value: number) => `US$ ${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
     /** Convierte un monto en soles y lo devuelve ya formateado en US$. */
     const usdMoney = (pen: number) => fmtUsdFin(usd(pen));
@@ -863,9 +912,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       ['Proyecto', project?.name || `Proyecto ${s.projectId}`],
       ['Lote', s.lotCode || `Lote ${s.lotId}`],
       ['Direccion', lotAddress || '-'],
-      ['Ãrea', s.lotAreaM2 ? `${Number(s.lotAreaM2).toLocaleString('es-PE', { maximumFractionDigits: 2 })} m2` : '-'],
+      ['Area', s.lotAreaM2 ? `${Number(s.lotAreaM2).toLocaleString('es-PE', { maximumFractionDigits: 2 })} m2` : '-'],
       ['Cliente', s.clientName || '-'],
-      ['Precio Venta', usdMoney(salePriceValue)],
+      ['Precio final', usdMoney(salePriceValue)],
       ['Fecha', formatDate(s.saleDate)],
       ['Agente', s.agentName || '-'],
       ['Forma de Pago', formaPago],
@@ -888,7 +937,15 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     let remainingCapital = saldoFin;
     let totalCapitalPen = 0;
     let totalInterestPen = 0;
-    const amortizedRows = schedule.map((row, index) => {
+    const baseScheduleRows = quote
+      ? Array.from({ length: financingInstallments }, (_, index) => ({
+        installmentNo: index + 1,
+        dueDate: schedule[index]?.dueDate || null,
+        status: schedule[index]?.status || 'pendiente',
+        amount: cuotas[index] || 0,
+      }))
+      : schedule;
+    const amortizedRows = baseScheduleRows.map((row, index) => {
       const amount = Number(row.amount || 0);
       const interest = monthlyRate > 0 && index >= noInterestInstallments ? Math.max(0, remainingCapital * monthlyRate) : 0;
       const capital = Math.max(0, Math.min(remainingCapital, amount - interest));
@@ -901,8 +958,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       <tr><td>Cuota ${escapeHtml(row.installmentNo || '-')}</td><td>${escapeHtml(formatDate(row.dueDate))}</td><td class="num">${escapeHtml(usdMoney(row.capital))}</td><td class="num">${escapeHtml(usdMoney(row.interest))}</td><td class="num">${escapeHtml(usdMoney(row.amount))}</td><td>${escapeHtml(row.status || '-')}</td></tr>
     `).join('');
     // Fila de totales del cronograma (mismo criterio que la cotizacion).
-    const scheduleTotalRow = schedule.length ? `
-      <tr class="total-row"><td colspan="2">Total</td><td class="num">${escapeHtml(usdMoney(totalCapitalPen))}</td><td class="num">${escapeHtml(usdMoney(totalInterestPen))}</td><td class="num">${escapeHtml(usdMoney(totalCuotasPen))}</td><td class="num">${paidInstallments}/${schedule.length}</td></tr>
+    const scheduleTotalRow = amortizedRows.length ? `
+      <tr class="total-row"><td colspan="2">Total</td><td class="num">${escapeHtml(usdMoney(totalCapitalPen))}</td><td class="num">${escapeHtml(usdMoney(totalInterestPen))}</td><td class="num">${escapeHtml(usdMoney(totalCuotasPen))}</td><td class="num">${paidInstallments}/${amortizedRows.length}</td></tr>
     ` : '';
     // Bloque "Financiamiento" con las mismas tarjetas (finance-highlight) del
     // PDF de financiamiento/cotizacion. Se inserta ANTES del cuadro de cuotas.
@@ -914,7 +971,6 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         <div class="finance-highlight"><span>Cuotas de financiamiento</span><strong>${financingInstallments}</strong></div>
         <div class="finance-highlight"><span>Cuota sin interes <em class="tiny">(${noInterestInstallments})</em></span><strong>${escapeHtml(usdMoney(noInterestCuotaPen))}</strong></div>
         <div class="finance-highlight"><span>Cuota con interes <em class="tiny">(${interestInstallments})</em></span><strong>${escapeHtml(usdMoney(interestCuotaPen))}</strong></div>
-        <div class="finance-highlight"><span>TC</span><strong>S/ ${exchangeRate.toFixed(4)}</strong></div>
       </div>
       ${initialPlan ? `
         <h2>Cuota inicial (sin intereses)</h2>
@@ -933,11 +989,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       </style></head><body>
         <div class="watermark"><img src="${escapeHtml(adminLogoUrl)}" alt="" /></div>
         <div class="brand"><div><p class="eyebrow">Ficha de venta</p><h1>Venta V${s.id} - ${escapeHtml(s.lotCode || `Lote ${s.lotId}`)}</h1><p>${escapeHtml(project?.name || `Proyecto ${s.projectId}`)} - generado ${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div></div>
-        <div class="summary"><div><span>Precio venta</span><strong>${escapeHtml(usdMoney(salePriceValue))}</strong></div><div><span>Comision</span><strong>${escapeHtml(usdMoney(commission))}</strong></div><div><span>Forma de pago</span><strong>${escapeHtml(formaPago)}</strong></div><div><span>Cuota</span><strong>${escapeHtml(valorCuota ? usdMoney(valorCuota) : '-')}</strong></div></div>
+        <div class="summary"><div><span>Precio final</span><strong>${escapeHtml(usdMoney(salePriceValue))}</strong></div><div><span>Comision</span><strong>${escapeHtml(usdMoney(commission))}</strong></div><div><span>Forma de pago</span><strong>${escapeHtml(formaPago)}</strong></div><div><span>Cuota</span><strong>${escapeHtml(valorCuota ? usdMoney(valorCuota) : '-')}</strong></div></div>
         <h2>Datos de la venta</h2><table class="sale-data-table"><tbody>${detailRowsHtml}</tbody></table>
         ${financingBlock}
         <h2>Cronograma de cuotas</h2><table><thead><tr><th>Cuota</th><th>Vencimiento</th><th>Amort Capital</th><th>Intereses</th><th>Monto</th><th>Estado</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="6">Sin cronograma registrado.</td></tr>'}</tbody></table>
-        <div class="summary"><div><span>Cuotas financiadas</span><strong>${financingInstallments}</strong></div><div><span>Pagadas</span><strong>${paidInstallments}</strong></div><div><span>Pendientes</span><strong>${Math.max(0, schedule.length - paidInstallments)}</strong></div><div><span>Plan</span><strong>${escapeHtml(s.planStatus || 'pendiente')}</strong></div></div>
+        <div class="summary"><div><span>Cuotas financiadas</span><strong>${financingInstallments}</strong></div><div><span>Pagadas</span><strong>${paidInstallments}</strong></div><div><span>Pendientes</span><strong>${Math.max(0, amortizedRows.length - paidInstallments)}</strong></div><div><span>Plan</span><strong>${escapeHtml(s.planStatus || 'pendiente')}</strong></div></div>
         ${isFinancing ? `
           <h2>Condiciones finales de compra de lote</h2>
           <div class="summary-row final-conditions">
@@ -955,16 +1011,16 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     `);
   }
 
-  const total = summary.totalAmount || rows.reduce((s, r) => s + Number(r.salePrice || 0), 0);
+  const total = rows.reduce((s, r) => s + saleFinancials(r).salePrice, 0);
   const comm = summary.totalCommission || rows.reduce((s, r) => s + Number(r.commission || 0), 0);
   const totalSales = summary.totalSales || rows.length;
   const soldArea = rows.reduce((sum, row) => sum + Number(row.lotAreaM2 || 0), 0);
-  const financingTotal = [...rows, ...pending].reduce((sum, row) => sum + Number(row.financingBase || 0), 0);
-  const initialPaymentTotal = [...rows, ...pending].reduce((sum, row) => sum + initialPaymentOf(row), 0);
-  const financingBalanceTotal = [...rows, ...pending].reduce((sum, row) => sum + financingBalanceOf(row), 0);
-  const visibleInitialPaymentTotal = rows.reduce((sum, row) => sum + initialPaymentOf(row), 0);
-  const visibleFinancingBalanceTotal = rows.reduce((sum, row) => sum + financingBalanceOf(row), 0);
-  const visibleInstallmentsTotal = rows.reduce((sum, row) => sum + Number(row.totalCuotas || 0), 0);
+  const financingTotal = [...rows, ...pending].reduce((sum, row) => sum + saleFinancials(row).salePrice, 0);
+  const initialPaymentTotal = [...rows, ...pending].reduce((sum, row) => sum + saleFinancials(row).cuotaInicial, 0);
+  const financingBalanceTotal = [...rows, ...pending].reduce((sum, row) => sum + saleFinancials(row).balance, 0);
+  const visibleInitialPaymentTotal = rows.reduce((sum, row) => sum + saleFinancials(row).cuotaInicial, 0);
+  const visibleFinancingBalanceTotal = rows.reduce((sum, row) => sum + saleFinancials(row).balance, 0);
+  const visibleInstallmentsTotal = rows.reduce((sum, row) => sum + saleFinancials(row).totalCuotas, 0);
   const chartLots = lots.filter((lot: any) => !lockedProjectId || Number(lot.projectId) === Number(lockedProjectId));
   const lotStatusRows = LOT_CHART_STATUSES.map((status) => {
     const statusLots = chartLots.filter((lot: any) => lotChartStatus(lot) === status.key);
@@ -1033,13 +1089,13 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
           />
         </div>
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-3">
-          <SalesMetric label="Area Vendida m2" value={soldArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} icon={<FiHome />} tone="#1259C4" truncateLabel={false} />
           <SalesMetric label="Lotes vendidos" value={String(totalSales)} icon={<FiCheckCircle />} tone="#0F8B5F" truncateLabel={false} />
-          <SalesMetric label="Monto total vendido" value={show(total)} icon={<FiDollarSign />} tone="#171717" truncateLabel={false} />
+          <SalesMetric label="Area Vendida m2" value={soldArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} icon={<FiHome />} tone="#1259C4" truncateLabel={false} />
+          <SalesMetric label="Monto total vendido" value={showSaleAmount(total)} icon={<FiDollarSign />} tone="#171717" truncateLabel={false} />
           <SalesMetric label="Separaciones" value={pending.length} icon={<FiBookmark />} tone="#0E7490" truncateLabel={false} />
-          <SalesMetric label="Comisiones devengadas" value={show(comm)} icon={<FiPercent />} tone="#B45309" truncateLabel={false} />
-          <SalesMetric label="Cuota Inicial" value={show(initialPaymentTotal)} icon={<FiArrowDownCircle />} tone="#1259C4" truncateLabel={false} />
-          <SalesMetric label="Saldo a Financiar" value={show(financingBalanceTotal)} icon={<FiTrendingUp />} tone="#7C3AED" truncateLabel={false} />
+          <SalesMetric label="Comisiones devengadas" value={showSaleAmount(comm)} icon={<FiPercent />} tone="#B45309" truncateLabel={false} />
+          <SalesMetric label="Cuota Inicial" value={showSaleAmount(initialPaymentTotal)} icon={<FiArrowDownCircle />} tone="#1259C4" truncateLabel={false} />
+          <SalesMetric label="Saldo a Financiar" value={showSaleAmount(financingBalanceTotal)} icon={<FiTrendingUp />} tone="#7C3AED" truncateLabel={false} />
         </div>
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-3">
           <div className="card overflow-hidden p-0">
@@ -1239,21 +1295,23 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <th className="th-base" style={{ textAlign: 'center' }}>Ficha</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
-                {pending.map((s) => (
+                {pending.map((s) => {
+                  const f = saleFinancials(s);
+                  return (
                   <tr key={s.id}>
                     <td className="td-base text-slate-400">V{s.id}</td>
                     <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
                     <td className="td-base">{s.clientName || '—'}</td>
-                    <td className="td-base font-medium">{show(s.salePrice)}</td>
-                    <td className="td-base">{s.totalCuotas ? 'Al crédito' : 'Contado'}</td>
-                    <td className="td-base font-medium whitespace-nowrap">{show(initialPaymentOf(s))}</td>
-                    <td className="td-base font-medium whitespace-nowrap">{show(financingBalanceOf(s))}</td>
-                    <td className="td-base">{s.totalCuotas || 0}</td>
-                    <td className="td-base whitespace-nowrap">{saleInstallmentBreakdown(s).noInterest ? `${show(saleInstallmentBreakdown(s).noInterestAmount)} (${saleInstallmentBreakdown(s).noInterest})` : '-'}</td>
-                    <td className="td-base whitespace-nowrap">{saleInstallmentBreakdown(s).withInterest ? `${show(saleInstallmentBreakdown(s).withInterestAmount)} (${saleInstallmentBreakdown(s).withInterest})` : '-'}</td>
+                    <td className="td-base font-medium">{showSaleAmount(f.salePrice)}</td>
+                    <td className="td-base">{paymentMethodOf(s)}</td>
+                    <td className="td-base font-medium whitespace-nowrap">{showSaleAmount(f.cuotaInicial)}</td>
+                    <td className="td-base font-medium whitespace-nowrap">{showSaleAmount(f.balance)}</td>
+                    <td className="td-base">{f.totalCuotas || 0}</td>
+                    <td className="td-base whitespace-nowrap">{f.noInterest ? `${showSaleAmount(f.noInterestAmount)} (${f.noInterest})` : '-'}</td>
+                    <td className="td-base whitespace-nowrap">{f.withInterest ? `${showSaleAmount(f.withInterestAmount)} (${f.withInterest})` : '-'}</td>
                     <td className="td-base">{formatDate(s.saleDate)}</td>
                     <td className="td-base">{s.agentName || '—'}</td>
-                    <td className="td-base">{show(s.commission)}</td>
+                    <td className="td-base">{showSaleAmount(s.commission)}</td>
                     <td className="td-base" style={{ textAlign: 'center' }}>
                       <button type="button" className="inline-grid h-8 w-8 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
                         <FiDownload />
@@ -1266,7 +1324,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                       </div>
                     </td>
                   </tr>
-                ))}
+                );})}
               </tbody>
             </table>
           </div>
@@ -1285,40 +1343,42 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <th className="th-base" style={{ textAlign: 'center' }}>Ficha</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
-                {rows.map((s) => (
+                {rows.map((s) => {
+                  const f = saleFinancials(s);
+                  return (
                   <tr key={s.id}>
                     <td className="td-base text-slate-400">V{s.id}</td>
                     <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
                     <td className="td-base">{s.clientName || '—'}</td>
-                    <td className="td-base font-medium">{show(s.salePrice)}</td>
-                    <td className="td-base">{s.totalCuotas ? 'Al crédito' : 'Contado'}</td>
-                    <td className="td-base font-medium whitespace-nowrap">{show(initialPaymentOf(s))}</td>
-                    <td className="td-base font-medium whitespace-nowrap">{show(financingBalanceOf(s))}</td>
-                    <td className="td-base">{s.totalCuotas || 'Contado'}</td>
-                    <td className="td-base whitespace-nowrap">{saleInstallmentBreakdown(s).noInterest ? `${show(saleInstallmentBreakdown(s).noInterestAmount)} (${saleInstallmentBreakdown(s).noInterest})` : '-'}</td>
-                    <td className="td-base whitespace-nowrap">{saleInstallmentBreakdown(s).withInterest ? `${show(saleInstallmentBreakdown(s).withInterestAmount)} (${saleInstallmentBreakdown(s).withInterest})` : '-'}</td>
+                    <td className="td-base font-medium">{showSaleAmount(f.salePrice)}</td>
+                    <td className="td-base">{paymentMethodOf(s)}</td>
+                    <td className="td-base font-medium whitespace-nowrap">{showSaleAmount(f.cuotaInicial)}</td>
+                    <td className="td-base font-medium whitespace-nowrap">{showSaleAmount(f.balance)}</td>
+                    <td className="td-base">{f.totalCuotas || 'Contado'}</td>
+                    <td className="td-base whitespace-nowrap">{f.noInterest ? `${showSaleAmount(f.noInterestAmount)} (${f.noInterest})` : '-'}</td>
+                    <td className="td-base whitespace-nowrap">{f.withInterest ? `${showSaleAmount(f.withInterestAmount)} (${f.withInterest})` : '-'}</td>
                     <td className="td-base">{s.approvalStatus === 'pendiente' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#FEF3C7', color:'#92400E' }}>Pendiente</span> : <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#D1FAE5', color:'#065F46' }}>Aprobada</span>}</td>
                     <td className="td-base">{formatDate(s.saleDate)}</td>
                     <td className="td-base">{s.agentName || '—'}</td>
-                    <td className="td-base">{show(s.commission)}</td>
+                    <td className="td-base">{showSaleAmount(s.commission)}</td>
                     <td className="td-base" style={{ textAlign: 'center' }}>
                       <button type="button" className="inline-grid h-8 w-8 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
                         <FiDownload />
                       </button>
                     </td>
                   </tr>
-                ))}
+                );})}
               </tbody>
               <tfoot>
                 <tr style={{ background: '#0B2F6E' }}>
                   <td className="td-base font-bold text-white" colSpan={3}>Totales ({totalSales})</td>
-                  <td className="td-base font-bold text-white">{show(total)}</td>
+                  <td className="td-base font-bold text-white">{showSaleAmount(total)}</td>
                   <td className="td-base"></td>
-                  <td className="td-base font-bold text-white">{show(visibleInitialPaymentTotal)}</td>
-                  <td className="td-base font-bold text-white">{show(visibleFinancingBalanceTotal)}</td>
+                  <td className="td-base font-bold text-white">{showSaleAmount(visibleInitialPaymentTotal)}</td>
+                  <td className="td-base font-bold text-white">{showSaleAmount(visibleFinancingBalanceTotal)}</td>
                   <td className="td-base font-bold text-white">{visibleInstallmentsTotal.toLocaleString('es-PE')}</td>
                   <td className="td-base" colSpan={5}></td>
-                  <td className="td-base font-bold text-white">{show(comm)}</td>
+                  <td className="td-base font-bold text-white">{showSaleAmount(comm)}</td>
                   <td className="td-base"></td>
                 </tr>
               </tfoot>
@@ -1362,7 +1422,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 </div>
                 <span className="text-[11px] text-slate-500">
                   {saleCurrency === 'USD'
-                    ? `Captura en US$ Â· se registra en S/ al tipo de cambio ${exchangeRateDisplay ? exchangeRateDisplay.toLocaleString('es-PE', { maximumFractionDigits: 4 }) : '-'}`
+                    ? `Captura en US$ - se registra en S/ al tipo de cambio ${exchangeRateDisplay ? exchangeRateDisplay.toLocaleString('es-PE', { maximumFractionDigits: 4 }) : '-'}`
                     : 'Captura y registro en soles (S/)'}
                 </span>
               </div>
@@ -1423,7 +1483,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                         <span className="min-w-0">
                           <span className="block font-semibold text-slate-800">Lote {q.lotCode || q.lotId}</span>
                           <span className="mt-0.5 block truncate text-xs text-slate-500">
-                            {q.clientName || 'Sin cliente'} Â· {q.paymentMethod === 'credito' ? `Al crédito Â· ${Number(q.totalCuotas || 0)} cuotas` : 'Contado'}
+                            {q.clientName || 'Sin cliente'} - {q.paymentMethod === 'credito' ? `Al credito - ${Number(q.totalCuotas || 0)} cuotas` : 'Contado'}
                           </span>
                         </span>
                         <span className="shrink-0 rounded-md bg-[#EEF5FF] px-2 py-1 text-xs font-semibold text-[#1259C4]">
@@ -1710,4 +1770,5 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     </>
   );
 }
+
 

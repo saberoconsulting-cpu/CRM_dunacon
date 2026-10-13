@@ -29,7 +29,8 @@ import { FiActivity, FiAlertTriangle, FiCamera, FiChevronDown, FiClock, FiCredit
 type P = {
   id: number; projectId: number; lotId: number; clientId?: number | null; type: string; amount: string;
   dueDate?: string | null; paidAt?: string | null; status: string; createdAt?: string | null;
-  lotCode?: string | null; clientName?: string | null; salePrice?: number | null;
+  lotCode?: string | null; lotAreaM2?: number | null; clientName?: string | null; salePrice?: number | null;
+  cuotaInicial?: number | null; valorCuota?: number | null; totalCuotas?: number | null;
   receivedByName?: string | null; paymentMethod?: string; reference?: string | null; voucherUrl?: string | null;
   exchangeRate?: number | null; amountUsd?: number | null;
   bankOperationNumber?: string | null; receiptNumber?: string | null; receiptValue?: number | null;
@@ -127,7 +128,7 @@ function paymentHistoryRate(sale: any, fallback = DEFAULT_EXCHANGE_RATE) {
 }
 
 function paymentHistoryUsd(amount: number | string | null | undefined, rate: number) {
-  return `US$ ${(Number(amount || 0) / (Number(rate) || DEFAULT_EXCHANGE_RATE)).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `US$ ${Number(amount || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function pct(n: number) {
@@ -769,21 +770,6 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [reference, setReference] = useState('');
   const [voucher, setVoucher] = useState<File | null>(null);
   const [voucherUrl, setVoucherUrl] = useState('');
-  const [formExchangeRate, setFormExchangeRate] = useState('');
-  const [amountUsd, setAmountUsd] = useState('');
-  // El monto en US$ es un espejo del monto en soles: se recalcula cuando cambia
-  // el monto o el TC pactado para que nunca queden cifras contradictorias entre
-  // "Monto" y "Monto US$" al registrar el pago.
-  useEffect(() => {
-    if (!open || savingPayment) return;
-    const rate = Number(formExchangeRate) > 0 ? Number(formExchangeRate) : Number(exchangeRate) || DEFAULT_EXCHANGE_RATE;
-    const next = Number(amount || 0) / rate;
-    setAmountUsd(open ? String(Number(next.toFixed(2))) : '');
-  }, [open, amount, formExchangeRate, exchangeRate, savingPayment]);
-  // Moneda en la que se capturan los montos del formulario. El sistema guarda en
-  // soles (base), asi que al capturar en US$ se convierte con el TC antes de enviar.
-  const [amountCurrency, setAmountCurrency] = useState<'PEN' | 'USD'>('PEN');
-  const [cuotaCurrency, setCuotaCurrency] = useState<'PEN' | 'USD'>('PEN');
   // Datos para adjuntar durante el registro (op. bancaria como foto y boleta).
   const [regBankOp, setRegBankOp] = useState('');
   const [regBankOpFile, setRegBankOpFile] = useState<File | null>(null);
@@ -848,25 +834,11 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   function applyPaymentContext(ctx: any, fallback: any = {}) {
     setActiveSale(ctx || null);
     if (ctx?.client?.id) setClientId(Number(ctx.client.id));
-    // El TC debe resolverse ANTES de calcular el monto en US$: si el usuario ya
-    // escribio un TC se respeta, si no se usa el del contexto de la venta y recien
-    // como ultimo recurso el TC global de la pantalla. Antes se calculaba con el
-    // TC global y luego se fijaba el TC, lo que mostraba un US$ que no cuadraba
-    // con la cuota (p. ej. cuota de US$ 618 mostrada como US$ 164.45).
-    const nextRate = Number(formExchangeRate) > 0
-      ? Number(formExchangeRate)
-      : Number(ctx?.sale?.exchangeRate) > 0
-        ? Number(ctx.sale.exchangeRate)
-        : Number(exchangeRate) > 0
-          ? Number(exchangeRate)
-          : DEFAULT_EXCHANGE_RATE;
-    if (!formExchangeRate) setFormExchangeRate(String(nextRate));
     const nextAmount = Number(ctx?.summary?.nextAmount || 0);
     const nextLabel = String(ctx?.summary?.nextConceptLabel || '').toLowerCase();
     if (nextAmount > 0) {
       setAmount(nextAmount);
       setRegCuotaValue(String(nextAmount));
-      setAmountUsd(String(Math.round((nextAmount / nextRate) * 100) / 100));
     }
     if (ctx?.summary?.nextDueDate) setDueDate(ctx.summary.nextDueDate);
     if (nextLabel.includes('reserva')) setPayType('reserva');
@@ -1040,7 +1012,6 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     if (!payMethod) return toast('Selecciona el medio de pago', 'err');
     if (!reference.trim()) return toast('Ingresa la referencia u operacion de pago', 'err');
     if (!voucher) return toast('Adjunta el comprobante del pago', 'err');
-    if (!(Number(formExchangeRate) > 0)) return toast('Ingresa el tipo de cambio', 'err');
     if (!amount) return toast('Ingresa monto', 'err');
     if (!dueDate) return toast('Ingresa la fecha de vencimiento', 'err');
     if (!note.trim()) return toast('Ingresa una nota', 'err');
@@ -1052,21 +1023,16 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     setSavingPayment(true);
     try {
       const lot = lots.find((l) => l.id === Number(lotId));
-      // El TC real del pago: lo que el usuario escribio o el TC global. El monto
-      // en dolares siempre se deriva del monto en soles para que ambos campos
-      // nunca se contradigan (amount y amountUsd deben ser la misma cifra).
-      const usedRate = Number(formExchangeRate) > 0 ? Number(formExchangeRate) : Number(exchangeRate) || DEFAULT_EXCHANGE_RATE;
-      const amountUsdFinal = Number(amount || 0) / usedRate;
-      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined, exchangeRate: usedRate, amountUsd: Number(amountUsdFinal.toFixed(2)), bankOperationNumber: regBankOp.trim() || undefined, receiptNumber: regReceiptNo.trim() || undefined, receiptValue: regCuotaValue ? Number(regCuotaValue) : undefined });
+      const amountUsdFinal = Number(amount || 0);
+      const saved: any = await api.post('/payments', { projectId: lockedProjectId || lot?.projectId || 1, lotId: Number(lotId), clientId: clientId || lot?.clientId || undefined, agentId: lot?.agentId || undefined, type: payType, amount: amountUsdFinal, dueDate: dueDate || undefined, paymentMethod: payMethod, reference: reference || undefined, note: note || undefined, exchangeRate: 1, amountUsd: Number(amountUsdFinal.toFixed(2)), bankOperationNumber: regBankOp.trim() || undefined, receiptNumber: regReceiptNo.trim() || undefined, receiptValue: regCuotaValue ? Number(regCuotaValue) : undefined });
       const attachments = [
         voucher ? uploadFile(`/payments/voucher/${saved?.id}`, voucher) : null,
         regBankOpFile ? uploadFile(`/payments/approval-doc/${saved?.id}`, regBankOpFile) : null,
         regReceiptFile ? uploadFile(`/payments/receipt-doc/${saved?.id}`, regReceiptFile) : null,
       ].filter(Boolean) as Promise<any>[];
       toast(attachments.length ? 'Pago registrado. Subiendo adjuntos...' : 'Pago registrado');
-      setOpen(false); setAmount(0); setDueDate(''); setNote(''); setLotId(0); setClientId(0); setPayMethod('yape'); setReference(''); setVoucher(null); setVoucherUrl(''); setFormExchangeRate(''); setAmountUsd('');
+      setOpen(false); setAmount(0); setDueDate(''); setNote(''); setLotId(0); setClientId(0); setPayMethod('yape'); setReference(''); setVoucher(null); setVoucherUrl('');
       setPayClientSearch(''); setPaySearchPicked(false); setSearchResults([]); setActiveSale(null);
-      setAmountCurrency('PEN'); setCuotaCurrency('PEN');
       setRegBankOp(''); setRegBankOpFile(null); setRegBankOpUrl(''); setRegReceiptNo(''); setRegReceiptFile(null); setRegReceiptUrl(''); setRegCuotaValue('');
       load();
       if (attachments.length) {
@@ -1340,27 +1306,26 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     return [...base].sort(comparePaymentRows);
   })();
 
-  const totalPagado = filteredRows.filter((p) => p.status === 'pagado').reduce((s, p) => s + Number(p.amount || 0), 0);
-  const totalRegistrado = filteredRows.reduce((s, p) => s + Number(p.amount || 0), 0);
+  function paymentUsd(payment: P) {
+    const usd = payment.amountUsd != null ? Number(payment.amountUsd) : Number(payment.amount || 0);
+    return Number.isFinite(usd) ? usd : 0;
+  }
+  const totalPagado = filteredRows.filter((p) => p.status === 'pagado').reduce((s, p) => s + paymentUsd(p), 0);
+  const totalRegistrado = filteredRows.reduce((s, p) => s + paymentUsd(p), 0);
   const totalPrecioVenta = filteredRows.reduce((s, p) => s + Number(p.salePrice || 0), 0);
   const totalPagadoUsd = filteredRows
     .filter((p) => p.status === 'pagado')
-    .reduce((sum, p) => {
-      const tc = Number(p.exchangeRate || exchangeRate || 0);
-      const usd = p.amountUsd != null ? Number(p.amountUsd) : (tc > 0 ? Number(p.amount || 0) / tc : 0);
-      return sum + (Number.isFinite(usd) ? usd : 0);
-    }, 0);
+    .reduce((sum, p) => sum + paymentUsd(p), 0);
   const pctPago = totalPrecioVenta > 0 ? (totalPagado / totalPrecioVenta) * 100 : 0;
   const saleForPayment = (payment: P) => clientReportSales.find((sale) => Number(sale.lotId) === Number(payment.lotId));
-  const operationAreaOf = (payment: P) => Number(saleForPayment(payment)?.lotAreaM2 || 0);
-  const operationInitialOf = (payment: P) => Number(saleForPayment(payment)?.cuotaInicial || 0);
-  const operationFinancingCuotaOf = (payment: P) => Number(saleForPayment(payment)?.valorCuota || 0);
+  const operationAreaOf = (payment: P) => Number(payment.lotAreaM2 ?? saleForPayment(payment)?.lotAreaM2 ?? 0);
+  const operationInitialOf = (payment: P) => Number(payment.cuotaInicial ?? saleForPayment(payment)?.cuotaInicial ?? 0);
+  const operationFinancingCuotaOf = (payment: P) => Number(payment.valorCuota ?? saleForPayment(payment)?.valorCuota ?? 0);
   const totalOperationArea = filteredRows.reduce((sum, p) => sum + operationAreaOf(p), 0);
   const totalOperationInitial = filteredRows.reduce((sum, p) => sum + operationInitialOf(p), 0);
   const totalOperationFinancingCuota = filteredRows.reduce((sum, p) => sum + operationFinancingCuotaOf(p), 0);
   const historyAmountUsd = (history: any, amount: number) => {
-    const rate = paymentHistoryRate(history, Number(exchangeRate || DEFAULT_EXCHANGE_RATE));
-    return rate > 0 ? Number(amount || 0) / rate : 0;
+    return Number(amount || 0);
   };
   const paidInterestFromHistory = (history: any) => {
     const installments = (history?.installments || []) as any[];
@@ -1377,60 +1342,53 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
       return inst.paid ? sum + historyAmountUsd(history, interest) : sum;
     }, 0);
   };
-  const paymentUsd = (p: P) => {
-    const direct = p.amountUsd != null ? Number(p.amountUsd) : 0;
-    if (direct > 0) return direct;
-    const tc = Number(p.exchangeRate || exchangeRate || DEFAULT_EXCHANGE_RATE);
-    return tc > 0 ? Number(p.amount || 0) / tc : 0;
-  };
-  const clientReportLotIds = Array.from(new Set([
-    ...clientReportSales.map((sale) => Number(sale.lotId || 0)).filter(Boolean),
-    ...clientReportPayments.map((payment) => Number(payment.lotId || 0)).filter(Boolean),
-  ]));
-  const allClientReportRows = clientReportLotIds
-    .map((lotId) => {
-      const sale = clientReportSales.find((item) => Number(item.lotId) === Number(lotId));
-      const lot = lots.find((item: any) => Number(item.id) === Number(lotId));
-      const history = clientReportHistories[lotId];
-      const lotPayments = clientReportPayments.filter((p) => Number(p.lotId) === Number(lotId));
-      const paidPayments = lotPayments.filter((p) => p.status === 'pagado');
-      const historyInstallments = (history?.installments || []) as any[];
-      const financingPayments = lotPayments.filter((p) => ['cuota', 'primera_cuota'].includes(String(p.type || p.concept || '')));
-      const paidFinancing = historyInstallments.length ? historyInstallments.filter((row) => row.paid) : financingPayments.filter((p) => p.status === 'pagado');
-      const overdueFinancing = historyInstallments.length
-        ? historyInstallments.filter((row) => row.overdue && !row.paid)
-        : financingPayments.filter((p) => p.status !== 'pagado' && p.dueDate && String(p.dueDate).slice(0, 10) < new Date().toISOString().slice(0, 10));
-      const totalCuotas = Number(history?.summary?.totalCuotas || sale?.totalCuotas || historyInstallments.length || 0);
-      const paidCount = paidFinancing.length;
-      const overdueCount = overdueFinancing.length;
-      const paidUsd = historyInstallments.length
-        ? paidFinancing.reduce((sum, row) => sum + historyAmountUsd(history, Number(row.amount || 0)), 0)
-        : paidFinancing.reduce((sum, p) => sum + paymentUsd(p as P), 0);
-      const overdueUsd = historyInstallments.length
-        ? overdueFinancing.reduce((sum, row) => sum + historyAmountUsd(history, Number(row.amount || 0)), 0)
-        : overdueFinancing.reduce((sum, p) => sum + paymentUsd(p as P), 0);
-      const initialUsd = Number(history?.summary?.cuotaInicial || sale?.cuotaInicial || 0);
-      const salePrice = Number(history?.sale?.salePrice || sale?.salePrice || lotPayments[0]?.salePrice || lot?.finalPrice || lot?.salePrice || 0);
-      const pendingCount = Math.max(0, totalCuotas - paidCount);
-      const pendingUsd = Math.max(0, salePrice - initialUsd - paidUsd);
-      const interestUsd = paidInterestFromHistory(history);
-      return {
-        id: Number(sale?.id || lotId),
-        lotCode: sale?.lotCode || lot?.code || lotPayments[0]?.lotCode || `Lote ${lotId}`,
-        area: Number(sale?.lotAreaM2 || lot?.areaM2 || 0),
-        clientName: sale?.clientName || lotPayments[0]?.clientName || '-',
-        salePrice,
-        initialUsd,
-        totalCuotas,
-        paidCount,
-        paidUsd,
-        pendingCount,
-        pendingUsd,
-        interestUsd,
-        overdueCount,
-        overdueUsd,
-      };
-    });
+  const allClientReportRows = Array.from(filteredRows.reduce((map, payment) => {
+    const key = `${Number(payment.lotId || 0)}-${Number(payment.clientId || 0)}-${payment.clientName || ''}`;
+    const isFinancing = ['cuota', 'primera_cuota'].includes(String(payment.type || payment.concept || ''));
+    const isInitial = operationInitialOf(payment) > 0;
+    const isPaid = String(payment.status) === 'pagado';
+    const isOverdue = !isPaid && !!payment.dueDate && String(payment.dueDate).slice(0, 10) < new Date().toISOString().slice(0, 10);
+    const current = map.get(key) || {
+      id: Number(payment.lotId || payment.id || 0),
+      lotCode: payment.lotCode || `Lote ${payment.lotId}`,
+      area: operationAreaOf(payment),
+      clientName: payment.clientName || '-',
+      salePrice: Number(payment.salePrice || 0),
+      initialUsd: 0,
+      initialPaidUsd: 0,
+      initialPaidCount: 0,
+      totalCuotas: 0,
+      paidCount: 0,
+      paidUsd: 0,
+      pendingCount: 0,
+      pendingUsd: 0,
+      interestUsd: 0,
+      overdueCount: 0,
+      overdueUsd: 0,
+    };
+    current.area = current.area || operationAreaOf(payment);
+    current.salePrice = current.salePrice || Number(payment.salePrice || 0);
+    current.initialUsd = Math.max(current.initialUsd, operationInitialOf(payment));
+    if (isInitial && isPaid) {
+      current.initialPaidUsd += paymentUsd(payment);
+      current.initialPaidCount += 1;
+    }
+    if (operationFinancingCuotaOf(payment) > 0) current.totalCuotas += 1;
+    if (isFinancing && isPaid) {
+      current.paidCount += 1;
+      current.paidUsd += paymentUsd(payment);
+    }
+    if (isFinancing && !isPaid) {
+      current.pendingCount += 1;
+      current.pendingUsd += paymentUsd(payment);
+    }
+    if (isFinancing && isOverdue) {
+      current.overdueCount += 1;
+      current.overdueUsd += paymentUsd(payment);
+    }
+    map.set(key, current);
+    return map;
+  }, new Map<string, any>()).values());
   const clientReportRows = allClientReportRows.filter((row) => {
     const term = paySearch.trim().toLowerCase();
     if (!term) return true;
@@ -1438,8 +1396,11 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   });
   const clientReportTotals = clientReportRows.reduce((acc, row) => {
     acc.area += row.area;
+    if (row.initialUsd > 0) acc.initialCount += 1;
     acc.salePrice += row.salePrice;
     acc.initialUsd += row.initialUsd;
+    acc.initialPaidUsd += row.initialPaidUsd;
+    acc.initialPaidCount += row.initialPaidCount;
     acc.totalCuotas += row.totalCuotas;
     acc.paidCount += row.paidCount;
     acc.paidUsd += row.paidUsd;
@@ -1449,23 +1410,69 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     acc.overdueCount += row.overdueCount;
     acc.overdueUsd += row.overdueUsd;
     return acc;
-  }, { area: 0, salePrice: 0, initialUsd: 0, totalCuotas: 0, paidCount: 0, paidUsd: 0, pendingCount: 0, pendingUsd: 0, interestUsd: 0, overdueCount: 0, overdueUsd: 0 });
+  }, { area: 0, initialCount: 0, salePrice: 0, initialUsd: 0, initialPaidUsd: 0, initialPaidCount: 0, totalCuotas: 0, paidCount: 0, paidUsd: 0, pendingCount: 0, pendingUsd: 0, interestUsd: 0, overdueCount: 0, overdueUsd: 0 });
   const pendingPct = meta.total > 0 ? (meta.pendingCount / meta.total) * 100 : 0;
   const byMonth = (cash?.byMonth || []) as { month: string; monto: number }[];
   const salesByMonth = (cash?.salesByMonth || []) as { month: string; monto: number }[];
   const overdueByMonth = (cash?.overdueByMonth || []) as { month: string; monto: number }[];
   const methods = (cash?.methods || []) as { method: string; total: number; monto: number }[];
   const metrics = cash?.metrics || {};
+  const operationInitialCount = filteredRows.filter((p) => operationInitialOf(p) > 0).length;
+  const operationFinancingCount = filteredRows.filter((p) => operationFinancingCuotaOf(p) > 0).length;
+  const operationPendingRows = filteredRows.filter((p) => String(p.status) !== 'pagado');
+  const operationOverdueRows = operationPendingRows.filter((p) => p.dueDate && String(p.dueDate).slice(0, 10) < new Date().toISOString().slice(0, 10));
+  const operationOverdueUsd = operationOverdueRows.reduce((sum, p) => sum + paymentUsd(p), 0);
+  const kpiSource = historyView === 'client'
+    ? {
+        initialPaymentAmount: clientReportTotals.initialUsd,
+        initialPaymentCount: clientReportTotals.initialCount,
+        financedCuotas: clientReportTotals.totalCuotas,
+        pendingAmount: clientReportTotals.pendingUsd,
+        overduePayments: clientReportTotals.overdueCount,
+        overdueAmount: clientReportTotals.overdueUsd,
+        upcomingPayments: clientReportTotals.pendingCount,
+        upcomingAmount: clientReportTotals.pendingUsd,
+        totalSaleLots: clientReportRows.length,
+        totalSaleAmount: clientReportTotals.salePrice,
+        financingAmount: clientReportTotals.paidUsd,
+        paidCuotas: clientReportTotals.paidCount,
+        paidCuotasAmount: clientReportTotals.paidUsd,
+        delinquencyRate: (clientReportTotals.pendingUsd + clientReportTotals.overdueUsd) > 0
+          ? (clientReportTotals.overdueUsd / (clientReportTotals.pendingUsd + clientReportTotals.overdueUsd)) * 100
+          : 0,
+      }
+    : {
+        initialPaymentAmount: totalOperationInitial,
+        initialPaymentCount: operationInitialCount,
+        financedCuotas: operationFinancingCount,
+        pendingAmount: Math.max(0, totalRegistrado - totalPagadoUsd),
+        overduePayments: operationOverdueRows.length,
+        overdueAmount: operationOverdueUsd,
+        upcomingPayments: operationPendingRows.length,
+        upcomingAmount: Math.max(0, totalRegistrado - totalPagadoUsd),
+        totalSaleLots: new Set(filteredRows.map((p) => Number(p.lotId || 0)).filter(Boolean)).size,
+        totalSaleAmount: totalPrecioVenta,
+        financingAmount: totalOperationFinancingCuota,
+        paidCuotas: filteredRows.filter((p) => ['cuota', 'primera_cuota'].includes(String(p.type || p.concept || '')) && p.status === 'pagado').length,
+        paidCuotasAmount: filteredRows
+          .filter((p) => ['cuota', 'primera_cuota'].includes(String(p.type || p.concept || '')) && p.status === 'pagado')
+          .reduce((sum, p) => sum + paymentUsd(p), 0),
+        delinquencyRate: (Math.max(0, totalRegistrado - totalPagadoUsd) + operationOverdueUsd) > 0
+          ? (operationOverdueUsd / (Math.max(0, totalRegistrado - totalPagadoUsd) + operationOverdueUsd)) * 100
+          : 0,
+      };
+  const kpiMoney = usdMoney;
+  const dueHelper = historyView === 'client' ? 'Cuotas por pagar' : 'Pagos pendientes';
   const totalCollected = Number(metrics.paidCuotasAmount ?? sumRows(methods));
   const totalSalesApproved = Number(metrics.totalSaleAmount ?? sumRows(salesByMonth));
   const totalOverdue = Number(metrics.overdueAmount ?? sumRows(overdueByMonth));
   const collectionRate = totalSalesApproved > 0 ? (totalCollected / totalSalesApproved) * 100 : 0;
-  const delinquencyRate = Number(metrics.delinquencyRate ?? ((totalCollected + totalOverdue) > 0 ? (totalOverdue / (totalCollected + totalOverdue)) * 100 : 0));
+  const delinquencyRate = Number(kpiSource.delinquencyRate ?? ((totalCollected + totalOverdue) > 0 ? (totalOverdue / (totalCollected + totalOverdue)) * 100 : 0));
   const paymentBreakdown = [
-    { key: 'inicial', name: 'Pago de Inicial', value: Number(metrics.initialPaymentAmount || 0), color: BLUE },
-    { key: 'cuotas', name: 'Pago Cuotas Financ.', value: Number(metrics.paidCuotasAmount || 0), color: GREEN },
-    { key: 'pendientes', name: 'Cuotas Pendientes', value: Number(metrics.pendingAmount || 0), color: AMBER },
-    { key: 'mora', name: 'Cuotas en Mora', value: Number(metrics.overdueAmount || 0), color: RED },
+    { key: 'inicial', name: 'Pago de Inicial', value: Number(kpiSource.initialPaymentAmount || 0), color: BLUE },
+    { key: 'cuotas', name: 'Pago Cuotas Financ.', value: Number(kpiSource.paidCuotasAmount || 0), color: GREEN },
+    { key: 'pendientes', name: 'Cuotas Pendientes', value: Number(kpiSource.pendingAmount || 0), color: AMBER },
+    { key: 'mora', name: 'Cuotas en Mora', value: Number(kpiSource.overdueAmount || 0), color: RED },
   ];
   const totalPaymentBreakdown = paymentBreakdown.reduce((sum, row) => sum + row.value, 0);
   const lastSixMonths = byMonth.slice(-6);
@@ -1571,13 +1578,13 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
         )}
         <div className="relative">
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-3">
-            <KpiTile label="Cuotas Iniciales" value={show(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} truncateLabel={false} />
-            <KpiTile label="Cuotas Financiamiento" value={String(metrics.financedCuotas || 0)} helper="Cronograma generado" icon={<FiTrendingUp />} accent={BLUE} truncateLabel={false} />
-            <KpiTile label="Cuotas Pendientes US$" value={show(metrics.pendingAmount || 0)} helper="Saldo pendiente" icon={<FiDollarSign />} accent={BLUE} truncateLabel={false} />
-            <KpiTile label="Pago Mora" value={String(metrics.overduePayments || 0)} helper={show(metrics.overdueAmount || 0)} icon={<FiAlertTriangle />} accent={RED} truncateLabel={false} />
+            <KpiTile label="Cuotas Iniciales" value={String(kpiSource.initialPaymentCount || 0)} helper={kpiMoney(kpiSource.initialPaymentAmount || 0)} icon={<FiCreditCard />} accent={GREEN} truncateLabel={false} />
+            <KpiTile label="Cuotas Financiamiento" value={String(kpiSource.financedCuotas || 0)} helper="Cronograma generado" icon={<FiTrendingUp />} accent={BLUE} truncateLabel={false} />
+            <KpiTile label="Cuotas Pendientes US$" value={kpiMoney(kpiSource.pendingAmount || 0)} helper="Saldo pendiente" icon={<FiDollarSign />} accent={BLUE} truncateLabel={false} />
+            <KpiTile label="Cuota Mora" value={String(kpiSource.overduePayments || 0)} helper={kpiMoney(kpiSource.overdueAmount || 0)} icon={<FiAlertTriangle />} accent={RED} truncateLabel={false} />
             <KpiTile label="Morosidad %" value={pct(delinquencyRate)} helper="Mora sobre pendientes" icon={<FiActivity />} accent={AMBER} truncateLabel={false} />
-            <KpiTile label="Pagos por vencer" value={String(metrics.upcomingPayments || 0)} helper="Max 30 dias" icon={<FiCreditCard />} accent={BLUE_DARK} truncateLabel={false} />
-            <KpiTile label="Pago por vencer US$" value={show(metrics.upcomingAmount || 0)} helper="Max 30 dias" icon={<FiDollarSign />} accent={BLUE_DARK} truncateLabel={false} />
+            <KpiTile label="Pagos por vencer" value={String(kpiSource.upcomingPayments || 0)} helper={dueHelper} icon={<FiCreditCard />} accent={BLUE_DARK} truncateLabel={false} />
+            <KpiTile label="Pago por vencer US$" value={kpiMoney(kpiSource.upcomingAmount || 0)} helper={dueHelper} icon={<FiDollarSign />} accent={BLUE_DARK} truncateLabel={false} />
           </div>
 
           <button
@@ -1596,13 +1603,13 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
         {showMoreKpis && (
           <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-3">
-            <KpiTile label="Total venta (lotes)" value={String(metrics.totalSaleLots || 0)} helper={show(metrics.totalSaleAmount || 0)} icon={<FiTrendingUp />} accent={BLUE} truncateLabel={false} />
-            <KpiTile label="Total Venta" value={show(metrics.totalSaleAmount || 0)} helper="Ventas y separaciones" icon={<FiDollarSign />} accent={BLUE} truncateLabel={false} />
-            <KpiTile label="Pago Inicial US$" value={show(metrics.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} truncateLabel={false} />
-            <KpiTile label="Financiamiento D." value={show(metrics.financingAmount || 0)} helper="Monto financiado" icon={<FiTrendingUp />} accent={BLUE_DARK} truncateLabel={false} />
-            <KpiTile label="Pagos Mora US$" value={show(metrics.overdueAmount || 0)} helper="Cuotas vencidas" icon={<FiDollarSign />} accent={RED} truncateLabel={false} />
-            <KpiTile label="Pago de Cuotas" value={String(metrics.paidCuotas || 0)} helper={show(metrics.paidCuotasAmount || 0)} icon={<FiCreditCard />} accent={GREEN} truncateLabel={false} />
-            <KpiTile label="Pago de Cuotas US$" value={show(metrics.paidCuotasAmount || 0)} helper="Cuotas pagadas" icon={<FiDollarSign />} accent={GREEN} truncateLabel={false} />
+            <KpiTile label="Total venta (lotes)" value={String(kpiSource.totalSaleLots || 0)} helper={kpiMoney(kpiSource.totalSaleAmount || 0)} icon={<FiTrendingUp />} accent={BLUE} truncateLabel={false} />
+            <KpiTile label="Total Venta" value={kpiMoney(kpiSource.totalSaleAmount || 0)} helper="Ventas y separaciones" icon={<FiDollarSign />} accent={BLUE} truncateLabel={false} />
+            <KpiTile label="Pago Inicial US$" value={kpiMoney(kpiSource.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} truncateLabel={false} />
+            <KpiTile label="Pago Financ. US$" value={kpiMoney(kpiSource.financingAmount || 0)} helper="Cuotas financiadas pagadas" icon={<FiTrendingUp />} accent={BLUE_DARK} truncateLabel={false} />
+            <KpiTile label="Pago Mora US$" value={kpiMoney(kpiSource.overdueAmount || 0)} helper="Cuotas vencidas" icon={<FiDollarSign />} accent={RED} truncateLabel={false} />
+            <KpiTile label="Pago de Cuotas" value={String(kpiSource.paidCuotas || 0)} helper={kpiMoney(kpiSource.paidCuotasAmount || 0)} icon={<FiCreditCard />} accent={GREEN} truncateLabel={false} />
+            <KpiTile label="Pago de Cuotas US$" value={kpiMoney(kpiSource.paidCuotasAmount || 0)} helper="Cuotas pagadas" icon={<FiDollarSign />} accent={GREEN} truncateLabel={false} />
           </div>
         )}
 
@@ -1611,7 +1618,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             <ChartHeader
               title="Pago de lotes"
               subtitle="Distribucion del cobro por tipo"
-              menuRows={paymentBreakdown.map((row) => [row.name, show(row.value)] as [string, string])}
+              menuRows={paymentBreakdown.map((row) => [row.name, usdMoney(row.value)] as [string, string])}
             />
             {paymentBreakdown.length ? (
               <div className="px-3 pt-4 sm:px-4 sm:pt-5">
@@ -1621,7 +1628,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                       <Pie data={paymentBreakdown} dataKey="value" nameKey="name" innerRadius={55} outerRadius={90} paddingAngle={2}>
                         {paymentBreakdown.map((row) => <Cell key={row.key} fill={row.color} />)}
                       </Pie>
-                      <Tooltip formatter={(value: number) => show(Number(value || 0))} />
+                      <Tooltip formatter={(value: number) => usdMoney(Number(value || 0))} />
                     </PieChart>
                   </ResponsiveContainer>
                 </div>
@@ -1632,7 +1639,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: row.color }} /> {row.name}
                       </span>
                       <b className="shrink-0 tabular-nums" style={{ color: INK }}>
-                        {show(row.value)} - {totalPaymentBreakdown > 0 ? pct((row.value / totalPaymentBreakdown) * 100) : '0.0%'}
+                        {usdMoney(row.value)} - {totalPaymentBreakdown > 0 ? pct((row.value / totalPaymentBreakdown) * 100) : '0.0%'}
                       </b>
                     </div>
                   ))}
@@ -1731,11 +1738,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 </button>
               )}
               {historyView === 'client' && (
-                <div className="flex flex-wrap items-center gap-2">
-                  <button className="btn-outline !h-8 whitespace-nowrap text-xs" type="button" onClick={() => exportClientReportPdf('client')}>Descargar PDF Cliente</button>
-                  <button className="btn-outline !h-8 whitespace-nowrap text-xs" type="button" onClick={() => exportClientReportPdf('general')}>Descargar PDF Gerencial</button>
-                  <button className="btn-primary !h-8 whitespace-nowrap text-xs" onClick={() => setOpen(true)}>Registrar pago</button>
-                </div>
+                <button className="btn-primary !h-8 whitespace-nowrap text-xs" onClick={() => setOpen(true)}>Registrar pago</button>
               )}
             </div>
             <div className="flex w-full min-w-0 flex-col gap-2 xl:w-full xl:flex-row xl:flex-nowrap xl:items-center">
@@ -1753,8 +1756,6 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   onChange={(e) => setPaySearch(e.target.value)}
                   aria-label="Buscar por codigo de lote o nombre de cliente"
                 />
-              </div>
-              <div className="flex flex-col gap-2 xl:flex-row xl:flex-nowrap xl:items-center xl:ml-auto">
                 <input
                   className="input w-full xl:!w-auto"
                   type="date"
@@ -1775,6 +1776,12 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 <button type="button" className="btn-neutral !h-10 w-full whitespace-nowrap text-xs xl:w-auto" onClick={() => { setPayFromDate(''); setPayToDate(''); }}>
                   Limpiar fechas
                 </button>
+              )}
+              {historyView === 'client' && (
+                <>
+                  <button className="btn-outline !h-8 whitespace-nowrap text-xs" type="button" onClick={() => exportClientReportPdf('client')}>Descargar PDF Cliente</button>
+                  <button className="btn-outline !h-8 whitespace-nowrap text-xs" type="button" onClick={() => exportClientReportPdf('general')}>Descargar PDF Gerencial</button>
+                </>
               )}
               {historyView === 'operation' ? (
                 <button className="btn-outline w-full whitespace-nowrap xl:w-auto" type="button" onClick={exportMonthPdf}>Descargar PDF</button>
@@ -1810,17 +1817,16 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                             <td className="td-base font-medium">{p.lotCode || `Lote ${p.lotId}`}</td>
                             <td className="td-base tabular-nums">{operationAreaOf(p) ? `${operationAreaOf(p).toLocaleString('es-PE', { maximumFractionDigits: 2 })} m²` : '—'}</td>
                             <td className="td-base">{p.clientName || '—'}</td>
-                            <td className="td-base">{p.salePrice ? show(p.salePrice) : '—'}</td>
+                            <td className="td-base">{p.salePrice ? usdMoney(p.salePrice) : '—'}</td>
                             <td className="td-base capitalize">{p.conceptLabel || TYPE_LABEL[p.type] || p.type}</td>
                             <td className="td-base tabular-nums">{operationInitialOf(p) ? usdMoney(operationInitialOf(p)) : '—'}</td>
                             <td className="td-base tabular-nums">{operationFinancingCuotaOf(p) ? usdMoney(operationFinancingCuotaOf(p)) : '—'}</td>
                             <td className="td-base capitalize">{METHOD_LABEL[p.paymentMethod || ''] || p.paymentMethod || '—'}</td>
                             <td className="td-base"><EvidenceButton pay={p} /></td>
-                            <td className="td-base font-medium">{show(p.amount)}</td>
+                            <td className="td-base font-medium">{usdMoney(paymentUsd(p))}</td>
                             <td className="td-base tabular-nums">{(() => {
                               if (p.status !== 'pagado') return '—';
-                              const tc = Number(p.exchangeRate || exchangeRate || 0);
-                              const usd = p.amountUsd != null ? Number(p.amountUsd) : (tc > 0 ? Number(p.amount || 0) / tc : 0);
+                              const usd = paymentUsd(p);
                               return usd > 0 ? `US$ ${usd.toFixed(2)}` : '—';
                             })()}</td>
                             <td className="td-base">
@@ -1858,12 +1864,12 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                           <td className="td-base font-bold text-white" colSpan={2}>Totales ({filteredRows.length})</td>
                           <td className="td-base font-bold text-white">{totalOperationArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} m²</td>
                           <td className="td-base"></td>
-                          <td className="td-base font-bold text-white">{show(totalPrecioVenta)}</td>
+                          <td className="td-base font-bold text-white">{usdMoney(totalPrecioVenta)}</td>
                           <td className="td-base"></td>
                           <td className="td-base font-bold text-white">{usdMoney(totalOperationInitial)}</td>
                           <td className="td-base font-bold text-white">{usdMoney(totalOperationFinancingCuota)}</td>
                           <td className="td-base" colSpan={2}></td>
-                          <td className="td-base font-bold text-white">{show(totalRegistrado)}</td>
+                          <td className="td-base font-bold text-white">{usdMoney(totalRegistrado)}</td>
                           <td className="td-base font-bold text-white">{totalPagadoUsd > 0 ? `US$ ${totalPagadoUsd.toFixed(2)}` : '—'}</td>
                           <td className="td-base font-bold text-white" colSpan={5} style={{ background: '#16A34A' }}>% Pago: {pctPago.toFixed(1)}%</td>
                         </tr>
@@ -2024,7 +2030,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                         <p className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Pago autocompletado</p>
                         {activeSale.summary?.nextConceptLabel || activeSale.summary?.nextInstallmentNo ? (
                           <p className="mt-0.5 truncate text-sm font-bold" style={{ color: activeSale.summary.nextIsOverdue ? RED : INK }}>
-                            {activeSale.summary.nextConceptLabel || `Cuota ${activeSale.summary.nextInstallmentNo}`} · {show(activeSale.summary.nextAmount)}
+                            {activeSale.summary.nextConceptLabel || `Cuota ${activeSale.summary.nextInstallmentNo}`} - {usdMoney(activeSale.summary.nextAmount)}
                             {activeSale.summary.nextDueDate ? ` · vence ${formatDate(activeSale.summary.nextDueDate)}` : ''}
                             {activeSale.summary.nextIsOverdue ? ' · en mora' : ''}
                           </p>
@@ -2039,10 +2045,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                             Descuenta saldo: <b>si</b>
                           </span>
                           <span className="rounded-md bg-blue-50 px-2 py-1 text-blue-700">
-                            Saldo luego: <b>{show(Math.max(0, Number(activeSale.summary?.balanceAmount || 0) - Number(activeSale.summary?.nextAmount || 0)))}</b>
-                          </span>
-                          <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-600">
-                            TC aplicado: <b>{historyRate.toFixed(4)}</b>
+                            Saldo luego: <b>{usdMoney(Math.max(0, Number(activeSale.summary?.balanceAmount || 0) - Number(activeSale.summary?.nextAmount || 0)))}</b>
                           </span>
                         </div>
                         {/* Aviso de coherencia: si el monto capturado no cuadra con la
@@ -2050,7 +2053,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                         {Number(activeSale.summary?.nextAmount || 0) > 0
                           && Math.abs(Number(amount || 0) - Number(activeSale.summary.nextAmount)) > 0.01 && (
                             <p className="mt-2 rounded-md px-2 py-1 text-[11px] font-semibold" style={{ background: '#FFF6E4', color: '#B45309' }}>
-                              El monto capturado ({show(amount)}) no coincide con la cuota que le toca ({show(activeSale.summary.nextAmount)}). Se descontara el monto capturado.
+                              El monto capturado ({usdMoney(amount)}) no coincide con la cuota que le toca ({usdMoney(activeSale.summary.nextAmount)}). Se descontara el monto capturado.
                             </p>
                           )}
                       </div>
@@ -2064,7 +2067,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                           <span className="text-xs font-semibold">Historial de cuotas</span>
                           <button type="button" className="btn-primary !h-7 text-xs" onClick={() => PaymentHistoryPdf({ sale: activeSale })}>Descargar PDF</button>
                         </div>
-                        <InstallmentGrid sale={activeSale} compact formatter={show} />
+                        <InstallmentGrid sale={activeSale} compact formatter={usdMoney} />
                       </div>
                     )}
                   </div>
@@ -2085,7 +2088,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                       <p className="text-[10px] font-bold uppercase text-slate-500">Cuota que le toca pagar</p>
                       {activeSale.summary?.nextConceptLabel || activeSale.summary?.nextInstallmentNo ? (
                         <p className="mt-0.5 text-sm font-bold" style={{ color: activeSale.summary.nextIsOverdue ? RED : AMBER }}>
-                          {activeSale.summary.nextConceptLabel || `Cuota N. ${activeSale.summary.nextInstallmentNo}`} — {show(activeSale.summary.nextAmount)} — {formatDate(activeSale.summary.nextDueDate)}
+                          {activeSale.summary.nextConceptLabel || `Cuota N. ${activeSale.summary.nextInstallmentNo}`} - {usdMoney(activeSale.summary.nextAmount)} - {formatDate(activeSale.summary.nextDueDate)}
                           {activeSale.summary.nextIsOverdue ? ' — EN MORA' : ''}
                         </p>
                       ) : (
@@ -2106,7 +2109,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                           <span className="text-xs font-semibold">Historial de cuotas</span>
                           <button type="button" className="btn-primary !h-7 text-xs" onClick={() => PaymentHistoryPdf({ sale: activeSale })}>Descargar PDF</button>
                         </div>
-                        <InstallmentGrid sale={activeSale} compact formatter={show} />
+                        <InstallmentGrid sale={activeSale} compact formatter={usdMoney} />
                       </div>
                     )}
                   </div>
@@ -2169,31 +2172,12 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 </div>
               </Field>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field label="TC"><input type="number" step="0.0001" className="input" value={formExchangeRate} onChange={(e) => setFormExchangeRate(e.target.value)} placeholder="Ej: 3.75" /></Field>
                 <Field label="Monto US$">
-                  <div className="flex items-center gap-2 rounded-md border px-3 py-2 tabular-nums" style={{ borderColor: BORDER, background: '#F8FAFC' }}>
-                    <span className="text-xs font-semibold" style={{ color: MUTED }}>US$</span>
-                    <b className="text-sm" style={{ color: INK }}>
-                      {(Number(amount || 0) / (Number(formExchangeRate) || exchangeRate || DEFAULT_EXCHANGE_RATE))
-                        .toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </b>
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold" style={{ color: GREEN }}>US$</span>
+                    <input type="number" step="0.01" className="input !pl-12 tabular-nums" value={amount || ''} onChange={(e) => setAmount(Number(e.target.value || 0))} />
                   </div>
-                  <p className="mt-1 text-[10px]" style={{ color: MUTED }}>
-                    Referencial en dolares: se calcula del monto en soles con el TC. Cambia el Monto o el TC para ajustarlo.
-                  </p>
                 </Field>
-
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <AmountField
-                  label="Monto"
-                  value={amount}
-                  onChange={setAmount}
-                  currency={amountCurrency}
-                  onToggleCurrency={() => setAmountCurrency((c) => (c === 'PEN' ? 'USD' : 'PEN'))}
-                  rate={Number(formExchangeRate) || exchangeRate}
-                  helper={amountCurrency === 'USD' ? `Se guardara ${money(amount)} con TC ${Number(formExchangeRate) || exchangeRate}` : undefined}
-                />
                 <Field label="Vence"><input type="date" className="input" value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
               </div>
               <Field label="Nota"><input className="input" value={note} onChange={(e) => setNote(e.target.value)} /></Field>
@@ -2208,16 +2192,13 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                   <Field label="N° Op. Bco"><input className="input" value={regBankOp} onChange={(e) => setRegBankOp(e.target.value)} placeholder="Ej: 0293-4521-1000" /></Field>
                   <Field label="N° Boleta"><input className="input" value={regReceiptNo} onChange={(e) => setRegReceiptNo(e.target.value)} placeholder="Ej: B001-4521" /></Field>
                 </div>
-                <AmountField
-                  label="Valor de la cuota"
-                  value={regCuotaValue ? Number(regCuotaValue) : 0}
-                  onChange={(next) => setRegCuotaValue(next ? String(next) : '')}
-                  currency={cuotaCurrency}
-                  onToggleCurrency={() => setCuotaCurrency((c) => (c === 'PEN' ? 'USD' : 'PEN'))}
-                  rate={Number(formExchangeRate) || exchangeRate}
-                  placeholder="Se llena solo segun la cuota que le toca"
-                  helper={`Referencial para la boleta: se autocompleta con la cuota del cronograma. Actual: ${money(regCuotaValue ? Number(regCuotaValue) : 0)}${cuotaCurrency === 'USD' ? ` (equivale a S/ con TC ${Number(formExchangeRate) || exchangeRate})` : ''}`}
-                />
+                <Field label="Valor de la cuota US$">
+                  <div className="relative">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-semibold" style={{ color: GREEN }}>US$</span>
+                    <input type="number" step="0.01" className="input !pl-12 tabular-nums" value={regCuotaValue} onChange={(e) => setRegCuotaValue(e.target.value)} placeholder="Se llena segun la cuota que le toca" />
+                  </div>
+                  <p className="mt-1 text-[10px]" style={{ color: MUTED }}>Se autocompleta con la cuota del cronograma. Actual: {usdMoney(regCuotaValue ? Number(regCuotaValue) : 0)}</p>
+                </Field>
                 <Field label="Adj. op. bancaria (foto)">
                   <div className="flex flex-wrap items-center gap-2">
                     <label className="btn-neutral cursor-pointer text-xs inline-flex items-center gap-1">
@@ -2304,7 +2285,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                         <td className="td-base">{p.conceptLabel || TYPE_LABEL[p.type] || p.type || '-'}</td>
                         <td className="td-base">{METHOD_LABEL[p.paymentMethod || ''] || p.paymentMethod || '-'}</td>
                         <td className="td-base">{p.reference || p.bankOperationNumber || '-'}</td>
-                        <td className="td-base tabular-nums">{show(p.amount)}</td>
+                        <td className="td-base tabular-nums">{usdMoney(paymentUsd(p))}</td>
                         <td className="td-base">
                           <span className="badge capitalize" style={{ background: BADGE[p.status]?.[0] || '#F1F5F9', color: BADGE[p.status]?.[1] || MUTED }}>{p.status}</span>
                         </td>

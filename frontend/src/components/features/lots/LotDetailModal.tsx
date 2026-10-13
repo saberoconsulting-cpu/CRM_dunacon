@@ -624,7 +624,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
     || catalogBasePrice
     || 0,
   );
-  const finalLotPrice = Number(lot?.finalPrice || 0);
+  const finalLotPrice = Number(saleFn?.salePrice || lot?.finalPrice || 0);
   const financeBasePrice = finalLotPrice || saleBasePrice;
   const initialPayment = Number(saleFn?.cuotaInicial || 0);
   const initialPaid = initialPayment > 0 && amountPaid >= initialPayment;

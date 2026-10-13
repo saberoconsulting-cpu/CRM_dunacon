@@ -38,6 +38,9 @@ export class FinancialTransactionEntity {
   @Column({ name: 'payment_category', type: 'varchar', length: 100, nullable: true })
   paymentCategory: string | null;
 
+  @Column({ name: 'category_code', type: 'varchar', length: 20, nullable: true })
+  categoryCode: string | null;
+
   @Column({ name: 'classification', type: 'varchar', length: 120, nullable: true })
   classification: string | null;
 

@@ -33,6 +33,10 @@ export class CreateQuoteDto {
 
   @IsOptional()
   @IsNumber()
+  finalPriceUsd?: number;
+
+  @IsOptional()
+  @IsNumber()
   bonoDescuentoUsd?: number;
 
   @IsOptional()
@@ -85,6 +89,10 @@ export class CreateQuoteDto {
 
   @IsNumber()
   exchangeRate!: number;
+
+  @IsOptional()
+  @IsString()
+  quoteDate?: string;
 }
 
 export class UpdateQuoteStatusDto {

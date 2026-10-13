@@ -11,6 +11,11 @@ import { ConstructionBudgetService } from '../../construction-budget/application
 import { IncomeStatementService } from '../../income-statement/application/income-statement.service';
 import * as XLSX from 'xlsx';
 
+function cleanCategoryCode(value?: string | null) {
+  const code = String(value || '').replace(/[^a-zA-Z]/g, '').toUpperCase().slice(0, 3);
+  return code.length >= 2 ? code : null;
+}
+
 @Injectable()
 export class FinancesService {
   constructor(
@@ -50,6 +55,7 @@ export class FinancesService {
       clientLabel: dto.clientLabel || null,
       paymentMethod: dto.paymentMethod || null,
       paymentCategory: dto.paymentCategory || dto.category,
+      categoryCode: cleanCategoryCode(dto.categoryCode),
       classification: dto.classification || dto.expenseClass || null,
       agentName: dto.agentName || null,
       type: 'egreso',
@@ -73,6 +79,7 @@ export class FinancesService {
       clientLabel: dto.clientLabel || null,
       paymentMethod: dto.paymentMethod || null,
       paymentCategory: dto.paymentCategory || dto.category || 'otros_ingresos',
+      categoryCode: cleanCategoryCode(dto.categoryCode),
       classification: dto.classification || 'Ingreso',
       agentName: dto.agentName || null,
       concept: dto.concept,
@@ -206,6 +213,7 @@ export class FinancesService {
             OR LOWER(COALESCE(t.client_label, '')) LIKE :term
             OR LOWER(COALESCE(t.payment_method, '')) LIKE :term
             OR LOWER(COALESCE(t.payment_category, '')) LIKE :term
+            OR LOWER(COALESCE(t.category_code, '')) LIKE :term
             OR LOWER(COALESCE(t.classification, '')) LIKE :term
             OR LOWER(COALESCE(t.agent_name, '')) LIKE :term
             OR LOWER(COALESCE(p.payment_method, '')) LIKE :term)`,
@@ -229,6 +237,7 @@ export class FinancesService {
           .addSelect('t.client_label', 'clientLabel')
           .addSelect('t.payment_method', 'txnPaymentMethod')
           .addSelect('t.payment_category', 'paymentCategory')
+          .addSelect('t.category_code', 'categoryCode')
           .addSelect('t.classification', 'classification')
           .addSelect('t.agent_name', 'agentName')
           .addSelect('t.type', 'type')
@@ -288,6 +297,7 @@ export class FinancesService {
       clientName: r.clientName || r.clientLabel || null,
       paymentMethod: r.txnPaymentMethod || r.paymentMethod || null,
       paymentCategory: r.paymentCategory || null,
+      categoryCode: r.categoryCode || null,
       classification: r.classification || null,
       agentName: r.agentName || null,
       type: r.type,

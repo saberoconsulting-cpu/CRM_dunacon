@@ -212,6 +212,7 @@ export class PaymentsService {
         .leftJoinAndSelect(ClientEntity, 'c', 'c.id = p.client_id')
         .leftJoinAndSelect(UserEntity, 'u', 'u.id = p.created_by')
         .leftJoinAndSelect(UserEntity, 'au', 'au.id = p.approved_by')
+        .leftJoin(SaleEntity, 's', 's.id = (SELECT MAX(s2.id) FROM sales s2 WHERE s2.lot_id = p.lot_id)')
         .select([
           'p.id', 'p.projectId', 'p.lotId', 'p.clientId', 'p.agentId', 'p.type', 'p.amount',
           'p.dueDate', 'p.paymentMethod', 'p.reference', 'p.voucherUrl', 'p.paidAt', 'p.status', 'p.createdAt',
@@ -221,7 +222,43 @@ export class PaymentsService {
         // Postgres pliega a minúsculas cualquier alias sin comillas — mismo bug
         // ya corregido en lots.service.ts y sales.service.ts.
         .addSelect('l.code AS "lotCode"')
-        .addSelect('COALESCE(l.sale_price, l.price) AS "salePrice"')
+        .addSelect('l.area_m2 AS "lotAreaM2"')
+        .addSelect(`COALESCE((
+          SELECT q.final_price_usd
+          FROM quotes q
+          WHERE q.lot_id = p.lot_id
+            AND q.deleted_at IS NULL
+            AND q.status IN ('convertida', 'aprobada')
+          ORDER BY CASE WHEN q.client_id = p.client_id THEN 0 ELSE 1 END, q.id DESC
+          LIMIT 1
+        ), s.sale_price, l.final_price, l.sale_price, l.price) AS "salePrice"`)
+        .addSelect(`COALESCE((
+          SELECT q.cuota_inicial_usd
+          FROM quotes q
+          WHERE q.lot_id = p.lot_id
+            AND q.deleted_at IS NULL
+            AND q.status IN ('convertida', 'aprobada')
+          ORDER BY CASE WHEN q.client_id = p.client_id THEN 0 ELSE 1 END, q.id DESC
+          LIMIT 1
+        ), s.cuota_inicial) AS "saleCuotaInicial"`)
+        .addSelect(`COALESCE((
+          SELECT q.valor_cuota_usd
+          FROM quotes q
+          WHERE q.lot_id = p.lot_id
+            AND q.deleted_at IS NULL
+            AND q.status IN ('convertida', 'aprobada')
+          ORDER BY CASE WHEN q.client_id = p.client_id THEN 0 ELSE 1 END, q.id DESC
+          LIMIT 1
+        ), s.valor_cuota) AS "saleValorCuota"`)
+        .addSelect(`COALESCE((
+          SELECT q.total_cuotas
+          FROM quotes q
+          WHERE q.lot_id = p.lot_id
+            AND q.deleted_at IS NULL
+            AND q.status IN ('convertida', 'aprobada')
+          ORDER BY CASE WHEN q.client_id = p.client_id THEN 0 ELSE 1 END, q.id DESC
+          LIMIT 1
+        ), s.total_cuotas) AS "saleTotalCuotas"`)
         .addSelect('c.full_name AS "clientName"')
         .addSelect('u.name AS "receivedByName"')
         .addSelect('au.name AS "approvedByName"'),
@@ -263,7 +300,11 @@ export class PaymentsService {
       reference: r.p_reference, voucherUrl: r.p_voucher_url,
       paidAt: r.p_paid_at, status: r.p_status, createdAt: r.p_created_at,
       lotCode: r.lotCode || null,
+      lotAreaM2: r.lotAreaM2 != null ? Number(r.lotAreaM2) : null,
       salePrice: r.salePrice != null ? Number(r.salePrice) : null,
+      cuotaInicial: r.saleCuotaInicial != null ? Number(r.saleCuotaInicial) : null,
+      valorCuota: r.saleValorCuota != null ? Number(r.saleValorCuota) : null,
+      totalCuotas: r.saleTotalCuotas != null ? Number(r.saleTotalCuotas) : null,
       clientName: r.clientName || null,
       receivedByName: r.receivedByName || null,
       exchangeRate: r.p_exchange_rate != null ? Number(r.p_exchange_rate) : null,
@@ -391,7 +432,7 @@ export class PaymentsService {
       .createQueryBuilder('p')
       .select('COALESCE(p.payment_method, \'otro\')', 'method')
       .addSelect('COUNT(*)', 'total')
-      .addSelect('COALESCE(SUM(p.amount),0)', 'monto')
+      .addSelect('COALESCE(SUM(COALESCE(p.amount_usd, p.amount)),0)', 'monto')
       .where("p.status = 'pagado'");
     const methods: any = await scopePayments(methodsQb)
       .groupBy('p.payment_method')
@@ -400,7 +441,7 @@ export class PaymentsService {
     const byMonthQb = this.paymentRepo
       .createQueryBuilder('p')
       .select("to_char(p.created_at, 'YYYY-MM')", 'month')
-      .addSelect('COALESCE(SUM(p.amount),0)', 'monto')
+      .addSelect('COALESCE(SUM(COALESCE(p.amount_usd, p.amount)),0)', 'monto')
       .where("p.status = 'pagado'");
     const byMonth: any = await scopePayments(byMonthQb)
       .groupBy('1')
@@ -441,6 +482,7 @@ export class PaymentsService {
       financedCuotas,
       paidCuotas,
       initialPaid,
+      receipts,
     ] = await Promise.all([
       this.installmentRepo.createQueryBuilder('i')
         .innerJoin(SaleEntity, 's', 's.id = i.sale_id')
@@ -495,13 +537,21 @@ export class PaymentsService {
         .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
         .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
         .select('COUNT(*)', 'count')
-        .addSelect('COALESCE(SUM(p.amount),0)', 'amount')
+        .addSelect('COALESCE(SUM(COALESCE(p.amount_usd, p.amount)),0)', 'amount')
         .getRawOne(),
       this.paymentRepo.createQueryBuilder('p')
-        .where("p.type IN ('adelanto','primera_cuota') AND p.status = 'pagado'")
+        .where("p.type IN ('reserva','adelanto','cuota_inicial','primera_cuota') AND p.status = 'pagado'")
         .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
         .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
-        .select('COALESCE(SUM(p.amount),0)', 'amount')
+        .select('COUNT(*)', 'count')
+        .addSelect('COALESCE(SUM(COALESCE(p.amount_usd, p.amount)),0)', 'amount')
+        .getRawOne(),
+      this.paymentRepo.createQueryBuilder('p')
+        .where("(NULLIF(TRIM(COALESCE(p.receipt_number, '')), '') IS NOT NULL OR NULLIF(TRIM(COALESCE(p.receipt_document_url, '')), '') IS NOT NULL)")
+        .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
+        .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
+        .select('COUNT(*)', 'count')
+        .addSelect('COALESCE(SUM(COALESCE(p.receipt_value, p.amount_usd, p.amount)),0)', 'amount')
         .getRawOne(),
     ]);
 
@@ -517,11 +567,14 @@ export class PaymentsService {
       upcomingAmount: Number(upcomingCuotas?.amount || 0),
       totalSaleLots: Number(totalSale?.count || 0),
       totalSaleAmount: Number(totalSale?.amount || 0),
+      initialPaymentCount: Number(initialPaid?.count || 0),
       initialPaymentAmount: Number(initialPaid?.amount || 0),
       financingAmount: Number(financing?.amount || 0),
       financedCuotas: Number(financedCuotas?.count || 0),
       paidCuotas: Number(paidCuotas?.count || 0),
       paidCuotasAmount: Number(paidCuotas?.amount || 0),
+      receiptCount: Number(receipts?.count || 0),
+      receiptAmount: Number(receipts?.amount || 0),
     };
 
     return {

@@ -174,11 +174,9 @@ export class SalesService {
         tea: String(dto.interestType === 'tea' ? Number(dto.tea || 0) : 0),
       });
       const savedSale = await manager.save(sale);
-      if (!(Number(lot.finalPrice || 0) > 0)) {
-        await manager.update(LotEntity, { id: lot.id }, { finalPrice: String(quoteFinalPrice) });
-        lot.finalPrice = String(quoteFinalPrice);
-      }
-      if (catalog && !(Number(catalog.finalPrice || 0) > 0)) {
+      await manager.update(LotEntity, { id: lot.id }, { finalPrice: String(quoteFinalPrice) });
+      lot.finalPrice = String(quoteFinalPrice);
+      if (catalog) {
         await manager.update(ProjectLotCatalogEntity, { id: catalog.id }, { finalPrice: String(quoteFinalPrice) });
       }
 
@@ -507,6 +505,42 @@ export class SalesService {
       .addSelect('c.full_name AS "clientName"')
       .addSelect('l.code AS "lotCode"')
       .addSelect('u.name AS "agentName"')
+      .addSelect(`(
+        SELECT q.final_price_usd
+        FROM quotes q
+        WHERE q.lot_id = s.lot_id
+          AND q.deleted_at IS NULL
+          AND q.status IN ('convertida','aprobada')
+        ORDER BY CASE WHEN q.client_id = s.client_id THEN 0 ELSE 1 END, q.id DESC
+        LIMIT 1
+      ) AS "quoteFinalPriceUsd"`)
+      .addSelect(`(
+        SELECT q.cuota_inicial_usd
+        FROM quotes q
+        WHERE q.lot_id = s.lot_id
+          AND q.deleted_at IS NULL
+          AND q.status IN ('convertida','aprobada')
+        ORDER BY CASE WHEN q.client_id = s.client_id THEN 0 ELSE 1 END, q.id DESC
+        LIMIT 1
+      ) AS "quoteCuotaInicialUsd"`)
+      .addSelect(`(
+        SELECT q.valor_cuota_usd
+        FROM quotes q
+        WHERE q.lot_id = s.lot_id
+          AND q.deleted_at IS NULL
+          AND q.status IN ('convertida','aprobada')
+        ORDER BY CASE WHEN q.client_id = s.client_id THEN 0 ELSE 1 END, q.id DESC
+        LIMIT 1
+      ) AS "quoteValorCuotaUsd"`)
+      .addSelect(`(
+        SELECT q.total_cuotas
+        FROM quotes q
+        WHERE q.lot_id = s.lot_id
+          AND q.deleted_at IS NULL
+          AND q.status IN ('convertida','aprobada')
+        ORDER BY CASE WHEN q.client_id = s.client_id THEN 0 ELSE 1 END, q.id DESC
+        LIMIT 1
+      ) AS "quoteTotalCuotas"`)
       .where("s.approval_status IN ('pendiente','aprobada')");
 
     if (filters.clientId) qb.andWhere('s.client_id = :clientId', { clientId: filters.clientId });
@@ -655,6 +689,8 @@ export class SalesService {
       clientName: client?.fullName || null,
       lotCode: lot?.code || null,
     };
+    const quote = await this.resolveSaleQuote(sale.lotId, sale.clientId ? Number(sale.clientId) : undefined);
+    if (quote) Object.assign(row, quote);
 
     return this.buildPaymentContextRow(row, { lot, client, agent, installments, payments });
   }
@@ -873,7 +909,26 @@ export class SalesService {
       // equivalente en US$ del pago sin depender del TC global de la pantalla.
       exchangeRate: await this.resolveSaleExchangeRate(sale.lotId),
     };
+    const quote = await this.resolveSaleQuote(sale.lotId, sale.clientId ? Number(sale.clientId) : undefined);
+    if (quote) Object.assign(row, quote);
     return this.buildPaymentContextRow(row, { lot, client, agent, installments, payments });
+  }
+
+  private async resolveSaleQuote(lotId: number, clientId?: number): Promise<any | null> {
+    const rows = await this.dataSource.query(
+      `SELECT q.final_price_usd AS "quoteFinalPriceUsd",
+              q.cuota_inicial_usd AS "quoteCuotaInicialUsd",
+              q.valor_cuota_usd AS "quoteValorCuotaUsd",
+              q.total_cuotas AS "quoteTotalCuotas"
+         FROM quotes q
+        WHERE q.lot_id = $1
+          AND q.deleted_at IS NULL
+          AND q.status IN ('convertida','aprobada')
+        ORDER BY CASE WHEN q.client_id = $2 THEN 0 ELSE 1 END, q.id DESC
+        LIMIT 1`,
+      [lotId, clientId || null],
+    ).catch(() => [] as any[]);
+    return rows?.[0] || null;
   }
 
   /**
@@ -900,10 +955,14 @@ export class SalesService {
     const today = new Date().toISOString().slice(0, 10);
     const allPayments = related.payments || [];
     const paidPayments = allPayments.filter((p) => String(p.status) === 'pagado');
+    const paymentAmount = (p?: PaymentEntity | null) => Number((p as any)?.amountUsd ?? p?.amount ?? 0);
+    const salePrice = Number(r.quoteFinalPriceUsd ?? r.s_sale_price ?? 0);
+    const expectedCuotaInicial = Number(r.quoteCuotaInicialUsd ?? r.s_cuota_inicial ?? 0);
+    const totalCuotas = Number(r.quoteTotalCuotas ?? r.totalCuotas ?? 0);
+    const valorCuota = Number(r.quoteValorCuotaUsd ?? r.s_valor_cuota ?? 0);
 
     const usedPaymentIds = new Set<number>();
     const expectedReserva = Number(r.s_reserva_amount || 0);
-    const expectedCuotaInicial = Number(r.s_cuota_inicial || 0);
     const initialPartsMatch = String(r.s_conditions || '').match(/Pago inicial:\s*(\d+)\s*partes/i);
     const initialParts = expectedCuotaInicial > 0
       ? Math.max(1, initialPartsMatch ? Number(initialPartsMatch[1] || 1) : 1)
@@ -922,7 +981,7 @@ export class SalesService {
         installmentNo: null,
         kind: 'reserva',
         conceptLabel: 'Reserva',
-        amount: Number(p.amount || 0),
+        amount: paymentAmount(p),
         dueDate: p.dueDate || null,
         status: p.status,
         paid: String(p.status) === 'pagado',
@@ -960,7 +1019,7 @@ export class SalesService {
           installmentNo: null,
           kind: 'cuota_inicial',
           conceptLabel: initialParts > 1 ? `Cuota inicial ${i + 1}/${initialParts}` : 'Cuota inicial',
-          amount: p ? Number(p.amount || 0) : partAmount,
+          amount: p ? paymentAmount(p) : partAmount,
           dueDate: p?.dueDate || r.s_sale_date || null,
           status: p?.status || 'pendiente',
           paid: p ? String(p.status) === 'pagado' : false,
@@ -977,7 +1036,7 @@ export class SalesService {
           installmentNo: null,
           kind: 'cuota_inicial',
           conceptLabel: 'Abono cuota inicial',
-          amount: Number(p.amount || 0),
+          amount: paymentAmount(p),
           dueDate: p.dueDate || null,
           status: p.status,
           paid: String(p.status) === 'pagado',
@@ -995,7 +1054,7 @@ export class SalesService {
           installmentNo: null,
           kind: 'cuota_inicial',
           conceptLabel: 'Cuota inicial',
-          amount: Number(p.amount || 0),
+          amount: paymentAmount(p),
           dueDate: p.dueDate || null,
           status: p.status,
           paid: String(p.status) === 'pagado',
@@ -1027,6 +1086,9 @@ export class SalesService {
       return idx < 0 ? null : pool.splice(idx, 1)[0];
     };
 
+    const expectedInstallmentAmount = totalCuotas > 0
+      ? (valorCuota > 0 ? valorCuota : Math.max(0, (salePrice - expectedCuotaInicial) / totalCuotas))
+      : 0;
     const rows = related.installments.map((inst) => {
       const paid = inst.status === 'pagado';
       const overdue = !paid && !!inst.dueDate && String(inst.dueDate).slice(0, 10) < today;
@@ -1036,7 +1098,7 @@ export class SalesService {
         installmentNo: inst.installmentNo,
         kind: 'cuota' as const,
         conceptLabel: `Cuota ${inst.installmentNo}`,
-        amount: Number(inst.amount || 0),
+        amount: expectedInstallmentAmount || Number(inst.amount || 0),
         dueDate: inst.dueDate,
         status: inst.status,
         paid,
@@ -1073,13 +1135,12 @@ export class SalesService {
     const paidCount = rows.filter((x) => x.paid).length;
     const { lot, client, agent } = related;
 
-    const salePrice = Number(r.s_sale_price || 0);
     const installmentsPaidAmount = rows
       .filter((x) => x.paid && !(x as any).coveredByInitial)
       .reduce((sum, x) => sum + x.amount, 0);
     const collectedAmount = initialPaidAmount + installmentsPaidAmount;
-    const cuotaInicial = Number(r.s_cuota_inicial || 0)
-      || Math.max(0, salePrice - Number(r.s_valor_cuota || 0) * Number(r.totalCuotas || 0));
+    const cuotaInicial = expectedCuotaInicial
+      || Math.max(0, salePrice - valorCuota * totalCuotas);
 
 
     return {
@@ -1092,8 +1153,8 @@ export class SalesService {
         salePrice,
         cuotaInicial,
         reservaAmount: Number(r.s_reserva_amount || 0),
-        totalCuotas: Number(r.totalCuotas || rows.length),
-        valorCuota: Number(r.s_valor_cuota || 0),
+        totalCuotas: Number(totalCuotas || rows.length),
+        valorCuota,
         interestType: r.s_interest_type || 'sin_intereses',
         tea: Number(r.s_tea || 0),
         paymentMethod: r.s_conditions || 'Al crédito',
@@ -1114,13 +1175,13 @@ export class SalesService {
       otherPayments: pool.map((p) => ({
         ...this.paymentDetails(p),
         conceptLabel: paymentConceptLabel(p.type),
-        amount: Number(p.amount || 0),
+        amount: paymentAmount(p),
         dueDate: p.dueDate || null,
       })),
       allPayments: allPayments.map((p) => ({
         ...this.paymentDetails(p),
         conceptLabel: paymentConceptLabel(p.type),
-        amount: Number(p.amount || 0),
+        amount: paymentAmount(p),
         dueDate: p.dueDate || null,
       })),
       summary: {
