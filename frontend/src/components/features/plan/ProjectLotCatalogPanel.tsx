@@ -6,10 +6,15 @@ import { api, uploadFile } from '@/lib/api';
 import { printHtml } from '@/lib/print';
 import { Field, toast } from '@/components/ui/ui';
 import { Select } from '@/components/ui/Select';
+import { LOT_STATUS_SELECT_OPTIONS } from '@/lib/types';
 
 const INK = '#0F172A';
 const BORDER = '#CBD5E1';
 const NAVY = '#002060';
+
+const LOT_STATUS_OPTIONS_EXCLUDING_SOLD = LOT_STATUS_SELECT_OPTIONS.filter(
+  (opt) => opt.value !== 'vendido',
+);
 
 // Los precios de la base de lotes se cargan y se muestran en dolares (US$).
 // Se formatean con separador de miles por comas, igual que en PlanEditor.
@@ -399,9 +404,34 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                   <Field label="Area m2"><input className="input !h-9" type="number" value={draft.areaM2 || ''} onChange={(e) => setDraft({ ...draft, areaM2: Number(e.target.value) })} /></Field>
                   <Field label="Dimensiones"><input className="input !h-9" value={draft.dimensions || ''} onChange={(e) => setDraft({ ...draft, dimensions: e.target.value })} /></Field>
                   <Field label="Precio m2 (US$)"><input className="input !h-9" type="number" value={draft.priceM2 || ''} onChange={(e) => setDraft({ ...draft, priceM2: Number(e.target.value) })} /></Field>
-                  <Field label="Precio venta (US$)"><input className="input !h-9" type="number" value={draft.salePrice || ''} onChange={(e) => setDraft({ ...draft, salePrice: Number(e.target.value) })} /></Field>
-                  <Field label="Precio final (US$)"><input className="input !h-9" type="number" value={draft.finalPrice || ''} onChange={(e) => setDraft({ ...draft, finalPrice: Number(e.target.value) })} /></Field>
-                  <Field label="Estado"><input className="input !h-9" value={draft.status || ''} onChange={(e) => setDraft({ ...draft, status: e.target.value })} /></Field>
+                  <Field label="Precio venta (US$)">
+                    <input
+                      className="input !h-9 bg-slate-100 text-slate-600 cursor-not-allowed"
+                      type="text"
+                      value={draft.salePrice ? moneyUsd(draft.salePrice) : ''}
+                      disabled
+                      readOnly
+                    />
+                  </Field>
+                  <Field label="Precio final (US$)">
+                    <input
+                      className="input !h-9 bg-slate-100 text-slate-600 cursor-not-allowed"
+                      type="text"
+                      value={draft.finalPrice ? moneyUsd(draft.finalPrice) : ''}
+                      disabled
+                      readOnly
+                    />
+                  </Field>
+                  <Field label="Estado">
+                    <Select
+                      value={draft.status?.toLowerCase() || ''}
+                      onChange={(v) => setDraft({ ...draft, status: v })}
+                      options={[
+                        { value: '', label: 'Selecciona un estado...' },
+                        ...LOT_STATUS_OPTIONS_EXCLUDING_SOLD,
+                      ]}
+                    />
+                  </Field>
                   <Field label="Cliente"><input className="input !h-9" value={draft.client || ''} onChange={(e) => setDraft({ ...draft, client: e.target.value })} /></Field>
                 </div>
                 <div className="flex shrink-0 justify-end gap-2 border-t px-4 py-3" style={{ borderColor: BORDER }}>

@@ -617,14 +617,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         }
       } catch { /* si falla, se bloquea por falta de precio final */ }
     }
-    const lotFinal = lotFinalPrice(quoteLot);
-    if (!(lotFinal > 0)) {
+    const quoteFinalPrice = Number(q.finalPriceUsd || 0);
+    if (!(quoteFinalPrice > 0)) {
       setProjectId(Number(quoteLot?.projectId || values.projectId));
       setLotId(values.lotId);
       setSalePrice(0);
       openPriceIssueModal(
         'Falta precio final',
-        'Este lote aun no tiene registrado el precio final.',
+        'La cotizacion no tiene registrado el precio final.',
         values.lotId,
       );
       return;
@@ -637,7 +637,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     setProjectId(Number(quoteLot?.projectId || values.projectId));
     setLotId(values.lotId);
     setClientName(values.clientName);
-    setSalePrice(lotFinal);
+    setSalePrice(quoteFinalPrice);
     setPaymentMethod(values.paymentMethod);
     setCuotaInicial(values.cuotaInicialUsd);
     setTotalCuotas(values.totalCuotas);
@@ -652,12 +652,16 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     setShowCotizaciones(false);
     setPreview(null);
 
-    // El cliente de la cotizacion se reutiliza si ya existe en la cartera.
-    const match = clients.find((c: any) => {
-      const fullName = String(c.fullName || c.full_name || '').trim().toLowerCase();
-      return fullName && fullName === values.clientName.trim().toLowerCase();
-    });
-    setClientId(match ? Number(match.id) : 0);
+    const quoteClientId = Number(q.clientId || 0);
+    if (quoteClientId > 0) {
+      setClientId(quoteClientId);
+    } else {
+      const match = clients.find((c: any) => {
+        const fullName = String(c.fullName || c.full_name || '').trim().toLowerCase();
+        return fullName && fullName === values.clientName.trim().toLowerCase();
+      });
+      setClientId(match ? Number(match.id) : 0);
+    }
 
     if (!values.lotId) {
       toast('La cotización no tiene lote asignado. Selecciona el lote manualmente.', 'err');
