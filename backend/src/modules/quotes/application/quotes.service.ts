@@ -59,6 +59,7 @@ export class QuotesService {
     const quote = this.quoteRepo.create({
       projectId: dto.projectId,
       lotId: dto.lotId,
+      clientId: dto.clientId || undefined,
       clientName: dto.clientName,
       clientEmail: dto.clientEmail,
       clientPhone: dto.clientPhone,

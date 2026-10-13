@@ -17,6 +17,9 @@ export class QuoteEntity {
   @Column({ name: 'lot_id' })
   lotId: number;
 
+  @Column({ name: 'client_id', nullable: true })
+  clientId?: number;
+
   @Column({ name: 'client_name', length: 200 })
   clientName: string;
 

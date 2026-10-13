@@ -8,6 +8,10 @@ export class CreateQuoteDto {
   @IsNumber()
   lotId!: number;
 
+  @IsOptional()
+  @IsNumber()
+  clientId?: number;
+
   @IsString()
   @IsNotEmpty()
   clientName!: string;
