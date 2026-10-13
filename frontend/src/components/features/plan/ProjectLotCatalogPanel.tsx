@@ -6,10 +6,15 @@ import { api, uploadFile } from '@/lib/api';
 import { printHtml } from '@/lib/print';
 import { Field, toast } from '@/components/ui/ui';
 import { Select } from '@/components/ui/Select';
+import { LOT_STATUS_SELECT_OPTIONS } from '@/lib/types';
 
 const INK = '#0F172A';
 const BORDER = '#CBD5E1';
 const NAVY = '#002060';
+
+const LOT_STATUS_OPTIONS_EXCLUDING_SOLD = LOT_STATUS_SELECT_OPTIONS.filter(
+  (opt) => opt.value !== 'vendido',
+);
 
 // Los precios de la base de lotes se cargan y se muestran en dolares (US$).
 // Se formatean con separador de miles por comas, igual que en PlanEditor.

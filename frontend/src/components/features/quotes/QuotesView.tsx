@@ -662,6 +662,9 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
   const [clientPhone, setClientPhone] = useState('');
+  const [clientId, setClientId] = useState<number | null>(null);
+  const [clients, setClients] = useState<any[]>([]);
+  const [clientSearch, setClientSearch] = useState('');
   const [lotId, setLotId] = useState(0);
   const [pricePerM2Usd, setPricePerM2Usd] = useState(0);
   const [lotPriceUsd, setLotPriceUsd] = useState(0);
@@ -732,12 +735,22 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   useEffect(() => { setPage(1); }, [lockedProjectId, debouncedSearch, fPayment, sort, order]);
   useEffect(() => {
     api.get<any[]>('/lots?limit=500').then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => { });
+    api.get<any[]>('/clients').then((d) => setClients(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
   }, []);
   useEffect(() => {
     const pre = searchParams?.get('lotId');
     if (pre) { selectLot(Number(pre)); setOpen(true); }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, lots.length]);
+
+  useEffect(() => {
+    if (clientSearch && clients.length > 0) {
+      const match = clients.find((c) => (c.fullName || c.full_name || '').toLowerCase() === clientSearch.toLowerCase());
+      if (match) {
+        selectClient(match.id);
+      }
+    }
+  }, [clientSearch, clients.length]);
 
   const availableLots = lockedProjectId ? lots.filter((l: any) => Number(l.projectId) === Number(lockedProjectId)) : lots;
   const streetOptions = (() => {
@@ -786,6 +799,21 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   }
 
 
+  function selectClient(id: number) {
+    const client = clients.find((c) => c.id === id);
+    if (client) {
+      setClientId(id);
+      setClientName(client.fullName || client.full_name || '');
+      setClientEmail(client.email || '');
+      setClientPhone(client.phone || '');
+    } else {
+      setClientId(null);
+      setClientName('');
+      setClientEmail('');
+      setClientPhone('');
+    }
+  }
+
   function resetLot() {
     setLotId(0);
     setStreetId(0);
@@ -807,7 +835,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const cuotasFinanciadas = paymentMethod === 'credito' ? safeTotalCuotas : 0;
 
   function resetForm() {
-    setClientName(''); setClientEmail(''); setClientPhone('');
+    setClientName(''); setClientEmail(''); setClientPhone(''); setClientId(null); setClientSearch('');
     setLotId(0); setStreetId(0); setPricePerM2Usd(0); setLotPriceUsd(0); setBonoDescuento(0); setBonoEspecial(0);
     setPaymentMethod('credito'); setCuotaInicialUsd(0); setInitialPaymentMode('contado'); setInitialParts(3); setTotalCuotas(36); setGraceMonths(0); setApplyInterest(false); setTea(10);
   }
@@ -826,7 +854,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     try {
       await api.post('/quotes', {
         projectId: lockedProjectId || selectedLot?.projectId || 1,
-        lotId, clientName, clientEmail, clientPhone,
+        lotId, clientId: clientId || undefined, clientName, clientEmail, clientPhone,
         pricePerM2Usd, lotPriceUsd, bonoDescuentoUsd: bonoDescuento || undefined, bonoEspecialUsd: bonoEspecial || undefined,
         paymentMethod,
         cuotaInicialUsd: paymentMethod === 'credito' ? safeCuotaInicialUsd || undefined : undefined,
@@ -1026,6 +1054,25 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             <p className="text-xs text-slate-500 mb-4">Esta calculadora trabaja en US$, con un tipo de cambio manual para mostrar el equivalente en soles.</p>
 
             <h4 className="font-semibold text-sm text-slate-700 mb-2">Cliente</h4>
+            <Field label="Buscar cliente existente">
+              <input
+                className="input"
+                placeholder="Escribe para buscar..."
+                value={clientSearch}
+                onChange={(e) => setClientSearch(e.target.value)}
+                list="quote-clients"
+              />
+              <datalist id="quote-clients">
+                {clients
+                  .filter((c) => !clientSearch || (c.fullName || c.full_name || '').toLowerCase().includes(clientSearch.toLowerCase()))
+                  .slice(0, 20)
+                  .map((c) => (
+                    <option key={c.id} value={c.fullName || c.full_name || ''}>
+                      {c.email || ''}
+                    </option>
+                  ))}
+              </datalist>
+            </Field>
             <Field label="Nombres *"><input className="input" value={clientName} onChange={(e) => setClientName(e.target.value)} /></Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Correo electronico *">

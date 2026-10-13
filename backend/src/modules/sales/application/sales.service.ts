@@ -110,7 +110,9 @@ export class SalesService {
     if (Math.abs(Number(dto.salePrice || 0) - quoteFinalPrice) > 0.01) {
       throw new BadRequestException('El precio de venta debe coincidir con el precio final de la cotizacion.');
     }
+    const effectiveClientId = quote.clientId || dto.clientId;
     const catalog = await this.dataSource.getRepository(ProjectLotCatalogEntity).findOne({ where: { projectId: lot.projectId, code: lot.code } }).catch(() => null);
+    
 
     const assignedAgentId = Number(dto.agentId || actorId);
     const agent = await this.userRepo.findOne({ where: { id: assignedAgentId } });
@@ -124,7 +126,7 @@ export class SalesService {
     const requestedInitialParts = Number(dto.initialParts || 0);
     const initialParts = initialPaymentMode === 'partes' ? requestedInitialParts : 1;
     if (!dto.projectId) throw new BadRequestException('Proyecto requerido');
-    if (!dto.clientId) throw new BadRequestException('Cliente requerido');
+    if (!effectiveClientId) throw new BadRequestException('Cliente requerido');
     if (!assignedAgentId) throw new BadRequestException('Agente requerido');
     if (!(Number(dto.salePrice) > 0)) throw new BadRequestException('Precio de venta requerido');
     if (!dto.saleDate) throw new BadRequestException('Fecha de venta requerida');
@@ -137,15 +139,10 @@ export class SalesService {
       if (Number(dto.graceMonths || 0) > totalCuotas) throw new BadRequestException('Las cuotas sin interes no pueden superar el total de cuotas');
     }
     const saldoFinanciar = Math.max(0, dto.salePrice - cuotaInicial);
-    // En inmobiliaria la financiación arranca del neto (se descuenta la comisión del lote)
     const financingBase = dto.salePrice;
-    // Se calcula siempre en el servidor (nunca se confía en un valorCuota que mande el cliente).
     const gracePlan = buildGraceSchedule({ principal: saldoFinanciar, totalCuotas, graceMonths, interestType: dto.interestType, teaPct: dto.tea });
     const valorCuota = totalCuotas > 0 ? gracePlan.interestCuota : 0;
 
-    // La venta, el "claim" atómico del lote y la auditoría deben quedar juntos:
-    // antes eran saves() independientes y un fallo a mitad dejaba la separación
-    // creada sin que el lote reflejara el compromiso (o viceversa).
     const saved = await this.dataSource.transaction(async (manager) => {
       const paymentDetails = [
         dto.paymentMethod ? `Forma de pago: ${dto.paymentMethod}` : null,
@@ -159,7 +156,7 @@ export class SalesService {
       const sale = manager.create(SaleEntity, {
         projectId: dto.projectId,
         lotId: dto.lotId,
-        clientId: dto.clientId,
+        clientId: effectiveClientId,
         agentId: assignedAgentId,
         salePrice: String(dto.salePrice),
         saleDate: dto.saleDate || undefined,
@@ -190,14 +187,14 @@ export class SalesService {
       const claimed = await manager.update(
         LotEntity,
         { id: lot.id, sellingStage: 'disponible' },
-        { sellingStage: 'separado', agentId: assignedAgentId, clientId: dto.clientId ?? lot.clientId ?? null },
+        { sellingStage: 'separado', agentId: assignedAgentId, clientId: effectiveClientId ?? lot.clientId ?? null },
       );
       const won = claimed.affected == null || Number(claimed.affected) > 0;
       if (!won) {
         throw new BadRequestException('Mientras confirmabas, otro agente gestionó este lote. Puedes verlo, contactar al asesor responsable o pedir reasignación al administrador, pero no registrar una venta duplicada.');
       }
       lot.sellingStage = 'separado';
-      lot.clientId = dto.clientId ?? lot.clientId;
+      lot.clientId = effectiveClientId ?? lot.clientId;
       lot.agentId = assignedAgentId;
 
       if (dto.quoteId) {
@@ -241,7 +238,7 @@ export class SalesService {
 
       // Cronograma si hay plan
       if (sale.totalCuotas > 0) {
-        await this.buildSchedule(sale, sale.approvedAt, manager);
+        await this.buildSchedule(sale, sale.saleDate ? new Date(sale.saleDate) : null, manager);
       }
 
       await this.audit(actorId, 'APROBAR_SEPARACION', 'sales', id, manager);
