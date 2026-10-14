@@ -1145,8 +1145,6 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   }
 
   async function exportMonthPdf() {
-    if (!payFromDate && !payToDate) return toast('Selecciona un rango de fechas para descargar el PDF', 'err');
-
     const q = new URLSearchParams();
     if (status) q.set('status', status);
     if (lockedProjectId) q.set('projectId', String(lockedProjectId));
@@ -1172,15 +1170,126 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
       
       return true;
     });
-    if (!monthRows.length) return toast('No hay pagos para ese rango de fechas', 'err');
+    if (!monthRows.length) return toast('No hay pagos para descargar', 'err');
 
     const total = monthRows.reduce((sum, payment) => sum + Number(payment.amount || 0), 0);
     const dateRange = payFromDate && payToDate 
       ? `${formatDate(payFromDate)} - ${formatDate(payToDate)}`
       : payFromDate 
         ? `Desde ${formatDate(payFromDate)}`
-        : `Hasta ${formatDate(payToDate)}`;
+        : payToDate
+          ? `Hasta ${formatDate(payToDate)}`
+          : 'Todos los registros';
     const generatedAt = new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' });
+    
+    // Generar SVG del gráfico pie
+    const pieSvg = (() => {
+      const validBreakdown = paymentBreakdown.filter(r => r.value > 0);
+      if (!validBreakdown.length) return '';
+      
+      const size = 200;
+      const cx = size / 2;
+      const cy = size / 2;
+      const radius = 70;
+      const innerRadius = 45;
+      let currentAngle = -Math.PI / 2;
+      
+      const paths = validBreakdown.map(row => {
+        const percentage = row.value / totalPaymentBreakdown;
+        const angle = percentage * 2 * Math.PI;
+        
+        const x1 = cx + radius * Math.cos(currentAngle);
+        const y1 = cy + radius * Math.sin(currentAngle);
+        const x2 = cx + radius * Math.cos(currentAngle + angle);
+        const y2 = cy + radius * Math.sin(currentAngle + angle);
+        
+        const ix1 = cx + innerRadius * Math.cos(currentAngle);
+        const iy1 = cy + innerRadius * Math.sin(currentAngle);
+        const ix2 = cx + innerRadius * Math.cos(currentAngle + angle);
+        const iy2 = cy + innerRadius * Math.sin(currentAngle + angle);
+        
+        const largeArc = angle > Math.PI ? 1 : 0;
+        
+        const path = `M ${ix1} ${iy1} L ${x1} ${y1} A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2} L ${ix2} ${iy2} A ${innerRadius} ${innerRadius} 0 ${largeArc} 0 ${ix1} ${iy1} Z`;
+        
+        currentAngle += angle;
+        
+        return `<path d="${path}" fill="${row.color}" />`;
+      }).join('');
+      
+      return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" xmlns="http://www.w3.org/2000/svg">${paths}</svg>`;
+    })();
+    
+    console.log('pieSvg:', pieSvg);
+    
+    // Generar SVG del gráfico de barras
+    const barSvg = (() => {
+      if (!paymentVsDelinquency.length) return '';
+      
+      const width = 500;
+      const height = 250;
+      const padding = { top: 20, right: 20, bottom: 40, left: 60 };
+      const chartWidth = width - padding.left - padding.right;
+      const chartHeight = height - padding.top - padding.bottom;
+      
+      const maxVal = Math.max(...paymentVsDelinquency.flatMap(d => [d.pagado, d.moroso]));
+      const yScale = chartHeight / maxVal;
+      const barWidth = chartWidth / paymentVsDelinquency.length / 2.5;
+      
+      const bars = paymentVsDelinquency.map((d, i) => {
+        const x = padding.left + (i * chartWidth / paymentVsDelinquency.length) + barWidth * 0.3;
+        const h1 = d.pagado * yScale;
+        const h2 = d.moroso * yScale;
+        
+        return `
+          <rect x="${x}" y="${padding.top + chartHeight - h1}" width="${barWidth}" height="${h1}" fill="${BLUE}" rx="2" />
+          <rect x="${x + barWidth}" y="${padding.top + chartHeight - h2}" width="${barWidth}" height="${h2}" fill="${RED}" rx="2" />
+        `;
+      }).join('');
+      
+      const labels = paymentVsDelinquency.map((d, i) => {
+        const x = padding.left + (i * chartWidth / paymentVsDelinquency.length) + barWidth * 0.8;
+        return `<text x="${x}" y="${height - 10}" text-anchor="middle" font-size="10" fill="#64748B">${d.month}</text>`;
+      }).join('');
+      
+      return `<svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+        ${bars}
+        ${labels}
+      </svg>`;
+    })();
+    
+    console.log('barSvg:', barSvg);
+    
+    let chartImages = '';
+    if (pieSvg || barSvg) {
+      chartImages = `
+        <div class="charts">
+          ${pieSvg ? `<div class="chart-container">
+            <h3 style="margin:0 0 10px 0;font-size:12px;font-weight:700;color:#0B2F6E">Pago de lotes - Distribución del cobro por tipo</h3>
+            <div style="text-align:center">${pieSvg}</div>
+            <div style="margin-top:10px;font-size:9px">
+              ${paymentBreakdown.filter(r => r.value > 0).map(row => `
+                <div style="display:flex;justify-content:space-between;margin:3px 0">
+                  <span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${row.color};margin-right:5px"></span>${row.name}</span>
+                  <strong>${formatMoney(row.value)}</strong>
+                </div>
+              `).join('')}
+            </div>
+          </div>` : ''}
+          ${barSvg ? `<div class="chart-container">
+            <h3 style="margin:0 0 10px 0;font-size:12px;font-weight:700;color:#0B2F6E">Pagos vs Morosidad</h3>
+            <div style="text-align:center">${barSvg}</div>
+            <div style="margin-top:10px;font-size:9px;display:flex;justify-content:center;gap:20px">
+              <span><span style="display:inline-block;width:10px;height:10px;background:${BLUE};margin-right:5px"></span>Pagado</span>
+              <span><span style="display:inline-block;width:10px;height:10px;background:${RED};margin-right:5px"></span>Moroso</span>
+            </div>
+          </div>` : ''}
+        </div>
+      `;
+    }
+    
+    console.log('chartImages:', chartImages);
+    
     const bodyRows = monthRows.map((payment) => `
       <tr>
         <td>${escapeHtml(payment.lotCode || `Lote ${payment.lotId}`)}</td>
@@ -1208,13 +1317,16 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             .summary div{border:1px solid #E5E7EB;background:#F8FAFC;border-radius:6px;padding:10px}
             .summary span{display:block;color:#64748B;font-size:9px;font-weight:700;text-transform:uppercase}
             .summary strong{display:block;margin-top:4px;font-size:14px;color:#111827}
+            .charts{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:20px 0}
+            .chart-container{border:1px solid #E5E7EB;border-radius:6px;padding:10px;background:#F8FAFC}
+            .chart-container img{width:100%;height:auto;display:block}
             table{width:100%;border-collapse:collapse;table-layout:fixed}
             th{background:#0B2F6E;color:white;border:1px solid #0B2F6E;padding:7px 6px;font-size:9px;text-align:left;text-transform:uppercase}
             td{border:1px solid #E5E7EB;padding:7px 6px;font-size:10px;vertical-align:top;word-wrap:break-word}
             tbody tr:nth-child(even){background:#F8FAFC}
             .num{text-align:right;font-weight:700;color:#1259C4;white-space:nowrap}
             .footer{margin-top:14px;border-top:1px solid #E5E7EB;padding-top:8px;color:#64748B;font-size:10px;text-align:right}
-            @media print{body{margin:18px}thead{display:table-header-group}}
+            @media print{body{margin:18px}thead{display:table-header-group}.charts{break-inside:avoid}}
           </style>
         </head>
         <body>
@@ -1234,6 +1346,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             <div><span>Total</span><strong>${escapeHtml(formatMoney(total))}</strong></div>
             <div><span>Filtro</span><strong>${escapeHtml(status || 'Todos')}</strong></div>
           </div>
+          ${chartImages}
           <table>
             <thead>
               <tr><th>Lote</th><th>Cliente</th><th>Tipo</th><th>Medio</th><th>Referencia</th><th>Monto</th><th>Estado</th><th>Fecha</th></tr>
@@ -1469,11 +1582,12 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const collectionRate = totalSalesApproved > 0 ? (totalCollected / totalSalesApproved) * 100 : 0;
   const delinquencyRate = Number(kpiSource.delinquencyRate ?? ((totalCollected + totalOverdue) > 0 ? (totalOverdue / (totalCollected + totalOverdue)) * 100 : 0));
   const paymentBreakdown = [
-    { key: 'inicial', name: 'Pago de Inicial', value: Number(kpiSource.initialPaymentAmount || 0), color: BLUE },
-    { key: 'cuotas', name: 'Pago Cuotas Financ.', value: Number(kpiSource.paidCuotasAmount || 0), color: GREEN },
-    { key: 'pendientes', name: 'Cuotas Pendientes', value: Number(kpiSource.pendingAmount || 0), color: AMBER },
-    { key: 'mora', name: 'Cuotas en Mora', value: Number(kpiSource.overdueAmount || 0), color: RED },
+    { key: 'inicial', name: 'Pago de Inicial', value: Number(metrics.initialPaymentAmount || 0), color: BLUE },
+    { key: 'cuotas', name: 'Pago Cuotas Financ.', value: Number(metrics.paidCuotasAmount || 0), color: GREEN },
+    { key: 'pendientes', name: 'Cuotas Pendientes', value: Number(Math.max(0, (metrics.totalSaleAmount || 0) - (metrics.initialPaymentAmount || 0) - (metrics.paidCuotasAmount || 0))), color: AMBER },
+    { key: 'mora', name: 'Cuotas en Mora', value: Number(metrics.overdueAmount || 0), color: RED },
   ];
+  
   const totalPaymentBreakdown = paymentBreakdown.reduce((sum, row) => sum + row.value, 0);
   const lastSixMonths = byMonth.slice(-6);
   const lastSixSalesMonths = salesByMonth.slice(-6);
@@ -1614,9 +1728,9 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
         )}
 
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[30%_70%]">
-          <div className="card overflow-hidden p-0">
-            <ChartHeader
-              title="Pago de lotes"
+      <div className="card overflow-hidden p-0">
+        <ChartHeader
+          title="Pago de lotes"
               subtitle="Distribucion del cobro por tipo"
               menuRows={paymentBreakdown.map((row) => [row.name, usdMoney(row.value)] as [string, string])}
             />
@@ -1648,7 +1762,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             ) : <EmptyChart text="Sin montos para distribuir todavia." />}
           </div>
 
-          <div className="card overflow-hidden p-0">
+          <div id="chart-composed" className="card overflow-hidden p-0">
             <ChartHeader
               title={`Pagos vs Morosidad - ${salesPeriod === 'year' ? 'Año' : 'Mes'}`}
               subtitle={salesPeriod === 'year' ? 'Histórico por año' : (salesRange === 3 ? 'Últimos 3 meses' : 'Últimos 6 meses')}
@@ -1800,7 +1914,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 : (
                   <>
                     <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
-                    <table className="table-base table-head-plomo" style={{ width: '100%', minWidth: 1320 }}>
+                    <table className="table-base table-head-plomo [&_th]:!px-1.5 [&_th]:!py-1 [&_th]:!text-[9px] [&_th]:!whitespace-normal [&_th]:!leading-tight [&_td]:!px-1.5 [&_td]:!py-1 [&_td]:!text-[11px]" style={{ width: '100%' }}>
                       <thead><tr>
                         <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Área m²</th><th className="th-base">Cliente</th>
                         <th className="th-base">Precio venta</th><th className="th-base">Tipo de pago</th>
@@ -1808,70 +1922,59 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                         <th className="th-base">Medio de pago</th><th className="th-base">Evidencia</th><th className="th-base">Monto registrado</th><th className="th-base">Pagado US$</th>
                         <th className="th-base">Estado</th><th className="th-base">Pagado</th>
                         <th className="th-base">Recepciona pago</th>
-                        <th className="th-base">Acciones</th>
                       </tr></thead>
                       <tbody className="divide-y divide-slate-100">
                         {filteredRows.map((p) => (
                           <tr key={p.id}>
-                            <td className="td-base text-slate-400">P{p.id}</td>
-                            <td className="td-base font-medium">{p.lotCode || `Lote ${p.lotId}`}</td>
-                            <td className="td-base tabular-nums">{operationAreaOf(p) ? `${operationAreaOf(p).toLocaleString('es-PE', { maximumFractionDigits: 2 })} m²` : '—'}</td>
-                            <td className="td-base">{p.clientName || '—'}</td>
-                            <td className="td-base">{p.salePrice ? usdMoney(p.salePrice) : '—'}</td>
-                            <td className="td-base capitalize">{p.conceptLabel || TYPE_LABEL[p.type] || p.type}</td>
-                            <td className="td-base tabular-nums">{operationInitialOf(p) ? usdMoney(operationInitialOf(p)) : '—'}</td>
-                            <td className="td-base tabular-nums">{operationFinancingCuotaOf(p) ? usdMoney(operationFinancingCuotaOf(p)) : '—'}</td>
-                            <td className="td-base capitalize">{METHOD_LABEL[p.paymentMethod || ''] || p.paymentMethod || '—'}</td>
-                            <td className="td-base"><EvidenceButton pay={p} /></td>
-                            <td className="td-base font-medium">{usdMoney(paymentUsd(p))}</td>
-                            <td className="td-base tabular-nums">{(() => {
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] text-slate-400">P{p.id}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] font-medium">{p.lotCode || `Lote ${p.lotId}`}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums">{operationAreaOf(p) ? `${operationAreaOf(p).toLocaleString('es-PE', { maximumFractionDigits: 2 })} m²` : '—'}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]">{p.clientName || '—'}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]">{p.salePrice ? usdMoney(p.salePrice) : '—'}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] capitalize">{p.conceptLabel || TYPE_LABEL[p.type] || p.type}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums">{operationInitialOf(p) ? usdMoney(operationInitialOf(p)) : '—'}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums">{operationFinancingCuotaOf(p) ? usdMoney(operationFinancingCuotaOf(p)) : '—'}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] capitalize">{METHOD_LABEL[p.paymentMethod || ''] || p.paymentMethod || '—'}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]"><EvidenceButton pay={p} /></td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] font-medium">{usdMoney(paymentUsd(p))}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums">{(() => {
                               if (p.status !== 'pagado') return '—';
                               const usd = paymentUsd(p);
                               return usd > 0 ? `US$ ${usd.toFixed(2)}` : '—';
                             })()}</td>
-                            <td className="td-base">
-                              <div className="flex flex-col items-start gap-1.5">
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]">
+                              <div className="flex flex-col items-start gap-0.5">
                                 {st(p)}
                                 {p.status === 'pendiente' && (
                                   <button
                                     type="button"
-                                    className="row-action row-action--primary"
+                                    className="row-action row-action--primary !h-5 !text-[9px] !py-0 !px-1.5"
                                     onClick={() => openEditPayment(p)}
                                     title={payCanMark ? 'Aprobar o editar este pago' : 'Editar este pago'}
                                   >
-                                    <FiEdit3 /> {payCanMark ? 'Aprobar' : 'Editar'}
+                                    <FiEdit3 size={11} /> {payCanMark ? 'Aprobar' : 'Editar'}
                                   </button>
                                 )}
                               </div>
                             </td>
-                            <td className="td-base">{formatDate(p.paidAt)}</td>
-                            <td className="td-base">{p.receivedByName || '—'}</td>
-                            <td className="td-base">
-                              <button
-                                type="button"
-                                className="row-action"
-                                onClick={() => openHistory(p)}
-                                title="Ver historial de cuotas del cliente"
-                              >
-                                <FiClock /> Historial
-                              </button>
-                            </td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]">{formatDate(p.paidAt)}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]">{p.receivedByName || '—'}</td>
                           </tr>
                         ))}
                       </tbody>
                       <tfoot>
                         <tr style={{ background: '#0B2F6E' }}>
-                          <td className="td-base font-bold text-white" colSpan={2}>Totales ({filteredRows.length})</td>
-                          <td className="td-base font-bold text-white">{totalOperationArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} m²</td>
-                          <td className="td-base"></td>
-                          <td className="td-base font-bold text-white">{usdMoney(totalPrecioVenta)}</td>
-                          <td className="td-base"></td>
-                          <td className="td-base font-bold text-white">{usdMoney(totalOperationInitial)}</td>
-                          <td className="td-base font-bold text-white">{usdMoney(totalOperationFinancingCuota)}</td>
-                          <td className="td-base" colSpan={2}></td>
-                          <td className="td-base font-bold text-white">{usdMoney(totalRegistrado)}</td>
-                          <td className="td-base font-bold text-white">{totalPagadoUsd > 0 ? `US$ ${totalPagadoUsd.toFixed(2)}` : '—'}</td>
-                          <td className="td-base font-bold text-white" colSpan={5} style={{ background: '#16A34A' }}>% Pago: {pctPago.toFixed(1)}%</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white" colSpan={2}>Totales ({filteredRows.length})</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white">{totalOperationArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} m²</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px]"></td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white">{usdMoney(totalPrecioVenta)}</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px]"></td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white">{usdMoney(totalOperationInitial)}</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white">{usdMoney(totalOperationFinancingCuota)}</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px]" colSpan={2}></td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white">{usdMoney(totalRegistrado)}</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white">{totalPagadoUsd > 0 ? `US$ ${totalPagadoUsd.toFixed(2)}` : '—'}</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white" colSpan={5} style={{ background: '#16A34A' }}>% Pago: {pctPago.toFixed(1)}%</td>
                         </tr>
                       </tfoot>
                     </table>
@@ -1885,66 +1988,69 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
           <div className="card p-0 overflow-auto">
             {clientReportRows.length === 0 ? <EmptyState text={paySearch ? 'No hay clientes que coincidan con la busqueda.' : 'No hay ventas para el reporte por cliente.'} />
               : (
-                <>
-                  <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
-                  <table className="table-base" style={{ width: '100%', minWidth: 1300 }}>
-                    <thead>
-                      <tr style={{ background: '#808080', color: '#fff' }}>
-                        <th className="th-base !bg-[#808080] !text-white">Id</th>
-                        <th className="th-base !bg-[#808080] !text-white">Lote</th>
-                        <th className="th-base !bg-[#808080] !text-white">Area (m2)</th>
-                        <th className="th-base !bg-[#808080] !text-white">Cliente</th>
-                        <th className="th-base !bg-[#808080] !text-white">Precio Venta US$</th>
-                        <th className="th-base !bg-[#808080] !text-white">Cuota Inicial US$</th>
-                        <th className="th-base !bg-[#808080] !text-white">Total Cuotas Financ.</th>
-                        <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. Pagadas (#)</th>
-                        <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. Pagadas US$</th>
-                        <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. por Pagar (#)</th>
-                        <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. por Pagar US$</th>
-                        <th className="th-base !bg-[#808080] !text-white">Pago Intereses US$</th>
-                        <th className="th-base !bg-[#808080] !text-white">Cuotas en mora #</th>
-                        <th className="th-base !bg-[#808080] !text-white">Cuotas en mora US$</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {clientReportRows.map((row, index) => (
-                        <tr key={`${row.id}-${row.lotCode}`}>
-                          <td className="td-base text-center">{index + 1}</td>
-                          <td className="td-base font-medium">{row.lotCode}</td>
-                          <td className="td-base tabular-nums">{row.area.toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td>
-                          <td className="td-base">{row.clientName}</td>
-                          <td className="td-base tabular-nums">{usdMoney(row.salePrice)}</td>
-                          <td className="td-base tabular-nums">{usdMoney(row.initialUsd)}</td>
-                          <td className="td-base tabular-nums">{row.totalCuotas}</td>
-                          <td className="td-base tabular-nums">{row.paidCount}</td>
-                          <td className="td-base tabular-nums">{usdMoney(row.paidUsd)}</td>
-                          <td className="td-base tabular-nums">{row.pendingCount}</td>
-                          <td className="td-base tabular-nums">{usdMoney(row.pendingUsd)}</td>
-                          <td className="td-base tabular-nums">{usdMoney(row.interestUsd)}</td>
-                          <td className="td-base tabular-nums">{row.overdueCount}</td>
-                          <td className="td-base tabular-nums">{usdMoney(row.overdueUsd)}</td>
+                  <>
+                   <p className="px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver mas columnas.</p>
+                    <table className="table-base [&_th]:!px-1.5 [&_th]:!py-1 [&_th]:!text-[9px] [&_th]:!whitespace-normal [&_th]:!leading-tight [&_td]:!px-1.5 [&_td]:!py-1 [&_td]:!text-[11px]" style={{ width: '100%' }}>
+                      <thead>
+                        <tr style={{ background: '#808080', color: '#fff' }}>
+                          <th className="th-base !bg-[#808080] !text-white">Id</th>
+                          <th className="th-base !bg-[#808080] !text-white">Lote</th>
+                          <th className="th-base !bg-[#808080] !text-white">Area (m2)</th>
+                          <th className="th-base !bg-[#808080] !text-white">Cliente</th>
+                          <th className="th-base !bg-[#808080] !text-white">Precio Venta US$</th>
+                          <th className="th-base !bg-[#808080] !text-white">Cuota Inicial US$</th>
+                          <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. Pagadas</th>
+                          <th className="th-base !bg-[#808080] !text-white">Cuotas Financ. por Pagar</th>
+                          <th className="th-base !bg-[#808080] !text-white">Pago Intereses US$</th>
+                          <th className="th-base !bg-[#808080] !text-white">Cuotas en mora</th>
+                          <th className="th-base !bg-[#808080] !text-white">Accion</th>
                         </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr style={{ background: '#000080' }}>
-                        <td className="td-base font-bold text-white" colSpan={2}>Total</td>
-                        <td className="td-base font-bold text-white">{clientReportTotals.area.toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td>
-                        <td className="td-base font-bold text-white"></td>
-                        <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.salePrice)}</td>
-                        <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.initialUsd)}</td>
-                        <td className="td-base font-bold text-white">{clientReportTotals.totalCuotas}</td>
-                        <td className="td-base font-bold text-white">{clientReportTotals.paidCount}</td>
-                        <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.paidUsd)}</td>
-                        <td className="td-base font-bold text-white">{clientReportTotals.pendingCount}</td>
-                        <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.pendingUsd)}</td>
-                        <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.interestUsd)}</td>
-                        <td className="td-base font-bold text-white">{clientReportTotals.overdueCount}</td>
-                        <td className="td-base font-bold text-white">{usdMoney(clientReportTotals.overdueUsd)}</td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {clientReportRows.map((row, index) => (
+                          <tr key={`${row.id}-${row.lotCode}`}>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] text-center">{index + 1}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] font-medium">{row.lotCode}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums">{row.area.toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]">{row.clientName}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums">{usdMoney(row.salePrice)}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums">{usdMoney(row.initialUsd)}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums">{usdMoney(row.paidUsd)} ({row.paidCount})</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums">{usdMoney(row.pendingUsd)} ({row.pendingCount})</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums">{usdMoney(row.interestUsd)}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums">{usdMoney(row.overdueUsd)} ({row.overdueCount})</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]">
+                              <button
+                                type="button"
+                                className="row-action !h-5 !text-[9px] !py-0 !px-1.5"
+                                onClick={() => {
+                                  const pay = filteredRows.find(p => p.lotCode === row.lotCode);
+                                  if (pay) openHistory(pay);
+                                }}
+                                title="Ver historial de cuotas del cliente"
+                              >
+                                <FiClock size={11} /> Historial
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr style={{ background: '#000080' }}>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white" colSpan={2}>Total</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white">{clientReportTotals.area.toLocaleString('es-PE', { maximumFractionDigits: 2 })}</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white"></td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white">{usdMoney(clientReportTotals.salePrice)}</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white">{usdMoney(clientReportTotals.initialUsd)}</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white">{usdMoney(clientReportTotals.paidUsd)} ({clientReportTotals.totalCuotas})</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white">{usdMoney(clientReportTotals.pendingUsd)} ({clientReportTotals.pendingCount})</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white">{usdMoney(clientReportTotals.interestUsd)}</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px] font-bold text-white">{usdMoney(clientReportTotals.overdueUsd)} ({clientReportTotals.overdueCount})</td>
+                          <td className="td-base !px-1.5 !py-1 !text-[11px]"></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </>
               )}
           </div>
         )}
@@ -2380,39 +2486,37 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
       {historyRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => { setHistoryRow(null); setHistorySale(null); }} />
-          <div className="relative max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl">
-            <div className="mb-4 flex items-start justify-between gap-3">
+          <div className="relative max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl">
+            <div className="mb-3 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h3 className="font-semibold" style={{ fontSize: 17 }}>Historial de pagos</h3>
-                <p className="mt-1 truncate text-sm text-slate-500">
+                <h3 className="font-semibold" style={{ fontSize: 15 }}>Historial de pagos</h3>
+                <p className="mt-1 truncate text-xs text-slate-500">
                   {historySale?.client?.fullName || historyRow.clientName || 'Cliente'} - Lote {historySale?.lot?.code || historyRow.lotCode || historyRow.lotId}
                 </p>
               </div>
-              <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-md border text-slate-500" style={{ borderColor: BORDER }} onClick={() => { setHistoryRow(null); setHistorySale(null); }} aria-label="Cerrar">
+              <button type="button" className="grid h-8 w-8 shrink-0 place-items-center rounded-md border text-slate-500" style={{ borderColor: BORDER }} onClick={() => { setHistoryRow(null); setHistorySale(null); }} aria-label="Cerrar">
                 <FiX />
               </button>
             </div>
 
-            {historyLoading && <p className="p-6 text-center text-sm text-slate-400">Cargando historial...</p>}
+            {historyLoading && <p className="p-4 text-center text-xs text-slate-400">Cargando historial...</p>}
             {!historyLoading && !historySale && (
-              <p className="p-6 text-center text-sm text-slate-400">No se encontro informacion de este lote.</p>
+              <p className="p-4 text-center text-xs text-slate-400">No se encontro informacion de este lote.</p>
             )}
 
             {!historyLoading && historySale && (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 {(() => {
                   const installmentTotals = paymentHistoryInstallmentTotals(historySale);
                   const initialFeeAmount = paymentHistoryInitialFeeAmount(historySale);
                   return (
                     <>
                       {!historySale.sale && (
-                        <p className="rounded-md border bg-amber-50 px-3 py-2 text-xs" style={{ borderColor: '#FDE68A', color: '#B45309' }}>
+                        <p className="rounded-md border bg-amber-50 px-3 py-2 text-[11px]" style={{ borderColor: '#FDE68A', color: '#B45309' }}>
                           Este lote aun no tiene una venta o financiamiento registrado. Abajo se listan los pagos
                           que ya se registraron y de cada uno puedes descargar su ficha.
                         </p>
                       )}
-                      {/* Resumen en tarjetas (2 filas) y todo en US$: los importes se
-                    dividen por el TC de la venta para mostrarlos siempre en dolares. */}
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
                         <MiniMetric label="Precio de venta" value={showUsd(historySale.sale?.salePrice || 0)} />
                         <MiniMetric
@@ -2439,10 +2543,10 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
 
 
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs font-semibold">Cronograma de cuotas</span>
+                  <span className="text-[11px] font-semibold">Cronograma de cuotas</span>
                   <button
                     type="button"
-                    className="btn-outline !h-9 text-xs"
+                    className="btn-outline !h-8 text-[11px]"
                     onClick={() => ClientPaymentHistoryPdf({ sale: historySale, projectName: projectsById.get(Number(historySale.sale?.projectId))?.name })}
                   >
                     <FiFileText /> Descargar todo el historial (PDF)
@@ -2450,19 +2554,19 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                 </div>
 
                 <div className="overflow-auto">
-                  <table className="table-base" style={{ width: '100%', minWidth: 820 }}>
+                  <table className="table-base [&_th]:!px-1.5 [&_th]:!py-1 [&_th]:!text-[9px] [&_th]:!whitespace-normal [&_th]:!leading-tight [&_td]:!px-1.5 [&_td]:!py-1 [&_td]:!text-[11px]" style={{ width: '100%' }}>
                     <thead>
-                      <tr>
-                        <th className="th-base">Concepto</th>
-                        <th className="th-base">Vence</th>
-                        <th className="th-base">Monto</th>
-                        <th className="th-base">TC</th>
-                        <th className="th-base">Fecha pago</th>
-                        <th className="th-base">Pagado US$</th>
-                        <th className="th-base">N° Op. Bco</th>
-                        <th className="th-base">Estado</th>
-                        <th className="th-base">Evidencia</th>
-                        <th className="th-base">Ficha</th>
+                      <tr style={{ background: '#52728F' }}>
+                        <th className="th-base !text-white !bg-[#52728F]">Concepto</th>
+                        <th className="th-base !text-white !bg-[#52728F]">Vence</th>
+                        <th className="th-base !text-white !bg-[#52728F]">Monto</th>
+                        <th className="th-base !text-white !bg-[#52728F]">TC</th>
+                        <th className="th-base !text-white !bg-[#52728F]">Fecha pago</th>
+                        <th className="th-base !text-white !bg-[#52728F]">Pagado US$</th>
+                        <th className="th-base !text-white !bg-[#52728F]">N° Op. Bco</th>
+                        <th className="th-base !text-white !bg-[#52728F]">Estado</th>
+                        <th className="th-base !text-white !bg-[#52728F]">Evidencia</th>
+                        <th className="th-base !text-white !bg-[#52728F]">Ficha</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -2475,30 +2579,30 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                         const isInitial = r.kind === 'reserva' || r.kind === 'cuota_inicial';
                         return (
                           <tr key={r.id || r.installmentNo} style={isInitial ? { background: '#F8FBFF' } : undefined}>
-                            <td className="td-base font-semibold">
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] font-semibold">
                               {r.conceptLabel || (r.installmentNo ? `Cuota ${r.installmentNo}` : (TYPE_LABEL[r.type] || 'Pago'))}
-                              {isInitial && <span className="ml-2 rounded-full bg-[#EEF5FF] px-2 py-0.5 text-[10px] font-semibold text-[#1259C4]">Primero</span>}
+                              {isInitial && <span className="ml-1.5 rounded-full bg-[#EEF5FF] px-1.5 py-0.5 text-[9px] font-semibold text-[#1259C4]">Primero</span>}
                             </td>
-                            <td className="td-base">{r.dueDate ? formatDate(r.dueDate) : '-'}</td>
-                            <td className="td-base tabular-nums">{showUsd(r.amount)}</td>
-                            <td className="td-base">{pay?.exchangeRate != null ? Number(pay.exchangeRate) : '-'}</td>
-                            <td className="td-base">{pay?.paidAt ? formatDate(pay.paidAt) : '-'}</td>
-                            <td className="td-base tabular-nums">{(() => {
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]">{r.dueDate ? formatDate(r.dueDate) : '-'}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums">{showUsd(r.amount)}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]">{pay?.exchangeRate != null ? Number(pay.exchangeRate) : '-'}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]">{pay?.paidAt ? formatDate(pay.paidAt) : '-'}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums">{(() => {
                               const tc = Number(pay?.exchangeRate || exchangeRate || 0);
                               const usd = pay?.amountUsd != null ? Number(pay.amountUsd) : (tc > 0 ? Number(r.amount || 0) / tc : 0);
                               return usd > 0 ? `US$ ${usd.toFixed(2)}` : '-';
                             })()}</td>
-                            <td className="td-base">{pay?.bankOperationNumber || '-'}</td>
-                            <td className="td-base font-semibold" style={{ color }}>{stateLabel}</td>
-                            <td className="td-base"><EvidenceButton pay={pay} compact /></td>
-                            <td className="td-base">
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]">{pay?.bankOperationNumber || '-'}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px] font-semibold" style={{ color }}>{stateLabel}</td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]"><EvidenceButton pay={pay} compact /></td>
+                            <td className="td-base !px-1.5 !py-1 !text-[11px]">
                               {r.paid && (
                                 <button
                                   type="button"
-                                  className="row-action"
+                                  className="row-action !h-5 !text-[9px] !py-0 !px-1.5"
                                   onClick={() => PaymentReceiptPdf({ sale: historySale, installment: { ...r, payment: pay }, projectName: projectsById.get(Number(historySale.sale?.projectId))?.name })}
                                 >
-                                  <FiFileText /> Ficha
+                                  <FiFileText size={11} /> Ficha
                                 </button>
                               )}
                             </td>
@@ -2508,8 +2612,8 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                     </tbody>
                     <tfoot>
                       <tr style={{ background: '#1877F2' }}>
-                        <td className="td-base text-white" colSpan={2}>Total</td>
-                        <td className="td-base tabular-nums text-white">
+                        <td className="td-base !px-1.5 !py-1 !text-[11px] text-white" colSpan={2}>Total</td>
+                        <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums text-white">
                           {(() => {
                             const total = (historySale.plan || historySale.installments || []).reduce(
                               (sum: number, r: any) => {
@@ -2520,8 +2624,8 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                             return showUsd(total);
                           })()}
                         </td>
-                        <td className="td-base" colSpan={2}></td>
-                        <td className="td-base tabular-nums text-white">
+                        <td className="td-base !px-1.5 !py-1 !text-[11px]" colSpan={2}></td>
+                        <td className="td-base !px-1.5 !py-1 !text-[11px] tabular-nums text-white">
                           {(() => {
                             const total = (historySale.plan || historySale.installments || []).reduce((sum: number, r: any) => {
                               const pay = r.payment;
@@ -2533,7 +2637,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
                             return total > 0 ? `US$ ${total.toFixed(2)}` : '-';
                           })()}
                         </td>
-                        <td className="td-base" colSpan={4}></td>
+                        <td className="td-base !px-1.5 !py-1 !text-[11px]" colSpan={4}></td>
                       </tr>
                     </tfoot>
                   </table>

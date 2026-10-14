@@ -174,6 +174,9 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
     const totalArea = filtered.reduce((sum, row) => sum + Number(row.areaM2 || 0), 0);
     const totalSale = filtered.reduce((sum, row) => sum + Number(row.salePrice || 0), 0);
     const totalFinal = filtered.reduce((sum, row) => sum + Number(row.finalPrice || 0), 0);
+    const avgPriceM2 = filtered.length > 0
+      ? filtered.reduce((sum, row) => sum + Number(row.priceM2 || 0), 0) / filtered.length
+      : 0;
     const html = `
       <html>
         <head>
@@ -274,7 +277,7 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                 <td colspan="3">Total (${filtered.length} lotes)</td>
                 <td class="num">${totalArea.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}</td>
                 <td>-</td>
-                <td>${moneyUsd(filtered.reduce((sum, row) => sum + Number(row.priceM2 || 0), 0))}</td>
+                <td>${moneyUsd(avgPriceM2)}</td>
                 <td class="num">${moneyUsd(totalSale)}</td>
                 <td class="num">${moneyUsd(totalFinal)}</td>
                 <td>-</td>
@@ -391,7 +394,7 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                         <td className="td-base" colSpan={3}>Total ({filtered.length} lotes)</td>
                         <td className="td-base text-center tabular-nums">{filtered.reduce((sum, row) => sum + Number(row.areaM2 || 0), 0).toLocaleString('es-PE')}</td>
                         <td className="td-base">-</td>
-                        <td className="td-base tabular-nums">{moneyUsd(filtered.reduce((sum, row) => sum + Number(row.priceM2 || 0), 0))}</td>
+                        <td className="td-base tabular-nums">{moneyUsd(filtered.length > 0 ? filtered.reduce((sum, row) => sum + Number(row.priceM2 || 0), 0) / filtered.length : 0)}</td>
                         <td className="td-base tabular-nums">{moneyUsd(filtered.reduce((sum, row) => sum + Number(row.salePrice || 0), 0))}</td>
                         <td className="td-base tabular-nums" style={{ color: '#0F8B5F' }}>{moneyUsd(filtered.reduce((sum, row) => sum + Number(row.finalPrice || 0), 0))}</td>
                         <td className="td-base">-</td>

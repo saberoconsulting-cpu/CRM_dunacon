@@ -35,11 +35,11 @@ const BORDER = '#E5E7EB';
 const MUTED = '#64748B';
 const INK = '#0F172A';
 const LOT_CHART_STATUSES = [
-  { key: 'disponible', label: 'Disponible', color: '#1B8E4B' },
+  { key: 'disponible', label: 'Disponible', color: '#2563EB' },
   { key: 'vendido', label: 'Vendido', color: '#DC3345' },
-  { key: 'separado', label: 'Separado', color: '#22C7D9' },
+  { key: 'separado', label: 'Separado', color: '#06B6D4' },
   { key: 'segunda_etapa', label: '2da. Etapa', color: '#64748B' },
-  { key: 'promocion', label: 'En Promocion', color: '#FACC15' },
+  { key: 'promocion', label: 'En Promocion', color: '#0EA5E9' },
 ];
 
 function SalesMetric({ label, value, icon, tone = '#1877F2', truncateLabel = true }: { label: string; value: ReactNode; icon: ReactNode; tone?: string; truncateLabel?: boolean }) {
@@ -1285,8 +1285,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
 
         {isAdmin && pending.length > 0 && (
           <div className="card p-0 overflow-auto">
-            <h3 className="font-semibold px-4 pt-4">Separaciones por aprobar ({pending.length})</h3>
-            <table className="table-base table-head-plomo mt-2" style={{ width: '100%', minWidth: 1080 }}>
+            <h3 className="font-semibold px-3 pt-2 text-sm">Separaciones por aprobar ({pending.length})</h3>
+            <table className="table-base table-head-plomo mt-1 [&_th]:!px-2 [&_th]:!py-1.5 [&_th]:!text-[10px] [&_td]:!px-2 [&_td]:!py-1.5 [&_td]:!text-[12px]" style={{ width: '100%', minWidth: 1080 }}>
               <thead><tr>
                 <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
                 <th className="th-base">Precio final</th><th className="th-base">Forma de pago</th><th className="th-base !whitespace-normal">Cuota Inicial</th><th className="th-base !whitespace-normal">Saldo a Financiar</th><th className="th-base">Cuotas</th>
@@ -1313,14 +1313,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     <td className="td-base">{s.agentName || '—'}</td>
                     <td className="td-base">{showSaleAmount(s.commission)}</td>
                     <td className="td-base" style={{ textAlign: 'center' }}>
-                      <button type="button" className="inline-grid h-8 w-8 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
+                      <button type="button" className="inline-grid h-7 w-7 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
                         <FiDownload />
                       </button>
                     </td>
                     <td className="td-base whitespace-nowrap">
-                      <div className="flex justify-center gap-1.5">
-                        <button className="btn-primary !h-7 text-xs" onClick={() => aprobar(s)}>Aprobar</button>
-                        <button className="btn-danger !h-7 text-xs" onClick={() => rechazar(s)}>Rechazar</button>
+                      <div className="flex justify-center gap-1">
+                        <button className="btn-primary !h-6 text-[11px]" onClick={() => aprobar(s)}>Aprobar</button>
+                        <button className="btn-danger !h-6 text-[11px]" onClick={() => rechazar(s)}>Rechazar</button>
                       </div>
                     </td>
                   </tr>
@@ -1334,7 +1334,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
           {loading ? <p className="p-4 text-slate-400">Cargando…</p>
             : rows.length === 0 ? <EmptyState text="Aún no hay ventas registradas." /> : (
             <>
-            <table className="table-base table-head-plomo" style={{ width: '100%', minWidth: 1080 }}>
+            <table className="table-base table-head-plomo [&_th]:!px-2 [&_th]:!py-1.5 [&_th]:!text-[10px] [&_td]:!px-2 [&_td]:!py-1.5 [&_td]:!text-[12px]" style={{ width: '100%', minWidth: 1080 }}>
               <thead><tr>
                 <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')} title="Ordenar por fecha de registro">Id{sortArrow('createdAt')}</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
                 <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('salePrice')}>Precio final{sortArrow('salePrice')}</th><th className="th-base">Forma de pago</th><th className="th-base !whitespace-normal">Cuota Inicial</th><th className="th-base !whitespace-normal">Saldo a Financiar</th><th className="th-base">Cuotas</th>
@@ -1362,7 +1362,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     <td className="td-base">{s.agentName || '—'}</td>
                     <td className="td-base">{showSaleAmount(s.commission)}</td>
                     <td className="td-base" style={{ textAlign: 'center' }}>
-                      <button type="button" className="inline-grid h-8 w-8 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
+                      <button type="button" className="inline-grid h-7 w-7 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
                         <FiDownload />
                       </button>
                     </td>

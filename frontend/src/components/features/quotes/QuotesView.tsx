@@ -964,7 +964,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
           <QuoteKpi
             label={`VENTA CONTADO ${currency === 'PEN' ? 'S/' : 'US$'}`}
             value={formatQuoteAmountCard(stats?.cuotaContadoTotal)}
-            helper="Cuotas al contado"
+            helper=" Cuentas al contado cotizaciones"
             icon={<FiDollarSign />}
             accent="#0B2F6E"
             truncateLabel={false}

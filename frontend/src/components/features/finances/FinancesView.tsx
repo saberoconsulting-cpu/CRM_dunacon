@@ -859,27 +859,27 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
         ) : (
         <>
-        <section className="space-y-4">
+        <section className="space-y-2">
           <h2 className="text-2xl font-black tracking-normal" style={{ color: '#001BFF' }}>FINANZAS</h2>
           
           {/* Indicadores Proyectados */}
           <div>
-            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-700">Indicadores Proyectados</h3>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 2xl:grid-cols-7">
+            <h3 className="mb-1 text-lg font-black" style={{ color: '#334155' }}>Indicadores Proyectados</h3>
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 2xl:grid-cols-7">
               {dashboardCards.slice(0, 7).map((card) => (
-                <div key={card.label} className="min-h-[104px] rounded-lg border bg-white p-3 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
-                  <p className="min-h-8 text-center text-[10px] font-bold uppercase leading-snug text-slate-600">{card.label}</p>
+                <div key={card.label} className="min-h-[76px] rounded-lg border bg-white p-2 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
+                  <p className="text-center text-[9px] font-bold uppercase leading-snug text-slate-600">{card.label}</p>
                   {card.manual ? (
                     <input
-                      className="mt-1 w-full border-0 bg-transparent text-center text-base font-black text-blue-700 outline-none sm:text-lg"
+                      className="mt-0.5 w-full border-0 bg-transparent text-center text-sm font-black text-blue-700 outline-none sm:text-base"
                       value={financeDashManual[card.manual]}
                       onChange={(e) => setFinanceDashManual((current) => ({ ...current, [card.manual!]: e.target.value }))}
                       placeholder="0"
                     />
                   ) : (
-                    <p className="mt-1 break-words text-center text-base font-black text-blue-700 sm:text-lg">{compactUsd(card.value)}</p>
+                    <p className="mt-0.5 break-words text-center text-sm font-black text-blue-700 sm:text-base">{compactUsd(card.value)}</p>
                   )}
-                  <p className="mt-2 break-words text-[10px] text-slate-500">- {card.note}</p>
+                  <p className="mt-1 break-words text-[9px] text-slate-500">- {card.note}</p>
                 </div>
               ))}
             </div>
@@ -887,82 +887,82 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
 
           {/* Indicadores Operación Real */}
           <div>
-            <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-slate-700">Indicadores Operación Real</h3>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 2xl:grid-cols-7">
+            <h3 className="mb-1 text-lg font-black" style={{ color: '#334155' }}>Indicadores Operación Real</h3>
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 2xl:grid-cols-7">
               {dashboardCards.slice(7).map((card) => (
-                <div key={card.label} className="min-h-[104px] rounded-lg border bg-white p-3 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
-                  <p className="min-h-8 text-center text-[10px] font-bold uppercase leading-snug text-slate-600">{card.label}</p>
+                <div key={card.label} className="min-h-[76px] rounded-lg border bg-white p-2 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
+                  <p className="text-center text-[9px] font-bold uppercase leading-snug text-slate-600">{card.label}</p>
                   {card.manual ? (
                     <input
-                      className="mt-1 w-full border-0 bg-transparent text-center text-base font-black text-blue-700 outline-none sm:text-lg"
+                      className="mt-0.5 w-full border-0 bg-transparent text-center text-sm font-black text-blue-700 outline-none sm:text-base"
                       value={financeDashManual[card.manual]}
                       onChange={(e) => setFinanceDashManual((current) => ({ ...current, [card.manual!]: e.target.value }))}
                       placeholder="0"
                     />
                   ) : (
-                    <p className="mt-1 break-words text-center text-base font-black text-blue-700 sm:text-lg">{compactUsd(card.value)}</p>
+                    <p className="mt-0.5 break-words text-center text-sm font-black text-blue-700 sm:text-base">{compactUsd(card.value)}</p>
                   )}
-                  <p className="mt-2 break-words text-[10px] text-slate-500">- {card.note}</p>
+                  <p className="mt-1 break-words text-[9px] text-slate-500">- {card.note}</p>
                 </div>
               ))}
             </div>
           </div>
-          <div className="rounded-lg border bg-white p-3 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
+          <div className="rounded-lg border bg-white p-2 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
             <div className="mb-1 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-bold">Socios</h3>
-              <button className="btn-neutral !h-8 text-xs" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, socios: [...current.socios, { name: `Socio ${current.socios.length + 1}`, capital: '', adicional: '' }] }))}>Agregar socio</button>
+              <h3 className="text-lg font-black" style={{ color: '#001BFF' }}>Socios</h3>
+              <button className="btn-neutral !h-7 text-xs" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, socios: [...current.socios, { name: `Socio ${current.socios.length + 1}`, capital: '', adicional: '' }] }))}>Agregar socio</button>
             </div>
             <div className="overflow-auto rounded-md border" style={{ borderColor: '#E5E7EB' }}>
-              <table className="table-base" style={{ minWidth: 1320 }}>
+              <table className="table-base" style={{ minWidth: 1000, tableLayout: 'fixed' }}>
                 <thead>
                   <tr>
                     {['Socios', 'Nombres y Apellidos', 'Aporte Capital US$', 'Aporte Adicional US$', 'Aporte Total US$', 'Participacion %', 'Nro. de Acciones', 'Inversion Actualizado US$', 'Venta # Acciones', 'Nro. Acciones Final', '% de Acciones', 'Utilidad US$', 'Rentabilidad %', 'Rentabilidad % (Resp Inv Inicial)', 'Accion'].map((head, index) => (
-                      <th key={head} className="th-base text-white" style={{ background: index >= 7 && index <= 11 ? '#A9D18E' : index >= 12 ? '#2F75B5' : '#7F7F7F', color: index >= 7 && index <= 11 ? '#000' : '#fff' }}>{head}</th>
+                      <th key={head} className="th-base !whitespace-normal !text-[9px] !px-1 !py-1 leading-tight text-white" style={{ background: index >= 7 && index <= 11 ? '#A9D18E' : index >= 12 ? '#2F75B5' : '#7F7F7F', color: index >= 7 && index <= 11 ? '#000' : '#fff' }}>{head}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {sociosRows.map((row, index) => (
                     <tr key={index}>
-                      <td className="td-base text-center">{row.index}</td>
-                      <td className="td-base"><input className="input input-ghost !h-7 !border-0 !bg-transparent" value={row.name} onChange={(e) => updateSocio(index, { name: e.target.value })} /></td>
-                      <td className="td-base"><input className="input input-ghost !h-7 !border-0 !bg-transparent text-right" value={financeDashManual.socios[index]?.capital || ''} onChange={(e) => updateSocio(index, { capital: e.target.value })} /></td>
-                      <td className="td-base"><input className="input input-ghost !h-7 !border-0 !bg-transparent text-right" value={financeDashManual.socios[index]?.adicional || ''} onChange={(e) => updateSocio(index, { adicional: e.target.value })} /></td>
-                      <td className="td-base text-right font-semibold">{usd(row.aporteTotal)}</td>
-                      <td className="td-base text-center">{(row.participacion * 100).toFixed(0)}%</td>
-                      <td className="td-base text-right">{usd(row.acciones)}</td>
-                      <td className="td-base text-right">{usd(row.inversionActualizada)}</td>
-                      <td className="td-base text-right">{usd(row.ventaAcciones)}</td>
-                      <td className="td-base text-right">{usd(row.accionesFinal)}</td>
-                      <td className="td-base text-center">{(row.pctAcciones * 100).toFixed(0)}%</td>
-                      <td className="td-base text-right">{usd(row.utilidad)}</td>
-                      <td className="td-base text-center">{(row.rentabilidadActualizada * 100).toFixed(1)}%</td>
-                      <td className="td-base text-center">{(row.rentabilidadInicial * 100).toFixed(1)}%</td>
-                      <td className="td-base text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button><button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeSocio(index)}><FiTrash2 size={13} /></button></div></td>
+                      <td className="td-base !px-1 !py-1 !text-[11px] text-center">{row.index}</td>
+                      <td className="td-base !px-1 !py-1 !text-[11px] overflow-hidden text-ellipsis"><input className="input input-ghost !h-6 !border-0 !bg-transparent !w-full !max-w-none" value={row.name} onChange={(e) => updateSocio(index, { name: e.target.value })} /></td>
+                      <td className="td-base !px-1 !py-1 !text-[11px]"><input className="input input-ghost !h-6 !border-0 !bg-transparent text-right !w-full !max-w-none" value={financeDashManual.socios[index]?.capital || ''} onChange={(e) => updateSocio(index, { capital: e.target.value })} /></td>
+                      <td className="td-base !px-1 !py-1 !text-[11px]"><input className="input input-ghost !h-6 !border-0 !bg-transparent text-right !w-full !max-w-none" value={financeDashManual.socios[index]?.adicional || ''} onChange={(e) => updateSocio(index, { adicional: e.target.value })} /></td>
+                      <td className="td-base !px-1 !py-1 !text-[11px] text-right font-semibold">{usd(row.aporteTotal)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[11px] text-center">{(row.participacion * 100).toFixed(0)}%</td>
+                      <td className="td-base !px-1 !py-1 !text-[11px] text-right">{usd(row.acciones)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[11px] text-right">{usd(row.inversionActualizada)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[11px] text-right">{usd(row.ventaAcciones)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[11px] text-right">{usd(row.accionesFinal)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[11px] text-center">{(row.pctAcciones * 100).toFixed(0)}%</td>
+                      <td className="td-base !px-1 !py-1 !text-[11px] text-right">{usd(row.utilidad)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[11px] text-center">{(row.rentabilidadActualizada * 100).toFixed(1)}%</td>
+                      <td className="td-base !px-1 !py-1 !text-[11px] text-center">{(row.rentabilidadInicial * 100).toFixed(1)}%</td>
+                      <td className="td-base !px-1 !py-1 !text-[11px] text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button><button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeSocio(index)}><FiTrash2 size={13} /></button></div></td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#000066' }}>
-                    <td className="td-base font-bold text-white" colSpan={2}>Total</td>
-                    <td className="td-base text-right font-bold text-white">{usd(socioTotals.capital)}</td>
-                    <td className="td-base text-right font-bold text-white">{usd(socioTotals.adicional)}</td>
-                    <td className="td-base text-right font-bold text-white">{usd(socioTotals.total)}</td>
-                    <td className="td-base text-center font-bold text-white">100%</td>
-                    <td className="td-base text-right font-bold text-white">{usd(socioTotals.acciones)}</td>
-                    <td className="td-base text-right font-bold text-white">{usd(socioTotals.inversion)}</td>
-                    <td className="td-base text-right font-bold text-white">{usd(socioTotals.venta)}</td>
-                    <td className="td-base text-right font-bold text-white">{usd(socioTotals.final)}</td>
-                    <td className="td-base text-center font-bold text-white">100%</td>
-                    <td className="td-base text-right font-bold text-white">{usd(socioTotals.utilidad)}</td>
-                    <td className="td-base" colSpan={3}></td>
+                    <td className="td-base !px-1 !py-1 !text-[11px] font-bold text-white text-center" colSpan={2}>Total</td>
+                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.capital)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.adicional)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.total)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[11px] text-center font-bold text-white">100%</td>
+                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.acciones)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.inversion)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.venta)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.final)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[11px] text-center font-bold text-white">100%</td>
+                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.utilidad)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[11px] text-center font-bold text-white" colSpan={3}>—</td>
                   </tr>
                 </tfoot>
               </table>
             </div>
           </div>
-          <div className="grid min-w-0 gap-6 lg:grid-cols-2 xl:gap-7">
-            <div className="min-w-0 rounded-lg border bg-white p-3 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
+          <div className="grid min-w-0 gap-3 lg:grid-cols-2 xl:gap-4">
+            <div className="min-w-0 rounded-lg border bg-white p-2 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
               <div className="mb-1 flex items-center justify-between gap-2">
                 <h3 className="font-bold text-blue-700">Datos Importantes</h3>
                 <button className="btn-neutral !h-8 text-xs" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, dataRows: [...current.dataRows, { code: `D.${current.dataRows.length + 8}`, label: 'Nuevo dato', value: '' }] }))}>Agregar dato</button>
@@ -998,7 +998,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
               </table>
               </div>
             </div>
-            <div className="min-w-0 rounded-lg border bg-white p-3 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
+            <div className="min-w-0 rounded-lg border bg-white p-2 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
               <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="inline-flex rounded-lg border bg-slate-50 p-1" style={{ borderColor: '#E5E7EB' }}>
                   <button className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${financePanel === 'commitments' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-blue-700'}`} type="button" onClick={() => setFinancePanel('commitments')}>Compromisos Financieros</button>
