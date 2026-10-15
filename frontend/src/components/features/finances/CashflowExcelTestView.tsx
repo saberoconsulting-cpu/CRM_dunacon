@@ -4,6 +4,7 @@ import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useS
 import { FiBriefcase, FiCheck, FiClipboard, FiCreditCard, FiDollarSign, FiDownload, FiEdit3, FiHome, FiLayers, FiMapPin, FiPercent, FiPieChart, FiPlus, FiRefreshCw, FiSave, FiTool, FiTrendingUp, FiZap } from 'react-icons/fi';
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '@/lib/api';
+import { projectedSalesByYear, salesByYear } from '@/lib/sales-by-year';
 import { BRAND } from '@/lib/types';
 import { Toaster, toast } from '@/components/ui/ui';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
@@ -36,6 +37,15 @@ const YEARS = Array.from({ length: YEAR_COUNT }, (_, index) => `Ano ${index}`);
 // El endpoint /sales valida limit con @Max(100) (pagination.dto.ts): pedir 500
 // devolvÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­a 400 Bad Request y el flujo se generaba sin ventas.
 const SALES_EXPORT_LIMIT = 100;
+
+async function loadProjectSales(projectId: number) {
+    const query = `/sales?projectId=${projectId}&limit=${SALES_EXPORT_LIMIT}&sort=createdAt&order=ASC`;
+    const first = await api.get<any>(`${query}&page=1`);
+    if (Array.isArray(first)) return first;
+    const pageCount = Number(first?.totalPages || Math.ceil(Number(first?.total || 0) / SALES_EXPORT_LIMIT) || 1);
+    const remaining = await Promise.all(Array.from({ length: Math.max(0, pageCount - 1) }, (_, index) => api.get<any>(`${query}&page=${index + 2}`)));
+    return [...(first?.items || []), ...remaining.flatMap((page) => page?.items || [])];
+}
 const CASHFLOW_SEED_VERSION = 2;
 const DYNAMIC_SEED_VERSION = 1;
 /** Filas que NO se rellenan por formula desde los supuestos (celdas planas). */
@@ -534,6 +544,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const autosaveInFlight = useRef(false);
     const autosaveQueued = useRef(false);
     const [mode, setMode] = useState<CashflowMode>('estatico');
+    const [staticLandAcquisitionTotal, setStaticLandAcquisitionTotal] = useState(0);
     const [modeSwitchOpen, setModeSwitchOpen] = useState(false);
     const [pendingMode, setPendingMode] = useState<CashflowMode | null>(null);
     const [hasSavedModel, setHasSavedModel] = useState(false);
@@ -573,10 +584,10 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             api.get<any>(`/plan/project/${projectId}`).catch(() => ({ lots: [] })),
             api.get<any>(`/construction-budget?projectId=${projectId}`).catch(() => ({ items: [], summary: {} })),
             api.get<any>(`/finances/income-statement?projectId=${projectId}`).catch(() => ({})),
-            api.get<any>(`/sales?projectId=${projectId}&limit=${SALES_EXPORT_LIMIT}`).catch(() => ({ items: [] })),
+            loadProjectSales(projectId),
             api.get<any>(`/payments?projectId=${projectId}&status=pagado&limit=500`).catch(() => ({ items: [] })),
         ]);
-        const sales = Array.isArray(salesData) ? salesData : (salesData?.items || []);
+        const sales = salesData.filter((sale: any) => sale.status !== 'rechazada' && sale.approvalStatus !== 'rechazada');
         const payments = Array.isArray(paymentsData) ? paymentsData : (paymentsData?.items || []);
         const usesBankCashflow = anchorYear !== null;
         const bankAccountsData = usesBankCashflow
@@ -809,8 +820,11 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         setSeries('lots-sold', spreadByDates(soldLots, salesYearsList));
         setSeries('sales-year', emptySeries());
         if (!isStaticSeed) {
-            for (const sale of sales) {
-                addToSeries('sales-year', yearOf(sale.saleDate), Number(sale.salePrice || 0));
+            const yearlySales = salesByYear(sales, baseYear, YEAR_COUNT);
+            setSeries('lots-sold', yearlySales.lots);
+            setSeries('sales-year', yearlySales.amounts);
+            for (const item of seedRows) {
+                if (item.id === 'lots-sold' || item.id === 'sales-year') item.computed = true;
             }
         }
 
@@ -938,6 +952,10 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 ]);
                 const savedDynamicAssumptions = savedDynamic?.assumptions || {};
                 const staticAssumptions = savedStatic?.assumptions || {};
+                // El terreno del cuadro Datos es un dato base comun a ambos modos.
+                const staticLandRow = (savedStatic?.rows || []).find((item: Row) => item.id === 'land-cost')
+                    ?? (savedStatic?.rows || []).find((item: Row) => item.id === 'land');
+                setStaticLandAcquisitionTotal((staticLandRow?.values || []).reduce((sum: number, value: number) => sum + Number(value || 0), 0));
                 const staticYearCount = Math.max(1, Math.min(MAX_PROJECTION_YEARS, Math.round(Number(staticAssumptions.years) || 10)));
                 const defaultStartYear = Number(staticAssumptions.startYear ?? staticAssumptions.baseYear) || new Date().getFullYear();
                 const savedStartYear = Math.max(1900, Math.min(9999, Math.round(Number(savedDynamicAssumptions.startYear) || defaultStartYear)));
@@ -1119,9 +1137,19 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             if (!item || item.computed) return;
             item.values = item.values.map((cell, index) => index === year ? draftValue(draft) : cell);
         });
-        return calculateRows(base);
+        const result = calculateRows(base);
+        if (mode === 'estatico') {
+            const lots = result.find((item) => item.id === 'lots-sold')?.values || empty();
+            const income = (result.find((item) => item.id === 'income')?.values || empty()).reduce((sum, value) => sum + Number(value || 0), 0);
+            const annualSales = result.find((item) => item.id === 'sales-year');
+            if (annualSales) {
+                annualSales.values = projectedSalesByYear(lots, income, visibleYears.length, Number(manual.totalLots || 0));
+                annualSales.computed = true;
+            }
+        }
+        return result;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [rows, overrides, editingDrafts]);
+    }, [rows, overrides, editingDrafts, mode, projectionYears, manual.totalLots]);
 
     const childRowsByParent = useMemo(() => calculated.reduce<Record<string, Row[]>>((map, item) => {
         if (!item.parentId) return map;
@@ -1132,7 +1160,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     // La base del flujo esta en DOLARES. La pantalla puede mostrarse en soles con
     // el toggle: en ese caso se MULTIPLICA por el tipo de cambio (solo visual, nunca
     // se guarda en soles). En US$ el valor se pinta tal cual.
-    const amountToDisplay = (value: number) => (currency === 'PEN' ? Number(value || 0) * exchangeRate : Number(value || 0));
+    const amountToDisplay = (value: number) => Number(value || 0);
     const showAmount = (value: number | string | null | undefined) => formatCurrency(amountToDisplay(Number(value || 0)), currency);
     const displayNumber = (value: number) => Math.round(amountToDisplay(value));
     const formatInteger = (value: number) => displayNumber(value).toLocaleString('en-US');
@@ -1141,8 +1169,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const displayPlainRowTotal = (values: number[]) => formatPlainInteger(values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0));
     const canEditRow = (item?: Row) => !item?.computed;
     const isCellEditable = (item: Row | undefined, year: number) => mode === 'estatico'
-        ? canEditRow(item)
-        : Boolean(canEditRow(item) && (item?.id === 'igv' || item?.id === 'lots-sold' || item?.id === 'sales-year') && year >= 0);
+        ? canEditRow(item) && item?.id !== 'sales-year'
+        : Boolean(canEditRow(item) && item?.id === 'igv' && year >= 0);
     const writeCellValue = (id: string, year: number, numeric: number) => {
         const apply = (current: Row[]) => current.map((candidate) => candidate.id !== id ? candidate : { ...candidate, values: normalizeValues(candidate.values).map((cell, index) => index === year ? numeric : cell) });
         rowsRef.current = apply(rowsRef.current.length ? rowsRef.current : rows);
@@ -1279,7 +1307,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             return {
                 id: item.id,
                 label: labelPatch?.id === item.id ? labelPatch.label : (editable?.label || item.label),
-                values: editable && !editable.computed ? editable.values : item.values,
+                values: mode === 'estatico' && item.id === 'sales-year' ? item.values : editable && !editable.computed ? editable.values : item.values,
                 computed: item.id === 'igv' ? false : Boolean(item.computed || editable?.computed),
                 parentId: editable?.parentId ?? item.parentId,
                 depth: editable?.depth ?? item.depth,
@@ -1643,18 +1671,19 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const baseTotalLots = Number(manual.totalLots || 0);
     const totalLots = lotsSoldTotal || baseTotalLots;
     const saleValue = calculatedRowTotal('income');
-    const landAcquisitionTotal = calculatedRowTotal('land-cost') || calculatedRowTotal('land');
+    const landAcquisitionTotal = mode === 'dinamico'
+        ? staticLandAcquisitionTotal
+        : calculatedRowTotal('land-cost') || calculatedRowTotal('land');
     const averageLotArea = totalLots > 0 ? Number(manual.landArea || 0) / totalLots : 0;
     const averageLotPrice = totalLots > 0 ? saleValue / totalLots : 0;
-    const dataSaleValue = mode === 'dinamico' ? saleValue : saleValue;
+    const dataSaleValue = saleValue;
     const dataTotalLots = mode === 'dinamico' ? (lotsSoldTotal || Number(manual.totalLots || 0)) : totalLots;
     const dataLandArea = Number(manual.landArea || 0);
-    const dataPriceM2 = mode === 'dinamico'
-        ? (dataLandArea > 0 ? dataSaleValue / dataLandArea : Number(manual.priceM2 || 0))
-        : Number(manual.priceM2 || 0);
+    const dataPriceM2 = dataLandArea > 0 ? dataSaleValue / dataLandArea : 0;
     const dataAverageLotArea = dataTotalLots > 0 ? dataLandArea / dataTotalLots : 0;
-    const dataAverageLotPrice = dataAverageLotArea * dataPriceM2;
-    const dataVentaTotalLotes = dataAverageLotPrice * dataTotalLots;
+    const dataAverageLotPrice = dataTotalLots > 0 ? dataSaleValue / dataTotalLots : 0;
+    // Tomar el total de la fila de ingresos del flujo, sin reconstruirlo desde area y precio/m2.
+    const dataVentaTotalLotes = saleValue;
 
     const netProfitSeries = calculated.find((item) => item.id === 'net')?.values || empty();
     const adjustedProfitSeries = calculated.find((item) => item.id === 'adjusted')?.values || netProfitSeries;
@@ -1885,8 +1914,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         )}
                     </div>
                 </div>
-                <div className={`grid grid-cols-2 gap-3 border-b bg-[#F8FAFC] p-4 ${mode === 'dinamico' ? 'lg:grid-cols-7' : 'lg:grid-cols-6'}`} style={{ borderColor: BRAND.border }}>
-                    {(mode === 'dinamico' ? [
+                <div className="grid grid-cols-2 gap-3 border-b bg-[#F8FAFC] p-4 lg:grid-cols-7" style={{ borderColor: BRAND.border }}>
+                    {[
                         ['Venta de Lotes US$', 'income'],
                         ['Costo de Ventas US$', 'cost-sales'],
                         ['Gasto de Ventas US$', 'selling'],
@@ -1894,12 +1923,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         ['Utilidad AdI US$', 'pre-tax'],
                         ['Anos de proyeccion', 'years'],
                         ['Ano de inicio', 'startYear'],
-                    ] : [['Area venta (m2)', 'landArea'], ['Area promedio lote (m2)', 'lotArea'], [`Precio ${currency === 'USD' ? 'US$' : 'S/'}/m2`, 'priceM2'], ['Cuota inicial %', 'initialPercent'], ['Anos de proyeccion', 'years'], ['Ano de inicio', 'startYear']]).map(([label, key]) => {
-                        const editable = key === 'initialPercent' || (key === 'years' && mode === 'estatico') || key === 'startYear';
-                        const dynamicValue = ['income', 'cost-sales', 'selling', 'financial', 'pre-tax'].includes(key)
+                    ].map(([label, key]) => {
+                        const editable = (key === 'years' && mode === 'estatico') || key === 'startYear';
+                        const summaryValue = ['income', 'cost-sales', 'selling', 'financial', 'pre-tax'].includes(key)
                             ? showAmount(calculatedRowTotal(key))
                             : '';
-                        const displayValue = dynamicValue || (key === 'lotArea'
+                        const displayValue = summaryValue || (key === 'lotArea'
                             ? formatPlainInteger(averageLotArea)
                             : key === 'priceM2'
                                 ? formatInteger((manual as any)[key])
@@ -2301,14 +2330,14 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     </div>
                     <div className="space-y-2 p-4">
                         {[
-                            { label: `Terreno ${currency === 'USD' ? 'US$' : 'S/'}`, value: showAmount(landAcquisitionTotal) },
+                            { label: 'Terreno US$', value: formatPlainInteger(landAcquisitionTotal) },
                             { label: 'Area venta (m2)', value: formatPlainInteger(dataLandArea) },
                             { label: 'Nro. de lotes', value: formatPlainInteger(dataTotalLots) },
-                            { label: 'Area promedio por lote (m2)', value: formatPlainInteger(dataAverageLotArea) },
-                            { label: `Precio ${currency === 'USD' ? 'US$' : 'S/'}/mÂ²`, value: showAmount(dataPriceM2) },
-                            { label: `Precio lote prom. ${currency === 'USD' ? 'US$' : 'S/'}`, value: showAmount(dataAverageLotPrice) },
+                            { label: 'Area promedio por lote (m2)', value: dataAverageLotArea.toLocaleString('en-US', { maximumFractionDigits: 2 }) },
+                            { label: 'Precio US$/m²', value: dataPriceM2.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
+                            { label: 'Precio lote prom. US$', value: dataAverageLotPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
                             { label: 'Cuota inicial', value: `${manual.initialPercent}%` },
-                            { label: `Venta total lotes ${currency === 'USD' ? 'US$' : 'S/'}`, value: showAmount(dataVentaTotalLotes) },
+                            { label: 'Venta total lotes US$', value: formatPlainInteger(dataVentaTotalLotes) },
                         ].map(({ label, value }) => (
                             <button key={String(label)} type="button" onClick={openAssumptions} className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition hover:brightness-95" style={{ background: '#FFF0B3' }}>
                                 <span className="text-xs font-medium text-slate-700">{label}</span>

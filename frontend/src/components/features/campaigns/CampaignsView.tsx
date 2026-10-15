@@ -81,7 +81,7 @@ export default function CampaignsView({ lockedProjectId }: { lockedProjectId?: n
         </div>
         <div className="card p-0 overflow-hidden">
           <div className="overflow-auto">
-            <table className="table-base">
+            <table className="table-base table-head-plomo">
               <thead><tr>
                 <th className="th-base">Campaña</th><th className="th-base">Canal</th><th className="th-base">Presupuesto</th>
                 <th className="th-base">Gasto real</th><th className="th-base">Leads</th><th className="th-base">CPL</th>

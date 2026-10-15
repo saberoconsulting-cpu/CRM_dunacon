@@ -212,7 +212,6 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
   const adminLogoUrl = typeof window !== 'undefined' ? `${window.location.origin}/logo/dunacon.png` : '/logo/dunacon.png';
   const projectLogoUrl = project?.logoImageUrl || '';
   const rate = Number(quote.exchangeRate || 0);
-  const toPen = (usd: number) => usd * rate;
   const generatedAt = new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' });
   const saldo = Math.max(0, Number(quote.finalPriceUsd || 0) - Number(quote.cuotaInicialUsd || 0));
   const start = new Date(quote.createdAt || Date.now());
@@ -265,13 +264,13 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
     summaryRows.push(['Saldo a financiar', saldo]);
   }
   const summaryHtml = summaryRows.map(([label, usd]) => `
-    <tr><td>${escapeHtml(label)}</td><td class="num">${escapeHtml(fmtUsd(usd))}</td><td class="num">${escapeHtml(fmtPen(toPen(usd)))}</td></tr>
+    <tr><td>${escapeHtml(label)}</td><td class="num">${escapeHtml(fmtUsd(usd))}</td></tr>
   `).join('');
   const quoteDate = start.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const summaryAside = `
     <div class="summary-aside">
       <div><span>Fecha</span><strong>${escapeHtml(quoteDate)}</strong></div>
-      <div><span>Tipo de cambio</span><strong>S/ ${rate.toFixed(4)}</strong></div>
+
     </div>
   `;
   const detailEntries = [
@@ -286,7 +285,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
     ['Precio final', fmtUsd(Number(quote.finalPriceUsd || 0))],
     ['Fecha de cotizacion', quoteDate],
     ['Forma de pago', PAY_LABEL[quote.paymentMethod] || quote.paymentMethod],
-    ['Tipo de cambio', `S/ ${Number(quote.exchangeRate || 0).toFixed(4)}`],
+
   ];
   const detailSplitAt = Math.ceil(detailEntries.length / 2);
   const detailLeft = detailEntries.slice(0, detailSplitAt);
@@ -521,7 +520,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           <h2>Resumen comercial</h2>
           ${summaryAside}
         </div>
-        <table><thead><tr><th>Concepto</th><th>US$</th><th>S/</th></tr></thead><tbody>${summaryHtml}</tbody></table>
+        <table><thead><tr><th>Concepto</th><th>US$</th></tr></thead><tbody>${summaryHtml}</tbody></table>
         <div class="plan-wrap${isFinancing ? ' plan-financing' : ''}">
         ${planHtml}
         </div>
@@ -886,6 +885,13 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
         exchangeRate,
         quoteDate,
       });
+      if (searchParams?.get('returnToSale') === '1') {
+        const saleProjectId = lockedProjectId || selectedLot?.projectId;
+        if (saleProjectId) {
+          window.location.href = `/projects/${saleProjectId}/sales?lotId=${lotId}&openSale=1`;
+          return;
+        }
+      }
       toast('Cotizacion generada'); setOpen(false); resetForm(); setPage(1); load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
@@ -1071,7 +1077,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
           <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-4 sm:max-h-[92vh] sm:p-6">
             <h3 className="font-semibold mb-1" style={{ fontSize: 17 }}>Calcula tu financiamiento</h3>
-            <p className="text-xs text-slate-500 mb-4">Esta calculadora trabaja en US$, con un tipo de cambio manual para mostrar el equivalente en soles.</p>
+            <p className="text-xs text-slate-500 mb-4">Esta calculadora trabaja y registra todos los importes en dólares (US$).</p>
 
             <h4 className="font-semibold text-sm text-slate-700 mb-2">Cliente</h4>
             <Field label="Buscar cliente existente">
@@ -1325,7 +1331,6 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             )}
 
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Tipo de cambio (S/ por US$)"><input type="number" step="0.01" className="input" value={exchangeRate || ''} onChange={(e) => setExchangeRate(Number(e.target.value || 0))} /></Field>
               <Field label="Fecha de cotizacion"><input type="date" className="input" value={quoteDate} onChange={(e) => setQuoteDate(e.target.value)} /></Field>
             </div>
 

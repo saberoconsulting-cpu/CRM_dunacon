@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Toaster, toast, Field, EmptyState } from '@/components/ui/ui';
@@ -384,7 +384,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [saleDate, setSaleDate] = useState(todayInput());
   const [conditions, setConditions] = useState('');
   const [preview, setPreview] = useState<any>(null);
-  const [saleCurrency, setSaleCurrencyState] = useState<SaleCurrency>('PEN');
+  const [saleCurrency, setSaleCurrencyState] = useState<SaleCurrency>('USD');
   const queryLotId = Number(searchParams?.get('lotId') || 0);
   const shouldOpenSale = searchParams?.get('openSale') === '1';
   // Moneda unica de la pantalla. En ventas los importes base vienen en US$,
@@ -523,7 +523,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       const lot = lots.find((l: any) => Number(l.id) === queryLotId);
       if (!lot) return;
       if (lockedProjectId && Number(lot.projectId) !== Number(lockedProjectId)) return;
+      setProjectId(Number(lot.projectId));
       selectLot(queryLotId);
+      setShowCotizaciones(true);
     }
     setOpen(true);
     try {
@@ -536,6 +538,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   }, [shouldOpenSale, queryLotId, lots, lockedProjectId]);
 
   const availableQuotes = quotes.filter((q: any) => {
+    if (lotId && Number(q.lotId) !== Number(lotId)) return false;
     if (projectId && Number(q.projectId) !== Number(projectId)) return false;
     const quoteStatus = String(q.status || 'enviada');
     if (!['enviada', 'actualizada'].includes(quoteStatus)) return false;
@@ -560,7 +563,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     : null;
   const round2 = (value: number) => Math.round((Number(value) + Number.EPSILON) * 100) / 100;
   const salePriceUsd = round2(salePrice);
-  const salePricePen = round2(salePrice * (exchangeRate || DEFAULT_EXCHANGE_RATE));
+
   const exchangeRateDisplay = round2(exchangeRate);
   const quoteSelected = Boolean(selectedQuote);
   // Bloqueo del formulario: al abrir el modal todos los campos quedan
@@ -583,17 +586,17 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   }, [open]);
 
   const toUsd = useCallback(
-    (amountInEntryCurrency: number) => (saleCurrency === 'USD' ? round2(Number(amountInEntryCurrency || 0)) : round2(Number(amountInEntryCurrency || 0) / (exchangeRate || DEFAULT_EXCHANGE_RATE))),
+    (amountInEntryCurrency: number) => (round2(Number(amountInEntryCurrency || 0))),
     [saleCurrency, exchangeRate],
   );
   const fromUsd = useCallback(
-    (amountInUsd: number) => (saleCurrency === 'USD' ? round2(Number(amountInUsd || 0)) : round2(Number(amountInUsd || 0) * (exchangeRate || DEFAULT_EXCHANGE_RATE))),
+    (amountInUsd: number) => (round2(Number(amountInUsd || 0))),
     [saleCurrency, exchangeRate],
   );
 
   function setSaleCurrency(next: SaleCurrency) {
     if (next === saleCurrency) return;
-    setSaleCurrencyState(next);
+    setSaleCurrencyState('USD');
     try { window.localStorage.setItem(SALE_CURRENCY_KEY, next); } catch { /* noop */ }
   }
 
@@ -780,6 +783,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     if (!clientName.trim() && !clientId) return toast('Ingresa el nombre del cliente real.', 'err');
     if (!effectiveAgentId) return toast('No se pudo identificar el usuario logueado', 'err');
     if (!salePrice) return toast('Ingresa el precio de venta', 'err');
+    const lotForSale = lots.find((l: any) => Number(l.id) === Number(lotId));
+    const basePriceUsd = Number(lotForSale?.salePrice || 0) || Number(lotForSale?.price || 0) * Number(lotForSale?.areaM2 || 0);
+    if (basePriceUsd > 0 && salePrice - basePriceUsd > 0.01) return toast('El precio final no puede superar el precio de venta del lote. Corrige la cotizacion.', 'err');
     if (!saleDate) return toast('Selecciona la fecha de venta', 'err');
     if (!(Number(exchangeRate) > 0)) return toast('Ingresa un tipo de cambio valido', 'err');
     if (paymentMethod !== 'Contado') {
@@ -1395,16 +1401,24 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
           <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" onClick={() => setOpen(false)} />
           <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-y-auto rounded-2xl border border-white/70 bg-white shadow-2xl sm:max-h-[92vh]">
             <div className="border-b border-[#EAF1FF] bg-gradient-to-br from-[#F7FBFF] via-white to-[#EEF5FF] px-5 py-4 sm:px-6">
-              <div className="flex items-start justify-between gap-4">
-                <div>
+              <div className="flex flex-wrap items-start justify-between gap-4 sm:flex-nowrap">
+                <div className="min-w-0 flex-1">
                   <p className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: '#1259C4' }}>Ventas</p>
                   <h3 className="mt-0.5 font-semibold" style={{ fontSize: 19, color: '#0F172A' }}>Registrar venta</h3>
                   <p className="mt-1 text-xs text-slate-500">Asigna una cotizacion y valida el precio final desde la ficha del lote.</p>
                 </div>
+                {!quoteSelected && <div className="w-full sm:w-auto sm:shrink-0">
+                  <button type="button" className="btn-primary w-full justify-center" onClick={() => {
+                    if (!quoteProjectId) { toast('Selecciona un proyecto para crear la cotizacion.', 'err'); return; }
+                    const query = new URLSearchParams({ returnToSale: '1' });
+                    if (lotId) query.set('lotId', String(lotId));
+                    window.location.href = `/projects/${quoteProjectId}/quotes?${query}`;
+                  }}>Nueva cotización</button>
+                </div>}
                 <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border bg-white text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700" style={{ borderColor: '#DDEBFF' }} onClick={() => setOpen(false)} aria-label="Cerrar"><FiX /></button>
               </div>
               {/* Moneda de trabajo: los campos de monto se capturan en esta moneda
-                  y se registran siempre en soles (S/). El tipo de cambio se
+                  y se registran siempre en dolares (US$). El tipo de cambio se
                   conserva al alternar, así el monto real no cambia. */}
               <div className="mt-2.5 flex flex-wrap items-center gap-2">
                 <div className="inline-flex overflow-hidden rounded-lg border border-[#D9E7FF] bg-white p-0.5" role="group" aria-label="Moneda de la ficha">
@@ -1423,7 +1437,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 </div>
                 <span className="text-[11px] text-slate-500">
                   {saleCurrency === 'USD'
-                    ? `Captura en US$ - se registra en S/ al tipo de cambio ${exchangeRateDisplay ? exchangeRateDisplay.toLocaleString('es-PE', { maximumFractionDigits: 4 }) : '-'}`
+                    ? `Captura y registro en dólares (US$)`
                     : 'Captura y registro en soles (S/)'}
                 </span>
               </div>
@@ -1480,10 +1494,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                           </span>
                         </span>
                         <span className="shrink-0 rounded-md bg-[#EEF5FF] px-2 py-1 text-xs font-semibold text-[#1259C4]">
-                          {formatMoney(Math.round(Number(q.finalPriceUsd || 0) * Number(q.exchangeRate || 0)))}
-                          <span className="ml-1 font-normal text-[#1259C4]/80">
-                            (US$ {Number(q.finalPriceUsd || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                          </span>
+                          {formatAmountIn(Number(q.finalPriceUsd || 0), 'USD')}
                         </span>
                       </button>
                     ))}
@@ -1554,7 +1565,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             {lotId > 0 && salePrice > 0 && (
               <p className="text-xs mt-1" style={{ color: '#1259C4' }}>
                 {'Precio final cargado desde la cotizacion.'}
-                {' '}Se registra en US$ {round2(salePriceUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} (S/ {round2(salePricePen).toLocaleString('es-PE', { maximumFractionDigits: 2 })}).
+                {' '}Se registra en US$ {round2(salePriceUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}.
               </p>
             )}
 
@@ -1562,7 +1573,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
 
             {/* Monto y fecha */}
             <div className={`border-t mt-4 pt-3${disabledClass}`}>
-              <div className="grid grid-cols-2 gap-2 md:grid-cols-[minmax(0,1.15fr)_minmax(0,1.15fr)_minmax(0,.85fr)_minmax(0,.9fr)]">
+              <div className="grid grid-cols-2 gap-2 md:grid-cols-2">
                 <Field label={`Precio de venta (${saleCurrency === 'USD' ? 'US$' : 'S/'})*`}>
                   <input
                     type="text"
@@ -1574,36 +1585,10 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     readOnly={quoteLocked}
                   />
                 </Field>
-                <Field label={`Precio equiv. (${saleCurrency === 'USD' ? 'S/' : 'US$'})`}>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    className="input tabular-nums"
-                    value={saleCurrency === 'USD'
-                      ? (round2(salePricePen) ? groupDigits(String(round2(salePricePen))) : '')
-                      : (round2(salePriceUsd) ? groupDigits(String(round2(salePriceUsd))) : '')}
-                    onChange={(e) => setSalePrice(saleCurrency === 'USD'
-                      ? round2(parseGrouped(e.target.value) / (exchangeRate || DEFAULT_EXCHANGE_RATE))
-                      : round2(parseGrouped(e.target.value)))}
-                    disabled={quoteLocked}
-                    readOnly={quoteLocked}
-                  />
-                </Field>
-                <Field label="TC">
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    className="input tabular-nums"
-                    value={groupRate(exchangeRateDisplay)}
-                    onChange={(e) => setExchangeRate(round2(parseGrouped(e.target.value)))}
-                    disabled={quoteLocked}
-                    readOnly={quoteLocked}
-                  />
-                </Field>
                 <Field label="Fecha"><input type="date" className="input" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></Field>
               </div>
               <p className="mt-1 text-xs text-slate-500">
-                Se registra en dolares: US$ {round2(salePriceUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} = S/ {round2(salePricePen).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                Se registra en dolares: US$ {round2(salePriceUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </p>
             </div>
 
@@ -1690,7 +1675,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     )}
                     {saleCurrency === 'USD' && (
                       <p className="text-[11px] text-slate-500">
-                        Valores en dolares; soles es solo equivalente visual.
+                        Valores registrados en dolares (US$).
                       </p>
                     )}
                   </div>

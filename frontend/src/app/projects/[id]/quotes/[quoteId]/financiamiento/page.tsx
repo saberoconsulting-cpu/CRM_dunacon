@@ -200,7 +200,7 @@ export default function FinanciamientoDocPage() {
           </table>
         </div>
         <p className="text-xs text-center text-slate-400 mt-6">
-          Cronograma referencial en dólares. Tipo de cambio de la cotización: S/ {Number(quote.exchangeRate).toFixed(4)} por US$ 1.00.
+          Cronograma en dólares (US$).
         </p>
       </div>
     </div>

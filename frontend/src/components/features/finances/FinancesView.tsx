@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { Toaster, toast, Field } from '@/components/ui/ui';
-import { api } from '@/lib/api';
+import { api, getToken } from '@/lib/api';
+import { getSocket } from '@/lib/socket';
 import { formatDate } from '@/lib/types';
 import { useDisplayCurrency } from '@/lib/currency';
 import { Select } from '@/components/ui/Select';
@@ -9,8 +10,8 @@ import { PaginationBar } from '@/components/ui/PaginationBar';
 import { FiEdit3, FiSearch, FiTrash2, FiX } from 'react-icons/fi';
 
 type T = {
-  id: number; type: string; category: string; concept: string; amount: string; txnDate: string; projectId?: number | null;
-  lotId?: number | null; clientId?: number | null; lotCode?: string | null; clientName?: string | null; paymentMethod?: string | null;
+  id: number; type: string; displayType?: string; category: string; concept: string; amount: string; txnDate: string; projectId?: number | null;
+  paymentId?: number | null; lotId?: number | null; clientId?: number | null; lotCode?: string | null; clientName?: string | null; paymentMethod?: string | null;
   paymentCategory?: string | null; categoryCode?: string | null; classification?: string | null; agentName?: string | null; operationNumber?: string | null;
 };
 
@@ -221,7 +222,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const [lots, setLots] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [cat, setCat] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'' | 'ingreso' | 'egreso'>('');
+  const [typeFilter, setTypeFilter] = useState<'' | 'pago_lote' | 'ingreso' | 'egreso'>('');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [totalAmount, setTotalAmount] = useState(0);
@@ -281,6 +282,18 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     const lotQuery = lockedProjectId ? `/lots?projectId=${lockedProjectId}&limit=1000` : '/lots?limit=1000';
     api.get<any>(lotQuery).then((data) => setLots(Array.isArray(data) ? data : (data?.items || []))).catch(() => setLots([]));
   }, [load, lockedProjectId]);
+  useEffect(() => {
+    const refresh = () => { void load(); };
+    const token = getToken();
+    const socket = token ? getSocket(token) : null;
+    const events = ['connect', 'payment.created', 'payment.updated', 'financial.imported'];
+    events.forEach((event) => socket?.on(event, refresh));
+    window.addEventListener('focus', refresh);
+    return () => {
+      events.forEach((event) => socket?.off(event, refresh));
+      window.removeEventListener('focus', refresh);
+    };
+  }, [load]);
   useEffect(() => { setPage(1); }, [cat, typeFilter, debouncedSearch, lockedProjectId]);
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search.trim()), 400);
@@ -599,16 +612,8 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     if (row.paymentMethod) update('paymentMethod', row.paymentMethod);
   }
 
-  function operationNumber(kind: 'income' | 'expense', form: any) {
-    const type = kind === 'income' ? 'ingreso' : 'egreso';
-    const code = String(form.categoryCode || '').trim().toUpperCase();
-    const category = normalized(form.paymentCategory || form.category);
-    const baseCount = txns.filter((txn) => {
-      if (txn.type !== type) return false;
-      if (code) return normalized(txn.categoryCode) === normalized(code);
-      return category && normalized(txn.paymentCategory || txn.category) === category;
-    }).length;
-    return `${code || (kind === 'income' ? 'I' : 'E')}${baseCount + 1}`;
+  function operationNumber(kind: 'income' | 'expense') {
+    return `${kind === 'income' ? 'I' : 'E'} (se asigna al guardar)`;
   }
 
   const lotSuggestions = (value: unknown) => {
@@ -961,7 +966,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             <h3 className="mb-1 text-lg font-black" style={{ color: '#334155' }}>Indicadores Proyectados</h3>
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 2xl:grid-cols-7">
               {dashboardCards.slice(0, 7).map((card) => (
-                <div key={card.label} className="min-h-[76px] rounded-lg border bg-white p-2 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
+                <div key={card.label} className="min-h-[92px] rounded-lg border bg-white px-2 py-3 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
                   <p className="text-center text-[9px] font-bold uppercase leading-snug text-slate-600">{card.label}</p>
                   {card.manual ? (
                     <input
@@ -973,7 +978,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                   ) : (
                     <p className="mt-0.5 break-words text-center text-sm font-black text-blue-700 sm:text-base">{compactUsd(card.value)}</p>
                   )}
-                  <p className="mt-1 break-words text-[9px] text-slate-500">- {card.note}</p>
+                  <p className="mt-1 break-words text-center text-[9px] text-slate-500">- {card.note}</p>
                 </div>
               ))}
             </div>
@@ -984,7 +989,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             <h3 className="mb-1 text-lg font-black" style={{ color: '#334155' }}>Indicadores Operación Real</h3>
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 2xl:grid-cols-7">
               {dashboardCards.slice(7).map((card) => (
-                <div key={card.label} className="min-h-[76px] rounded-lg border bg-white p-2 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
+                <div key={card.label} className="min-h-[92px] rounded-lg border bg-white px-2 py-3 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
                   <p className="text-center text-[9px] font-bold uppercase leading-snug text-slate-600">{card.label}</p>
                   {card.manual ? (
                     <input
@@ -996,60 +1001,81 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                   ) : (
                     <p className="mt-0.5 break-words text-center text-sm font-black text-blue-700 sm:text-base">{compactUsd(card.value)}</p>
                   )}
-                  <p className="mt-1 break-words text-[9px] text-slate-500">- {card.note}</p>
+                  <p className="mt-1 break-words text-center text-[9px] text-slate-500">- {card.note}</p>
                 </div>
               ))}
             </div>
           </div>
-          <div className="rounded-lg border bg-white p-2 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
-            <div className="mb-1 flex items-center justify-between gap-3">
+          <div className="min-w-0 rounded-lg border bg-white p-3 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
+            <div className="mb-3 flex items-center justify-between gap-3">
               <h3 className="text-lg font-black" style={{ color: '#001BFF' }}>Socios</h3>
-              <button className="btn-neutral !h-7 text-xs" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, socios: [...current.socios, { name: `Socio ${current.socios.length + 1}`, capital: '', adicional: '' }] }))}>Agregar socio</button>
+              <button className="btn-neutral !h-9 text-sm" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, socios: [...current.socios, { name: `Socio ${current.socios.length + 1}`, capital: '', adicional: '' }] }))}>Agregar socio</button>
             </div>
             <div className="overflow-auto rounded-md border" style={{ borderColor: '#E5E7EB' }}>
-              <table className="table-base" style={{ minWidth: 1000, tableLayout: 'fixed' }}>
+              <table className="table-base" style={{ minWidth: 1760, tableLayout: 'fixed' }}>
+                <colgroup>
+                  {[60, 220, 115, 120, 110, 110, 95, 140, 100, 135, 85, 120, 110, 160, 80].map((width, index) => (
+                    <col key={index} style={{ width }} />
+                  ))}
+                </colgroup>
                 <thead>
                   <tr>
-                    {['Socios', 'Nombres y Apellidos', 'Aporte Capital US$', 'Aporte Adicional US$', 'Aporte Total US$', 'Participacion %', 'Nro. de Acciones', 'Inversion Actualizado US$', 'Venta # Acciones', 'Nro. Acciones Final', '% de Acciones', 'Utilidad US$', 'Rentabilidad %', 'Rentabilidad % (Resp Inv Inicial)', 'Accion'].map((head, index) => (
-                      <th key={head} className="th-base !whitespace-normal !text-[9px] !px-1 !py-1 leading-tight text-white" style={{ background: index >= 7 && index <= 11 ? '#A9D18E' : index >= 12 ? '#2F75B5' : '#7F7F7F', color: index >= 7 && index <= 11 ? '#000' : '#fff' }}>{head}</th>
+                    {[
+                      ['Socios'],
+                      ['Nombres y', 'Apellidos'],
+                      ['Aporte', 'Capital US$'],
+                      ['Aporte', 'Adicional US$'],
+                      ['Aporte', 'Total US$'],
+                      ['Participación', '%'],
+                      ['Nro. de', 'Acciones'],
+                      ['Inversión', 'actualizada US$'],
+                      ['Venta de', 'acciones'],
+                      ['Nro. de acciones', 'final'],
+                      ['% de', 'acciones'],
+                      ['Utilidad US$'],
+                      ['Rentabilidad', '%'],
+                      ['Rentabilidad %', '(resp. inversión inicial)'],
+                      ['Acción'],
+                    ].map((lines, index) => (
+                      <th key={lines.join(' ')} scope="col" className="th-base !whitespace-normal !text-[13px] !font-semibold !tracking-normal !px-3 !py-2.5 !align-middle leading-snug text-white" style={{ textAlign: 'center', background: index >= 7 && index <= 11 ? '#A9D18E' : index >= 12 ? '#2F75B5' : '#7F7F7F', color: index >= 7 && index <= 11 ? '#000' : '#fff' }}>{lines.map((line) => <span key={line} className="block whitespace-nowrap">{line}</span>)}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {sociosRows.map((row, index) => (
                     <tr key={index}>
-                      <td className="td-base !px-1 !py-1 !text-[11px] text-center">{row.index}</td>
-                      <td className="td-base !px-1 !py-1 !text-[11px] overflow-hidden text-ellipsis"><input className="input input-ghost !h-6 !border-0 !bg-transparent !w-full !max-w-none" value={row.name} onChange={(e) => updateSocio(index, { name: e.target.value })} /></td>
-                      <td className="td-base !px-1 !py-1 !text-[11px]"><input className="input input-ghost !h-6 !border-0 !bg-transparent text-right !w-full !max-w-none" value={financeDashManual.socios[index]?.capital || ''} onChange={(e) => updateSocio(index, { capital: e.target.value })} /></td>
-                      <td className="td-base !px-1 !py-1 !text-[11px]"><input className="input input-ghost !h-6 !border-0 !bg-transparent text-right !w-full !max-w-none" value={financeDashManual.socios[index]?.adicional || ''} onChange={(e) => updateSocio(index, { adicional: e.target.value })} /></td>
-                      <td className="td-base !px-1 !py-1 !text-[11px] text-right font-semibold">{usd(row.aporteTotal)}</td>
-                      <td className="td-base !px-1 !py-1 !text-[11px] text-center">{(row.participacion * 100).toFixed(0)}%</td>
-                      <td className="td-base !px-1 !py-1 !text-[11px] text-right">{usd(row.acciones)}</td>
-                      <td className="td-base !px-1 !py-1 !text-[11px] text-right">{usd(row.inversionActualizada)}</td>
-                      <td className="td-base !px-1 !py-1 !text-[11px] text-right">{usd(row.ventaAcciones)}</td>
-                      <td className="td-base !px-1 !py-1 !text-[11px] text-right">{usd(row.accionesFinal)}</td>
-                      <td className="td-base !px-1 !py-1 !text-[11px] text-center">{(row.pctAcciones * 100).toFixed(0)}%</td>
-                      <td className="td-base !px-1 !py-1 !text-[11px] text-right">{usd(row.utilidad)}</td>
-                      <td className="td-base !px-1 !py-1 !text-[11px] text-center">{(row.rentabilidadActualizada * 100).toFixed(1)}%</td>
-                      <td className="td-base !px-1 !py-1 !text-[11px] text-center">{(row.rentabilidadInicial * 100).toFixed(1)}%</td>
-                      <td className="td-base !px-1 !py-1 !text-[11px] text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button><button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeSocio(index)}><FiTrash2 size={13} /></button></div></td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{row.index}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle overflow-hidden text-ellipsis"><input className="input input-ghost !h-9 !px-0 !text-sm !border-0 !bg-transparent !w-full !max-w-none" value={row.name} onChange={(e) => updateSocio(index, { name: e.target.value })} /></td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle"><input className="input input-ghost !h-9 !px-0 !text-sm !border-0 !bg-transparent text-right !w-full !max-w-none" value={financeDashManual.socios[index]?.capital || ''} onChange={(e) => updateSocio(index, { capital: e.target.value })} /></td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle"><input className="input input-ghost !h-9 !px-0 !text-sm !border-0 !bg-transparent text-right !w-full !max-w-none" value={financeDashManual.socios[index]?.adicional || ''} onChange={(e) => updateSocio(index, { adicional: e.target.value })} /></td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-semibold">{usd(row.aporteTotal)}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{(row.participacion * 100).toFixed(0)}%</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{usd(row.acciones)}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{usd(row.inversionActualizada)}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{usd(row.ventaAcciones)}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{usd(row.accionesFinal)}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{(row.pctAcciones * 100).toFixed(0)}%</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{usd(row.utilidad)}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{(row.rentabilidadActualizada * 100).toFixed(1)}%</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{(row.rentabilidadInicial * 100).toFixed(1)}%</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={16} /></button><button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeSocio(index)}><FiTrash2 size={16} /></button></div></td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#000066' }}>
-                    <td className="td-base !px-1 !py-1 !text-[11px] font-bold text-white text-center" colSpan={2}>Total</td>
-                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.capital)}</td>
-                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.adicional)}</td>
-                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.total)}</td>
-                    <td className="td-base !px-1 !py-1 !text-[11px] text-center font-bold text-white">100%</td>
-                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.acciones)}</td>
-                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.inversion)}</td>
-                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.venta)}</td>
-                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.final)}</td>
-                    <td className="td-base !px-1 !py-1 !text-[11px] text-center font-bold text-white">100%</td>
-                    <td className="td-base !px-1 !py-1 !text-[11px] text-right font-bold text-white">{usd(socioTotals.utilidad)}</td>
-                    <td className="td-base !px-1 !py-1 !text-[11px] text-center font-bold text-white" colSpan={3}>—</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle font-bold text-white text-center" colSpan={2}>Total</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.capital)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.adicional)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.total)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center font-bold text-white">100%</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.acciones)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.inversion)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.venta)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.final)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center font-bold text-white">100%</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.utilidad)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center font-bold text-white" colSpan={3}>—</td>
                   </tr>
                 </tfoot>
               </table>
@@ -1162,6 +1188,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             <div className="flex flex-wrap items-center gap-2">
               {([
                 { key: '' as const, label: 'Todos', bg: '#F3F4F6', color: '#374151', activeBg: '#171717', activeColor: '#FFFFFF' },
+                { key: 'pago_lote' as const, label: 'Pagos de lotes', bg: '#F3E8FF', color: '#6B21A8', activeBg: '#7E22CE', activeColor: '#FFFFFF' },
                 { key: 'ingreso' as const, label: 'Ingreso', bg: '#EAF7EE', color: '#125A3B', activeBg: '#16A36A', activeColor: '#FFFFFF' },
                 { key: 'egreso' as const, label: 'Egreso', bg: '#E7F0FE', color: '#1259C4', activeBg: '#1259C4', activeColor: '#FFFFFF' },
               ]).map((option) => {
@@ -1208,20 +1235,20 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             {loading ? <p className="p-4 text-slate-400">Cargando...</p>
               : txns.length === 0 ? <p className="p-6 text-center text-sm text-slate-400">Aun no hay movimientos.</p>
               : (
-              <table className="table-base table-head-plomo" style={{ minWidth: 1180 }}>
+              <table className="table-base table-head-plomo w-full [&_th]:!whitespace-normal [&_td]:!whitespace-normal [&_td]:break-words">
                 <thead><tr>
-                  <th className="th-base">Nro. Operacion</th><th className="th-base">Lote</th><th className="th-base">Cliente/Proveedor</th><th className="th-base">Modo de Pago</th>
-                  <th className="th-base">Tipo</th><th className="th-base">Tipo de Pago/Categoria</th><th className="th-base">Clasificacion</th><th className="th-base">Agente</th><th className="th-base">Concepto</th>
+                  <th className="th-base">ID</th><th className="th-base">Lote</th><th className="th-base">Cliente/Proveedor</th><th className="th-base">Modo de Pago</th>
+                  <th className="th-base">Tipo</th><th className="th-base !whitespace-normal !leading-snug"><span className="block whitespace-nowrap">Tipo de Pago/</span><span className="block whitespace-nowrap">Categoría</span></th><th className="th-base">Clasificacion</th><th className="th-base">Agente</th><th className="th-base">Concepto</th>
                   <th className="th-base">Monto US$</th><th className="th-base">Fecha</th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {txns.map((t) => (
                     <tr key={t.id}>
-                      <td className="td-base font-semibold">{t.operationNumber || `${t.type === 'ingreso' ? 'I' : 'E'}${t.id}`}</td>
+                      <td className="td-base font-semibold">{t.paymentId != null ? `P${t.paymentId}` : t.operationNumber || `${t.type === 'ingreso' ? 'I' : 'E'}${t.id}`}</td>
                       <td className="td-base">{t.lotCode || (t.lotId ? `#${t.lotId}` : '-')}</td>
                       <td className="td-base">{t.clientName || (t.clientId ? `#${t.clientId}` : '-')}</td>
                       <td className="td-base">{paymentLabel(t.paymentMethod)}</td>
-                      <td className="td-base"><span className="badge" style={{ background: t.type === 'ingreso' ? '#EAF7EE' : '#E7F0FE', color: t.type === 'ingreso' ? '#125A3B' : '#1259C4' }}>{t.type}</span></td>
+                      <td className="td-base"><span className="badge" style={{ background: t.paymentId != null ? '#F3E8FF' : t.type === 'ingreso' ? '#EAF7EE' : '#E7F0FE', color: t.paymentId != null ? '#6B21A8' : t.type === 'ingreso' ? '#125A3B' : '#1259C4' }}>{t.paymentId != null ? 'Pago de lote' : t.displayType || (t.type === 'ingreso' ? 'Ingreso' : 'Egreso')}</span></td>
                       <td className="td-base capitalize">{t.paymentCategory || t.category}</td>
                       <td className="td-base">{t.classification || '-'}</td>
                       <td className="td-base">{t.agentName || '-'}</td>
@@ -1308,7 +1335,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-4 sm:max-h-[92vh] sm:p-6">
             <div className="mb-5 flex items-center justify-between gap-3">
               <h3 className="font-semibold" style={{ fontSize: 17 }}>Registrar egreso</h3>
-              <span className="text-sm font-black text-[#001BFF]">Nro. Operacion: {operationNumber('expense', eForm)}</span>
+              <span className="text-sm font-black text-[#001BFF]">ID: {operationNumber('expense')}</span>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Lote/Otros"><input className="input" list="finance-lots-expense" value={eForm.lotLabel || ''} onChange={(e) => applyLotToForm('expense', e.target.value)} placeholder="Busca lote o escribe otros" /></Field>
@@ -1343,7 +1370,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-4 sm:max-h-[92vh] sm:p-6">
             <div className="mb-5 flex items-center justify-between gap-3">
               <h3 className="font-semibold" style={{ fontSize: 17 }}>Registrar ingreso adicional</h3>
-              <span className="text-sm font-black text-[#001BFF]">Nro. Operacion: {operationNumber('income', iForm)}</span>
+              <span className="text-sm font-black text-[#001BFF]">ID: {operationNumber('income')}</span>
             </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Lote/Otros"><input className="input" list="finance-lots-income" value={iForm.lotLabel || ''} onChange={(e) => applyLotToForm('income', e.target.value)} placeholder="Busca lote o escribe otros" /></Field>

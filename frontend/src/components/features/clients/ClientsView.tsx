@@ -173,10 +173,13 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
             : rows.length === 0 ? <p className="p-6 text-slate-400 text-sm text-center">Sin clientes con ese filtro.</p>
             : (
             <div className="overflow-x-auto">
-              <table className="table-base table-head-plomo">
+              <table className="table-base table-head-plomo w-full table-fixed [&_th]:!whitespace-normal [&_th]:!px-2 [&_td]:!whitespace-normal [&_td]:!px-2 [&_td]:!text-xs [&_td]:[overflow-wrap:anywhere]">
+                <colgroup>
+                  {[4, 15, 11, 15, 10, 15, 10, 10, 10].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}
+                </colgroup>
                 <thead><tr>
-                  <th className="th-base">Item</th><th className="th-base">Nombre</th><th className="th-base">Contacto</th><th className="th-base">Canal</th><th className="th-base">Agente</th>
-                  <th className="th-base">Estado</th><th className="th-base">Etapa contrato</th><th className="th-base">Fecha</th>
+                  <th className="th-base">Item</th><th className="th-base">Nombre</th><th className="th-base">Teléfono</th><th className="th-base">Correo</th><th className="th-base">Canal</th><th className="th-base">Agente</th>
+                  <th className="th-base">Estado</th><th className="th-base !text-center">Etapa contrato</th><th className="th-base">Fecha</th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {rows.map((c, index) => {
@@ -191,7 +194,9 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
                         </td>
                         <td className="td-base">
                           <div className="font-medium text-slate-700">{c.phone || '—'}</div>
-                          <div className="mt-0.5 text-[11px] text-slate-500">{c.email || 'Sin correo'}</div>
+                        </td>
+                        <td className="td-base text-slate-600">
+                          {c.email || 'Sin correo'}
                         </td>
                         <td className="td-base">
                           <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium capitalize text-slate-600">
@@ -203,7 +208,7 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
                             <span className="text-sm font-semibold text-slate-700">{c.agentName || currentAgentName || 'Sin asignar'}</span>
                           ) : (
                             <Select
-                              className="w-44 [&_.select-trigger]:!h-9 [&_.select-trigger]:!rounded-xl [&_.select-trigger]:!text-xs [&_.select-trigger]:!font-semibold"
+                              className="w-full min-w-0 [&_.select-trigger]:!px-2 [&_.select-trigger]:!h-9 [&_.select-trigger]:!rounded-xl [&_.select-trigger]:!text-xs [&_.select-trigger]:!font-semibold"
                               value={Number(c.agentId ?? c.agent_id ?? 0)}
                               onChange={(value) => cambiarAgente(c, Number(value))}
                               options={[{ value: 0, label: 'Sin asignar' }, ...agents.map((a) => ({ value: Number(a.id), label: String(a.name || '') }))]}
@@ -212,14 +217,14 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
                         </td>
                         <td className="td-base">
                           <Select
-                            className="w-40 [&_.select-trigger]:!h-9 [&_.select-trigger]:!rounded-xl [&_.select-trigger]:!text-xs [&_.select-trigger]:!font-semibold"
+                            className="w-full min-w-0 [&_.select-trigger]:!px-2 [&_.select-trigger]:!h-9 [&_.select-trigger]:!rounded-xl [&_.select-trigger]:!text-xs [&_.select-trigger]:!font-semibold"
                             value={ps}
                             onChange={(value) => mover(c, value)}
                             options={Object.keys(PIPELINE).map((k) => ({ value: k, label: PIPELINE[k] }))}
                           />
                         </td>
-                        <td className="td-base"><span className="badge" style={{ background: pc[0], color: pc[1] }}>{PIPELINE[ps] || ps}</span></td>
-                        <td className="td-base text-slate-600">{formatDate(created)}</td>
+                        <td className="td-base !text-center"><span className="badge !whitespace-normal !text-center" style={{ background: pc[0], color: pc[1] }}>{PIPELINE[ps] || ps}</span></td>
+                        <td className="td-base text-slate-600"><span className="whitespace-nowrap">{formatDate(created)}</span></td>
                       </tr>
                     );
                   })}

@@ -11,6 +11,10 @@ export class FinancialTransactionEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
+  // Codigo calculado y almacenado por PostgreSQL a partir del registro de origen.
+  @Column({ name: 'operation_number', type: 'varchar', length: 40, insert: false, update: false })
+  operationNumber: string;
+
   @Column({ name: 'project_id', nullable: true })
   projectId: number;
 

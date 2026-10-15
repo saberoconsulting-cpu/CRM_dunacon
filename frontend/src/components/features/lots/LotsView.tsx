@@ -7,9 +7,9 @@ import { api, uploadFile } from '@/lib/api';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import { Lot, LOT_STATUS_LABEL, LOT_STATUS_COLOR, LOT_STATUS_SELECT_OPTIONS } from '@/lib/types';
 import { printHtml } from '@/lib/print';
-import CurrencyToggle from '@/components/ui/CurrencyToggle';
+
 import { Select } from '@/components/ui/Select';
-import { CURRENCY_SYMBOL, useDisplayCurrency } from '@/lib/currency';
+import { formatCurrency } from '@/lib/currency';
 import { FiDownload, FiLayers, FiCheckCircle, FiBookmark, FiTrendingUp, FiTag, FiFlag } from 'react-icons/fi';
 
 const PAGE_SIZE = 15;
@@ -29,13 +29,10 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
   const [stats, setStats] = useState({ total: 0, vendidos: 0, separados: 0, disponibles: 0, promocion: 0, segundaEtapa: 0 });
   const [viewMode, setViewMode] = useState<'general' | 'blocks'>('general');
-  const { currency, setCurrency, exchangeRate, setExchangeRate, format: fmt } = useDisplayCurrency();
-  const moneyLabel = CURRENCY_SYMBOL[currency];
+  const moneyLabel = 'US$';
   const formatLotMoney = (value: unknown) => {
     const usd = Number(value || 0);
-    if (!usd) return '—';
-    const amount = currency === 'PEN' ? usd * (exchangeRate || 1) : usd;
-    return `${moneyLabel} ${amount.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    return usd ? formatCurrency(usd, 'USD') : '—';
   };
   // Solo admin/superadmin pueden eliminar lotes (el backend tambien lo exige).
   const canDelete = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
@@ -371,12 +368,6 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
       </div>
 
       <div className="card mb-4 flex flex-wrap gap-3 items-end">
-        <CurrencyToggle
-          currency={currency}
-          setCurrency={setCurrency}
-          exchangeRate={exchangeRate}
-          setExchangeRate={setExchangeRate}
-        />
         <div className="flex-1 min-w-48"><label className="label">Buscar por código</label>
           <input className="input" value={buscar} onChange={(e)=>setBuscar(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter') setSearch(buscar); }} placeholder="Ej: A-01" />
         </div>

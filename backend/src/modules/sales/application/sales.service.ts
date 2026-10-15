@@ -114,6 +114,13 @@ export class SalesService {
     const catalog = await this.dataSource.getRepository(ProjectLotCatalogEntity).findOne({ where: { projectId: lot.projectId, code: lot.code } }).catch(() => null);
     
 
+    // Both the lot base price and quote final price are already USD.
+    const basePriceUsd = catalog ? Number(catalog.salePrice) : Number(lot.salePrice || 0)
+      || (Number(lot.price || 0) * Number(lot.areaM2 || 0));
+    if (basePriceUsd > 0 && quoteFinalPrice - basePriceUsd > 0.01) {
+      throw new BadRequestException('El precio final en dolares no puede superar el precio de venta del lote. Corrige la cotizacion antes de registrar la venta.');
+    }
+
     const assignedAgentId = Number(dto.agentId || actorId);
     const agent = await this.userRepo.findOne({ where: { id: assignedAgentId } });
     const appliesAgency = !!dto.appliesCommission;
@@ -956,10 +963,10 @@ export class SalesService {
     const allPayments = related.payments || [];
     const paidPayments = allPayments.filter((p) => String(p.status) === 'pagado');
     const paymentAmount = (p?: PaymentEntity | null) => Number((p as any)?.amountUsd ?? p?.amount ?? 0);
-    const salePrice = Number(r.quoteFinalPriceUsd ?? r.s_sale_price ?? 0);
-    const expectedCuotaInicial = Number(r.quoteCuotaInicialUsd ?? r.s_cuota_inicial ?? 0);
-    const totalCuotas = Number(r.quoteTotalCuotas ?? r.totalCuotas ?? 0);
-    const valorCuota = Number(r.quoteValorCuotaUsd ?? r.s_valor_cuota ?? 0);
+    const salePrice = Number(r.s_sale_price ?? r.quoteFinalPriceUsd ?? 0);
+    const expectedCuotaInicial = Number(r.s_cuota_inicial ?? r.quoteCuotaInicialUsd ?? 0);
+    const totalCuotas = Number(r.totalCuotas ?? r.quoteTotalCuotas ?? 0);
+    const valorCuota = Number(r.s_valor_cuota ?? r.quoteValorCuotaUsd ?? 0);
 
     const usedPaymentIds = new Set<number>();
     const expectedReserva = Number(r.s_reserva_amount || 0);
@@ -1081,27 +1088,35 @@ export class SalesService {
       if (idx < 0) return null;
       return pool.splice(idx, 1)[0];
     };
-    const takeNextPaid = () => {
-      const idx = pool.findIndex((p) => String(p.status) === 'pagado');
-      return idx < 0 ? null : pool.splice(idx, 1)[0];
-    };
+
 
     const expectedInstallmentAmount = totalCuotas > 0
       ? (valorCuota > 0 ? valorCuota : Math.max(0, (salePrice - expectedCuotaInicial) / totalCuotas))
       : 0;
     const rows = related.installments.map((inst) => {
-      const paid = inst.status === 'pagado';
+      let payment = takeByPaymentId(inst.paymentId);
+      if (!payment) {
+        const index = pool.findIndex(p => paymentConcept(p.type) === 'cuota' &&
+          ((p.dueDate && String(p.dueDate).slice(0, 10) === String(inst.dueDate).slice(0, 10)) ||
+          Number(String(p.reference || '').match(/cuota\s*(?:n[.\s]*)?(\d+)/i)?.[1] || 0) === inst.installmentNo));
+        if (index >= 0) payment = pool.splice(index, 1)[0];
+      }
+      if (!payment && inst.status === 'pagado') {
+        const index = pool.findIndex(p => paymentConcept(p.type) === 'cuota' && String(p.status) === 'pagado');
+        if (index >= 0) payment = pool.splice(index, 1)[0];
+      }
+      const paid = payment ? String(payment.status) === 'pagado' : inst.status === 'pagado';
       const overdue = !paid && !!inst.dueDate && String(inst.dueDate).slice(0, 10) < today;
-      const payment = paid ? (takeByPaymentId((inst as any).paymentId) || takeNextPaid() || null) : null;
       return {
         id: inst.id,
         installmentNo: inst.installmentNo,
         kind: 'cuota' as const,
         conceptLabel: `Cuota ${inst.installmentNo}`,
-        amount: expectedInstallmentAmount || Number(inst.amount || 0),
+        amount: Number(inst.amount || 0) || expectedInstallmentAmount,
         dueDate: inst.dueDate,
-        status: inst.status,
+        status: payment?.status || inst.status,
         paid,
+        registered: !!payment || !!inst.paymentId,
         overdue,
         isCurrent: !paid && !overdue && !!inst.dueDate,
         coveredByInitial: false,
@@ -1109,9 +1124,9 @@ export class SalesService {
       };
     });
 
-    const pendingInitial = initialRows.filter((row) => !row.paid);
+    const pendingInitial = initialRows.filter((row) => !row.paid && !row.payment);
     const nextDueRow =
-      rows.find((x) => x.overdue) || rows.find((x) => x.isCurrent) || rows.find((x) => !x.paid) || null;
+      rows.find((x) => !x.paid && !x.registered) || null;
     const nextConcept = pendingInitial.length
       ? {
           installmentNo: null,
@@ -1188,6 +1203,7 @@ export class SalesService {
         totalCuotas: rows.length,
         paidCount,
         pendingCount: rows.length - paidCount,
+        pendingApprovalCount: allPayments.filter(p => String(p.status) !== 'pagado').length,
         nextInstallmentNo: nextConcept?.isInitial ? null : (nextConcept?.installmentNo || null),
         nextConceptLabel: nextConcept?.conceptLabel || null,
         nextIsInitial: !!nextConcept?.isInitial,

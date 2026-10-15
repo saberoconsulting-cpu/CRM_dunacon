@@ -12,6 +12,9 @@ export class ProjectEntity {
   @PrimaryGeneratedColumn()
   id: number;
 
+  @Column({ name: 'sort_order', type: 'integer', default: 2147483647 })
+  sortOrder: number;
+
   @Column({ length: 255 })
   name: string;
 
@@ -32,6 +35,9 @@ export class ProjectEntity {
 
   @Column({ name: 'logo_image_url', length: 500, nullable: true })
   logoImageUrl: string;
+
+  @Column({ type: 'jsonb', default: () => "'[]'::jsonb", select: false })
+  photos: { id: string; url: string; publicId: string; name: string }[];
 
   @Column({ length: 20, default: 'active' })
   status: string;

@@ -1235,12 +1235,12 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
       pdfTone: BLUE_DARK,
     },
     {
-      label: 'FECHA DE REPORTE',
-      value: new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }),
-      helper: 'Fecha de reporte',
+      label: 'Utilidad Ajustada Proy.',
+      value: showUsdBase(projectedComputed.adjusted || 0),
+      helper: 'Utilidad ajustada referencial - Prov. US$',
       icon: <FiFileText />,
-      color: INK,
-      pdfTone: INK,
+      color: (projectedComputed.adjusted || 0) >= 0 ? BLUE : RED,
+      pdfTone: (projectedComputed.adjusted || 0) >= 0 ? BLUE : RED,
     },
     {
       label: 'Avance de Ventas %',
@@ -1251,12 +1251,12 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
       pdfTone: '#7C3AED',
     },
     {
-      label: 'Utilidad Ajustada Proy.',
-      value: showUsdBase(projectedComputed.adjusted || 0),
-      helper: 'Utilidad ajustada referencial - Prov. US$',
+      label: 'FECHA DE REPORTE',
+      value: new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }),
+      helper: 'Fecha de reporte',
       icon: <FiFileText />,
-      color: (projectedComputed.adjusted || 0) >= 0 ? BLUE : RED,
-      pdfTone: (projectedComputed.adjusted || 0) >= 0 ? BLUE : RED,
+      color: INK,
+      pdfTone: INK,
     },
     {
       label: 'INGRESO REAL',
@@ -1650,11 +1650,19 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
           </section>
         )}
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
-          {statementCards.map((card) => (
-            <KpiCard key={card.label} label={card.label} value={card.value} helper={card.helper} icon={card.icon} color={card.color} />
-          ))}
-        </div>
+        {[
+          { title: 'Indicadores Proyectados', cards: statementCards.slice(0, 6) },
+          { title: 'Indicadores Operación Real', cards: statementCards.slice(6) },
+        ].map((group) => (
+          <section key={group.title}>
+            <h3 className="mb-2 text-lg font-black" style={{ color: '#334155' }}>{group.title}</h3>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+              {group.cards.map((card) => (
+                <KpiCard key={card.label} label={card.label} value={card.value} helper={card.helper} icon={card.icon} color={card.color} />
+              ))}
+            </div>
+          </section>
+        ))}
 
         {/* El cuadro se apila hasta 1023px: en tablets el panel lateral ya no
             comprime las columnas de la tabla. */}

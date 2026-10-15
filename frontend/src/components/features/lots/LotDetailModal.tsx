@@ -1,13 +1,14 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast, StatusBadge, Field } from '@/components/ui/ui';
-import { api } from '@/lib/api';
+import { api, getToken } from '@/lib/api';
+import { getSocket } from '@/lib/socket';
 import { LOT_STATUS_COLOR, LOT_STATUS_EDIT_OPTIONS, LOT_STATUS_LABEL, LotStatus, formatDate } from '@/lib/types';
 import { Select } from '@/components/ui/Select';
 import { printHtml } from '@/lib/print';
-import CurrencyToggle from '@/components/ui/CurrencyToggle';
-import { DEFAULT_EXCHANGE_RATE, moneyGlobal, useDisplayCurrency } from '@/lib/currency';
+
+import { formatCurrency } from '@/lib/currency';
 import {
   FiArrowRight,
   FiCheckCircle,
@@ -56,11 +57,6 @@ function calcFixedPayment(principal: number, months: number, interestType?: stri
   return (p * monthlyRate * factor) / (factor - 1);
 }
 
-function amountForInstallment(row: any, noInterestInstallments: number, noInterestPayment: number, interestPayment: number) {
-  const installmentNo = Number(row?.installmentNo || 0);
-  if (installmentNo > 0 && installmentNo <= noInterestInstallments) return noInterestPayment;
-  return interestPayment || noInterestPayment || Number(row?.amount || 0);
-}
 
 function toDateInput(value?: string | Date | null) {
   if (!value) return new Date().toISOString().slice(0, 10);
@@ -233,24 +229,10 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const [catalogAddresses, setCatalogAddresses] = useState<string[]>([]);
   const [view, setView] = useState<'detalle' | 'vender'>('detalle');
   const canEdit = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
-  // Moneda de la ficha: el cliente pidio que se muestre en dolares por defecto,
-  // pero con la opcion de cambiarla. Si el usuario aun no eligio moneda
-  // (no hay preferencia guardada), arrancamos en US$.
-  const { currency, setCurrency, exchangeRate, setExchangeRate, format: showMoney } = useDisplayCurrency();
-  useEffect(() => {
-    try {
-      if (typeof window !== 'undefined' && !window.localStorage.getItem('crm_display_currency')) {
-        setCurrency('USD');
-      }
-    } catch {}
-    // Solo al montar: despues el usuario manda con el toggle.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Los precios y pagos del lote estan registrados en dolares.
   const formatLotMoney = (valueInUSD: unknown) => {
-    const n = Number(valueInUSD || 0);
-    if (!n) return '';
-    const displayed = currency === 'PEN' ? n * (exchangeRate || 1) : n;
-    return `${currency === 'PEN' ? 'S/' : 'US$'} ${displayed.toLocaleString('es-PE', { maximumFractionDigits: 0 })}`;
+    const amount = Number(valueInUSD || 0);
+    return amount ? formatCurrency(amount, 'USD') : '';
   };
   const money = (value: unknown) => (Number(value || 0) ? formatLotMoney(value) : EMPTY);
   const toEditValue = (valueInUSD: unknown) => {
@@ -263,25 +245,27 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
     return n;
   };
 
-  async function load() {
+  const loadRequest = useRef(0);
+  const load = useCallback(async () => {
     if (!lotId) return;
+    const requestId = ++loadRequest.current;
     try {
-      const d = await api.get<any>(`/lots/${lotId}`);
+      const [d, financing] = await Promise.all([
+        api.get<any>(`/lots/${lotId}`),
+        api.get<any>(`/sales/lot/${lotId}/history`),
+      ]);
+      if (requestId !== loadRequest.current) return;
       const rawLot = d.lot || {};
-      const expectedSalePrice = Number(rawLot.price || 0) * Number(rawLot.areaM2 || 0);
-      const looksDividedByRate = (value: number, expected: number) => {
-        if (!(value > 0) || !(expected > 0)) return false;
-        const rate = Number(exchangeRate || DEFAULT_EXCHANGE_RATE);
-        const restored = value * rate;
-        return Math.abs(restored - expected) / expected <= 0.06;
+      const fin = {
+        ...financing,
+        sale: financing?.sale ? { ...financing.sale, conditions: financing.sale.paymentMethod } : null,
+        installments: (financing?.installments || []).map((item: any) => ({
+          ...item,
+          status: item.paid ? 'pagado' : 'pendiente',
+        })),
       };
-      const normalizedSalePrice = looksDividedByRate(Number(rawLot.salePrice || 0), expectedSalePrice)
-        ? Number(expectedSalePrice.toFixed(2))
-        : Number(rawLot.salePrice || 0);
-      const fin = await api.get<any>(`/sales/by-lot/${lotId}`).catch(() => ({ sale: null, installments: [] }));
       const normalizedLot = {
         ...rawLot,
-        salePrice: normalizedSalePrice || rawLot.salePrice,
         clientName: rawLot.clientName || d.client?.fullName || fin?.sale?.clientName || null,
         clientId: rawLot.clientId || d.client?.id || fin?.sale?.clientId || null,
       };
@@ -305,9 +289,34 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
       });
       setFin(fin);
     }
-    catch (e:any){ toast(e.message,'err'); }
-  }
-  useEffect(() => { setLot(null); setBlock(null); setPlan(null); setHistory([]); setPayments([]); setFin({ sale: null, installments: [] } as any); setView('detalle'); if (lotId) load(); }, [lotId]);
+    catch (e:any){ if (requestId === loadRequest.current) toast(e.message,'err'); }
+  }, [lotId]);
+  useEffect(() => { setLot(null); setBlock(null); setPlan(null); setHistory([]); setPayments([]); setFin({ sale: null, installments: [] } as any); setView('detalle'); if (lotId) void load(); return () => { loadRequest.current += 1; }; }, [lotId, load]);
+
+  useEffect(() => {
+    if (!lotId) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const refresh = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { void load(); }, 150);
+    };
+    const onPayment = (payment: any) => {
+      if (Number(payment?.lotId) === Number(lotId)) refresh();
+    };
+    const token = getToken();
+    const socket = token ? getSocket(token) : null;
+    socket?.on('payment.created', onPayment);
+    socket?.on('payment.updated', onPayment);
+    socket?.on('connect', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      clearTimeout(timer);
+      socket?.off('payment.created', onPayment);
+      socket?.off('payment.updated', onPayment);
+      socket?.off('connect', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [lotId, load]);
 
   // Calles del proyecto del lote: solo se necesitan para el formulario de
   // edicion del admin (selector "Calle"), por eso se cargan aparte y bajo demanda.
@@ -396,13 +405,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
       toast('No se puede vender un lote vendido, separado o no disponible.', 'err');
       return;
     }
-    if (!(Number(lot.finalPrice || 0) > 0)) {
-      toast('Este lote no tiene precio final. Registra el precio final antes de venderlo.', 'err');
-      return;
-    }
-    // Solo redirigir al apartado de Ventas con el lote precargado.
-    // SalesView lee ?lotId= y abre el modal "Registrar venta" ya con este lote.
-    window.location.href = `/projects/${lot.projectId}/sales?lotId=${lot.id}`;
+    // El precio y la cotizacion se completan en el formulario de venta.
+    window.location.href = `/projects/${lot.projectId}/sales?lotId=${lot.id}&openSale=1`;
   }
 
   function exportLotPdf() {
@@ -434,7 +438,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
       <tr>
         <td>Cuota ${escapeHtml(q.installmentNo || '—')}</td>
         <td>${escapeHtml(formatDate(q.dueDate))}</td>
-        <td class="num">${escapeHtml(money(amountForInstallment(q, noInterestInstallments, noInterestPayment, interestPayment)))}</td>
+        <td class="num">${escapeHtml(money(q.amount))}</td>
         <td>${escapeHtml(q.status || '—')}</td>
       </tr>
     `).join('');
@@ -615,7 +619,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const pricePerM2 = Number(lot?.price || 0);
 
   const paids = (payments as any[]) || [];
-  const amountPaid = paids.filter((p) => p.status === 'pagado').reduce((s: number, p) => s + Number(p.amount || 0), 0);
+  const amountPaid = Number(fin?.summary?.collectedAmount ?? paids.filter((p) => p.status === 'pagado').reduce((s: number, p) => s + Number((p as any).amountUsd ?? p.amount ?? 0), 0));
   const saleFn = fin?.sale;
   const schedule = (fin?.installments || []) as any[];
   const isSold = lot?.status === 'vendido';
@@ -633,26 +637,28 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const finalLotPrice = Number(saleFn?.salePrice || lot?.finalPrice || 0);
   const financeBasePrice = finalLotPrice || saleBasePrice;
   const initialPayment = Number(saleFn?.cuotaInicial || 0);
-  const initialPaid = initialPayment > 0 && amountPaid >= initialPayment;
-  const remaining = Math.max(0, financeBasePrice - initialPayment);
+  const initialPaid = Boolean(fin?.summary?.cuotaInicialPaid ?? (initialPayment > 0 && amountPaid >= initialPayment));
+  const financedPrincipal = Math.max(0, financeBasePrice - initialPayment);
+  const remaining = Math.max(0, Number(fin?.summary?.balanceAmount ?? (financeBasePrice - amountPaid)));
   const totalFinancingInstallments = Number(saleFn?.totalCuotas || schedule.length || 0);
   const parsedGraceInstallments = Number(String(saleFn?.conditions || '').match(/Cuotas sin interes:\s*(\d+)/i)?.[1] || 0);
   const noInterestInstallments = totalFinancingInstallments > 0
     ? (saleFn?.interestType === 'tea' ? Math.min(totalFinancingInstallments, Math.max(0, parsedGraceInstallments)) : totalFinancingInstallments)
     : 0;
   const interestInstallments = saleFn?.interestType === 'tea' ? Math.max(0, totalFinancingInstallments - noInterestInstallments) : 0;
-  const noInterestPayment = Number(noInterestInstallments > 0 && totalFinancingInstallments > 0 ? remaining / totalFinancingInstallments : 0);
-  const balanceAfterNoInterest = Math.max(0, remaining - noInterestPayment * noInterestInstallments);
+  const noInterestPayment = Number(noInterestInstallments > 0 && totalFinancingInstallments > 0 ? financedPrincipal / totalFinancingInstallments : 0);
+  const balanceAfterNoInterest = Math.max(0, financedPrincipal - noInterestPayment * noInterestInstallments);
   const interestPayment = Number(interestInstallments > 0 ? calcFixedPayment(balanceAfterNoInterest, interestInstallments, saleFn?.interestType, Number(saleFn?.tea || 0)) : 0);
   const nextInstallment = schedule.find((x) => x.status !== 'pagado');
   const nextInstallmentNo = Number(nextInstallment?.installmentNo || 0);
-  const aheadPayment = nextInstallmentNo > 0 && nextInstallmentNo <= noInterestInstallments ? noInterestPayment : (interestPayment || noInterestPayment);
+  const aheadPayment = Number(nextInstallment?.amount ?? (nextInstallmentNo > 0 && nextInstallmentNo <= noInterestInstallments ? noInterestPayment : (interestPayment || noInterestPayment)));
   const nextPaymentIsInitial = initialPayment > 0 && !initialPaid;
-  const nextPaymentLabel = nextPaymentIsInitial ? 'Inicial' : (nextInstallment ? `Cuota ${nextInstallment.installmentNo || ''}`.trim() : 'Cuota');
-  const nextPaymentAmount = nextPaymentIsInitial ? initialPayment : Number(aheadPayment || 0);
+  const nextPaymentLabel = fin?.summary?.nextConceptLabel || (nextPaymentIsInitial ? 'Inicial' : (nextInstallment ? `Cuota ${nextInstallment.installmentNo || ''}`.trim() : 'Cuota'));
+  const nextPaymentAmount = Number(fin?.summary?.nextAmount ?? (nextPaymentIsInitial ? initialPayment : aheadPayment));
   const closed = schedule.filter((x) => x.status === 'pagado').length;
   const firstDue = schedule[0]?.dueDate || null;
-  const donePct = financeBasePrice > 0 ? Math.min(100, Math.round((amountPaid / financeBasePrice) * 100)) : 0;
+  const fullyPaid = financeBasePrice > 0 && remaining <= 0.01 && (!initialPayment || initialPaid) && schedule.every((item) => item.status === 'pagado');
+  const donePct = fullyPaid ? 100 : financeBasePrice > 0 ? Math.min(99, Math.round((amountPaid / financeBasePrice) * 100)) : 0;
   // Un lote vendido sin venta registrada ni precios en la ficha no tiene un
   // precio real que mostrar; estimarlo con precio/m2 * area inventaria una cifra
   // enorme (p.ej. 95,000 * 120 m2). En ese caso la ficha avisa en vez de mentir.
@@ -671,8 +677,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const soldEditLocked = lot.status === 'vendido' || lot.sellingStage === 'vendido';
   const separatedEditLocked = lot.sellingStage === 'separado';
   const quoteBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status) || separatedEditLocked;
-  const missingFinalPrice = !(Number(lot.finalPrice || 0) > 0);
-  const sellBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status) || separatedEditLocked || missingFinalPrice;
+  const sellBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status) || separatedEditLocked;
   // "Vendido" nace desde Ventas: en ese caso la edicion manual queda bloqueada.
   // Para los estados manuales el selector sigue activo y el backend impide que
   // alguien fuerce "vendido" por API.
@@ -714,12 +719,6 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                   <p className="mt-1 truncate text-sm" style={{ color: MUTED }}>{address}</p>
                 </div>
                 <div className="flex shrink-0 flex-wrap items-start justify-end gap-2">
-                  <CurrencyToggle
-                    currency={currency}
-                    setCurrency={setCurrency}
-                    exchangeRate={exchangeRate}
-                    setExchangeRate={setExchangeRate}
-                  />
                   <span className="hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-bold sm:inline-flex" style={{ background: `${statusBadgeColor}14`, color: statusBadgeColor }}>
                     <FiCheckCircle /> {statusLabel}
                   </span>
@@ -775,7 +774,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                       onClick={vender}
                       className={`group flex min-h-[52px] items-center justify-between gap-4 rounded-md px-4 py-3 text-left text-white transition-colors ${sellBlocked ? 'opacity-60' : ''}`}
                       style={{ background: sellBlocked ? '#64748B' : BLUE_DARK }}
-                      title={missingFinalPrice ? 'Este lote no tiene precio final' : (sellBlocked ? 'No se puede vender este lote en su estado actual' : 'Vender lote')}
+                      title={sellBlocked ? 'No se puede vender este lote en su estado actual' : 'Vender lote'}
                     >
                       <span className="flex min-w-0 items-center gap-3">
                         <span className="min-w-0">
@@ -907,8 +906,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                         <div className="mt-3 max-h-48 space-y-1 overflow-auto pr-1">
                           {schedule.map((q) => (
                             <div key={q.id ?? q.installmentNo} className="flex items-center justify-between border-b border-slate-50 py-1 text-xs">
-                              <span className="text-slate-500">Cuota {q.installmentNo} vence {formatDate(q.dueDate)}</span>
-                              <b className={q.status === 'pagado' ? 'text-emerald-600' : 'text-slate-700'}>{money(amountForInstallment(q, noInterestInstallments, noInterestPayment, interestPayment))}</b>
+                              <span className="text-slate-500">Cuota {q.installmentNo} vence {formatDate(q.dueDate)} · {q.status === 'pagado' ? 'Pagada' : q.payment ? 'Pendiente de aprobación' : 'Pendiente'}</span>
+                              <b className={q.status === 'pagado' ? 'text-emerald-600' : 'text-slate-700'}>{money(q.amount)}</b>
                             </div>
                           ))}
                         </div>
@@ -965,8 +964,8 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                         <div className="mt-3 max-h-48 space-y-1 overflow-auto pr-1">
                           {schedule.map((q) => (
                             <div key={q.id ?? q.installmentNo} className="flex items-center justify-between border-b border-slate-50 py-1 text-xs">
-                              <span className="text-slate-500">Cuota {q.installmentNo} vence {formatDate(q.dueDate)}</span>
-                              <b className={q.status === 'pagado' ? 'text-emerald-600' : 'text-slate-700'}>{money(amountForInstallment(q, noInterestInstallments, noInterestPayment, interestPayment))}</b>
+                              <span className="text-slate-500">Cuota {q.installmentNo} vence {formatDate(q.dueDate)} · {q.status === 'pagado' ? 'Pagada' : q.payment ? 'Pendiente de aprobación' : 'Pendiente'}</span>
+                              <b className={q.status === 'pagado' ? 'text-emerald-600' : 'text-slate-700'}>{money(q.amount)}</b>
                             </div>
                           ))}
                         </div>
@@ -1023,7 +1022,7 @@ export function PagosTable({ rows }: { rows: Row[] }) {
               <td className="td-base capitalize">{p.type||''}</td>
               <td className="td-base capitalize">{(p as any).paymentMethod || '—'}</td>
               <td className="td-base">{(p as any).voucherUrl ? <a href={(p as any).voucherUrl} target="_blank" rel="noreferrer" className="text-[#1877F2] hover:underline">Ver comprobante</a> : '—'}</td>
-              <td className="td-base">{moneyGlobal(p.amount)}</td>
+              <td className="td-base">{formatCurrency(Number((p as any).amountUsd ?? p.amount ?? 0), 'USD')}</td>
               <td className="td-base"><StatusBadge status={(p as any).status||''}/></td>
               <td className="td-base">{formatDate((p as any).paidAt||(p as any).createdAt||'')}</td>
             </tr>

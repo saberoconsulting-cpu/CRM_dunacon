@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Layout from '@/components/layout/Layout';
 import { Toaster, toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api, uploadFile } from '@/lib/api';
@@ -11,10 +11,41 @@ import ProjectsMap from '@/components/features/projects/ProjectsMap';
 export default function ProjectsPage() {
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
+  const [savingOrder, setSavingOrder] = useState(false);
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const dragged = useRef<number | null>(null);
+  const savingOrderRef = useRef(false);
+
+  async function moveProject(id: number, targetId: number) {
+    if (savingOrderRef.current || id === targetId) return;
+    const from = projects.findIndex(p => p.id === id);
+    const to = projects.findIndex(p => p.id === targetId);
+    if (from < 0 || to < 0) return;
+    const previous = projects;
+    const next = [...projects];
+    const [project] = next.splice(from, 1);
+    next.splice(to, 0, project);
+    savingOrderRef.current = true;
+    setSavingOrder(true);
+    setProjects(next);
+    try {
+      await api.post('/projects/reorder', { projectIds: next.map(p => p.id) });
+      toast('Orden de proyectos guardado');
+    } catch (e: any) {
+      setProjects(previous);
+      toast(e.message, 'err');
+    } finally {
+      savingOrderRef.current = false;
+      setSavingOrder(false);
+    }
+  }
+
   const [loading, setLoading] = useState(true);
   const [canEdit, setCanEdit] = useState(false);
   const [openCreate, setOpenCreate] = useState(false);
   const [editId, setEditId] = useState<number | null>(null);
+  const [savingProject, setSavingProject] = useState(false);
+  const savingProjectRef = useRef(false);
   const [openMap, setOpenMap] = useState(false);
   const [mapProjectId, setMapProjectId] = useState<number | null>(null);
   const [actionsProjectId, setActionsProjectId] = useState<number | null>(null);
@@ -33,22 +64,15 @@ export default function ProjectsPage() {
     if (p.latitude == null || p.longitude == null) toast('Este proyecto aún no tiene coordenadas en el mapa', 'err');
   }
 
-  async function crearProyecto() {
-    if (!form.name) return toast('Ingresa el nombre del proyecto', 'err');
-    try {
-      const created: any = await api.post('/projects', {
-        name: form.name, description: form.description || undefined, location: form.location || undefined,
-        latitude: form.latitude ? Number(form.latitude) : undefined,
-        longitude: form.longitude ? Number(form.longitude) : undefined,
-        referencePrice: form.referencePrice ? Number(form.referencePrice) : undefined,
-      });
-      if (cover) { await uploadFile(`/projects/cover/${created?.id || 1}`, cover); }
-      if (logo) { await uploadFile(`/projects/logo/${created?.id || 1}`, logo); }
-      if (planImage) { await uploadFile(`/plan/image/${created?.id || 1}`, planImage); }
-      toast('Proyecto creado');
-      setOpenCreate(false); setForm({}); setCover(null); setLogo(null); setPlanImage(null);
-      api.get<any>('/projects').then(setProjects).catch(() => {});
-    } catch (e: any) { toast(e.message, 'err'); }
+  function cerrarFormulario() {
+    if (savingProjectRef.current) return;
+    setOpenCreate(false); setEditId(null); setForm({});
+    setCover(null); setLogo(null); setPlanImage(null);
+  }
+
+  function abrirCreacion() {
+    setEditId(null); setForm({}); setCover(null); setLogo(null); setPlanImage(null);
+    setOpenCreate(true);
   }
 
   function abrirEdicion(p: Project) {
@@ -58,27 +82,55 @@ export default function ProjectsPage() {
       location: p.location || '',
       latitude: p.latitude != null ? String(p.latitude) : '',
       longitude: p.longitude != null ? String(p.longitude) : '',
-      referencePrice: p.referencePrice ? String(p.referencePrice) : '',
+      referencePrice: p.referencePrice != null ? String(p.referencePrice) : '',
     });
-    setEditId(p.id);
+    setCover(null); setLogo(null); setPlanImage(null);
+    setEditId(p.id); setOpenCreate(true);
   }
 
   async function guardarProyecto() {
-    if (!form.name) return toast('Ingresa el nombre', 'err');
+    if (savingProjectRef.current) return;
+    const name = String(form.name || '').trim();
+    if (!name) return toast('Ingresa el nombre del proyecto', 'err');
+    const numberOrUndefined = (value: unknown) => value == null || value === '' ? undefined : Number(value);
+    const payload = {
+      name,
+      description: form.description || '',
+      location: form.location || '',
+      latitude: numberOrUndefined(form.latitude),
+      longitude: numberOrUndefined(form.longitude),
+      referencePrice: numberOrUndefined(form.referencePrice),
+    };
+    if ([payload.latitude, payload.longitude, payload.referencePrice].some(value => value !== undefined && !Number.isFinite(value))) {
+      return toast('Revisa las coordenadas y el precio referencial', 'err');
+    }
+    const editing = editId != null;
+    savingProjectRef.current = true; setSavingProject(true);
     try {
-      await api.post(`/projects/update/${editId}`, {
-        name: form.name,
-        description: form.description || undefined,
-        location: form.location || undefined,
-        latitude: form.latitude ? Number(form.latitude) : undefined,
-        longitude: form.longitude ? Number(form.longitude) : undefined,
-      });
-      toast('Proyecto actualizado');
-      setEditId(null); setForm({});
-      api.get<any>('/projects').then(setProjects).catch(() => {});
+      const saved = await api.post<Project>(editing ? `/projects/update/${editId}` : '/projects', payload);
+      if (!saved?.id) throw new Error('No se recibio el proyecto guardado');
+      // Si falla una imagen, reintentar actualiza este mismo proyecto.
+      setEditId(saved.id);
+      setProjects(current => editing
+        ? current.map(project => project.id === saved.id ? { ...project, ...saved } : project)
+        : [...current, saved]);
+      if (cover) {
+        const updated = await uploadFile(`/projects/cover/${saved.id}`, cover);
+        setProjects(current => current.map(project => project.id === saved.id ? { ...project, coverImageUrl: updated.coverImageUrl } : project));
+        setCover(null);
+      }
+      if (logo) {
+        const updated = await uploadFile(`/projects/logo/${saved.id}`, logo);
+        setProjects(current => current.map(project => project.id === saved.id ? { ...project, logoImageUrl: updated.logoImageUrl } : project));
+        setLogo(null);
+      }
+      if (planImage) { await uploadFile(`/plan/image/${saved.id}`, planImage); setPlanImage(null); }
+      toast(editing ? 'Proyecto actualizado' : 'Proyecto creado');
+      setOpenCreate(false); setEditId(null); setForm({});
+      api.get<Project[]>('/projects').then(setProjects).catch(() => {});
     } catch (e: any) { toast(e.message, 'err'); }
+    finally { savingProjectRef.current = false; setSavingProject(false); }
   }
-
   async function reemplazarImagen(id: number, f?: File) {
     if (!f) return;
     try {
@@ -111,15 +163,43 @@ export default function ProjectsPage() {
         <p className="text-sm" style={{ color: BRAND.muted }}>Unidades comerciales activas y su avance comercial.</p>
         <div className="flex flex-wrap gap-2">
           <button className="btn-neutral" onClick={() => { setMapProjectId(null); setOpenMap(true); }}>Ver en el mapa</button>
-          {canEdit && <button className="btn-primary" onClick={() => setOpenCreate(true)}>Crear proyecto</button>}
+          {canEdit && <button className="btn-primary" onClick={abrirCreacion}>Crear proyecto</button>}
         </div>
       </div>
       {loading ? <p className="text-slate-400">Cargando…</p> : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">
-          {projects.map((p) => (
-            <div key={p.id} className="card overflow-hidden p-0">
+          {projects.map((p, index) => (
+            <div key={p.id}
+              draggable={canEdit && !savingOrder && actionsProjectId === null}
+              tabIndex={canEdit ? 0 : undefined}
+              aria-label={canEdit ? `${p.name}. Arrastra para cambiar el orden, o usa Alt y las flechas.` : undefined}
+              aria-busy={savingOrder}
+              className={`card overflow-hidden p-0 ${canEdit && !savingOrder ? 'cursor-grab active:cursor-grabbing' : ''} ${draggingId === p.id ? 'opacity-50 ring-2 ring-blue-500' : ''}`}
+              onDragStart={e => {
+                if (!canEdit || savingOrderRef.current || (e.target as HTMLElement).closest('button, a, input, label')) { e.preventDefault(); return; }
+                dragged.current = p.id;
+                setDraggingId(p.id);
+                setActionsProjectId(null);
+                e.dataTransfer.effectAllowed = 'move';
+                e.dataTransfer.setData('text/plain', String(p.id));
+              }}
+              onDragOver={e => {
+                if (canEdit && dragged.current !== null && !savingOrderRef.current) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }
+              }}
+              onDrop={e => {
+                e.preventDefault();
+                const id = dragged.current;
+                dragged.current = null; setDraggingId(null);
+                if (canEdit && id !== null) void moveProject(id, p.id);
+              }}
+              onDragEnd={() => { dragged.current = null; setDraggingId(null); }}
+              onKeyDown={e => {
+                if (e.target !== e.currentTarget || !canEdit || !e.altKey || savingOrderRef.current) return;
+                const offset = e.key === 'ArrowUp' || e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowDown' || e.key === 'ArrowRight' ? 1 : 0;
+                if (offset && projects[index + offset]) { e.preventDefault(); void moveProject(p.id, projects[index + offset].id); }
+              }}>
               <div className="h-36 bg-brand-gradient relative">
-                {p.coverImageUrl ? <img src={p.coverImageUrl} className="object-cover w-full h-full" alt="" /> : (
+                {p.coverImageUrl ? <img draggable={false} src={p.coverImageUrl} className="object-cover w-full h-full" alt="" /> : (
                   <div className="flex items-center justify-center h-full text-white text-4xl"><FiMap /></div>
                 )}
                 <span className="absolute left-2 top-2 badge text-xs bg-white/90 text-[#171717] flex items-center gap-1"><span className={`w-1.5 h-1.5 rounded-full ${p.status==='active'?'bg-emerald-500':'bg-slate-400'}`} /> {p.status === 'active' ? 'Activo' : 'Inactivo'}</span>
@@ -159,7 +239,7 @@ export default function ProjectsPage() {
                             onClick={() => { setActionsProjectId(null); abrirEdicion(p); }}
                           >
                             <FiEdit3 className="shrink-0" />
-                            <span className="truncate">Ubicacion</span>
+                            <span className="truncate">Editar</span>
                           </button>
                           <button
                             type="button"
@@ -189,7 +269,7 @@ export default function ProjectsPage() {
                   </div>
                 )}
                 {p.referencePrice && <div className="text-xs text-slate-400 mb-3">Precio ref: {formatMoney(p.referencePrice)}</div>}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     className={`${projectActionBase} bg-white hover:bg-slate-50`}
                     style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.blue }}
@@ -209,6 +289,9 @@ export default function ProjectsPage() {
                     <FiMap className="shrink-0" />
                     <span className="truncate">Proyecto</span>
                   </button>
+                  <button type="button" className={`${projectActionBase} bg-white hover:bg-slate-50`} style={{ borderColor: BRAND.border, borderRadius: 4, color: BRAND.blue }} onClick={() => router.push(`/projects/${p.id}/photos`)}>
+                    <FiCamera className="shrink-0" /><span className="truncate">Fotos</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -218,9 +301,10 @@ export default function ProjectsPage() {
       )}
       {openCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setOpenCreate(false)} />
+          <div className="absolute inset-0 bg-black/50" onClick={cerrarFormulario} />
           <div className="relative max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6">
-            <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Nuevo proyecto</h3>
+            <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>{editId != null ? 'Editar proyecto' : 'Nuevo proyecto'}</h3>
+            <fieldset disabled={savingProject}>
             <Field label="Nombre *"><input className="input" value={form.name || ''} onChange={(e) => setf('name', e.target.value)} /></Field>
             <Field label="Ubicación / dirección"><input className="input" value={form.location || ''} onChange={(e) => setf('location', e.target.value)} /></Field>
             <Field label="Descripción"><textarea className="input" value={form.description || ''} onChange={(e) => setf('description', e.target.value)} /></Field>
@@ -228,7 +312,7 @@ export default function ProjectsPage() {
               <Field label="Latitud (mapa)"><input className="input" value={form.latitude || ''} onChange={(e) => setf('latitude', e.target.value)} /></Field>
               <Field label="Longitud (mapa)"><input className="input" value={form.longitude || ''} onChange={(e) => setf('longitude', e.target.value)} /></Field>
             </div>
-            <Field label="Precio referencial (S/)"><input type="number" className="input" value={form.referencePrice || ''} onChange={(e) => setf('referencePrice', e.target.value)} /></Field>
+            <Field label="Precio referencial (US$)"><input type="number" className="input" value={form.referencePrice || ''} onChange={(e) => setf('referencePrice', e.target.value)} /></Field>
             <Field label="Logo"><input type="file" accept="image/*" className="block w-full min-w-0 max-w-full overflow-hidden text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium" onChange={(e) => setLogo(e.target.files?.[0] || null)} /></Field>
             <Field label="Portada"><input type="file" accept="image/*" className="block w-full min-w-0 max-w-full overflow-hidden text-sm file:mr-3 file:rounded-md file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium" onChange={(e) => setCover(e.target.files?.[0] || null)} /></Field>
             <Field label="Plano">
@@ -241,29 +325,10 @@ export default function ProjectsPage() {
                 <input type="file" accept="image/*,.jpg,.jpeg,.jpe,.png,.webp,.bmp,.gif,.jpng" className="hidden" onChange={(e) => setPlanImage(e.target.files?.[0] || null)} />
               </label>
             </Field>
+            </fieldset>
             <div className="flex justify-end gap-2 pt-2">
-              <button className="btn-neutral" onClick={() => { setOpenCreate(false); setPlanImage(null); }}>Cancelar</button>
-              <button className="btn-primary" onClick={crearProyecto}>Crear proyecto</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {editId != null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => { setEditId(null); setForm({}); }} />
-          <div className="relative bg-white rounded-2xl w-full max-w-lg p-6 max-h-[92vh] overflow-y-auto">
-            <h3 className="font-semibold mb-1" style={{ fontSize: 17 }}>Actualizar proyecto</h3>
-            <p className="text-xs text-slate-500 mb-5">Cambia dirección o coordenadas para ubicarlo en el mapa.</p>
-            <Field label="Nombre *"><input className="input" value={form.name || ''} onChange={(e) => setf('name', e.target.value)} /></Field>
-            <Field label="Ubicación / dirección"><input className="input" value={form.location || ''} onChange={(e) => setf('location', e.target.value)} /></Field>
-            <Field label="Descripción"><textarea className="input" value={form.description || ''} onChange={(e) => setf('description', e.target.value)} /></Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Latitud (mapa)"><input className="input" value={form.latitude || ''} onChange={(e) => setf('latitude', e.target.value)} /></Field>
-              <Field label="Longitud (mapa)"><input className="input" value={form.longitude || ''} onChange={(e) => setf('longitude', e.target.value)} /></Field>
-            </div>
-            <div className="flex justify-end gap-2 pt-4">
-              <button className="btn-neutral" onClick={() => { setEditId(null); setForm({}); }}>Cancelar</button>
-              <button className="btn-primary" onClick={guardarProyecto}>Guardar cambios</button>
+              <button className="btn-neutral" disabled={savingProject} onClick={cerrarFormulario}>Cancelar</button>
+              <button className="btn-primary" disabled={savingProject} onClick={guardarProyecto}>{savingProject ? 'Guardando...' : editId != null ? 'Guardar cambios' : 'Crear proyecto'}</button>
             </div>
           </div>
         </div>

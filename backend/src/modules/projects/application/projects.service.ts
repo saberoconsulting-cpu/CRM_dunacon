@@ -1,5 +1,6 @@
+import { randomUUID } from 'crypto';
 // modules/projects/application/projects.service.ts
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DeepPartial, IsNull, Not, In } from 'typeorm';
 import { ProjectEntity } from '../../../shared/infrastructure/entities/project.entity';
@@ -9,7 +10,7 @@ import { PlanEntity } from '../../../shared/infrastructure/entities/plan.entity'
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
 import { ProjectDocumentEntity } from '../../../shared/infrastructure/entities/project-document.entity';
 import { UserProjectEntity } from '../../../shared/infrastructure/entities/user-project.entity';
-import { uploadToCloudinary } from '../../../shared/infrastructure/upload/cloudinary.util';
+import { uploadProjectPhoto, deleteProjectPhoto, uploadToCloudinary } from '../../../shared/infrastructure/upload/cloudinary.util';
 import { CreateProjectDto } from './dto/create-project.dto';
 
 @Injectable()
@@ -84,7 +85,7 @@ export class ProjectsService {
       if (!allowed.length) return [];
       where.id = In(allowed);
     }
-    const projects = await this.projectRepo.find({ where, order: { createdAt: 'DESC' } });
+    const projects = await this.projectRepo.find({ where, order: { sortOrder: 'ASC', createdAt: 'DESC', id: 'DESC' } });
     const withStats = await Promise.all(
       projects.map(async (p) => {
         const [total, disponibles, reservados, adelantos, primeras, vendidos] =
@@ -100,6 +101,21 @@ export class ProjectsService {
       }),
     );
     return withStats;
+  }
+
+  async reorder(projectIds: number[], actorId: number) {
+    await this.projectRepo.manager.transaction(async manager => {
+      const repo = manager.getRepository(ProjectEntity);
+      const projects = await repo.createQueryBuilder('p').where('p.deletedAt IS NULL')
+        .orderBy('p.id', 'ASC').setLock('pessimistic_write').getMany();
+      const ids = new Set(projectIds);
+      if (ids.size !== projectIds.length || projects.length !== projectIds.length || projects.some(p => !ids.has(p.id))) {
+        throw new BadRequestException('La lista de proyectos ha cambiado. Recarga la pagina e intenta de nuevo.');
+      }
+      for (const [sortOrder, id] of projectIds.entries()) await repo.update(id, { sortOrder });
+      await manager.getRepository(AuditLogEntity).save({ userId: actorId, action: 'ORDENAR_PROYECTOS', entity: 'projects' });
+    });
+    return { ok: true };
   }
 
   async getOne(id: number) {
@@ -263,6 +279,60 @@ export class ProjectsService {
       publicId: saved.publicId,
       createdAt: saved.createdAt,
     };
+  }
+
+  private async checkPhotoAccess(projectId: number, user: { id: number; role: string }) {
+    if (user.role === 'agent' && !await this.userProjectRepo.exist({ where: { projectId, userId: user.id } })) {
+      throw new ForbiddenException('No tienes acceso a este proyecto');
+    }
+  }
+
+  async listPhotos(projectId: number, user: { id: number; role: string }) {
+    await this.checkPhotoAccess(projectId, user);
+    const project = await this.projectRepo.createQueryBuilder('p').addSelect('p.photos')
+      .where('p.id = :projectId AND p.deletedAt IS NULL', { projectId }).getOne();
+    if (!project) throw new NotFoundException('Proyecto no encontrado');
+    return project.photos || [];
+  }
+
+  async addPhoto(projectId: number, file: Express.Multer.File, user: { id: number; role: string }) {
+    await this.checkPhotoAccess(projectId, user);
+    if (!file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.mimetype)) {
+      throw new BadRequestException('Selecciona una foto JPG, PNG o WebP');
+    }
+    let uploaded: { secure_url: string; public_id: string } | undefined;
+    try {
+      return await this.projectRepo.manager.transaction(async manager => {
+        const repo = manager.getRepository(ProjectEntity);
+        const project = await repo.createQueryBuilder('p').addSelect('p.photos')
+          .setLock('pessimistic_write').where('p.id = :projectId AND p.deletedAt IS NULL', { projectId }).getOne();
+        if (!project) throw new NotFoundException('Proyecto no encontrado');
+        if ((project.photos || []).length >= 10) throw new BadRequestException('Ya tienes 10 fotos. Para reemplazar una, elimina una foto existente y sube la nueva.');
+        uploaded = await uploadProjectPhoto(file.buffer);
+        project.photos = [...(project.photos || []), { id: randomUUID(), url: uploaded.secure_url, publicId: uploaded.public_id, name: file.originalname }];
+        await repo.update(projectId, { photos: project.photos });
+        return project.photos;
+      });
+    } catch (error) {
+      if (uploaded) await deleteProjectPhoto(uploaded.public_id).catch(() => {});
+      throw error;
+    }
+  }
+
+  async removePhoto(projectId: number, photoId: string, user: { id: number; role: string }) {
+    await this.checkPhotoAccess(projectId, user);
+    return this.projectRepo.manager.transaction(async manager => {
+      const repo = manager.getRepository(ProjectEntity);
+      const project = await repo.createQueryBuilder('p').addSelect('p.photos')
+        .setLock('pessimistic_write').where('p.id = :projectId AND p.deletedAt IS NULL', { projectId }).getOne();
+      if (!project) throw new NotFoundException('Proyecto no encontrado');
+      const photo = (project.photos || []).find(p => p.id === photoId);
+      if (!photo) throw new NotFoundException('Foto no encontrada');
+      await deleteProjectPhoto(photo.publicId);
+      project.photos = project.photos.filter(p => p.id !== photoId);
+      await repo.update(projectId, { photos: project.photos });
+      return project.photos;
+    });
   }
 
   async dashboard(id: number) {

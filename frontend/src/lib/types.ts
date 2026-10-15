@@ -1,4 +1,4 @@
-﻿// src/lib/types.ts
+// src/lib/types.ts
 // Tipos compartidos del frontend alineados con el backend
 
 export type UserRole = 'superadmin' | 'admin' | 'agent';
@@ -191,10 +191,10 @@ export interface PaymentItem {
   note?: string;
 }
 
-// Utility para formatear moneda en Soles (Perú)
+// Los montos del CRM se muestran en dolares.
 export function formatMoney(n: number | string | undefined | null): string {
   const v = Number(n || 0);
-  return 'S/ ' + v.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  return 'US$ ' + v.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
 export function formatDate(iso?: string | null): string {

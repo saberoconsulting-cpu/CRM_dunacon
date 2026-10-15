@@ -1,7 +1,7 @@
 // modules/payments/application/payments.service.ts
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, EntityManager, Repository } from 'typeorm';
 import { PaymentEntity } from '../../../shared/infrastructure/entities/payment.entity';
 import { LotEntity } from '../../../shared/infrastructure/entities/lot.entity';
 import { LotStatusHistoryEntity } from '../../../shared/infrastructure/entities/lot-status-history.entity';
@@ -47,8 +47,11 @@ export class PaymentsService {
 
   async register(dto: CreatePaymentDto, actorId: number) {
     const lot = await this.lotRepo.findOne({ where: { id: dto.lotId } });
-    const clientRaw = dto.clientId ?? lot?.clientId ?? undefined;
-    const agentRaw = dto.agentId ?? lot?.agentId ?? undefined;
+    if (!lot) throw new BadRequestException('Lote no encontrado');
+    if (Number(lot.projectId) !== Number(dto.projectId)) throw new BadRequestException('El lote no pertenece al proyecto indicado');
+    const currentSale = await this.saleRepo.findOne({ where: { lotId: lot.id }, order: { id: 'DESC' } });
+    const clientRaw = currentSale?.clientId ?? lot.clientId ?? dto.clientId ?? undefined;
+    const agentRaw = currentSale?.agentId ?? lot.agentId ?? dto.agentId ?? undefined;
     const clientId = typeof clientRaw === 'number' ? clientRaw : undefined;
     const agentId = typeof agentRaw === 'number' ? agentRaw : undefined;
 
@@ -58,7 +61,24 @@ export class PaymentsService {
     // dejar el pago registrado sin su movimiento contable o sin actualizar el lote.
     let lotStatusChanged = false;
     const saved = await this.dataSource.transaction(async (manager) => {
+      // Serialize registration per lot so two requests cannot claim the same installment.
+      await manager.getRepository(LotEntity).findOne({ where: { id: dto.lotId }, lock: { mode: 'pessimistic_write' } });
       const concept = paymentConcept(dto.type);
+      let targetInstallment: SaleInstallmentEntity | null = null;
+      if (concept === 'cuota' && currentSale) {
+        const schedule = await manager.getRepository(SaleInstallmentEntity).find({ where: { saleId: currentSale.id }, order: { installmentNo: 'ASC' } });
+        const registered = await manager.getRepository(PaymentEntity).find({ where: { lotId: dto.lotId } });
+        const financingPayments = registered.filter(p => paymentConcept(p.type) === 'cuota');
+        const occupied = (inst: SaleInstallmentEntity) => !!inst.paymentId || financingPayments.some(p =>
+          (p.dueDate && String(p.dueDate).slice(0, 10) === String(inst.dueDate).slice(0, 10)) ||
+          Number(String(p.reference || '').match(/cuota\s*(?:n[.\s]*)?(\d+)/i)?.[1] || 0) === inst.installmentNo);
+        targetInstallment = schedule.find(inst => inst.status !== 'pagado' && !occupied(inst)) || null;
+        if (!targetInstallment) throw new BadRequestException('Todas las cuotas ya tienen un pago registrado. Revisa el historial y los pagos pendientes de aprobacion.');
+        if (dto.dueDate && String(dto.dueDate).slice(0, 10) !== String(targetInstallment.dueDate).slice(0, 10)) {
+          throw new BadRequestException('La cuota seleccionada ya cambio o tiene un pago registrado. Selecciona nuevamente el lote para cargar la siguiente cuota.');
+        }
+        if (Math.abs(Number(dto.amount) - Number(targetInstallment.amount)) > 0.01) throw new BadRequestException('El monto en US$ debe coincidir con la cuota pendiente del cronograma.');
+      }
       if (concept === 'reserva') {
         const existingReserva = await manager.getRepository(PaymentEntity).count({
           where: { lotId: dto.lotId, type: 'reserva' },
@@ -78,7 +98,7 @@ export class PaymentsService {
             { lotId: dto.lotId, type: 'cuota_inicial' },
           ],
         });
-        const alreadyRegistered = existingInitials.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+        const alreadyRegistered = existingInitials.reduce((sum, p) => sum + Number(p.amountUsd ?? p.amount ?? 0), 0);
         const pendingInitial = Math.max(0, cuotaInicialTotal - alreadyRegistered);
         if (existingInitials.length >= initialParts) {
           throw new BadRequestException(initialParts === 1
@@ -86,7 +106,7 @@ export class PaymentsService {
             : `La cuota inicial ya tiene sus ${initialParts} partes registradas. El siguiente pago debe ser una cuota del cronograma.`);
         }
         if (cuotaInicialTotal > 0 && alreadyRegistered + Number(dto.amount || 0) > cuotaInicialTotal + 0.01) {
-          throw new BadRequestException(`Este monto supera la cuota inicial pendiente. Falta registrar como maximo S/ ${pendingInitial.toFixed(2)} de cuota inicial.`);
+          throw new BadRequestException(`Este monto supera la cuota inicial pendiente. Falta registrar como maximo US$ ${pendingInitial.toFixed(2)} de cuota inicial.`);
         }
       }
 
@@ -104,8 +124,8 @@ export class PaymentsService {
         paidAt: dto.dueDate ? undefined : new Date(),
         note: dto.note,
         createdBy: actorId,
-        exchangeRate: dto.exchangeRate != null ? String(dto.exchangeRate) : null,
-        amountUsd: dto.amountUsd != null ? String(dto.amountUsd) : null,
+        exchangeRate: '1',
+        amountUsd: String(dto.amount),
         bankOperationNumber: dto.bankOperationNumber || null,
         receiptNumber: dto.receiptNumber || null,
         receiptValue: dto.receiptValue != null ? String(dto.receiptValue) : null,
@@ -117,11 +137,17 @@ export class PaymentsService {
         throw new Error('No se pudo registrar el pago');
       }
 
+      if (targetInstallment) {
+        await manager.update(SaleInstallmentEntity, { id: targetInstallment.id }, {
+          paymentId: savedPayment.id, status: savedPayment.status === 'pagado' ? 'pagado' : 'pendiente',
+        });
+      }
+
       // Finanzas solo debe reconocer dinero cobrado. Si el pago nace pendiente,
       // el ingreso se crea cuando se marque o apruebe como pagado.
       if (savedPayment.status === 'pagado') {
         const client = clientId ? await manager.findOne(ClientEntity, { where: { id: clientId } }) : null;
-        const agent = agentId ? await manager.findOne(UserEntity, { where: { id: agentId } }) : null;
+        const recordedBy = await manager.findOne(UserEntity, { where: { id: actorId } });
         await manager.save(FinancialTransactionEntity, {
           projectId: dto.projectId,
           lotId: dto.lotId,
@@ -132,8 +158,8 @@ export class PaymentsService {
           clientLabel: client?.fullName || null,
           paymentMethod: savedPayment.paymentMethod || null,
           paymentCategory: savedPayment.type,
-          classification: 'Venta de Lote',
-          agentName: agent?.name || null,
+          classification: 'Venta de lote',
+          agentName: recordedBy?.name || null,
           type: 'ingreso',
           category: dto.type,
           concept: `Pago ${dto.type} del lote ${lot?.code ?? ''}`,
@@ -326,43 +352,64 @@ export class PaymentsService {
   }
 
   async markPaid(paymentId: number) {
-    const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
-    if (!payment) return null;
-    payment.status = 'pagado';
-    payment.paidAt = new Date();
-    payment.dueDate = null;
-    const saved = await this.paymentRepo.save(payment);
-    await this.ensurePaymentIncome(saved);
-    this.gateway.emitToAll('payment.created', saved);
+    const saved = await this.dataSource.transaction(async manager => {
+      const repo = manager.getRepository(PaymentEntity);
+      const payment = await repo.findOne({ where: { id: paymentId }, lock: { mode: 'pessimistic_write' } });
+      if (!payment) return null;
+      await this.linkPaidInstallment(payment, manager);
+      payment.status = 'pagado'; payment.paidAt = payment.paidAt || new Date();
+      const result = await repo.save(payment);
+      await this.ensurePaymentIncome(result, undefined, manager);
+      return result;
+    });
+    if (saved) this.gateway.emitToAll('payment.created', saved);
     return saved;
   }
 
-  // Aprueba un pago pendiente: exige datos bancarios (operacion, boleta, valor)
-  // y marca el pago como pagado.
   async approve(paymentId: number, dto: ApprovePaymentDto, actorId: number) {
-    const payment = await this.paymentRepo.findOne({ where: { id: paymentId } });
-    if (!payment) throw new BadRequestException('Pago no encontrado');
-    payment.status = 'pagado';
-    payment.paidAt = new Date();
-    payment.dueDate = null;
-    payment.bankOperationNumber = dto.bankOperationNumber;
-    payment.receiptNumber = dto.receiptNumber;
-    payment.receiptValue = String(dto.receiptValue);
-    payment.approvedBy = actorId;
-    payment.approvedAt = new Date();
-    const saved = await this.paymentRepo.save(payment);
-    await this.ensurePaymentIncome(saved, actorId);
+    const saved = await this.dataSource.transaction(async manager => {
+      const repo = manager.getRepository(PaymentEntity);
+      const payment = await repo.findOne({ where: { id: paymentId }, lock: { mode: 'pessimistic_write' } });
+      if (!payment) throw new BadRequestException('Pago no encontrado');
+      await this.linkPaidInstallment(payment, manager);
+      payment.status = 'pagado'; payment.paidAt = payment.paidAt || new Date();
+      payment.bankOperationNumber = dto.bankOperationNumber; payment.receiptNumber = dto.receiptNumber;
+      payment.receiptValue = String(dto.receiptValue); payment.approvedBy = actorId; payment.approvedAt = new Date();
+      const result = await repo.save(payment);
+      await this.ensurePaymentIncome(result, actorId, manager);
+      return result;
+    });
     this.gateway.emitToAll('payment.created', saved);
     return saved;
   }
 
-  private async ensurePaymentIncome(payment: PaymentEntity, actorId?: number) {
-    const existing = await this.txnRepo.findOne({ where: { paymentId: payment.id, type: 'ingreso' } });
+  private async linkPaidInstallment(payment: PaymentEntity, manager: EntityManager) {
+    const installmentRepo = manager.getRepository(SaleInstallmentEntity);
+    const saleRepo = manager.getRepository(SaleEntity);
+    if (paymentConcept(payment.type) !== 'cuota') return;
+    const linked = await installmentRepo.findOne({ where: { paymentId: payment.id } });
+    if (linked) { await installmentRepo.update(linked.id, { status: 'pagado' }); return; }
+    const sale = await saleRepo.findOne({ where: { lotId: payment.lotId }, order: { id: 'DESC' } });
+    if (!sale) return;
+    const schedule = await installmentRepo.find({ where: { saleId: sale.id }, order: { installmentNo: 'ASC' } });
+    const number = Number(String(payment.reference || '').match(/cuota\s*(?:n[.\s]*)?(\d+)/i)?.[1] || 0);
+    const match = schedule.find(inst => !inst.paymentId && inst.status !== 'pagado' &&
+      ((payment.dueDate && String(payment.dueDate).slice(0, 10) === String(inst.dueDate).slice(0, 10)) || (number > 0 && number === inst.installmentNo)));
+    if (match) await installmentRepo.update(match.id, { paymentId: payment.id, status: 'pagado' });
+  }
+
+  private async ensurePaymentIncome(payment: PaymentEntity, actorId?: number, manager?: EntityManager) {
+    const txnRepo = manager ? manager.getRepository(FinancialTransactionEntity) : this.txnRepo;
+    const lotRepo = manager ? manager.getRepository(LotEntity) : this.lotRepo;
+    const clientRepo = manager ? manager.getRepository(ClientEntity) : this.clientRepo;
+    const userRepo = manager ? manager.getRepository(UserEntity) : this.userRepo;
+    const existing = await txnRepo.findOne({ where: { paymentId: payment.id, type: 'ingreso' } });
     if (existing) return existing;
-    const lot = payment.lotId ? await this.lotRepo.findOne({ where: { id: payment.lotId } }) : null;
-    const client = payment.clientId ? await this.clientRepo.findOne({ where: { id: payment.clientId } }) : null;
-    const agent = payment.agentId ? await this.userRepo.findOne({ where: { id: payment.agentId } }) : null;
-    return this.txnRepo.save({
+    const lot = payment.lotId ? await lotRepo.findOne({ where: { id: payment.lotId } }) : null;
+    const client = payment.clientId ? await clientRepo.findOne({ where: { id: payment.clientId } }) : null;
+    const recorderId = payment.createdBy ?? actorId;
+    const recordedBy = recorderId ? await userRepo.findOne({ where: { id: recorderId } }) : null;
+    return txnRepo.save({
       projectId: payment.projectId,
       lotId: payment.lotId,
       clientId: payment.clientId,
@@ -372,12 +419,12 @@ export class PaymentsService {
       clientLabel: client?.fullName || null,
       paymentMethod: payment.paymentMethod || null,
       paymentCategory: payment.type,
-      classification: 'Venta de Lote',
-      agentName: agent?.name || null,
+      classification: 'Venta de lote',
+      agentName: recordedBy?.name || null,
       type: 'ingreso',
       category: payment.type,
       concept: `Pago ${payment.type} del lote ${lot?.code ?? ''}`,
-      amount: payment.amount,
+      amount: payment.amountUsd ?? payment.amount,
       txnDate: payment.paidAt || new Date(),
     });
   }
@@ -551,7 +598,7 @@ export class PaymentsService {
         .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
         .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
         .select('COUNT(*)', 'count')
-        .addSelect('COALESCE(SUM(COALESCE(p.receipt_value, p.amount_usd, p.amount)),0)', 'amount')
+        .addSelect('COALESCE(SUM(COALESCE(p.amount_usd, p.amount, p.receipt_value)),0)', 'amount')
         .getRawOne(),
     ]);
 

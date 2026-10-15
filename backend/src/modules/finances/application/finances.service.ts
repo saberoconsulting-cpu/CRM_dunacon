@@ -197,15 +197,23 @@ export class FinancesService {
     page?: number;
     limit?: number;
   }) {
+    // El codigo conserva el ID del registro de origen y no depende de filtros o categorias.
+    const operationNumberSql = 't.operation_number';
     const applyFilters = (qb: any) => {
       if (filters.projectId) qb.andWhere('t.project_id = :projectId', { projectId: filters.projectId });
-      if (filters.type) qb.andWhere('t.type = :type', { type: filters.type });
+      if (filters.type === 'pago_lote') {
+        qb.andWhere('t.payment_id IS NOT NULL');
+      } else if (filters.type) {
+        qb.andWhere('t.type = :type', { type: filters.type });
+        if (filters.type === 'ingreso') qb.andWhere('t.payment_id IS NULL');
+      }
       if (filters.category) qb.andWhere('t.category = :category', { category: filters.category });
       if (filters.from) qb.andWhere('t.txn_date >= :from', { from: filters.from });
       if (filters.to) qb.andWhere('t.txn_date <= :to', { to: filters.to });
       if (filters.search) {
         qb.andWhere(
-          `(LOWER(t.concept) LIKE :term
+          `(LOWER(${operationNumberSql}) LIKE :term
+            OR LOWER(t.concept) LIKE :term
             OR LOWER(t.category) LIKE :term
             OR LOWER(COALESCE(l.code, '')) LIKE :term
             OR LOWER(COALESCE(c.full_name, '')) LIKE :term
@@ -215,7 +223,7 @@ export class FinancesService {
             OR LOWER(COALESCE(t.payment_category, '')) LIKE :term
             OR LOWER(COALESCE(t.category_code, '')) LIKE :term
             OR LOWER(COALESCE(t.classification, '')) LIKE :term
-            OR LOWER(COALESCE(t.agent_name, '')) LIKE :term
+            OR LOWER(COALESCE(recorder.name, t.agent_name, '')) LIKE :term
             OR LOWER(COALESCE(p.payment_method, '')) LIKE :term)`,
           { term: `%${filters.search.toLowerCase()}%` },
         );
@@ -229,8 +237,11 @@ export class FinancesService {
           .leftJoin('lots', 'l', 'l.id = t.lot_id')
           .leftJoin('clients', 'c', 'c.id = t.client_id')
           .leftJoin('payments', 'p', 'p.id = t.payment_id')
+          .leftJoin('users', 'recorder', 'recorder.id = p.created_by')
           .select('t.id', 'id')
           .addSelect('t.project_id', 'projectId')
+          .addSelect('t.payment_id', 'paymentId')
+          .addSelect(operationNumberSql, 'operationNumber')
           .addSelect('t.lot_id', 'lotId')
           .addSelect('t.client_id', 'clientId')
           .addSelect('t.lot_label', 'lotLabel')
@@ -240,18 +251,12 @@ export class FinancesService {
           .addSelect('t.category_code', 'categoryCode')
           .addSelect('t.classification', 'classification')
           .addSelect('t.agent_name', 'agentName')
+          .addSelect('recorder.name', 'paymentRecorderName')
           .addSelect('t.type', 'type')
           .addSelect('t.category', 'category')
           .addSelect('t.concept', 'concept')
           .addSelect('t.amount', 'amount')
           .addSelect('t.txn_date', 'txnDate')
-          .addSelect(
-            `ROW_NUMBER() OVER (
-              PARTITION BY t.project_id, t.type, COALESCE(NULLIF(t.category_code, ''), t.category)
-              ORDER BY t.id ASC
-            )`,
-            'operationSeq',
-          )
           .addSelect('l.code', 'lotCode')
           .addSelect('c.full_name', 'clientName')
           .addSelect('p.payment_method', 'paymentMethod'),
@@ -262,7 +267,8 @@ export class FinancesService {
         this.txnRepo.createQueryBuilder('t')
           .leftJoin('lots', 'l', 'l.id = t.lot_id')
           .leftJoin('clients', 'c', 'c.id = t.client_id')
-          .leftJoin('payments', 'p', 'p.id = t.payment_id'),
+          .leftJoin('payments', 'p', 'p.id = t.payment_id')
+          .leftJoin('users', 'recorder', 'recorder.id = p.created_by'),
       );
 
     const totals = await buildTotalsQuery()
@@ -295,12 +301,14 @@ export class FinancesService {
   }
 
   private mapTransactionRow(r: any) {
-    const code = String(r.categoryCode || '').trim().toUpperCase();
+    const paymentId = r.paymentId != null ? Number(r.paymentId) : null;
     const fallback = r.type === 'ingreso' ? 'I' : 'E';
-    const operationSeq = Number(r.operationSeq || 0);
+
     return {
       id: Number(r.id),
-      operationNumber: `${code || fallback}${operationSeq || Number(r.id)}`,
+      paymentId,
+      displayType: paymentId != null ? 'Pago de lote' : r.type === 'ingreso' ? 'Ingreso' : 'Egreso',
+      operationNumber: r.operationNumber || (paymentId != null ? `P${paymentId}` : `${fallback}${Number(r.id)}`),
       projectId: r.projectId != null ? Number(r.projectId) : null,
       lotId: r.lotId != null ? Number(r.lotId) : null,
       clientId: r.clientId != null ? Number(r.clientId) : null,
@@ -309,8 +317,8 @@ export class FinancesService {
       paymentMethod: r.txnPaymentMethod || r.paymentMethod || null,
       paymentCategory: r.paymentCategory || null,
       categoryCode: r.categoryCode || null,
-      classification: r.classification || null,
-      agentName: r.agentName || null,
+      classification: paymentId != null ? 'Venta de lote' : r.classification || null,
+      agentName: paymentId != null ? r.paymentRecorderName || null : r.agentName || null,
       type: r.type,
       category: r.category,
       concept: r.concept,

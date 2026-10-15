@@ -1,6 +1,8 @@
+import { ReorderProjectsDto } from '../application/dto/reorder-projects.dto';
 // modules/projects/interface/projects.controller.ts
 import {
   Body,
+  Delete,
   Controller,
   Get,
   Param,
@@ -47,6 +49,24 @@ export class ProjectsController {
     return this.projectsService.listDocuments(id);
   }
 
+  @Get(':id/photos')
+  listPhotos(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.projectsService.listPhotos(id, user);
+  }
+
+  @Post(':id/photos')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
+  addPhoto(@Param('id', ParseIntPipe) id: number, @UploadedFile() file: Express.Multer.File, @CurrentUser() user: AuthUser) {
+    return this.projectsService.addPhoto(id, file, user);
+  }
+
+  @Delete(':id/photos/:photoId')
+  @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
+  removePhoto(@Param('id', ParseIntPipe) id: number, @Param('photoId') photoId: string, @CurrentUser() user: AuthUser) {
+    return this.projectsService.removePhoto(id, photoId, user);
+  }
+
   @Get(':id')
   getOne(@Param('id', ParseIntPipe) id: number) {
     return this.projectsService.getOne(id);
@@ -56,6 +76,12 @@ export class ProjectsController {
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
   create(@Body() dto: CreateProjectDto, @CurrentUser('id') actorId: number) {
     return this.projectsService.create(dto, actorId);
+  }
+
+  @Post('reorder')
+  @Roles(UserRole.SUPERADMIN)
+  reorder(@Body() dto: ReorderProjectsDto, @CurrentUser('id') actorId: number) {
+    return this.projectsService.reorder(dto.projectIds, actorId);
   }
 
   @Post('update/:id')

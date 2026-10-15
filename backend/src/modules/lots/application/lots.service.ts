@@ -100,7 +100,7 @@ export class LotsService {
       code: r.l_code,
       address: r.l_address || r.catalogAddress || null,
       areaM2: Number(r.l_area_m2),
-      price: Number(r.l_price || 0) || Number(r.catalogPriceM2 || 0),
+      price: r.catalogPriceM2 != null ? Number(r.catalogPriceM2) : Number(r.l_price || 0),
       status: r.l_status,
       sellingStage: r.sellingStage || undefined,
       clientId: r.saleClientId ? Number(r.saleClientId) : (r.l_client_id ? Number(r.l_client_id) : null),
@@ -109,7 +109,7 @@ export class LotsService {
       clientName: r.saleClientName || r.clientName || null,
       type: r.type || r.catalogType || null,
       dimensions: r.dimensions || r.catalogDimensions || null,
-      salePrice: r.salePrice != null ? Number(r.salePrice) : (Number(r.catalogSalePrice || 0) || null),
+      salePrice: r.catalogSalePrice != null ? Number(r.catalogSalePrice) : (r.salePrice != null ? Number(r.salePrice) : null),
       finalPrice: r.saleFinalPrice != null ? Number(r.saleFinalPrice) : (r.finalPrice != null ? Number(r.finalPrice) : (Number(r.catalogFinalPrice || 0) || null)),
       planVoucherUrl: r.l_plan_voucher_url || null,
       streetName: r.streetName || null,
@@ -166,7 +166,7 @@ export class LotsService {
     if (!plan && lot.projectId) plan = await this.planRepo.findOne({ where: { projectId: lot.projectId } });
     const totalPaid = payments
       .filter((p) => p.status === 'pagado')
-      .reduce((s, p) => s + Number(p.amount), 0);
+      .reduce((s, p) => s + Number(p.amountUsd ?? p.amount), 0);
     const catalog = await this.lotCatalogRepo.findOne({ where: { projectId: lot.projectId, code: lot.code } }).catch(() => null);
     const sale = await this.lotRepo.manager.getRepository(SaleEntity).findOne({
       where: { lotId: lot.id },
@@ -180,8 +180,8 @@ export class LotsService {
       type: lot.type || catalog?.type || undefined,
       dimensions: lot.dimensions || catalog?.dimensions || undefined,
       areaM2: Number(lot.areaM2 || 0) || Number(catalog?.areaM2 || 0),
-      price: Number(lot.price || 0) || Number(catalog?.priceM2 || 0),
-      salePrice: lot.salePrice != null ? Number(lot.salePrice) : Number(catalog?.salePrice || 0) || null,
+      price: catalog ? Number(catalog.priceM2) : Number(lot.price || 0),
+      salePrice: catalog ? Number(catalog.salePrice) : (lot.salePrice != null ? Number(lot.salePrice) : null),
       finalPrice: sale?.salePrice != null ? Number(sale.salePrice) : (lot.finalPrice != null ? Number(lot.finalPrice) : Number(catalog?.finalPrice || 0) || null),
       clientName: saleClient?.fullName || client?.fullName || null,
       clientId: sale?.clientId || lot.clientId || null,

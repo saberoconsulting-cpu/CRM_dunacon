@@ -108,7 +108,6 @@ export default function CotizacionDocPage() {
   const { quote, lot, block, project } = data;
   const lotAddress = lot?.address || block?.address || lot?.streetAddress || lot?.blockAddress || '—';
   const rate = Number(quote.exchangeRate);
-  const toPen = (usd: number) => usd * rate;
   const saldoAFinanciar = Math.max(0, Number(quote.finalPriceUsd) - Number(quote.cuotaInicialUsd));
   const grace = scheduleData || {};
   const initialPlan = grace.initialPlan;
@@ -240,14 +239,14 @@ export default function CotizacionDocPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[340px] text-sm">
                 <thead><tr className="text-left text-slate-500">
-                  <th className="py-1">Concepto</th><th className="py-1 text-right">US$</th><th className="py-1 text-right">S/</th>
+                  <th className="py-1">Concepto</th><th className="py-1 text-right">US$</th>
                 </tr></thead>
                 <tbody>
                   {resumen.map(([label, usd]) => (
                     <tr key={label} className="border-t" style={{ borderColor: '#F0F1F3' }}>
                       <td className="py-1.5">{label}</td>
                       <td className="py-1.5 text-right tabular-nums">{fmtUsd(usd)}</td>
-                      <td className="py-1.5 text-right tabular-nums">{fmtPen(toPen(usd))}</td>
+
                     </tr>
                   ))}
                 </tbody>
@@ -283,35 +282,11 @@ export default function CotizacionDocPage() {
                         <span className="finance-label">Valor cuota con intereses</span>
                         <b className="finance-value">{fmtUsd(Number(quote.valorCuotaUsd || 0))}</b>
                       </td>
-                      <td className="finance-cell">
-                        <span className="finance-label">Tipo cambio</span>
-                        <b className="finance-value">S/ {rate.toFixed(4)}</b>
-                      </td>
                     </tr>
                   </tbody>
                 </table>
               </div>
             )}
-            <p className="text-xs text-slate-400 mt-1">Tipo de cambio referencial: S/ {rate.toFixed(4)} por US$ 1.00</p>
-
-          <div className="px-0 pb-6 sm:px-0 rate-control">
-            <h3 className="font-semibold text-sm text-slate-700 mb-2">Actualizar tipo de cambio</h3>
-            <div className="flex flex-wrap items-end gap-2">
-              <label className="text-xs text-slate-500">
-                S/ por US$
-                <input
-                  type="number"
-                  step="0.01"
-                  className="input mt-1 !w-32"
-                  value={rateInput}
-                  onChange={(e) => setRateInput(e.target.value)}
-                />
-              </label>
-              <button type="button" className="btn-primary !h-9 text-xs" disabled={saving} onClick={updateRate}>
-                {saving ? 'Actualizando…' : 'Actualizar y recalcular'}
-              </button>
-            </div>
-          </div>
 
           {quote.paymentMethod === 'credito' && grace.graceMonths > 0 && (
             <div className="px-4 pb-6 sm:px-6">
@@ -368,7 +343,7 @@ export default function CotizacionDocPage() {
                     <tr className="text-left text-slate-500">
                       <th className="py-1">Parte</th>
                       <th className="py-1 text-right">Monto US$</th>
-                      <th className="py-1 text-right">Monto S/</th>
+
                       <th className="py-1 text-right">Fecha</th>
                     </tr>
                   </thead>
@@ -377,14 +352,14 @@ export default function CotizacionDocPage() {
                       <tr key={parte.numero} className="border-t" style={{ borderColor: '#F0F1F3' }}>
                         <td className="py-1.5">{parte.numero} de {initialPlan.partes}</td>
                         <td className="py-1.5 text-right tabular-nums">{fmtUsd(parte.monto)}</td>
-                        <td className="py-1.5 text-right tabular-nums">{fmtPen(toPen(parte.monto))}</td>
+
                         <td className="py-1.5 text-right tabular-nums">{fmtDate(parte.fecha)}</td>
                       </tr>
                     ))}
                     <tr className="border-t font-semibold" style={{ borderColor: '#E5E7EB' }}>
                       <td className="py-1.5">Total inicial</td>
                       <td className="py-1.5 text-right tabular-nums">{fmtUsd(initialPlan.totalPagado)}</td>
-                      <td className="py-1.5 text-right tabular-nums">{fmtPen(toPen(initialPlan.totalPagado))}</td>
+
                       <td className="py-1.5 text-right tabular-nums">—</td>
                     </tr>
                   </tbody>
