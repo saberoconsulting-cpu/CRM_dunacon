@@ -89,7 +89,9 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
     const totalPrice = items.reduce((s, l) => s + Number(l.price || 0), 0);
     const totalVenta = items.reduce((s, l) => s + Number(l.salePrice || 0), 0);
     const totalFinal = items.reduce((s, l) => s + Number(l.finalPrice || 0), 0);
-    return { totalArea, totalPrice, totalVenta, totalFinal };
+    const lotsWithPrice = items.filter((l) => Number(l.price || 0) > 0);
+    const avgPriceM2 = lotsWithPrice.length ? totalPrice / lotsWithPrice.length : 0;
+    return { totalArea, totalPrice, totalVenta, totalFinal, avgPriceM2 };
   }
 
   type Group = { key: string; blockName: string; blockAddress: string | null; items: Lot[] };
@@ -142,7 +144,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
         <td>${items.length}</td>
         <td colspan="2">Totales</td>
         <td class="num">${t.totalArea.toLocaleString('es-PE')} m²</td>
-        <td class="num">${t.totalPrice ? `${formatLotMoney(t.totalPrice)}/m²` : '—'}</td>
+        <td class="num">${t.avgPriceM2 ? `${formatLotMoney(t.avgPriceM2)}/m²` : '—'}</td>
         <td class="num">${formatLotMoney(t.totalVenta)}</td>
         <td class="num">${formatLotMoney(t.totalFinal)}</td>
         <td colspan="2"></td>
@@ -270,18 +272,18 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
         )}
 
         <div className="overflow-x-auto">
-          <table className="table-base table-head-plomo text-[12px]" style={{ width: '100%', minWidth: 1068, tableLayout: 'fixed' }}>
+          <table className="table-base table-head-plomo text-[12px]" style={{ width: '100%', minWidth: 1108, tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: '68px' }} />
-              <col style={{ width: '130px' }} />
+              <col style={{ width: '190px' }} />
               <col style={{ width: '74px' }} />
               <col style={{ width: '74px' }} />
               <col style={{ width: '96px' }} />
               <col style={{ width: '106px' }} />
               <col style={{ width: '106px' }} />
               <col style={{ width: '92px' }} />
-              <col style={{ width: '150px' }} />
-              <col style={{ width: '172px' }} />
+              <col style={{ width: '140px' }} />
+              <col style={{ width: '162px' }} />
             </colgroup>
             <thead><tr>
               <th className="th-base !px-2" style={{ textAlign: 'left' }}>Lote</th>
@@ -338,7 +340,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
                 <td className="td-base !px-2 font-bold text-white" style={{ textAlign: 'left' }}>{items.length}</td>
                 <td className="td-base !px-2 font-bold text-white" colSpan={2} style={{ textAlign: 'left' }}>Totales</td>
                 <td className="td-base !px-2 text-center font-bold text-white tabular-nums" style={{ textAlign: 'center' }}>{t.totalArea.toLocaleString('es-PE')} m²</td>
-                <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{t.totalPrice ? `${formatLotMoney(t.totalPrice)}/m²` : '—'}</td>
+                <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{t.avgPriceM2 ? `${formatLotMoney(t.avgPriceM2)}/m²` : '—'}</td>
                 <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatLotMoney(t.totalVenta)}</td>
                 <td className="td-base !px-2 font-bold text-white tabular-nums" style={{ textAlign: 'right' }}>{formatLotMoney(t.totalFinal)}</td>
                 <td className="td-base" colSpan={3}></td>

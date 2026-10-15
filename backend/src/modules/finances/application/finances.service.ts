@@ -245,6 +245,13 @@ export class FinancesService {
           .addSelect('t.concept', 'concept')
           .addSelect('t.amount', 'amount')
           .addSelect('t.txn_date', 'txnDate')
+          .addSelect(
+            `ROW_NUMBER() OVER (
+              PARTITION BY t.project_id, t.type, COALESCE(NULLIF(t.category_code, ''), t.category)
+              ORDER BY t.id ASC
+            )`,
+            'operationSeq',
+          )
           .addSelect('l.code', 'lotCode')
           .addSelect('c.full_name', 'clientName')
           .addSelect('p.payment_method', 'paymentMethod'),
@@ -288,8 +295,12 @@ export class FinancesService {
   }
 
   private mapTransactionRow(r: any) {
+    const code = String(r.categoryCode || '').trim().toUpperCase();
+    const fallback = r.type === 'ingreso' ? 'I' : 'E';
+    const operationSeq = Number(r.operationSeq || 0);
     return {
       id: Number(r.id),
+      operationNumber: `${code || fallback}${operationSeq || Number(r.id)}`,
       projectId: r.projectId != null ? Number(r.projectId) : null,
       lotId: r.lotId != null ? Number(r.lotId) : null,
       clientId: r.clientId != null ? Number(r.clientId) : null,

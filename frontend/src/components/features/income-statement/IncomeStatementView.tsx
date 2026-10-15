@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { FiAlertTriangle, FiBarChart2, FiChevronDown, FiChevronRight, FiDollarSign, FiDownload, FiEdit3, FiFileText, FiGrid, FiMapPin, FiPlus, FiRefreshCw, FiTrendingUp, FiX } from 'react-icons/fi';
+import { FiAlertTriangle, FiBarChart2, FiChevronDown, FiChevronRight, FiDollarSign, FiDownload, FiEdit3, FiFileText, FiGrid, FiPlus, FiRefreshCw, FiTrendingUp, FiX } from 'react-icons/fi';
 import { Toaster, toast, Field } from '@/components/ui/ui';
 import { Select } from '@/components/ui/Select';
 import { KpiCard as SharedKpiCard } from '@/components/ui/Metrics';
@@ -557,15 +557,6 @@ function KpiCard({ label, value, helper, icon, color = BLUE }: { label: string; 
       icon={icon}
       tone={color}
     />
-  );
-}
-
-function MetricPill({ label, value, color = BLUE }: { label: string; value: string; color?: string }) {
-  return (
-    <div className="min-w-0 rounded-md border bg-white px-3 py-2 sm:px-4 sm:py-2.5" style={{ borderColor: BORDER }}>
-      <p className="truncate text-[10px] font-semibold uppercase leading-tight tracking-wide sm:text-xs" style={{ color: MUTED }} title={label}>{label}</p>
-      <p className="mt-0.5 truncate text-center text-sm font-bold tabular-nums sm:text-base" style={{ color }} title={value}>{value}</p>
-    </div>
   );
 }
 
@@ -1218,6 +1209,105 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     return (lineProjected[row.line] || 0) * (itemRealAmount(row.item) / itemsInLine);
   }
 
+  const statementCards = [
+    {
+      label: 'Ingreso Proyectado',
+      value: showUsdBase(lineProjected.ingreso || 0),
+      helper: 'Ingreso por venta de lotes - Prov. US$',
+      icon: <FiDollarSign />,
+      color: BLUE,
+      pdfTone: BLUE,
+    },
+    {
+      label: 'Costo de Ventas Proy.',
+      value: showUsdBase(lineProjected.costo || 0),
+      helper: 'Costo de venta de lotes - Prov. US$',
+      icon: <FiBarChart2 />,
+      color: GREEN,
+      pdfTone: GREEN,
+    },
+    {
+      label: 'Gasto de Ventas y Adm',
+      value: showUsdBase(lineProjected.ventas_admin || 0),
+      helper: 'Gastos de ventas y administrativos - Prov. US$',
+      icon: <FiGrid />,
+      color: BLUE_DARK,
+      pdfTone: BLUE_DARK,
+    },
+    {
+      label: 'FECHA DE REPORTE',
+      value: new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' }),
+      helper: 'Fecha de reporte',
+      icon: <FiFileText />,
+      color: INK,
+      pdfTone: INK,
+    },
+    {
+      label: 'Avance de Ventas %',
+      value: pct(lineProjected.ingreso > 0 ? ((rowReal['line-ingreso'] || 0) / lineProjected.ingreso) * 100 : 0),
+      helper: 'Ingreso Real / Ingreso Proyectado',
+      icon: <FiTrendingUp />,
+      color: '#7C3AED',
+      pdfTone: '#7C3AED',
+    },
+    {
+      label: 'Utilidad Ajustada Proy.',
+      value: showUsdBase(projectedComputed.adjusted || 0),
+      helper: 'Utilidad ajustada referencial - Prov. US$',
+      icon: <FiFileText />,
+      color: (projectedComputed.adjusted || 0) >= 0 ? BLUE : RED,
+      pdfTone: (projectedComputed.adjusted || 0) >= 0 ? BLUE : RED,
+    },
+    {
+      label: 'INGRESO REAL',
+      value: showUsdBase(rowReal['line-ingreso'] || 0),
+      helper: 'Ingresos de la operación diaria (transacciones)',
+      icon: <FiDollarSign />,
+      color: GREEN,
+      pdfTone: GREEN,
+    },
+    {
+      label: 'Costo de Ventas',
+      value: showUsdBase(rowReal['line-costo'] || 0),
+      helper: `Margen neto ${pct(report.margin)}`,
+      icon: <FiBarChart2 />,
+      color: BLUE,
+      pdfTone: BLUE,
+    },
+    {
+      label: 'Gasto de Ventas y Adm',
+      value: `${report.soldLots}/${lots.length}`,
+      helper: 'Conteo desde lotizacion.',
+      icon: <FiGrid />,
+      color: BLUE_DARK,
+      pdfTone: BLUE_DARK,
+    },
+    {
+      label: 'Gastos Financieros',
+      value: showUsdBase(rowReal['line-financiero'] || 0),
+      helper: project?.location || 'Ubicacion del proyecto',
+      icon: <FiFileText />,
+      color: '#7C3AED',
+      pdfTone: '#7C3AED',
+    },
+    {
+      label: 'Utilidad Neta Real',
+      value: showUsdBase(rowReal.net || 0),
+      helper: 'Utilidad neta - Real US$',
+      icon: <FiTrendingUp />,
+      color: (rowReal.net || 0) >= 0 ? BLUE_DARK : RED,
+      pdfTone: (rowReal.net || 0) >= 0 ? BLUE_DARK : RED,
+    },
+    {
+      label: 'Utilidad Ajustada Real',
+      value: showUsdBase(rowReal.adjusted || 0),
+      helper: project?.location || 'Ubicacion del proyecto',
+      icon: <FiTrendingUp />,
+      color: (rowReal.adjusted || 0) >= 0 ? BLUE_DARK : RED,
+      pdfTone: (rowReal.adjusted || 0) >= 0 ? BLUE_DARK : RED,
+    },
+  ];
+
   const projectedChartData = [
     { name: 'Ingresos', value: lineProjected.ingreso, color: GREEN },
     { name: 'Costo venta', value: lineProjected.costo, color: BLUE },
@@ -1406,12 +1496,12 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     const projectName = project?.name || `Proyecto ${projectId}`;
     const today = new Date().toLocaleString('es-PE', { dateStyle: 'long', timeStyle: 'short' });
 
-    const cards: Array<{ label: string; value: string; helper: string; tone: string }> = [
-      { label: 'Ingreso real', value: showUsdBase(report.realRevenue), helper: 'Ingresos de la operacion diaria (transacciones)', tone: GREEN },
-      { label: 'Utilidad neta', value: showUsdBase(report.netProfit), helper: `Margen neto ${pct(report.margin)}`, tone: report.netProfit >= 0 ? BLUE : RED },
-      { label: 'Lotes vendidos', value: `${report.soldLots}/${lots.length}`, helper: 'Conteo desde lotizacion', tone: BLUE_DARK },
-      { label: 'Area vendible', value: `${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 0 })} m2`, helper: project?.location || 'Ubicacion del proyecto', tone: '#7C3AED' },
-    ];
+    const cards: Array<{ label: string; value: string; helper: string; tone: string }> = statementCards.map((card) => ({
+      label: card.label,
+      value: card.value,
+      helper: card.helper,
+      tone: card.pdfTone,
+    }));
     const pills: Array<{ label: string; value: string }> = [
       { label: 'Precio proyectado m2', value: showUsdBase(report.projectedM2) },
       { label: 'Ingreso real m2', value: showUsdBase(report.realM2) },
@@ -1537,12 +1627,6 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3 border-t bg-[#F8FAFC] p-4 xl:grid-cols-4" style={{ borderColor: BORDER }}>
-            <MetricPill label="Precio proyectado m2" value={showUsdBase(report.projectedM2)} />
-            <MetricPill label="Ingreso real m2" value={showUsdBase(report.realM2)} color={GREEN} />
-            <MetricPill label="Area venta m2" value={`${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 2 })} m2`} color={BLUE_DARK} />
-            <MetricPill label="Fecha de reporte" value={new Date().toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' })} color={INK} />
-          </div>
         </section>
 
         {dynamicCashflow?.bankSync?.stale && (
@@ -1566,11 +1650,10 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
           </section>
         )}
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          <KpiCard label="Ingreso real" value={showUsdBase(report.realRevenue)} helper="Ingresos de la operación diaria (transacciones)" icon={<FiDollarSign />} color={GREEN} />
-          <KpiCard label="Utilidad neta" value={showUsdBase(report.netProfit)} helper={`Margen neto ${pct(report.margin)}`} icon={<FiTrendingUp />} color={report.netProfit >= 0 ? BLUE : RED} />
-          <KpiCard label="Lotes vendidos" value={`${report.soldLots}/${lots.length}`} helper="Conteo desde lotizacion" icon={<FiGrid />} color={BLUE_DARK} />
-          <KpiCard label="Area vendible" value={`${report.totalArea.toLocaleString('es-PE', { maximumFractionDigits: 0 })} m2`} helper={project?.location || 'Ubicacion del proyecto'} icon={<FiMapPin />} color="#7C3AED" />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
+          {statementCards.map((card) => (
+            <KpiCard key={card.label} label={card.label} value={card.value} helper={card.helper} icon={card.icon} color={card.color} />
+          ))}
         </div>
 
         {/* El cuadro se apila hasta 1023px: en tablets el panel lateral ya no

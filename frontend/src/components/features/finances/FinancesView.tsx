@@ -11,7 +11,7 @@ import { FiEdit3, FiSearch, FiTrash2, FiX } from 'react-icons/fi';
 type T = {
   id: number; type: string; category: string; concept: string; amount: string; txnDate: string; projectId?: number | null;
   lotId?: number | null; clientId?: number | null; lotCode?: string | null; clientName?: string | null; paymentMethod?: string | null;
-  paymentCategory?: string | null; categoryCode?: string | null; classification?: string | null; agentName?: string | null;
+  paymentCategory?: string | null; categoryCode?: string | null; classification?: string | null; agentName?: string | null; operationNumber?: string | null;
 };
 
 type BankMovement = {
@@ -92,12 +92,22 @@ function usd(value: number) {
   return Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function usd0(value: number) {
+  return Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+
 function compactUsd(value: number) {
   return `US$ ${Math.round(Number(value || 0)).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
 function num(value: unknown) {
   return Number(value || 0) || 0;
+}
+
+function numericText(value: unknown) {
+  const normalized = String(value ?? '').replace('%', '').replace(',', '.').trim();
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function plainText(value: unknown) {
@@ -123,6 +133,28 @@ function cashflowTotal(model: any, id: string) {
   const rows = Array.isArray(model?.rows) ? model.rows : [];
   const row = rows.find((item: any) => item?.id === id);
   return Array.isArray(row?.values) ? row.values.reduce((sum: number, value: unknown) => sum + num(value), 0) : 0;
+}
+
+function teaToTem(tea: unknown) {
+  const teaValue = numericText(tea);
+  const annualRate = (teaValue > 0 && teaValue < 1 ? teaValue * 100 : teaValue) / 100;
+  if (annualRate <= 0) return 0;
+  return (Math.pow(1 + annualRate, 1 / 12) - 1) * 100;
+}
+
+function monthsBetweenDates(from?: string | null, to?: string | null) {
+  if (!from || !to) return 0;
+  const start = new Date(from);
+  const end = new Date(to);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end < start) return 0;
+  const days = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+  return Math.max(0, days / 30);
+}
+
+function loanMonths(value: number) {
+  if (value <= 0) return '0';
+  if (value < 1) return value.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return value.toLocaleString('es-PE', { maximumFractionDigits: 2 });
 }
 
 function firstPositive(...values: number[]) {
@@ -265,8 +297,6 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         const q = new URLSearchParams();
         q.set('projectId', String(lockedProjectId));
         q.set('accountKey', account.accountKey);
-        if (loanFrom) q.set('from', loanFrom);
-        if (loanTo) q.set('to', loanTo);
         return api.get<any>(`/bank-accounts?${q.toString()}`).catch(() => ({ items: [] }));
       }));
       setLoanRows(responses
@@ -278,7 +308,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     } finally {
       setLoanLoading(false);
     }
-  }, [lockedProjectId, showLoans, loanFrom, loanTo]);
+  }, [lockedProjectId, showLoans]);
 
   useEffect(() => { loadLoans(); }, [loadLoans]);
 
@@ -523,6 +553,15 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     ...financeClassRows.map((row) => row.category || row.code).filter(Boolean),
     ...FINANCE_PAYMENT_CATEGORIES,
   ]));
+  const financeClassCategoryRows = () => {
+    const seen = new Set<string>();
+    return financeClassRows.filter((row) => {
+      const value = String(row.category || row.code || '').trim();
+      if (!value || seen.has(normalized(value))) return false;
+      seen.add(normalized(value));
+      return true;
+    });
+  };
 
   function applyLotToForm(kind: 'income' | 'expense', value: string) {
     const update = kind === 'income' ? inf : ef;
@@ -560,6 +599,18 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     if (row.paymentMethod) update('paymentMethod', row.paymentMethod);
   }
 
+  function operationNumber(kind: 'income' | 'expense', form: any) {
+    const type = kind === 'income' ? 'ingreso' : 'egreso';
+    const code = String(form.categoryCode || '').trim().toUpperCase();
+    const category = normalized(form.paymentCategory || form.category);
+    const baseCount = txns.filter((txn) => {
+      if (txn.type !== type) return false;
+      if (code) return normalized(txn.categoryCode) === normalized(code);
+      return category && normalized(txn.paymentCategory || txn.category) === category;
+    }).length;
+    return `${code || (kind === 'income' ? 'I' : 'E')}${baseCount + 1}`;
+  }
+
   const lotSuggestions = (value: unknown) => {
     const term = normalized(value);
     if (!term || !term.startsWith('l')) return [];
@@ -568,11 +619,13 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
       .slice(0, 20);
   };
 
+  const loanTemCalculated = teaToTem(loanTea);
   const loanTableRows = loanRows.map((row, index) => {
     const amount = Number(row.depositAmount || 0);
-    const manual = loanManual[row.id] || {};
-    const months = Number(manual.months || 0);
-    const interest = Number(manual.interest || 0);
+    const months = monthsBetweenDates(row.movementDate, loanUpdatedAt);
+    const interest = months > 0 && loanTemCalculated > 0
+      ? amount * (Math.pow(1 + loanTemCalculated / 100, months) - 1)
+      : 0;
     return {
       ...row,
       index: index + 1,
@@ -729,6 +782,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   };
   const rowIconButton = 'inline-flex h-7 w-7 items-center justify-center rounded-md border bg-white text-slate-600 transition hover:bg-slate-50 hover:text-blue-700';
   const rowDangerButton = 'inline-flex h-7 w-7 items-center justify-center rounded-md border bg-white text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-600';
+  const rowDangerDisabledButton = 'inline-flex h-7 w-7 cursor-not-allowed items-center justify-center rounded-md border bg-white text-slate-300 opacity-60';
   const updateFinanceClassRow = (key: string, patch: Partial<FinanceClassRow>) => {
     setFinanceClassRows((rows) => rows.map((row) => row.key === key ? { ...row, ...patch, ...(patch.code !== undefined ? { code: cleanCategoryCode(patch.code) } : {}) } : row));
   };
@@ -780,7 +834,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
       </datalist>
       <div className="space-y-5">
         {showLoans ? (
-          <div className="card ml-auto w-fit max-w-full p-0 overflow-hidden">
+          <div className="card w-full p-0 overflow-hidden">
             <div className="flex flex-col gap-3 border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between" style={{ borderColor: '#E5E7EB' }}>
               <h3 className="font-semibold">Prestamos</h3>
               <div className="flex flex-wrap items-center justify-end gap-2 xl:flex-nowrap">
@@ -789,70 +843,110 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                 <label className="text-xs font-semibold text-slate-500">TEA</label>
                 <input className="input !h-9 !w-20" value={loanTea} onChange={(e) => setLoanTea(e.target.value)} />
                 <label className="text-xs font-semibold text-slate-500">TEM</label>
-                <input className="input !h-9 !w-20" value={loanTem} onChange={(e) => setLoanTem(e.target.value)} />
-                <input type="date" className="input !h-9 !w-auto" value={loanFrom} onChange={(e) => setLoanFrom(e.target.value)} title="Desde" />
-                <input type="date" className="input !h-9 !w-auto" value={loanTo} onChange={(e) => setLoanTo(e.target.value)} title="Hasta" />
+                <input className="input !h-9 !w-20 bg-slate-50 text-right" value={loanTemCalculated.toFixed(2)} readOnly />
                 <button className="btn-neutral !h-9" type="button" onClick={() => { setLoanFrom(''); setLoanTo(''); }}>Todo</button>
                 <button className="btn-neutral !h-9" type="button" onClick={() => setShowLoans(false)}><FiX /> Cerrar</button>
               </div>
             </div>
             <div className="overflow-auto p-3">
               {loanLoading ? <p className="p-4 text-slate-400">Cargando prestamos...</p> : (
-                <table className="table-base" style={{ minWidth: 1480, width: '100%' }}>
+                <table className="table-base table-fixed border-separate border-spacing-0 text-[12px]" style={{ minWidth: 1460, width: '100%' }}>
+                  <colgroup>
+                    <col style={{ width: 54 }} />
+                    <col style={{ width: 104 }} />
+                    <col style={{ width: 120 }} />
+                    <col style={{ width: 250 }} />
+                    <col style={{ width: 190 }} />
+                    <col style={{ width: 116 }} />
+                    <col style={{ width: 140 }} />
+                    <col style={{ width: 126 }} />
+                    <col style={{ width: 116 }} />
+                    <col style={{ width: 118 }} />
+                    <col style={{ width: 128 }} />
+                  </colgroup>
                   <thead>
                     <tr>
-                      <th className="th-base" style={{ background: '#6B7280', color: '#fff' }}>Item</th>
-                      <th className="th-base" style={{ background: '#6B7280', color: '#fff' }}>Fecha de ABONO</th>
-                      <th className="th-base" style={{ background: '#6B7280', color: '#fff' }}>Mes</th>
-                      <th className="th-base" style={{ background: '#6B7280', color: '#fff' }}>Descripcion (EC BCP)</th>
-                      <th className="th-base" style={{ background: '#6B7280', color: '#fff' }}>Proveedor (Egreso)/Cliente (Ingreso)</th>
-                      <th className="th-base" style={{ background: '#6B7280', color: '#fff' }}>Abono (Ingreso)</th>
-                      <th className="th-base" style={{ background: '#6B7280', color: '#fff' }}>TIPO INGRESO/GASTO</th>
-                      <th className="th-base" style={{ background: '#6B7280', color: '#fff' }}>Fecha de Actualizacion</th>
-                      <th className="th-base" style={{ background: '#6B7280', color: '#fff' }}>Meses del Prestamo</th>
-                      <th className="th-base" style={{ background: '#6B7280', color: '#fff' }}>Intereses US$</th>
-                      <th className="th-base" style={{ background: '#6B7280', color: '#fff' }}>Monto Actualizado</th>
+                      <th className="th-base !px-2 text-center" style={{ background: '#6B7280', color: '#fff' }}>Item</th>
+                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-center" style={{ background: '#6B7280', color: '#fff' }}>Fecha de<br />ABONO</th>
+                      <th className="th-base !whitespace-normal !px-4 !leading-tight text-center" style={{ background: '#6B7280', color: '#fff', overflow: 'hidden' }}>Mes</th>
+                      <th className="th-base !whitespace-normal !px-4 !leading-tight text-left" style={{ background: '#6B7280', color: '#fff', overflow: 'hidden' }}>Descripcion<br />(EC BCP)</th>
+                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-left" style={{ background: '#6B7280', color: '#fff' }}>Proveedor (Egreso)<br />Cliente (Ingreso)</th>
+                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-right" style={{ background: '#6B7280', color: '#fff' }}>Abono<br />(Ingreso)</th>
+                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-left" style={{ background: '#6B7280', color: '#fff' }}>TIPO INGRESO<br />GASTO</th>
+                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-center" style={{ background: '#6B7280', color: '#fff' }}>Fecha de<br />Actualizacion</th>
+                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-right" style={{ background: '#6B7280', color: '#fff' }}>Meses del<br />Prestamo</th>
+                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-right" style={{ background: '#6B7280', color: '#fff' }}>Intereses<br />US$</th>
+                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-right" style={{ background: '#6B7280', color: '#fff' }}>Monto<br />Actualizado</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {loanTableRows.map((row) => (
                       <tr key={row.id}>
-                        <td className="td-base text-center">{row.index}</td>
-                        <td className="td-base">{formatDate(row.movementDate)}</td>
-                        <td className="td-base">{row.monthLabel || '-'}</td>
-                        <td className="td-base">{row.description || '-'}</td>
-                        <td className="td-base font-medium">{row.counterparty || '-'}</td>
-                        <td className="td-base text-right tabular-nums">{usd(row.amount)}</td>
-                        <td className="td-base">{row.movementType || 'PRESTAMO'}</td>
-                        <td className="td-base">{formatDate(loanUpdatedAt)}</td>
-                        <td className="td-base"><input className="input !h-8 text-right" value={loanManual[row.id]?.months || ''} onChange={(e) => setLoanManual((cur) => ({ ...cur, [row.id]: { ...cur[row.id], months: e.target.value } }))} /></td>
-                        <td className="td-base"><input className="input !h-8 text-right" value={loanManual[row.id]?.interest || ''} onChange={(e) => setLoanManual((cur) => ({ ...cur, [row.id]: { ...cur[row.id], interest: e.target.value } }))} /></td>
-                        <td className="td-base text-right font-semibold tabular-nums">{usd(row.updatedAmount)}</td>
+                        <td className="td-base !px-2 text-center">{row.index}</td>
+                        <td className="td-base !px-2 text-center">{formatDate(row.movementDate)}</td>
+                        <td className="td-base !px-4 text-center" style={{ overflow: 'hidden' }}>{row.monthLabel || '-'}</td>
+                        <td className="td-base !px-4 truncate" style={{ overflow: 'hidden' }} title={row.description || '-'}>{row.description || '-'}</td>
+                        <td className="td-base !px-2 truncate font-medium" title={row.counterparty || '-'}>{row.counterparty || '-'}</td>
+                        <td className="td-base !px-2 text-right tabular-nums">{usd0(row.amount)}</td>
+                        <td className="td-base !px-2 truncate" title={row.movementType || 'PRESTAMO'}>{row.movementType || 'PRESTAMO'}</td>
+                        <td className="td-base !px-2 text-center">{formatDate(loanUpdatedAt)}</td>
+                        <td className="td-base !px-2 text-right tabular-nums">{loanMonths(row.months)}</td>
+                        <td className="td-base !px-2 text-right tabular-nums">{usd0(row.interest)}</td>
+                        <td className="td-base !px-2 text-right font-semibold tabular-nums">{usd0(row.updatedAmount)}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
                     <tr style={{ background: '#0B2F6E' }}>
-                      <td className="td-base font-bold text-white" colSpan={4}></td>
-                      <td className="td-base font-bold text-white">Totales US$</td>
-                      <td className="td-base font-bold text-white text-right">{usd(loanTotals.amount)}</td>
-                      <td className="td-base" colSpan={3}></td>
-                      <td className="td-base font-bold text-white text-right">{usd(loanTotals.interest)}</td>
-                      <td className="td-base font-bold text-white text-right">{usd(loanTotals.updated)}</td>
+                      <td className="td-base !px-2 font-bold text-white" colSpan={4}></td>
+                      <td className="td-base !px-2 font-bold text-white">Totales US$</td>
+                      <td className="td-base !px-2 font-bold text-white text-right tabular-nums">{usd0(loanTotals.amount)}</td>
+                      <td className="td-base !px-2" colSpan={3}></td>
+                      <td className="td-base !px-2 font-bold text-white text-right tabular-nums">{usd0(loanTotals.interest)}</td>
+                      <td className="td-base !px-2 font-bold text-white text-right tabular-nums">{usd0(loanTotals.updated)}</td>
                     </tr>
                   </tfoot>
                 </table>
               )}
               <div className="mt-6 max-w-3xl">
                 <h3 className="mb-2 font-semibold">Resumen</h3>
-                <table className="table-base">
-                  <thead><tr><th className="th-base">Item</th><th className="th-base">Acreedor</th><th className="th-base">Prestamo</th><th className="th-base">Intereses</th><th className="th-base">Deuda Actualizada</th></tr></thead>
+                <table className="table-base table-fixed text-[12px]" style={{ minWidth: 680, width: '100%' }}>
+                  <colgroup>
+                    <col style={{ width: 64 }} />
+                    <col style={{ width: 220 }} />
+                    <col style={{ width: 120 }} />
+                    <col style={{ width: 120 }} />
+                    <col style={{ width: 156 }} />
+                  </colgroup>
+                  <thead>
+                    <tr>
+                      <th className="th-base !px-3 text-center" style={{ background: '#6B7280', color: '#fff' }}>Item</th>
+                      <th className="th-base !px-3 text-left" style={{ background: '#6B7280', color: '#fff' }}>Acreedor</th>
+                      <th className="th-base !px-3 text-right" style={{ background: '#6B7280', color: '#fff' }}>Prestamo</th>
+                      <th className="th-base !px-3 text-right" style={{ background: '#6B7280', color: '#fff' }}>Intereses</th>
+                      <th className="th-base !px-3 text-right" style={{ background: '#6B7280', color: '#fff' }}>Deuda Actualizada</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {loanSummaryRows.map((row, index) => (
-                      <tr key={row.creditor}><td className="td-base">{index + 1}</td><td className="td-base">{row.creditor}</td><td className="td-base text-right">{usd(row.amount)}</td><td className="td-base text-right">{usd(row.interest)}</td><td className="td-base text-right">{usd(row.updated)}</td></tr>
+                      <tr key={row.creditor}>
+                        <td className="td-base !px-3 text-center">{index + 1}</td>
+                        <td className="td-base !px-3 truncate font-medium" title={row.creditor}>{row.creditor}</td>
+                        <td className="td-base !px-3 text-right tabular-nums">{usd0(row.amount)}</td>
+                        <td className="td-base !px-3 text-right tabular-nums">{usd0(row.interest)}</td>
+                        <td className="td-base !px-3 text-right font-semibold tabular-nums">{usd0(row.updated)}</td>
+                      </tr>
                     ))}
                   </tbody>
-                  <tfoot><tr style={{ background: '#0B2F6E' }}><td className="td-base font-bold text-white"></td><td className="td-base font-bold text-white">Total US$</td><td className="td-base font-bold text-white text-right">{usd(loanTotals.amount)}</td><td className="td-base font-bold text-white text-right">{usd(loanTotals.interest)}</td><td className="td-base font-bold text-white text-right">{usd(loanTotals.updated)}</td></tr></tfoot>
+                  <tfoot>
+                    <tr style={{ background: '#0B2F6E' }}>
+                      <td className="td-base !px-3 font-bold text-white"></td>
+                      <td className="td-base !px-3 font-bold text-white">Total US$</td>
+                      <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{usd0(loanTotals.amount)}</td>
+                      <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{usd0(loanTotals.interest)}</td>
+                      <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{usd0(loanTotals.updated)}</td>
+                    </tr>
+                  </tfoot>
                 </table>
               </div>
             </div>
@@ -985,6 +1079,12 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                       <td className="w-[130px] px-2 py-1.5 text-right">
                         {key ? <input className="input !h-7 !w-auto !rounded-md !px-2 min-w-[54px] max-w-[130px] text-right text-xs" style={{ width: `${Math.max(54, String((financeDashManual as any)[key] || '').length * 8 + 24)}px` }} value={(financeDashManual as any)[key]} onChange={(e) => setFinanceDashManual((current) => ({ ...current, [key as string]: e.target.value }))} /> : (labelKey === 'valor_inicial_accion' ? usd(valorInicialAccion) : labelKey === 'valor_actual_accion' ? usd(valorActualAccion) : labelKey === 'utilidad_ajustada' ? compactUsd(utilidadAjustada) : compactUsd(pptoObra))}
                       </td>
+                      <td className="w-[72px] px-2 py-1.5 text-center">
+                        <div className="flex justify-center gap-1">
+                          <button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button>
+                          <button className={rowDangerDisabledButton} type="button" title="Fila base" disabled><FiTrash2 size={13} /></button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                   {financeDashManual.dataRows.map((row, index) => (
@@ -992,6 +1092,12 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                       <td className="w-[42px] px-1.5 py-1.5 text-center"><input className="input input-ghost !h-7 !border-0 !bg-transparent !px-0 text-center text-[10px] font-bold text-[#8A6A00]" value={row.code} onChange={(e) => updateManualArray('dataRows', index, { code: e.target.value })} /></td>
                       <td className="px-2 py-1.5"><input className="input input-ghost !h-7 !border-0 !bg-transparent !px-1 font-semibold text-[#1F2937]" value={row.label} onChange={(e) => updateManualArray('dataRows', index, { label: e.target.value })} /></td>
                       <td className="w-[130px] px-2 py-1.5 text-right"><input className="input !h-7 !w-auto !rounded-md !px-2 min-w-[54px] max-w-[130px] text-right text-xs" style={{ width: `${Math.max(54, String(row.value || '').length * 8 + 24)}px` }} value={row.value} onChange={(e) => updateManualArray('dataRows', index, { value: e.target.value })} /></td>
+                      <td className="w-[72px] px-2 py-1.5 text-center">
+                        <div className="flex justify-center gap-1">
+                          <button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button>
+                          <button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeManualArrayRow('dataRows', index)}><FiTrash2 size={13} /></button>
+                        </div>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -1019,7 +1125,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                     const customIndex = index - (3 + sociosRows.length);
                     const isCustom = customIndex >= 0;
                     const labelKey = row.length === 4 ? String(row[3]) : '';
-                    return <tr key={`${row[0]}-${index}`}><td className="td-base text-center">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-center" value={financeDashManual.commitmentRows[customIndex]?.priority || ''} onChange={(e) => updateManualArray('commitmentRows', customIndex, { priority: e.target.value })} /> : row[0]}</td><td className="td-base">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={financeDashManual.commitmentRows[customIndex]?.creditor || ''} onChange={(e) => updateManualArray('commitmentRows', customIndex, { creditor: e.target.value })} /> : <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={row[1]} onChange={(e) => setFinanceDashManual((current) => ({ ...current, commitmentLabels: { ...current.commitmentLabels, [labelKey]: e.target.value } }))} />}</td><td className="td-base text-right">{labelKey === 'terreno' ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-right" value={financeDashManual.compromisoTerreno === '' ? String(costoTerreno || '') : financeDashManual.compromisoTerreno} onChange={(e) => setFinanceDashManual((current) => ({ ...current, compromisoTerreno: e.target.value }))} /> : isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-right" value={financeDashManual.commitmentRows[customIndex]?.amount || ''} onChange={(e) => updateManualArray('commitmentRows', customIndex, { amount: e.target.value })} /> : usd(num(row[2]))}</td><td className="td-base text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button>{isCustom && <button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeManualArrayRow('commitmentRows', customIndex)}><FiTrash2 size={13} /></button>}</div></td></tr>;
+                    return <tr key={`${row[0]}-${index}`}><td className="td-base text-center">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-center" value={financeDashManual.commitmentRows[customIndex]?.priority || ''} onChange={(e) => updateManualArray('commitmentRows', customIndex, { priority: e.target.value })} /> : row[0]}</td><td className="td-base">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={financeDashManual.commitmentRows[customIndex]?.creditor || ''} onChange={(e) => updateManualArray('commitmentRows', customIndex, { creditor: e.target.value })} /> : <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={row[1]} onChange={(e) => setFinanceDashManual((current) => ({ ...current, commitmentLabels: { ...current.commitmentLabels, [labelKey]: e.target.value } }))} />}</td><td className="td-base text-right">{labelKey === 'terreno' ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-right" value={financeDashManual.compromisoTerreno === '' ? String(costoTerreno || '') : financeDashManual.compromisoTerreno} onChange={(e) => setFinanceDashManual((current) => ({ ...current, compromisoTerreno: e.target.value }))} /> : isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-right" value={financeDashManual.commitmentRows[customIndex]?.amount || ''} onChange={(e) => updateManualArray('commitmentRows', customIndex, { amount: e.target.value })} /> : usd(num(row[2]))}</td><td className="td-base text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button>{isCustom ? <button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeManualArrayRow('commitmentRows', customIndex)}><FiTrash2 size={13} /></button> : <button className={rowDangerDisabledButton} type="button" title="Fila base" disabled><FiTrash2 size={13} /></button>}</div></td></tr>;
                   })}
                 </tbody>
                 <tfoot><tr style={{ background: '#064E3B' }}><td className="td-base font-bold text-white" colSpan={2}>Total US$</td><td className="td-base text-right font-bold text-white">{usd(compromisoTotal)}</td><td className="td-base"></td></tr></tfoot>
@@ -1032,7 +1138,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                     const v = num(value);
                     const customIndex = index - 5;
                     const isCustom = customIndex >= 0;
-                    return <tr key={`${label}-${index}`}><td className="td-base">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={financeDashManual.structureRows[customIndex]?.label || ''} onChange={(e) => updateManualArray('structureRows', customIndex, { label: e.target.value })} /> : <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={label} onChange={(e) => setFinanceDashManual((current) => ({ ...current, structureLabels: { ...current.structureLabels, [key]: e.target.value } }))} />}</td><td className="td-base text-right">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-right" value={financeDashManual.structureRows[customIndex]?.amount || ''} onChange={(e) => updateManualArray('structureRows', customIndex, { amount: e.target.value })} /> : usd(v)}</td><td className="td-base text-center">{estructuraTotal > 0 ? `${((v / estructuraTotal) * 100).toFixed(1)}%` : '0%'}</td><td className="td-base text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button>{isCustom && <button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeManualArrayRow('structureRows', customIndex)}><FiTrash2 size={13} /></button>}</div></td></tr>;
+                    return <tr key={`${label}-${index}`}><td className="td-base">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={financeDashManual.structureRows[customIndex]?.label || ''} onChange={(e) => updateManualArray('structureRows', customIndex, { label: e.target.value })} /> : <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={label} onChange={(e) => setFinanceDashManual((current) => ({ ...current, structureLabels: { ...current.structureLabels, [key]: e.target.value } }))} />}</td><td className="td-base text-right">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-right" value={financeDashManual.structureRows[customIndex]?.amount || ''} onChange={(e) => updateManualArray('structureRows', customIndex, { amount: e.target.value })} /> : usd(v)}</td><td className="td-base text-center">{estructuraTotal > 0 ? `${((v / estructuraTotal) * 100).toFixed(1)}%` : '0%'}</td><td className="td-base text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button>{isCustom ? <button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeManualArrayRow('structureRows', customIndex)}><FiTrash2 size={13} /></button> : <button className={rowDangerDisabledButton} type="button" title="Fila base" disabled><FiTrash2 size={13} /></button>}</div></td></tr>;
                   })}
                 </tbody>
                 <tfoot><tr style={{ background: '#064E3B' }}><td className="td-base font-bold text-white">Total Financiamiento</td><td className="td-base text-right font-bold text-white">{usd(estructuraTotal)}</td><td className="td-base text-center font-bold text-white">100.0%</td><td className="td-base"></td></tr></tfoot>
@@ -1046,10 +1152,10 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="font-semibold">Flujo financiero</h3>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-4">
-              <button className="btn-primary whitespace-nowrap" onClick={() => setOpenExp(true)}>Registrar egreso</button>
+              <button className="btn-primary whitespace-nowrap" onClick={() => setOpenIn(true)}>Registrar ingreso</button>
+              <button className="btn-outline whitespace-nowrap" onClick={() => setOpenExp(true)}>Registrar egreso</button>
               <button className="btn-outline whitespace-nowrap" onClick={() => setShowLoans(true)}>Prestamos</button>
               <button className="btn-outline whitespace-nowrap" onClick={() => setShowClassification(true)}>Clasificacion</button>
-              <button className="btn-outline whitespace-nowrap" onClick={() => setOpenIn(true)}>Registrar ingreso</button>
             </div>
           </div>
           <div className="mt-3 flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:justify-between" style={{ borderColor: '#E5E7EB' }}>
@@ -1104,19 +1210,18 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
               : (
               <table className="table-base table-head-plomo" style={{ minWidth: 1180 }}>
                 <thead><tr>
-                  <th className="th-base">Id.</th><th className="th-base">Lote</th><th className="th-base">Cliente/Proveedor</th><th className="th-base">Modo de Pago</th>
-                  <th className="th-base">Tipo</th><th className="th-base">Codigo</th><th className="th-base">Tipo de Pago/Categoria</th><th className="th-base">Clasificacion</th><th className="th-base">Agente</th><th className="th-base">Concepto</th>
+                  <th className="th-base">Nro. Operacion</th><th className="th-base">Lote</th><th className="th-base">Cliente/Proveedor</th><th className="th-base">Modo de Pago</th>
+                  <th className="th-base">Tipo</th><th className="th-base">Tipo de Pago/Categoria</th><th className="th-base">Clasificacion</th><th className="th-base">Agente</th><th className="th-base">Concepto</th>
                   <th className="th-base">Monto US$</th><th className="th-base">Fecha</th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {txns.map((t) => (
                     <tr key={t.id}>
-                      <td className="td-base font-semibold">{t.type === 'ingreso' ? 'P' : 'E'}{t.id}</td>
+                      <td className="td-base font-semibold">{t.operationNumber || `${t.type === 'ingreso' ? 'I' : 'E'}${t.id}`}</td>
                       <td className="td-base">{t.lotCode || (t.lotId ? `#${t.lotId}` : '-')}</td>
                       <td className="td-base">{t.clientName || (t.clientId ? `#${t.clientId}` : '-')}</td>
                       <td className="td-base">{paymentLabel(t.paymentMethod)}</td>
                       <td className="td-base"><span className="badge" style={{ background: t.type === 'ingreso' ? '#EAF7EE' : '#E7F0FE', color: t.type === 'ingreso' ? '#125A3B' : '#1259C4' }}>{t.type}</span></td>
-                      <td className="td-base text-center font-bold">{t.categoryCode || '-'}</td>
                       <td className="td-base capitalize">{t.paymentCategory || t.category}</td>
                       <td className="td-base">{t.classification || '-'}</td>
                       <td className="td-base">{t.agentName || '-'}</td>
@@ -1128,7 +1233,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#0B2F6E' }}>
-                    <td className="td-base font-bold text-white" colSpan={10}>Totales ({meta.total})</td>
+                    <td className="td-base font-bold text-white" colSpan={9}>Totales ({meta.total})</td>
                     <td className="td-base font-bold text-white tabular-nums">{show(totalAmount)}</td>
                     <td className="td-base" />
                   </tr>
@@ -1154,11 +1259,10 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
           <div className="overflow-auto p-3">
             {!financeClassLoaded ? <p className="p-4 text-slate-400">Cargando clasificacion...</p> : (
-              <table className="table-base table-head-plomo" style={{ width: 980, minWidth: 980 }}>
+              <table className="table-base table-head-plomo" style={{ width: 800, minWidth: 800 }}>
                 <thead>
                   <tr>
                     <th className="th-base">Codigo</th>
-                    <th className="th-base">Modo de Pago</th>
                     <th className="th-base">Tipo</th>
                     <th className="th-base">Categorias</th>
                     <th className="th-base">Clasificación</th>
@@ -1176,7 +1280,6 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                           onChange={(e) => updateFinanceClassRow(row.key, { code: e.target.value })}
                         />
                       </td>
-                      <td className="td-base"><input className="input input-ghost !h-7" value={row.paymentMethod} onChange={(e) => updateFinanceClassRow(row.key, { paymentMethod: e.target.value })} /></td>
                       <td className="td-base" style={{ background: row.movementType === 'Ingreso' ? '#EAF7EE' : row.movementType === 'Egreso' ? '#FFF7ED' : 'transparent' }}>
                         <Select
                           value={row.movementType}
@@ -1203,15 +1306,23 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-2 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpenExp(false)} />
           <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-4 sm:max-h-[92vh] sm:p-6">
-            <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Registrar egreso</h3>
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <h3 className="font-semibold" style={{ fontSize: 17 }}>Registrar egreso</h3>
+              <span className="text-sm font-black text-[#001BFF]">Nro. Operacion: {operationNumber('expense', eForm)}</span>
+            </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Lote/Otros"><input className="input" list="finance-lots-expense" value={eForm.lotLabel || ''} onChange={(e) => applyLotToForm('expense', e.target.value)} placeholder="Busca lote o escribe otros" /></Field>
               <Field label="Cliente/Proveedor"><input className="input" value={eForm.clientLabel || ''} onChange={(e) => ef('clientLabel', e.target.value)} /></Field>
               <Field label="Modo de Pago"><input className="input" list="finance-payment-methods" value={eForm.paymentMethod || ''} onChange={(e) => ef('paymentMethod', e.target.value)} /></Field>
-              <Field label="Tipo de Pago/Categoria"><input className="input" list="finance-categories" value={eForm.category || ''} onChange={(e) => applyCategoryToForm('expense', e.target.value)} placeholder="Escribe iniciales y selecciona" /></Field>
-              <Field label="Codigo"><input className="input uppercase" value={eForm.categoryCode || ''} maxLength={3} onChange={(e) => ef('categoryCode', cleanCategoryCode(e.target.value))} /></Field>
-              <Field label="Clasificacion"><input className="input" list="finance-classifications" value={eForm.classification || ''} onChange={(e) => ef('classification', e.target.value)} /></Field>
+              <Field label="Tipo de Pago/Categoria">
+                <Select
+                  value={eForm.category || ''}
+                  onChange={(v) => applyCategoryToForm('expense', v)}
+                  options={[{ value: '', label: 'Selecciona...' }, ...financeClassCategoryRows().map(r => ({ value: r.category || r.code, label: r.category || r.code }))]}
+                />
+              </Field>
               <Field label="Agente"><input className="input" value={eForm.agentName || ''} onChange={(e) => ef('agentName', e.target.value)} /></Field>
+              <Field label="Clasificacion"><input className="input bg-slate-50" value={eForm.classification || ''} readOnly placeholder="Se rellena segun la categoria" /></Field>
               <Field label="Monto US$ *"><input type="number" className="input" value={eForm.amount || ''} onChange={(e) => ef('amount', e.target.value)} /></Field>
               <Field label="Fecha"><input type="date" className="input" value={eForm.txnDate || todayInput()} onChange={(e) => ef('txnDate', e.target.value)} /></Field>
             </div>
@@ -1230,15 +1341,23 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-2 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-black/50" onClick={() => setOpenIn(false)} />
           <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white p-4 sm:max-h-[92vh] sm:p-6">
-            <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>Registrar ingreso adicional</h3>
+            <div className="mb-5 flex items-center justify-between gap-3">
+              <h3 className="font-semibold" style={{ fontSize: 17 }}>Registrar ingreso adicional</h3>
+              <span className="text-sm font-black text-[#001BFF]">Nro. Operacion: {operationNumber('income', iForm)}</span>
+            </div>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <Field label="Lote/Otros"><input className="input" list="finance-lots-income" value={iForm.lotLabel || ''} onChange={(e) => applyLotToForm('income', e.target.value)} placeholder="Busca lote o escribe otros" /></Field>
               <Field label="Cliente/Proveedor"><input className="input" value={iForm.clientLabel || ''} onChange={(e) => inf('clientLabel', e.target.value)} /></Field>
               <Field label="Modo de Pago"><input className="input" list="finance-payment-methods" value={iForm.paymentMethod || ''} onChange={(e) => inf('paymentMethod', e.target.value)} /></Field>
-              <Field label="Tipo de Pago/Categoria"><input className="input" list="finance-categories" value={iForm.category || ''} onChange={(e) => applyCategoryToForm('income', e.target.value)} placeholder="Escribe iniciales y selecciona" /></Field>
-              <Field label="Codigo"><input className="input uppercase" value={iForm.categoryCode || ''} maxLength={3} onChange={(e) => inf('categoryCode', cleanCategoryCode(e.target.value))} /></Field>
-              <Field label="Clasificacion"><input className="input" list="finance-classifications" value={iForm.classification || ''} onChange={(e) => inf('classification', e.target.value)} /></Field>
+              <Field label="Tipo de Pago/Categoria">
+                <Select
+                  value={iForm.category || ''}
+                  onChange={(v) => applyCategoryToForm('income', v)}
+                  options={[{ value: '', label: 'Selecciona...' }, ...financeClassCategoryRows().map(r => ({ value: r.category || r.code, label: r.category || r.code }))]}
+                />
+              </Field>
               <Field label="Agente"><input className="input" value={iForm.agentName || ''} onChange={(e) => inf('agentName', e.target.value)} /></Field>
+              <Field label="Clasificacion"><input className="input bg-slate-50" value={iForm.classification || ''} readOnly placeholder="Se rellena segun la categoria" /></Field>
               <Field label="Monto US$ *"><input type="number" className="input" value={iForm.amount || ''} onChange={(e) => inf('amount', e.target.value)} /></Field>
               <Field label="Fecha"><input type="date" className="input" value={iForm.txnDate || todayInput()} onChange={(e) => inf('txnDate', e.target.value)} /></Field>
             </div>

@@ -568,6 +568,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   // ya preseleccionada desde la URL). Solo el buscador/lista de cotizaciones
   // permanece habilitado para poder hacer la seleccion.
   const formDisabled = !quoteSelected;
+  const quoteLocked = quoteSelected;
   const disabledClass = formDisabled ? ' opacity-60 cursor-not-allowed select-none' : '';
   const quoteProjectId = lockedProjectId || projectId || Number(selectedLot?.projectId || 0);
   const responsibleUserId = Number(sessionUser?.id || 0);
@@ -1230,7 +1231,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             </div>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
+          <div className="grid grid-cols-2 gap-3 p-4 md:grid-cols-2 xl:grid-cols-5">
             <Field label="Estado">
               <FilterSelect
                 value={statusFilter}
@@ -1269,7 +1270,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               </div>
             </Field>
 
-            <div className="flex items-end">
+            <div className="col-span-2 flex items-end xl:col-span-1">
               {hasFilters ? (
                 <button className="btn-neutral !h-10 w-full !rounded-xl text-xs font-semibold" onClick={limpiarFiltros}>
                   <FiX className="mr-1" /> Limpiar filtros
@@ -1429,7 +1430,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             </div>
 
             <div className="mx-4 mb-4 mt-4 rounded-2xl border border-[#D7E8FF] bg-gradient-to-br from-[#F7FBFF] via-white to-[#F1F6FF] p-3 shadow-[0_12px_28px_rgba(18,89,196,0.06)] sm:mx-6">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
                 <label className="block">
                   <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Cliente o lote</span>
                   <input
@@ -1438,14 +1439,6 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     value={quoteSearch}
                     onChange={(e) => { setQuoteSearch(e.target.value); setShowCotizaciones(true); }}
                   />
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Desde</span>
-                  <input type="date" className="input !h-11 text-sm !rounded-xl border-[#D9E7FF] bg-white shadow-sm transition-all focus:border-[#1259C4] focus:ring-2 focus:ring-[#1259C4]/10" value={quoteFrom} onChange={(e) => setQuoteFrom(e.target.value)} />
-                </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Hasta</span>
-                  <input type="date" className="input !h-11 text-sm !rounded-xl border-[#D9E7FF] bg-white shadow-sm transition-all focus:border-[#1259C4] focus:ring-2 focus:ring-[#1259C4]/10" value={quoteTo} onChange={(e) => setQuoteTo(e.target.value)} />
                 </label>
                 <button
                   type="button"
@@ -1519,9 +1512,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             {/* Lote y responsable */}
             <fieldset disabled={formDisabled} className="mx-4 min-w-0 border-0 p-0 m-0 space-y-4 disabled:opacity-100 sm:mx-6">
             <legend className="sr-only">Datos de la venta</legend>
-            <div className={`grid grid-cols-2 gap-3${disabledClass}`}>
+            <div className={`grid grid-cols-2 gap-3 lg:grid-cols-3${disabledClass}`}>
               {!lockedProjectId && (
-                <div className="col-span-2">
+                <div className="col-span-2 lg:col-span-3">
                   <Field label="Proyecto">
                     <Select
                       value={projectId}
@@ -1536,14 +1529,27 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   value={lotId}
                   onChange={(v) => selectLot(Number(v))}
                   options={[{ value: 0, label: 'Selecciona…' }, ...lotOptions.map((l: any) => ({ value: l.id, label: lotOptionLabel(l), hint: formatUsd(lotReferencePrice(l)) }))]}
+                  disabled={quoteLocked}
                 />
               </Field>
               <div className="hidden"><Field label="Cliente"><Select value={clientId} onChange={(v) => setClientId(Number(v))} options={[{ value: 0, label: '— Sin asignar —' }, ...clients.map((c: any) => ({ value: c.id, label: (c.fullName || c.full_name || '— Sin nombre —') }))]} /></Field></div>
-              <Field label="Responsable">
-                <div className="input flex items-center bg-slate-50 text-slate-700">
-                  {responsibleUserName}
-                </div>
+              <Field label="Nombre del cliente *">
+                <input
+                  className="input"
+                  value={clientName}
+                  onChange={(e) => { setClientName(e.target.value); setClientId(0); }}
+                  placeholder="Escribe el cliente real"
+                  disabled={quoteLocked}
+                  readOnly={quoteLocked}
+                />
               </Field>
+              <div className="col-span-2 lg:col-span-1">
+                <Field label="Responsable">
+                  <div className="input flex items-center bg-slate-50 text-slate-700">
+                    {responsibleUserName}
+                  </div>
+                </Field>
+              </div>
             </div>
             {lotId > 0 && salePrice > 0 && (
               <p className="text-xs mt-1" style={{ color: '#1259C4' }}>
@@ -1552,22 +1558,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               </p>
             )}
 
-            <div className="mt-3 rounded-md border bg-white p-3" style={{ borderColor: '#E5E7EB' }}>
-              <div className={`grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end${disabledClass}`}>
-                <Field label="Nombre del cliente *">
-                  <input
-                    className="input"
-                    value={clientName}
-                    onChange={(e) => { setClientName(e.target.value); setClientId(0); }}
-                    placeholder="Escribe el cliente real"
-                  />
-                </Field>
-                <Field label="&nbsp;">
-                  <button type="button" className="btn-neutral w-full sm:w-auto" onClick={() => assignClientByName(true)}>Asignar</button>
-                </Field>
-              </div>
-              {clientId > 0 && <p className="mt-2 text-xs text-emerald-600">Cliente asignado a la venta.</p>}
-            </div>
+            {clientId > 0 && <p className="text-xs text-emerald-600">Cliente asignado a la venta.</p>}
 
             {/* Monto y fecha */}
             <div className={`border-t mt-4 pt-3${disabledClass}`}>
@@ -1579,6 +1570,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     className="input tabular-nums"
                     value={amountInputValue(salePrice)}
                     onChange={(e) => setSalePrice(toUsd(parseGrouped(e.target.value)))}
+                    disabled={quoteLocked}
+                    readOnly={quoteLocked}
                   />
                 </Field>
                 <Field label={`Precio equiv. (${saleCurrency === 'USD' ? 'S/' : 'US$'})`}>
@@ -1592,6 +1585,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     onChange={(e) => setSalePrice(saleCurrency === 'USD'
                       ? round2(parseGrouped(e.target.value) / (exchangeRate || DEFAULT_EXCHANGE_RATE))
                       : round2(parseGrouped(e.target.value)))}
+                    disabled={quoteLocked}
+                    readOnly={quoteLocked}
                   />
                 </Field>
                 <Field label="TC">
@@ -1601,6 +1596,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     className="input tabular-nums"
                     value={groupRate(exchangeRateDisplay)}
                     onChange={(e) => setExchangeRate(round2(parseGrouped(e.target.value)))}
+                    disabled={quoteLocked}
+                    readOnly={quoteLocked}
                   />
                 </Field>
                 <Field label="Fecha"><input type="date" className="input" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></Field>
@@ -1612,63 +1609,71 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
 
             {/* Forma de pago */}
             <div className={`border-t mt-4 pt-3${disabledClass}`}>
-              <Field label="Forma de pago">
-                <Select value={paymentMethod} onChange={setPaymentMethod} options={PAYMENT_METHODS.map((m) => ({ value: m, label: m }))} />
-              </Field>
+              <div className={`grid grid-cols-2 gap-3 ${paymentMethod !== 'Contado' ? 'lg:grid-cols-3' : ''}`}>
+                <div className={paymentMethod !== 'Contado' ? 'col-span-2 lg:col-span-1' : ''}>
+                  <Field label="Forma de pago">
+                    <Select value={paymentMethod} onChange={setPaymentMethod} options={PAYMENT_METHODS.map((m) => ({ value: m, label: m }))} disabled={quoteLocked} />
+                  </Field>
+                </div>
+                {paymentMethod !== 'Contado' && (
+                  <>
+                    <Field label={`Cuota inicial (${saleCurrency === 'USD' ? 'US$' : 'S/'})`}>
+                      <input type="text" inputMode="decimal" className="input tabular-nums" value={amountInputValue(cuotaInicial)} onChange={(e) => setCuotaInicial(toUsd(parseGrouped(e.target.value)))} disabled={quoteLocked} readOnly={quoteLocked} />
+                    </Field>
+                    <Field label="Nro. de cuotas">
+                      <input type="text" inputMode="numeric" className="input tabular-nums" value={totalCuotas ? groupDigits(String(totalCuotas)) : ''} onChange={(e) => setTotalCuotas(Math.min(120, Math.max(0, Math.round(parseGrouped(e.target.value)))))} disabled={quoteLocked} readOnly={quoteLocked} />
+                    </Field>
+                  </>
+                )}
+              </div>
             </div>
 
             {paymentMethod !== 'Contado' && (
               <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-3">
-                  <Field label={`Cuota inicial (${saleCurrency === 'USD' ? 'US$' : 'S/'})`}>
-                    <input type="text" inputMode="decimal" className="input tabular-nums" value={amountInputValue(cuotaInicial)} onChange={(e) => setCuotaInicial(toUsd(parseGrouped(e.target.value)))} />
-                  </Field>
-                  <Field label="Nro. de cuotas">
-                    <input type="text" inputMode="numeric" className="input tabular-nums" value={totalCuotas ? groupDigits(String(totalCuotas)) : ''} onChange={(e) => setTotalCuotas(Math.min(120, Math.max(0, Math.round(parseGrouped(e.target.value)))))} />
-                  </Field>
-                </div>
-
                 <div className="rounded-lg border p-3 mt-3" style={{ borderColor: '#E5E7EB' }}>
-                  <p className="text-xs font-semibold text-slate-600 mb-2">Cuota inicial sin interes</p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 gap-3 items-start">
+                    <p className="rounded-md bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">Cuota inicial sin interes</p>
+                    <p className="rounded-md bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-600">Financiamiento del saldo</p>
                     <Field label="Forma de pago de la inicial">
-                      <Select value={initialPaymentMode} onChange={(v) => setInitialPaymentMode(v as any)} options={[{ value: 'contado', label: 'Pago de contado (1 sola vez)' }, { value: 'partes', label: 'En partes iguales' }]} />
+                      <Select value={initialPaymentMode} onChange={(v) => setInitialPaymentMode(v as any)} options={[{ value: 'contado', label: 'Pago de contado (1 sola vez)' }, { value: 'partes', label: 'En partes iguales' }]} disabled={quoteLocked} />
+                    </Field>
+                    <Field label="Las primeras cuotas, sin interes?">
+                      <Select
+                        value={applyInterest ? 'con' : 'sin'}
+                        onChange={(v) => { const enabled = v === 'con'; setApplyInterest(enabled); setInterestType(enabled ? 'tea' : 'sin_intereses'); if (!enabled) setGraceMonths(0); }}
+                        options={[{ value: 'sin', label: 'Todas las cuotas sin interes' }, { value: 'con', label: 'Si, las primeras N sin interes y el resto con interes' }]}
+                        disabled={quoteLocked}
+                      />
                     </Field>
                     {initialPaymentMode === 'partes' && (
-                      <Field label="Numero de partes (1 a 3)">
-                        <input type="text" inputMode="numeric" className="input tabular-nums" value={initialParts ? groupDigits(String(initialParts)) : ''} onChange={(e) => setInitialParts(Math.min(3, Math.max(1, Math.round(parseGrouped(e.target.value)) || 1)))} />
-                      </Field>
-                    )}
-                  </div>
-                  {initialPaymentMode === 'partes' && cuotaInicial > 0 && (
-                    <p className="mt-2 text-xs text-slate-500">
-                      La inicial se paga en <b>{Math.max(1, Math.min(3, initialParts))} partes</b> de <b>{formatAmountIn(fromUsd(cuotaInicial) / Math.max(1, Math.min(3, initialParts)), saleCurrency)}</b> cada una, sin interes.
-                    </p>
-                  )}
-                </div>
-
-                <div className="rounded-lg border p-3 mt-3" style={{ borderColor: '#E5E7EB' }}>
-                  <p className="text-xs font-semibold text-slate-600 mb-2">Financiamiento del saldo</p>
-                  <Field label="Las primeras cuotas, sin interes?">
-                    <Select
-                      value={applyInterest ? 'con' : 'sin'}
-                      onChange={(v) => { const enabled = v === 'con'; setApplyInterest(enabled); setInterestType(enabled ? 'tea' : 'sin_intereses'); if (!enabled) setGraceMonths(0); }}
-                      options={[{ value: 'sin', label: 'Todas las cuotas sin interes' }, { value: 'con', label: 'Si, las primeras N sin interes y el resto con interes' }]}
-                    />
-                  </Field>
-                  {applyInterest && (
-                    <div className="mt-3 space-y-3">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <Field label="Cuantas cuotas sin interes">
-                          <input type="text" inputMode="numeric" className="input tabular-nums" value={graceMonths ? groupDigits(String(graceMonths)) : ''} onChange={(e) => setGraceMonths(Math.min(totalCuotas, Math.max(0, Math.round(parseGrouped(e.target.value)))))} />
-                        </Field>
-                        <Field label="Interes de las siguientes cuotas (TEA %)">
-                          <input type="number" step="0.01" className="input" value={tea || ''} onChange={(e) => setTea(Number(e.target.value))} />
+                      <div className="col-span-2">
+                        <Field label="Numero de partes (1 a 3)">
+                          <input type="text" inputMode="numeric" className="input tabular-nums" value={initialParts ? groupDigits(String(initialParts)) : ''} onChange={(e) => setInitialParts(Math.min(3, Math.max(1, Math.round(parseGrouped(e.target.value)) || 1)))} disabled={quoteLocked} readOnly={quoteLocked} />
                         </Field>
                       </div>
-                      <p className="text-[11px] text-slate-500">Las {totalCuotas} cuotas del financiamiento incluyen esas {graceMonths} sin interes.</p>
-                    </div>
-                  )}
+                    )}
+                    {initialPaymentMode === 'partes' && <div className="hidden"></div>}
+                    {applyInterest && (
+                      <div className="mb-3">
+                        <label className="label flex min-h-[40px] items-end leading-tight">Cuantas cuotas sin interes</label>
+                        <input type="text" inputMode="numeric" className="input tabular-nums" value={graceMonths ? groupDigits(String(graceMonths)) : ''} onChange={(e) => setGraceMonths(Math.min(totalCuotas, Math.max(0, Math.round(parseGrouped(e.target.value)))))} disabled={quoteLocked} readOnly={quoteLocked} />
+                      </div>
+                    )}
+                    {applyInterest && (
+                      <div className="mb-3">
+                        <label className="label flex min-h-[40px] items-end leading-tight">Interes de las siguientes cuotas (TEA %)</label>
+                        <input type="number" step="0.01" className="input" value={tea || ''} onChange={(e) => setTea(Number(e.target.value))} disabled={quoteLocked} readOnly={quoteLocked} />
+                      </div>
+                    )}
+                    {initialPaymentMode === 'partes' && cuotaInicial > 0 && (
+                      <p className="text-xs text-slate-500 md:col-span-2">
+                        La inicial se paga en <b>{Math.max(1, Math.min(3, initialParts))} partes</b> de <b>{formatAmountIn(fromUsd(cuotaInicial) / Math.max(1, Math.min(3, initialParts)), saleCurrency)}</b> cada una, sin interes.
+                      </p>
+                    )}
+                    {applyInterest && (
+                      <p className="text-[11px] text-slate-500 md:col-span-2">Las {totalCuotas} cuotas del financiamiento incluyen esas {graceMonths} sin interes.</p>
+                    )}
+                  </div>
                 </div>
 
                 {preview && preview.totalCuotas > 0 && (

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast, StatusBadge, Field } from '@/components/ui/ui';
 import { api } from '@/lib/api';
-import { LOT_STATUS_COLOR, LOT_STATUS_LABEL, LOT_STATUS_SELECT_OPTIONS, LotStatus, formatDate } from '@/lib/types';
+import { LOT_STATUS_COLOR, LOT_STATUS_EDIT_OPTIONS, LOT_STATUS_LABEL, LotStatus, formatDate } from '@/lib/types';
 import { Select } from '@/components/ui/Select';
 import { printHtml } from '@/lib/print';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
@@ -81,6 +81,12 @@ function detailStatusColor(status: string) {
   if (status === 'primera_cuota' || status === 'alquilado') return '#1877F2';
   if (status === 'vendido') return '#1877F2';
   return (LOT_STATUS_COLOR as any)[status] || '#64748b';
+}
+
+function editableLotStatus(status?: string | null) {
+  if (status === 'adelanto') return 'reservado';
+  if (status === 'primera_cuota' || status === 'alquilado' || status === 'vendido') return 'vendido';
+  return status || 'disponible';
 }
 
 function escapeHtml(value: unknown) {
@@ -284,7 +290,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
       setLotizacion({
         salePrice: Number(normalizedLot.salePrice || 0),
         finalPrice: Number(normalizedLot.finalPrice || 0),
-        status: normalizedLot.status || 'disponible',
+        status: editableLotStatus(normalizedLot.status),
         statusDate: toDateInput(lastStatusDate),
       });
       // Precarga los datos base del lote para el formulario de edicion.
@@ -667,10 +673,10 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const quoteBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status) || separatedEditLocked;
   const missingFinalPrice = !(Number(lot.finalPrice || 0) > 0);
   const sellBlocked = BLOCKED_ACTION_STATUSES.includes(lot.status) || separatedEditLocked || missingFinalPrice;
-  // `saleLocked` congela la parte comercial de la ficha (estado y precios). El
-  // backend aplica el mismo candado, asi que no es solo cosmético: aunque se
-  // fuerce la peticion, el servidor la rechaza.
-  const saleLocked = soldEditLocked || BLOCKED_ACTION_STATUSES.includes(lot.status);
+  // "Vendido" nace desde Ventas: en ese caso la edicion manual queda bloqueada.
+  // Para los estados manuales el selector sigue activo y el backend impide que
+  // alguien fuerce "vendido" por API.
+  const saleLocked = soldEditLocked;
   const finalPriceLocked = soldEditLocked || separatedEditLocked || BLOCKED_ACTION_STATUSES.includes(lot.status);
   const canSaveLotEdit = !soldEditLocked;
   const detailCards = [
@@ -852,7 +858,7 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
                         </div>
                       )}
                       <div className="grid items-start gap-3 md:grid-cols-2">
-                        <div><Field label="Estado"><Select value={lotizacion.status} onChange={(v) => setLotizacion({ ...lotizacion, status: v })} disabled={saleLocked} options={LOT_STATUS_SELECT_OPTIONS} /></Field></div>
+                        <div><Field label="Estado"><Select value={lotizacion.status} onChange={(v) => setLotizacion({ ...lotizacion, status: v })} disabled={saleLocked} options={LOT_STATUS_EDIT_OPTIONS} /></Field></div>
                         <div><Field label="Fecha de estado"><input type="date" className="input" value={lotizacion.statusDate} onChange={(e) => setLotizacion({ ...lotizacion, statusDate: e.target.value })} disabled={saleLocked} readOnly={saleLocked} /></Field></div>
                         <div><Field label="Precio venta (US$)"><input type="number" className="input" value={toEditValue(lotizacion.salePrice)} onChange={(e) => setLotizacion({ ...lotizacion, salePrice: fromEditValue(e.target.value) })} disabled={soldEditLocked} readOnly={soldEditLocked} /></Field></div>
                         <div><Field label="Precio final (US$)"><input type="number" className="input" value={toEditValue(lotizacion.finalPrice)} onChange={(e) => setLotizacion({ ...lotizacion, finalPrice: fromEditValue(e.target.value) })} disabled={finalPriceLocked} readOnly={finalPriceLocked} /></Field></div>

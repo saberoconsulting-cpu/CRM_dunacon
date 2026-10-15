@@ -15,10 +15,17 @@ export type LotStatus =
 
 export const LOT_STATUS_SELECT_OPTIONS: Array<{ value: LotStatus; label: string }> = [
   { value: 'disponible', label: 'Disponible' },
-  { value: 'reservado', label: 'Reservado' },
+  { value: 'reservado', label: 'Separado' },
   { value: 'vendido', label: 'Vendido' },
   { value: 'promocion', label: 'En Promocion' },
-  { value: 'segunda_etapa', label: '2da Etapa' },
+  { value: 'segunda_etapa', label: '2da. Etapa' },
+];
+
+export const LOT_STATUS_EDIT_OPTIONS: Array<{ value: LotStatus; label: string }> = [
+  { value: 'disponible', label: 'Disponible' },
+  { value: 'segunda_etapa', label: '2da. Etapa' },
+  { value: 'reservado', label: 'Separado' },
+  { value: 'promocion', label: 'En Promocion' },
 ];
 
 // Color por estado de lote â€” paleta para plano, tabla y leyenda
@@ -47,8 +54,8 @@ export const BRAND = {
 
 export const LOT_STATUS_LABEL: Record<LotStatus, string> = {
   disponible: 'Disponible',
-  reservado: 'Reservado',
-  adelanto: 'Reservado',
+  reservado: 'Separado',
+  adelanto: 'Separado',
   primera_cuota: 'Vendido',
   vendido: 'Vendido',
   alquilado: 'Vendido',

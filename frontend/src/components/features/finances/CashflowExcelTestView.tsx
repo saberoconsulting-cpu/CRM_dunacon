@@ -658,6 +658,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 })),
             ];
         });
+        seedRows.push(row('sales-year', 'Venta por ano', empty()));
 
         if (usesBankCashflow) {
             const seenIds = new Set(seedRows.map((item) => item.id));
@@ -806,6 +807,12 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             ? Array.from({ length: Math.round(soldLots) }, () => baseYear)
             : sales.map((sale: any) => yearOf(sale.saleDate));
         setSeries('lots-sold', spreadByDates(soldLots, salesYearsList));
+        setSeries('sales-year', emptySeries());
+        if (!isStaticSeed) {
+            for (const sale of sales) {
+                addToSeries('sales-year', yearOf(sale.saleDate), Number(sale.salePrice || 0));
+            }
+        }
 
         if (!isStaticSeed) {
             for (const movement of bankMovements) {
@@ -1135,7 +1142,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const canEditRow = (item?: Row) => !item?.computed;
     const isCellEditable = (item: Row | undefined, year: number) => mode === 'estatico'
         ? canEditRow(item)
-        : Boolean(canEditRow(item) && item?.id === 'igv' && year >= 0);
+        : Boolean(canEditRow(item) && (item?.id === 'igv' || item?.id === 'lots-sold' || item?.id === 'sales-year') && year >= 0);
     const writeCellValue = (id: string, year: number, numeric: number) => {
         const apply = (current: Row[]) => current.map((candidate) => candidate.id !== id ? candidate : { ...candidate, values: normalizeValues(candidate.values).map((cell, index) => index === year ? numeric : cell) });
         rowsRef.current = apply(rowsRef.current.length ? rowsRef.current : rows);
@@ -1625,6 +1632,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     }
 
     const lotsSoldRow = calculated.find((item) => item.id === 'lots-sold') || row('lots-sold', 'Venta de lotes por ano');
+    const salesYearRow = calculated.find((item) => item.id === 'sales-year') || row('sales-year', 'Venta por ano');
     const calculatedValue = (id: string, year = 0) => calculated.find((item) => item.id === id)?.values[year] || 0;
     const calculatedRowTotal = (id: string) => (calculated.find((item) => item.id === id)?.values || empty()).reduce((sum, value) => sum + Number(value || 0), 0);
     const accumulateSeries = (values: number[]) => normalizeValues(values).reduce<number[]>((totals, value, year) => {
@@ -2044,6 +2052,60 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                             onChange={(event) => editable && editCell('lots-sold', year, event.target.value)}
                                             onFocus={() => editable && beginCellEdit('lots-sold', year, value)}
                                             onBlur={(event) => editable && finishCellEdit('lots-sold', year, event.target.value)}
+                                            onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+                                        />
+                                    </td>
+                                    );
+                                })}
+                            </tr>
+                            <tr className="hover:bg-slate-50">
+                                <td className={`${CONCEPT_COL} border border-slate-200 bg-[#F8FAFC] px-3 py-2.5 font-semibold text-slate-700 md:sticky md:left-0 md:z-[1] md:px-4`}>
+                                    <div className="flex items-center gap-2">
+                                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md border bg-white text-[#1259C4]" style={{ borderColor: '#B9D2F4' }}>
+                                            <FiHome size={15} aria-hidden="true" />
+                                        </span>
+                                        {editableConcept('sales-year', salesYearRow.label)}
+                                    </div>
+                                </td>
+                                <td className="border border-[#B9D2F4] bg-[#EAF2FD] px-2 py-2.5 text-right font-semibold tabular-nums text-[#1259C4] md:sticky md:left-[232px] md:z-[1]">{displayRowTotal(salesYearRow.values)}</td>
+                                {displayedYearIndexesBeforeHistory.map((year) => {
+                                    const value = salesYearRow.values[year] || 0;
+                                    const editable = isCellEditable(salesYearRow, year);
+                                    return (
+                                    <td key={`sales-year-top-${year}`} className="border border-slate-200 bg-[#F8FAFC] px-1 py-1">
+                                        <input
+                                            aria-label={`${salesYearRow.label} ${YEARS[year]}`}
+                                            className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'}`}
+                                            value={editingDrafts[cellKey('sales-year', year)] ?? (value ? formatInteger(value) : '')}
+                                            inputMode="numeric"
+                                            readOnly={!editable}
+                                            onClick={(event) => event.stopPropagation()}
+                                            onChange={(event) => editable && editCell('sales-year', year, event.target.value)}
+                                            onFocus={() => editable && beginCellEdit('sales-year', year, value)}
+                                            onBlur={(event) => editable && finishCellEdit('sales-year', year, event.target.value)}
+                                            onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
+                                        />
+                                    </td>
+                                    );
+                                })}
+                                {showHistoricalColumn && (
+                                    <td className="border border-slate-200 bg-[#F1F5F9] px-2 py-2.5 text-right font-semibold tabular-nums text-slate-600">{formatInteger(historicalTotal(salesYearRow.values))}</td>
+                                )}
+                                {displayedYearIndexesAfterHistory.map((year) => {
+                                    const value = salesYearRow.values[year] || 0;
+                                    const editable = isCellEditable(salesYearRow, year);
+                                    return (
+                                    <td key={`sales-year-top-${year}`} className="border border-slate-200 bg-[#F8FAFC] px-1 py-1">
+                                        <input
+                                            aria-label={`${salesYearRow.label} ${YEARS[year]}`}
+                                            className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'}`}
+                                            value={editingDrafts[cellKey('sales-year', year)] ?? (value ? formatInteger(value) : '')}
+                                            inputMode="numeric"
+                                            readOnly={!editable}
+                                            onClick={(event) => event.stopPropagation()}
+                                            onChange={(event) => editable && editCell('sales-year', year, event.target.value)}
+                                            onFocus={() => editable && beginCellEdit('sales-year', year, value)}
+                                            onBlur={(event) => editable && finishCellEdit('sales-year', year, event.target.value)}
                                             onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                                         />
                                     </td>

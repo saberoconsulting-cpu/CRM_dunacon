@@ -37,10 +37,23 @@ function statusLabel(value?: string | null) {
   const key = String(value || '').toLowerCase();
   if (key === 'segunda_etapa') return '2da. Etapa';
   if (key === 'promocion') return 'En Promocion';
-  if (key === 'separado') return 'Separado';
+  if (key === 'separado' || key === 'reservado') return 'Separado';
   if (key === 'vendido') return 'Vendido';
   if (key === 'disponible') return 'Disponible';
   return value || '-';
+}
+
+function statusKey(value?: string | null) {
+  const key = String(value || '').toLowerCase();
+  if (key === 'separado') return 'reservado';
+  if (key === 'adelanto') return 'reservado';
+  if (key === 'primera_cuota' || key === 'alquilado') return 'vendido';
+  return key || 'disponible';
+}
+
+function editableCatalogStatus(value?: string | null) {
+  const key = statusKey(value);
+  return LOT_STATUS_OPTIONS_EXCLUDING_SOLD.some((option) => option.value === key) ? key : 'disponible';
 }
 
 type LotCatalogRow = {
@@ -68,7 +81,7 @@ const emptyCatalogRow = (): LotCatalogRow => ({
   salePrice: 0,
   discount: 0,
   finalPrice: 0,
-  status: 'Disponible',
+  status: 'disponible',
   client: '',
 });
 
@@ -81,6 +94,7 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
   const [statusFilter, setStatusFilter] = useState('todos');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingSold, setEditingSold] = useState(false);
   const [draft, setDraft] = useState<LotCatalogRow>(emptyCatalogRow());
   const [project, setProject] = useState<any>(null);
 
@@ -97,7 +111,7 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
       salePrice: Number(item.salePrice || 0),
       discount: Number(item.discount || 0),
       finalPrice: Number(item.finalPrice || 0),
-      status: item.status || 'Disponible',
+      status: statusKey(item.status),
       client: item.client || '',
     })));
   }, [projectId]);
@@ -111,13 +125,14 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
   const filtered = rows.filter((row) => {
     const query = search.trim().toLowerCase();
     const matchesSearch = !query || [row.code, row.address, row.type, row.status, row.client].some((value) => String(value || '').toLowerCase().includes(query));
-    const matchesStatus = statusFilter === 'todos' || row.status?.toLowerCase() === statusFilter.toLowerCase();
+    const matchesStatus = statusFilter === 'todos' || statusKey(row.status) === statusKey(statusFilter);
     return matchesSearch && matchesStatus;
   });
 
   function startEdit(row?: LotCatalogRow) {
     setEditingId(row?.id || null);
-    setDraft(row ? { ...row } : emptyCatalogRow());
+    setEditingSold(statusKey(row?.status) === 'vendido');
+    setDraft(row ? { ...row, status: editableCatalogStatus(row.status) } : emptyCatalogRow());
     setEditorOpen(true);
   }
 
@@ -132,13 +147,14 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
       discount: Number(draft.discount) || 0,
     };
     delete (payload as Partial<LotCatalogRow>).finalPrice;
-    delete (payload as Partial<LotCatalogRow>).status;
+    if (editingSold) delete (payload as Partial<LotCatalogRow>).status;
     delete (payload as Partial<LotCatalogRow>).client;
     try {
       if (editingId) await api.post(`/plan/lot-catalog/update/${projectId}/${editingId}`, payload);
       else await api.post(`/plan/lot-catalog/${projectId}`, payload);
       toast('Lote base guardado');
       setEditingId(null);
+      setEditingSold(false);
       setEditorOpen(false);
       setDraft(emptyCatalogRow());
       load();
@@ -345,11 +361,7 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                   onChange={(value) => setStatusFilter(value)}
                   options={[
                     { value: 'todos', label: 'Filtrar todos' },
-                    { value: 'disponible', label: 'Disponible' },
-                    { value: 'vendido', label: 'Vendido' },
-                    { value: 'segunda_etapa', label: '2da. Etapa' },
-                    { value: 'separado', label: 'Separado' },
-                    { value: 'promocion', label: 'En Promocion' },
+                    ...LOT_STATUS_SELECT_OPTIONS,
                   ]}
                   className="!h-9 min-w-[140px]"
                 />
@@ -412,20 +424,36 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
               <div className="flex max-h-[88vh] w-full max-w-3xl flex-col rounded-lg border bg-white shadow-2xl" style={{ borderColor: BORDER }}>
                 <div className="shrink-0 border-b px-4 py-3" style={{ borderColor: BORDER }}>
                   <h3 className="text-base font-bold" style={{ color: NAVY }}>{editingId ? `Editar lote ${draft.code || ''}` : 'Crear lote base'}</h3>
-                  <p className="mt-1 text-xs text-slate-500">Estos datos alimentan el selector al dibujar el lote en el plano. Precio final, estado y cliente los completa el sistema.</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {editingSold
+                      ? 'Lote vendido: esta ficha queda solo en lectura porque sus datos dependen de la venta.'
+                      : 'Estos datos alimentan el selector al dibujar el lote en el plano. Precio final y cliente los completa el sistema.'}
+                  </p>
                 </div>
                 <div className="grid min-h-0 flex-1 grid-cols-2 gap-2 overflow-y-auto p-4 md:grid-cols-3">
-                  <Field label="Num. de lote"><input autoFocus className="input !h-9" value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} /></Field>
-                  <Field label="Direccion"><input className="input !h-9" value={draft.address || ''} onChange={(e) => setDraft({ ...draft, address: e.target.value })} /></Field>
-                  <Field label="Tipo"><input className="input !h-9" value={draft.type || ''} onChange={(e) => setDraft({ ...draft, type: e.target.value })} /></Field>
-                  <Field label="Area m2"><input className="input !h-9" type="number" value={draft.areaM2 || ''} onChange={(e) => setDraft({ ...draft, areaM2: Number(e.target.value) })} /></Field>
-                  <Field label="Dimensiones"><input className="input !h-9" value={draft.dimensions || ''} onChange={(e) => setDraft({ ...draft, dimensions: e.target.value })} /></Field>
-                  <Field label="Precio m2 (US$)"><input className="input !h-9" type="number" value={draft.priceM2 || ''} onChange={(e) => setDraft({ ...draft, priceM2: Number(e.target.value) })} /></Field>
-                  <Field label="Precio venta (US$)"><input className="input !h-9" type="number" value={draft.salePrice || ''} onChange={(e) => setDraft({ ...draft, salePrice: Number(e.target.value) })} /></Field>
+                  <Field label="Num. de lote"><input autoFocus className="input !h-9" value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value })} disabled={editingSold} readOnly={editingSold} /></Field>
+                  <Field label="Direccion"><input className="input !h-9" value={draft.address || ''} onChange={(e) => setDraft({ ...draft, address: e.target.value })} disabled={editingSold} readOnly={editingSold} /></Field>
+                  <Field label="Tipo"><input className="input !h-9" value={draft.type || ''} onChange={(e) => setDraft({ ...draft, type: e.target.value })} disabled={editingSold} readOnly={editingSold} /></Field>
+                  <Field label="Area m2"><input className="input !h-9" type="number" value={draft.areaM2 || ''} onChange={(e) => setDraft({ ...draft, areaM2: Number(e.target.value) })} disabled={editingSold} readOnly={editingSold} /></Field>
+                  <Field label="Dimensiones"><input className="input !h-9" value={draft.dimensions || ''} onChange={(e) => setDraft({ ...draft, dimensions: e.target.value })} disabled={editingSold} readOnly={editingSold} /></Field>
+                  <Field label="Precio m2 (US$)"><input className="input !h-9" type="number" value={draft.priceM2 || ''} onChange={(e) => setDraft({ ...draft, priceM2: Number(e.target.value) })} disabled={editingSold} readOnly={editingSold} /></Field>
+                  <Field label="Precio venta (US$)"><input className="input !h-9" type="number" value={draft.salePrice || ''} onChange={(e) => setDraft({ ...draft, salePrice: Number(e.target.value) })} disabled={editingSold} readOnly={editingSold} /></Field>
+                  <Field label="Precio final (US$)"><input className="input !h-9" type="number" value={draft.finalPrice || ''} disabled readOnly /></Field>
+                  <Field label="Estado">
+                    {editingSold ? (
+                      <input className="input !h-9" value="Vendido" disabled readOnly />
+                    ) : (
+                      <Select
+                        value={draft.status || 'disponible'}
+                        onChange={(value) => setDraft({ ...draft, status: value })}
+                        options={LOT_STATUS_OPTIONS_EXCLUDING_SOLD}
+                      />
+                    )}
+                  </Field>
                 </div>
                 <div className="flex shrink-0 justify-end gap-2 border-t px-4 py-3" style={{ borderColor: BORDER }}>
-                  <button className="btn-neutral !h-9 px-3" onClick={() => { setEditorOpen(false); setEditingId(null); setDraft(emptyCatalogRow()); }}>Cancelar</button>
-                  <button className="btn-primary !h-9 px-4" onClick={saveRow}>Guardar</button>
+                  <button className="btn-neutral !h-9 px-3" onClick={() => { setEditorOpen(false); setEditingId(null); setEditingSold(false); setDraft(emptyCatalogRow()); }}>Cancelar</button>
+                  <button className="btn-primary !h-9 px-4" onClick={saveRow} disabled={editingSold}>{editingSold ? 'Bloqueado' : 'Guardar'}</button>
                 </div>
               </div>
             </div>

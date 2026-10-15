@@ -17,10 +17,10 @@ import { CreateBlockDto, UpdateBlockDto } from './dto/plan.dto';
 import { CreateLotDto, UpdateLotDto } from './dto/lot.dto';
 import { UpsertProjectLotCatalogDto } from './dto/project-lot-catalog.dto';
 
-// Estados en los que el lote ya tiene una operacion comercial cerrada o en
-// curso. Mismo criterio que BLOCKED_ACTION_STATUSES del frontend: mientras el
-// lote este en uno de estos estados su estado y sus precios no se editan.
-const COMMERCIALLY_LOCKED_STATUSES = ['vendido', 'alquilado', 'reservado', 'adelanto', 'primera_cuota'];
+// Estados que solo pueden venir de operaciones comerciales reales. "Vendido"
+// nace desde Ventas, no desde la edicion manual del lote.
+const COMMERCIALLY_LOCKED_STATUSES = ['vendido', 'alquilado', 'primera_cuota'];
+const MANUAL_LOT_STATUSES = ['disponible', 'reservado', 'promocion', 'segunda_etapa'];
 const LOT_STATUS_LABEL_TEXT: Record<string, string> = {
   vendido: 'vendido',
   alquilado: 'vendido',
@@ -55,8 +55,9 @@ export class PlanService {
     await this.auditRepo.save({ userId, action, entity, entityId });
   }
 
-  // Un lote esta comercialmente bloqueado cuando ya se vendio, se separo o se
-  // alquilo. En esos casos la ficha no debe permitir tocar estado ni precios.
+  // Un lote esta comercialmente bloqueado cuando ya se vendio o se marco con un
+  // estado legacy equivalente a vendido. En esos casos la ficha no debe
+  // permitir tocar estado ni precios.
   private isCommerciallyLocked(status?: string | null) {
     return !!status && COMMERCIALLY_LOCKED_STATUSES.includes(status);
   }
@@ -205,9 +206,9 @@ export class PlanService {
         'cat.created_at AS "createdAt"',
         'cat.updated_at AS "updatedAt"',
       ])
-      .addSelect('COALESCE(sale.sale_price, 0)', 'finalPrice')
-      .addSelect('COALESCE(lot.selling_stage, lot.status, \'Disponible\')', 'status')
-      .addSelect('COALESCE(client.full_name, \'\')', 'client')
+      .addSelect('COALESCE(sale.sale_price, cat.final_price, 0)', 'finalPrice')
+      .addSelect('COALESCE(lot.selling_stage, lot.status, cat.status, \'disponible\')', 'status')
+      .addSelect('COALESCE(client.full_name, cat.client, \'\')', 'client')
       .where('cat.project_id = :projectId', { projectId })
       .orderBy('cat.code', 'ASC')
       .getRawMany();
@@ -314,6 +315,14 @@ export class PlanService {
       ? await this.lotCatalogRepo.findOne({ where: { id: rowId, projectId } })
       : await this.lotCatalogRepo.findOne({ where: { projectId, code } });
     if (!row) row = this.lotCatalogRepo.create({ projectId });
+    if (row.id) {
+      const lots = await this.lotRepo.find({ where: { projectId } });
+      const linkedLot = lots.find((lot) => this.lotCatalogCodeKey(lot.code) === this.lotCatalogCodeKey(row.code));
+      const linkedSold = linkedLot?.status === 'vendido' || linkedLot?.sellingStage === 'vendido';
+      if (linkedSold) {
+        throw new BadRequestException('El lote esta vendido: la base de lotes queda solo en lectura para este registro.');
+      }
+    }
     row.code = code;
     row.address = dto.address || null;
     row.type = dto.type || null;
@@ -322,8 +331,12 @@ export class PlanService {
     row.priceM2 = String(dto.priceM2 ?? 0);
     row.salePrice = String(dto.salePrice ?? 0);
     row.discount = String(dto.discount ?? 0);
+    const normalizedStatus = dto.status !== undefined ? normalizeLotStatus(dto.status) || 'disponible' : row.status || 'disponible';
+    if (!MANUAL_LOT_STATUSES.includes(normalizedStatus)) {
+      throw new BadRequestException('El estado vendido solo se genera desde una venta. Elige Disponible, Separado, En Promocion o 2da. Etapa.');
+    }
+    row.status = normalizedStatus;
     if (!row.finalPrice) row.finalPrice = '0';
-    if (!row.status) row.status = 'Disponible';
     if (!row.client) row.client = null;
     const saved = await this.lotCatalogRepo.save(row);
     await this.audit(actorId, rowId ? 'EDITAR_LOTE_BASE' : 'CREAR_LOTE_BASE', 'project_lot_catalog', saved.id);
@@ -345,6 +358,10 @@ export class PlanService {
     if (lots.some((lot) => this.lotCatalogCodeKey(lot.code) === codeKey)) {
       throw new BadRequestException('Ya existe un lote con ese codigo');
     }
+    const normalizedStatus = normalizeLotStatus(dto.status) || 'disponible';
+    if (!MANUAL_LOT_STATUSES.includes(normalizedStatus)) {
+      throw new BadRequestException('El estado vendido solo se genera desde una venta. Elige Disponible, Separado, En Promocion o 2da. Etapa.');
+    }
     const lot = this.lotRepo.create({
       projectId,
       planId: plan.id,
@@ -354,7 +371,7 @@ export class PlanService {
       points: dto.points,
       areaM2: String(dto.areaM2 ?? 0),
       price: String(dto.price ?? 0),
-      status: normalizeLotStatus(dto.status) || 'disponible',
+      status: normalizedStatus,
       agentId: dto.agentId,
       type: dto.type,
       dimensions: dto.dimensions,
@@ -429,6 +446,9 @@ export class PlanService {
     if (dto.salePrice !== undefined) lot.salePrice = String(dto.salePrice);
     if (dto.finalPrice !== undefined) lot.finalPrice = String(dto.finalPrice);
     const normalizedStatus = normalizeLotStatus(dto.status);
+    if (normalizedStatus !== undefined && !MANUAL_LOT_STATUSES.includes(normalizedStatus)) {
+      throw new BadRequestException('El estado vendido solo se genera desde una venta. Elige Disponible, Separado, En Promocion o 2da. Etapa.');
+    }
     if (normalizedStatus !== undefined && normalizedStatus !== lot.status) {
       await this.historyRepo.save({
         lotId,
