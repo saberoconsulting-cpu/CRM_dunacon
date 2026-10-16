@@ -96,9 +96,10 @@ function visitData(node) {
   ts.forEachChild(node, visitData);
 }
 visitData(cashflowAst);
-function cashflowData(saleValue) {
+function cashflowData(saleValue, area = 24786, lots = 82, mode = 'estatico', annualSales = []) {
   return evaluate(dataParts.join('\n') + `\nexports.data = {${dataNames.join(',')}};`, {
-    saleValue, dataLandArea: 24786, dataTotalLots: 82,
+    saleValue, dataLandArea: area, dataTotalLots: lots, mode,
+    salesYearRow: { values: annualSales }, visibleYears: [0, 1, 2],
   }).data;
 }
 const baseData = cashflowData(3470039.933333);
@@ -106,6 +107,11 @@ assert.equal(baseData.dataVentaTotalLotes, 3470039.933333);
 assert.equal(baseData.dataPriceM2.toFixed(2), '140.00');
 assert.equal(baseData.dataAverageLotPrice.toFixed(2), '42317.56');
 assert.equal(baseData.dataAverageLotArea.toFixed(2), '302.27');
+const dynamicData = cashflowData(72900, 2084.39, 7, 'dinamico', [50000, 81392, 0, 9000]);
+assert.equal(dynamicData.dataVentaTotalLotes, 131392);
+assert.equal(dynamicData.dataPriceM2.toFixed(2), '63.04');
+assert.equal(dynamicData.dataAverageLotPrice.toFixed(2), '18770.29');
+assert.equal(cashflowData(72900, 2084.39, 7, 'dinamico', [0, 0, 0]).dataVentaTotalLotes, 0);
 const changedData = cashflowData(4000000);
 assert.equal(changedData.dataPriceM2, 4000000 / 24786);
 assert.equal(changedData.dataAverageLotPrice, 4000000 / 82);

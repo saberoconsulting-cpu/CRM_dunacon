@@ -212,8 +212,8 @@ export default function ProjectPage() {
         <div className="card flex flex-wrap items-center gap-4 xl:col-span-3">
           <div className="flex min-w-0 flex-1 flex-nowrap items-center gap-4">
             {project.coverImageUrl && (
-              <div className="w-24 shrink-0 sm:w-[108px]">
-                <img src={project.coverImageUrl} className="aspect-square w-full rounded-lg object-cover" alt="" />
+              <div className="w-32 shrink-0 sm:w-36">
+                <img src={project.coverImageUrl} className="aspect-[4/3] w-full rounded-lg object-cover" alt="" />
               </div>
             )}
             <div className="min-w-0 flex-1">

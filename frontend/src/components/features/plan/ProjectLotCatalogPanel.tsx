@@ -376,7 +376,7 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
               </div>
 
               <div className="overflow-auto rounded-lg border" style={{ borderColor: BORDER }}>
-                <table className="w-full min-w-[800px] table-fixed text-xs [&_td]:!px-1.5 [&_td]:!py-2 [&_td]:!text-xs [&_td]:!whitespace-normal [&_td]:break-words [&_th]:!text-center [&_td]:!text-center">
+                <table className="w-full min-w-[800px] table-fixed text-xs [&_td]:!px-1.5 [&_td]:!py-2 [&_td]:!text-xs [&_td]:!whitespace-normal [&_td]:break-words [&_th]:!text-center [&_td]:!text-center max-md:w-max max-md:table-auto max-md:[&_td]:!whitespace-nowrap max-md:[&_th]:!whitespace-nowrap max-md:[&_th>span]:inline-block max-md:[&_th>span]:mr-1">
                   <colgroup>{[6, 14, 4, 7, 11, 9, 10, 10, 9, 13, 7].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}</colgroup>
                   <thead className="sticky top-0">
                     <tr>
@@ -404,7 +404,7 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                         <td className="td-base">{statusLabel(row.status)}</td>
                         <td className="td-base">{row.client || '-'}</td>
                         <td className="td-base">
-                          <div className="flex flex-wrap justify-center gap-1">
+                          <div className="flex flex-wrap justify-center gap-1 max-md:flex-nowrap">
                             <button className="btn-neutral !h-7 !px-1.5" title="Editar lote" aria-label={`Editar ${row.code}`} onClick={() => startEdit(row)}><FiEdit3 /></button>
                             <button className="btn-danger !h-7 !px-1.5" title="Eliminar lote" aria-label={`Eliminar ${row.code}`} onClick={() => remove(row)}><FiTrash2 /></button>
                           </div>

@@ -123,7 +123,7 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
   return (
     <>
       <Toaster />
-      <div className="space-y-5">
+      <div className="min-w-0 max-w-full space-y-5">
         <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard label="Clientes / leads" value={contados} />
           <StatCard label="Reservados" value={rows.filter((r) => (r.pipelineStatus || r.pipeline_status) === 'reservado').length} color="#1259C4" />
@@ -168,14 +168,14 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
           </div>
         </div>
 
-        <div className="card p-0 overflow-hidden">
+        <div className="card min-w-0 max-w-full p-0 overflow-hidden">
           {loading ? <p className="p-4 text-slate-400">Cargando…</p>
             : rows.length === 0 ? <p className="p-6 text-slate-400 text-sm text-center">Sin clientes con ese filtro.</p>
             : (
-            <div className="overflow-x-auto">
-              <table className="table-base table-head-plomo w-full table-fixed [&_th]:!whitespace-normal [&_th]:!px-2 [&_td]:!whitespace-normal [&_td]:!px-2 [&_td]:!text-xs [&_td]:[overflow-wrap:anywhere]">
+            <div className="w-full max-w-full overflow-x-auto">
+              <table className="table-base table-head-plomo w-full min-w-[1000px] table-fixed xl:min-w-0 [&_th]:!whitespace-normal [&_th]:!px-2 [&_th]:[overflow-wrap:anywhere] [&_td]:!whitespace-normal [&_td]:!px-2 [&_td]:!text-xs [&_td]:[overflow-wrap:anywhere] [&_.select-trigger]:!min-w-0 [&_.select-trigger]:!h-auto [&_.select-trigger]:!min-h-9 [&_.select-trigger]:!gap-1 [&_.select-trigger]:!py-1.5 [&_.select-trigger>span]:!whitespace-normal [&_.select-trigger>span]:!overflow-visible [&_.select-trigger>span]:!text-clip [&_.select-trigger>span]:!text-[11px] [&_td:nth-child(7)_.select-trigger>span]:!whitespace-nowrap [&_td:nth-child(7)_.select-trigger>span]:!overflow-hidden [&_td:nth-child(7)_.select-trigger>span]:!text-ellipsis">
                 <colgroup>
-                  {[4, 15, 11, 15, 10, 15, 10, 10, 10].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}
+                  {[4, 13, 10, 14, 10, 14, 13, 11, 11].map((width, index) => <col key={index} style={{ width: `${width}%` }} />)}
                 </colgroup>
                 <thead><tr>
                   <th className="th-base">Item</th><th className="th-base">Nombre</th><th className="th-base">Teléfono</th><th className="th-base">Correo</th><th className="th-base">Canal</th><th className="th-base">Agente</th>
@@ -199,7 +199,7 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
                           {c.email || 'Sin correo'}
                         </td>
                         <td className="td-base">
-                          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium capitalize text-slate-600">
+                          <span className="inline-flex whitespace-nowrap items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium capitalize text-slate-600">
                             {(c as any).source || c.source || 'web'}
                           </span>
                         </td>
@@ -223,8 +223,8 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
                             options={Object.keys(PIPELINE).map((k) => ({ value: k, label: PIPELINE[k] }))}
                           />
                         </td>
-                        <td className="td-base !text-center"><span className="badge !whitespace-normal !text-center" style={{ background: pc[0], color: pc[1] }}>{PIPELINE[ps] || ps}</span></td>
-                        <td className="td-base text-slate-600"><span className="whitespace-nowrap">{formatDate(created)}</span></td>
+                        <td className="td-base !text-center"><span className="badge whitespace-nowrap !text-center" style={{ background: pc[0], color: pc[1] }}>{PIPELINE[ps] || ps}</span></td>
+                        <td className="td-base text-slate-600"><span className="inline-block whitespace-nowrap">{formatDate(created)}</span></td>
                       </tr>
                     );
                   })}
@@ -233,7 +233,7 @@ const [currentUserId, setCurrentUserId] = useState<number | null>(null);
             </div>
             )}
             <div className="bg-white p-4 border-t" style={{ borderColor: '#F0F1F3' }}>
-              <PaginationBar label="Clientes" page={page} totalPages={meta.totalPages} total={meta.total} limit={limit} setPage={setPage} setLimit={setLimit} />
+              <PaginationBar label="Clientes" page={page} totalPages={meta.totalPages} total={meta.total} limit={limit} setPage={setPage} setLimit={setLimit} mobileCompact />
             </div>
         </div>
       </div>

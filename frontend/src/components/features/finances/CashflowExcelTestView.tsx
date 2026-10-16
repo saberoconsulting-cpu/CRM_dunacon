@@ -1676,14 +1676,16 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         : calculatedRowTotal('land-cost') || calculatedRowTotal('land');
     const averageLotArea = totalLots > 0 ? Number(manual.landArea || 0) / totalLots : 0;
     const averageLotPrice = totalLots > 0 ? saleValue / totalLots : 0;
-    const dataSaleValue = saleValue;
+    // En dinamico, Datos usa el mismo total que la fila Ventas por ano.
+    const dataVentaTotalLotes = mode === 'dinamico'
+        ? salesYearRow.values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0)
+        : saleValue;
+    const dataSaleValue = dataVentaTotalLotes;
     const dataTotalLots = mode === 'dinamico' ? (lotsSoldTotal || Number(manual.totalLots || 0)) : totalLots;
     const dataLandArea = Number(manual.landArea || 0);
     const dataPriceM2 = dataLandArea > 0 ? dataSaleValue / dataLandArea : 0;
     const dataAverageLotArea = dataTotalLots > 0 ? dataLandArea / dataTotalLots : 0;
     const dataAverageLotPrice = dataTotalLots > 0 ? dataSaleValue / dataTotalLots : 0;
-    // Tomar el total de la fila de ingresos del flujo, sin reconstruirlo desde area y precio/m2.
-    const dataVentaTotalLotes = saleValue;
 
     const netProfitSeries = calculated.find((item) => item.id === 'net')?.values || empty();
     const adjustedProfitSeries = calculated.find((item) => item.id === 'adjusted')?.values || netProfitSeries;
@@ -2333,10 +2335,10 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                             { label: 'Terreno US$', value: formatPlainInteger(landAcquisitionTotal) },
                             { label: 'Area venta (m2)', value: formatPlainInteger(dataLandArea) },
                             { label: 'Nro. de lotes', value: formatPlainInteger(dataTotalLots) },
-                            { label: 'Area promedio por lote (m2)', value: dataAverageLotArea.toLocaleString('en-US', { maximumFractionDigits: 2 }) },
-                            { label: 'Precio US$/m²', value: dataPriceM2.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
-                            { label: 'Precio lote prom. US$', value: dataAverageLotPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
-                            { label: 'Cuota inicial', value: `${manual.initialPercent}%` },
+                            { label: 'Area promedio por lote (m2)', value: formatPlainInteger(dataAverageLotArea) },
+                            { label: 'Precio US$/m²', value: formatPlainInteger(dataPriceM2) },
+                            { label: 'Precio lote prom. US$', value: formatPlainInteger(dataAverageLotPrice) },
+                            { label: 'Cuota inicial', value: `${formatPlainInteger(manual.initialPercent)}%` },
                             { label: 'Venta total lotes US$', value: formatPlainInteger(dataVentaTotalLotes) },
                         ].map(({ label, value }) => (
                             <button key={String(label)} type="button" onClick={openAssumptions} className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition hover:brightness-95" style={{ background: '#FFF0B3' }}>

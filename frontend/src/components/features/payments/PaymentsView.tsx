@@ -25,7 +25,7 @@ import { printHtml } from '@/lib/print';
 import { getSocket } from '@/lib/socket';
 import { EvidenceButton } from './EvidenceViewer';
 import { comparePaymentRows, PAYMENT_CONCEPT_LABEL } from './paymentOrder';
-import { FiActivity, FiAlertTriangle, FiCamera, FiChevronDown, FiClock, FiCreditCard, FiDollarSign, FiEdit3, FiFileText, FiMoreVertical, FiRefreshCw, FiTrendingUp, FiUpload, FiX } from 'react-icons/fi';
+import { FiActivity, FiAlertTriangle, FiCamera, FiClock, FiCreditCard, FiDollarSign, FiEdit3, FiFileText, FiMoreVertical, FiRefreshCw, FiTrendingUp, FiUpload, FiX } from 'react-icons/fi';
 
 type P = {
   id: number; projectId: number; lotId: number; clientId?: number | null; type: string; amount: string;
@@ -635,7 +635,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const [status, setStatus] = useState('');
   const [overdue, setOverdue] = useState<P[]>([]);
   const [showOverdueAlert, setShowOverdueAlert] = useState(true);
-  const [showMoreKpis, setShowMoreKpis] = useState(false);
+
   const [salesRange, setSalesRange] = useState<3 | 6>(6);
   const [salesPeriod, setSalesPeriod] = useState<'month' | 'year'>('month');
   const { currency, setCurrency, exchangeRate, setExchangeRate, format: show } = useDisplayCurrency();
@@ -1204,15 +1204,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     
     const webPieSvg = document.querySelector('#payments-distribution-chart svg.recharts-surface')?.outerHTML || pieSvg;
     const webBarSvg = document.querySelector('#chart-composed svg.recharts-surface')?.outerHTML || barSvg;
-    const cards = [
-      ['Cuotas Iniciales', String(kpiSource.initialPaymentCount || 0), kpiMoney(kpiSource.initialPaymentAmount || 0), GREEN],
-      ['Cuotas Financiamiento', String(kpiSource.financedCuotas || 0), 'Cronograma generado', BLUE],
-      ['Cuotas Pendientes US$', kpiMoney(kpiSource.pendingAmount || 0), 'Saldo pendiente', BLUE],
-      ['Cuota Mora', String(kpiSource.overduePayments || 0), kpiMoney(kpiSource.overdueAmount || 0), RED],
-      ['Morosidad %', pct(delinquencyRate), 'Mora sobre pendientes', AMBER],
-      ['Pagos por vencer', String(kpiSource.upcomingPayments || 0), dueHelper, BLUE_DARK],
-      ['Pago por vencer US$', kpiMoney(kpiSource.upcomingAmount || 0), dueHelper, BLUE_DARK],
-    ];
+    const cards = summaryKpis.map(({ label, value, helper, accent }) => [label, value, helper, accent]);
     const cardIcons = Array.from(document.querySelectorAll('#payments-primary-kpis .kpi-label svg')).map(svg => svg.outerHTML);
     const cardsHtml = cards.map(([label, value, helper, color], index) => `<div class="kpi" style="border-top-color:${color}"><span class="kpi-label"><i style="color:${color};background:${color}1F">${cardIcons[index] || ''}</i>${escapeHtml(label)}</span><strong style="color:${color}">${escapeHtml(value)}</strong><small>${escapeHtml(helper)}</small></div>`).join('');
     let chartImages = '';
@@ -1569,6 +1561,16 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
   const totalOverdue = Number(metrics.overdueAmount ?? sumRows(overdueByMonth));
   const collectionRate = totalSalesApproved > 0 ? (totalCollected / totalSalesApproved) * 100 : 0;
   const delinquencyRate = Number(kpiSource.delinquencyRate ?? ((totalCollected + totalOverdue) > 0 ? (totalOverdue / (totalCollected + totalOverdue)) * 100 : 0));
+  const amountWithCount = (amount: number, count: number) => `${kpiMoney(amount || 0)} (${count || 0})`;
+  const summaryKpis = [
+    { label: 'Total Venta', value: amountWithCount(kpiSource.totalSaleAmount, kpiSource.totalSaleLots), helper: 'Ventas y separaciones', icon: <FiDollarSign />, accent: BLUE },
+    { label: 'Cuotas Iniciales', value: amountWithCount(kpiSource.initialPaymentAmount, kpiSource.initialPaymentCount), helper: 'Iniciales registradas', icon: <FiCreditCard />, accent: GREEN },
+    { label: 'Pago de Cuotas', value: amountWithCount(kpiSource.paidCuotasAmount, kpiSource.paidCuotas), helper: `${kpiSource.financedCuotas || 0} cuotas de financiamiento`, icon: <FiTrendingUp />, accent: GREEN },
+    { label: 'Cuotas Pendientes', value: amountWithCount(kpiSource.pendingAmount, kpiSource.upcomingPayments), helper: 'Saldo pendiente', icon: <FiDollarSign />, accent: BLUE },
+    { label: 'Cuotas en Mora', value: amountWithCount(kpiSource.overdueAmount, kpiSource.overduePayments), helper: 'Cuotas vencidas', icon: <FiAlertTriangle />, accent: RED },
+    { label: 'Pagos por vencer', value: amountWithCount(kpiSource.upcomingAmount, kpiSource.upcomingPayments), helper: dueHelper, icon: <FiClock />, accent: BLUE_DARK },
+    { label: 'Morosidad %', value: pct(delinquencyRate), helper: 'Mora sobre pendientes', icon: <FiActivity />, accent: AMBER },
+  ];
   const paymentBreakdown = [
     { key: 'inicial', name: 'Pago de Inicial', value: Number(metrics.initialPaymentAmount || 0), color: BLUE },
     { key: 'cuotas', name: 'Pago Cuotas Financ.', value: Number(metrics.paidCuotasAmount || 0), color: GREEN },
@@ -1678,43 +1680,13 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
             </button>
           </div>
         )}
-        <div className="relative">
-          <div id="payments-primary-kpis" className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-3">
-            <KpiTile label="Cuotas Iniciales" value={String(kpiSource.initialPaymentCount || 0)} helper={kpiMoney(kpiSource.initialPaymentAmount || 0)} icon={<FiCreditCard />} accent={GREEN} truncateLabel={false} />
-            <KpiTile label="Cuotas Financiamiento" value={String(kpiSource.financedCuotas || 0)} helper="Cronograma generado" icon={<FiTrendingUp />} accent={BLUE} truncateLabel={false} />
-            <KpiTile label="Cuotas Pendientes US$" value={kpiMoney(kpiSource.pendingAmount || 0)} helper="Saldo pendiente" icon={<FiDollarSign />} accent={BLUE} truncateLabel={false} />
-            <KpiTile label="Cuota Mora" value={String(kpiSource.overduePayments || 0)} helper={kpiMoney(kpiSource.overdueAmount || 0)} icon={<FiAlertTriangle />} accent={RED} truncateLabel={false} />
-            <KpiTile label="Morosidad %" value={pct(delinquencyRate)} helper="Mora sobre pendientes" icon={<FiActivity />} accent={AMBER} truncateLabel={false} />
-            <KpiTile label="Pagos por vencer" value={String(kpiSource.upcomingPayments || 0)} helper={dueHelper} icon={<FiCreditCard />} accent={BLUE_DARK} truncateLabel={false} />
-            <KpiTile label="Pago por vencer US$" value={kpiMoney(kpiSource.upcomingAmount || 0)} helper={dueHelper} icon={<FiDollarSign />} accent={BLUE_DARK} truncateLabel={false} />
+        <div className="min-w-0">
+          <div id="payments-primary-kpis" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7 [&_.card-card-kpi]:!px-2 [&_.kpi-label]:gap-1 [&_.kpi-label>span:first-child]:!h-6 [&_.kpi-label>span:first-child]:!w-6 [&_.kpi-label-text]:!text-[9px] [&_.kpi-label-text]:tracking-normal [&_.kpi-helper]:!text-[9px]">
+            {summaryKpis.map((item) => (
+              <KpiTile key={item.label} {...item} truncateLabel={false} />
+            ))}
           </div>
-
-          <button
-            type="button"
-            className="mx-auto mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-md border bg-white px-3 text-xs font-semibold text-slate-600 shadow-sm transition-colors hover:bg-slate-50 sm:w-auto lg:absolute lg:-right-1 lg:top-1/2 lg:mt-0 lg:h-7 lg:w-7 lg:-translate-y-1/2 lg:rounded-full lg:p-0"
-            style={{ borderColor: BORDER }}
-            onClick={() => setShowMoreKpis((v) => !v)}
-            aria-label={showMoreKpis ? 'Ocultar indicadores' : 'Ver mas indicadores'}
-            aria-expanded={showMoreKpis}
-            title={showMoreKpis ? 'Ocultar indicadores' : 'Ver mas indicadores'}
-          >
-            <span className="lg:hidden">{showMoreKpis ? 'Ocultar indicadores' : 'Ver más indicadores'}</span>
-            <FiChevronDown style={{ transform: showMoreKpis ? 'rotate(180deg)' : 'none', transition: 'transform .2s ease' }} />
-          </button>
         </div>
-
-        {showMoreKpis && (
-          <div className="mt-3 grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-3">
-            <KpiTile label="Total venta (lotes)" value={String(kpiSource.totalSaleLots || 0)} helper={kpiMoney(kpiSource.totalSaleAmount || 0)} icon={<FiTrendingUp />} accent={BLUE} truncateLabel={false} />
-            <KpiTile label="Total Venta" value={kpiMoney(kpiSource.totalSaleAmount || 0)} helper="Ventas y separaciones" icon={<FiDollarSign />} accent={BLUE} truncateLabel={false} />
-            <KpiTile label="Pago Inicial US$" value={kpiMoney(kpiSource.initialPaymentAmount || 0)} helper="Iniciales pagadas" icon={<FiCreditCard />} accent={GREEN} truncateLabel={false} />
-            <KpiTile label="Pago Financ. US$" value={kpiMoney(kpiSource.financingAmount || 0)} helper="Cuotas financiadas pagadas" icon={<FiTrendingUp />} accent={BLUE_DARK} truncateLabel={false} />
-            <KpiTile label="Pago Mora US$" value={kpiMoney(kpiSource.overdueAmount || 0)} helper="Cuotas vencidas" icon={<FiDollarSign />} accent={RED} truncateLabel={false} />
-            <KpiTile label="Pago de Cuotas" value={String(kpiSource.paidCuotas || 0)} helper={kpiMoney(kpiSource.paidCuotasAmount || 0)} icon={<FiCreditCard />} accent={GREEN} truncateLabel={false} />
-            <KpiTile label="Pago de Cuotas US$" value={kpiMoney(kpiSource.paidCuotasAmount || 0)} helper="Cuotas pagadas" icon={<FiDollarSign />} accent={GREEN} truncateLabel={false} />
-          </div>
-        )}
-
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[30%_70%]">
       <div id="payments-distribution-chart" className="card overflow-hidden p-0">
         <ChartHeader
@@ -1844,7 +1816,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
               )}
             </div>
             <div className="flex w-full min-w-0 flex-col gap-2 xl:w-full xl:flex-row xl:flex-nowrap xl:items-center">
-              <div className="flex flex-col gap-2 xl:flex-row xl:flex-nowrap xl:items-center">
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-col xl:flex-row xl:flex-nowrap xl:items-center max-sm:[&_.input]:min-w-0 max-sm:[&_.input]:px-2 max-sm:[&_.input]:text-xs max-sm:[&_button]:min-w-0 max-sm:[&_button]:whitespace-normal max-sm:[&_button]:px-2 max-sm:[&_button]:text-xs">
                 <Select
                   value={status}
                   onChange={setStatus}

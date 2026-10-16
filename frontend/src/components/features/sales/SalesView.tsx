@@ -1407,7 +1407,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   <h3 className="mt-0.5 font-semibold" style={{ fontSize: 19, color: '#0F172A' }}>Registrar venta</h3>
                   <p className="mt-1 text-xs text-slate-500">Asigna una cotizacion y valida el precio final desde la ficha del lote.</p>
                 </div>
-                {!quoteSelected && <div className="w-full sm:w-auto sm:shrink-0">
+                {!quoteSelected && <div className="hidden rounded-2xl border-2 border-dashed border-[#1259C4] p-3 text-center sm:block sm:w-64 sm:shrink-0">
+                  <p className="mb-2 text-xs leading-relaxed text-slate-700">Si no tienes una cotización, debes generar previamente una para poder realizar la VENTA</p>
                   <button type="button" className="btn-primary w-full justify-center" onClick={() => {
                     if (!quoteProjectId) { toast('Selecciona un proyecto para crear la cotizacion.', 'err'); return; }
                     const query = new URLSearchParams({ returnToSale: '1' });
@@ -1421,7 +1422,19 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   y se registran siempre en dolares (US$). El tipo de cambio se
                   conserva al alternar, así el monto real no cambia. */}
               <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                <div className="inline-flex overflow-hidden rounded-lg border border-[#D9E7FF] bg-white p-0.5" role="group" aria-label="Moneda de la ficha">
+                {!quoteSelected && (
+                  <div className="w-full rounded-2xl border-2 border-dashed border-[#1259C4] p-3 text-center sm:hidden">
+                  <p className="mb-2 text-xs leading-relaxed text-slate-700">Si no tienes una cotización, debes generar previamente una para poder realizar la VENTA</p>
+                  <button type="button" className="btn-primary !h-9 shrink-0 justify-center !px-3 !text-xs sm:hidden" onClick={() => {
+                    if (!quoteProjectId) { toast('Selecciona un proyecto para crear la cotizacion.', 'err'); return; }
+                    const query = new URLSearchParams({ returnToSale: '1' });
+                    if (lotId) query.set('lotId', String(lotId));
+                    window.location.href = `/projects/${quoteProjectId}/quotes?${query}`;
+                  }}>Nueva cotización</button>
+                  </div>
+                )}
+                <div className="flex min-w-0 items-center gap-2">
+                <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-[#D9E7FF] bg-white p-0.5" role="group" aria-label="Moneda de la ficha">
                   {(['USD'] as SaleCurrency[]).map((option) => (
                     <button
                       key={option}
@@ -1435,11 +1448,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     </button>
                   ))}
                 </div>
-                <span className="text-[11px] text-slate-500">
+                <span className="whitespace-nowrap text-[9px] text-slate-500 sm:text-[11px]">
                   {saleCurrency === 'USD'
                     ? `Captura y registro en dólares (US$)`
                     : 'Captura y registro en soles (S/)'}
                 </span>
+                </div>
               </div>
             </div>
 
