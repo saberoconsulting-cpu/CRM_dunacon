@@ -1,4 +1,5 @@
 'use client';
+import { salesMonthlyAmounts } from '@/lib/sales-monthly';
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Toaster, toast, Field, EmptyState } from '@/components/ui/ui';
@@ -8,8 +9,7 @@ import { api } from '@/lib/api';
 import { normalizePaginated, buildQuery } from '@/lib/pagination';
 import { buildQuoteAssignedValues, findLotById, formatAmountIn, loadAllSalesQuotes, lotReferencePrice, type SaleCurrency } from './salesQuotes';
 import { formatMoney, formatDate } from '@/lib/types';
-import { DEFAULT_EXCHANGE_RATE, useDisplayCurrency } from '@/lib/currency';
-import CurrencyToggle from '@/components/ui/CurrencyToggle';
+import { DEFAULT_EXCHANGE_RATE, useDisplayCurrency, moneyGlobal, moneyGlobalDecimals, moneyGlobalShort, displayNumberGlobal, displaySymbol } from '@/lib/currency';
 import { Select } from '@/components/ui/Select';
 import { printHtml } from '@/lib/print';
 import { FiDownload, FiHome, FiCheckCircle, FiDollarSign, FiTrendingUp, FiPercent, FiBookmark, FiArrowDownCircle, FiCalendar, FiChevronDown, FiFilter, FiSearch, FiSliders, FiX } from 'react-icons/fi';
@@ -191,20 +191,11 @@ function lotFinalPrice(lot: any) {
   return Number(lot?.finalPrice || 0);
 }
 
-function formatUsd(value: number | string | null | undefined) {
-  return `US$ ${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
+function formatUsd(value: number | string | null | undefined) { return moneyGlobalDecimals(value); }
 
-function shortUsd(n: number) {
-  const value = Number(n || 0);
-  if (Math.abs(value) >= 1000000) return `US$ ${(value / 1000000).toLocaleString('es-PE', { maximumFractionDigits: 1 })}M`;
-  if (Math.abs(value) >= 1000) return `US$ ${(value / 1000).toLocaleString('es-PE', { maximumFractionDigits: 0 })}k`;
-  return `US$ ${value.toLocaleString('es-PE', { maximumFractionDigits: 0 })}`;
-}
+function shortUsd(n: number) { return moneyGlobalShort(n); }
 
-function usdWhole(n: number) {
-  return `US$ ${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
-}
+function usdWhole(n: number) { return moneyGlobal(n); }
 
 function pct(n: number) {
   if (!Number.isFinite(n)) return '0.0%';
@@ -391,9 +382,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   // por eso se convierten a soles multiplicando por el tipo de cambio.
   const {
     currency,
-    setCurrency,
     exchangeRate: displayRate,
-    setExchangeRate: setDisplayRate,
   } = useDisplayCurrency();
   const showSaleAmount = useCallback((amountUsd: number | string | null | undefined) => {
     const usd = Number(amountUsd || 0);
@@ -898,7 +887,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     // --- Moneda de la ficha: TODO el documento se expresa en US$ ---
     // Los importes de ventas ya estan guardados en dolares; no se convierten.
     const usd = (amountUsd: number) => Number(amountUsd || 0);
-    const fmtUsdFin = (value: number) => `US$ ${Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const fmtUsdFin = (value: number) => moneyGlobalDecimals(value);
     /** Convierte un monto en soles y lo devuelve ya formateado en US$. */
     const usdMoney = (pen: number) => fmtUsdFin(usd(pen));
     const initialPlan = cuotaInicialPen > 0
@@ -1039,19 +1028,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   });
   const lotCountRows = lotStatusRows.filter((row) => row.count > 0);
   const lotAmountRows = lotStatusRows.filter((row) => row.amount > 0);
-  const salesByMonthFallback = (() => {
-    const totals: Record<string, number> = {};
-    for (const sale of chartSales) {
-      const key = monthKey(sale.saleDate);
-      if (!key) continue;
-      totals[key] = (totals[key] || 0) + Number(sale.salePrice || 0);
-    }
-    return Object.keys(totals).sort().map((month) => ({ month, monto: totals[month] }));
-  })();
-  const salesByMonthFromCash = ((cash?.salesByMonth || []) as { month: string; monto: number }[])
-    .filter((row) => row?.month)
-    .map((row) => ({ month: String(row.month), monto: Number(row.monto || 0) }));
-  const salesByMonth = salesByMonthFromCash.length ? salesByMonthFromCash : salesByMonthFallback;
+  const salesByMonth = salesMonthlyAmounts(cash?.salesByMonth || [], chartSales);
   const rangeMonths = (() => {
     const now = new Date();
     const months: string[] = [];
@@ -1088,12 +1065,6 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       <div className="space-y-5">
         <div className="flex items-center justify-between gap-3">
           <h3 className="font-semibold">Resumen de ventas</h3>
-          <CurrencyToggle
-            currency={currency}
-            setCurrency={setCurrency}
-            exchangeRate={displayRate}
-            setExchangeRate={setDisplayRate}
-          />
         </div>
         <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 xl:gap-3">
           <SalesMetric label="Lotes vendidos" value={String(totalSales)} icon={<FiCheckCircle />} tone="#0F8B5F" truncateLabel={false} />
@@ -1148,14 +1119,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     <XAxis type="number" tickFormatter={shortUsd} tick={{ fontSize: 10, fill: MUTED }} axisLine={false} tickLine={false} />
                     <YAxis type="category" dataKey="label" width={82} tick={{ fontSize: 11, fill: MUTED }} axisLine={false} tickLine={false} />
                     <Tooltip formatter={(value: number) => usdWhole(Number(value || 0))} />
-                    <Bar dataKey="amount" name="MONTO EN US$" radius={[0, 3, 3, 0]}>
+                    <Bar dataKey="amount" name={`MONTO EN ${displaySymbol()}`} radius={[0, 3, 3, 0]}>
                       {lotStatusRows.map((row) => <Cell key={row.key} fill={row.color} />)}
-                      <LabelList dataKey="amount" position="right" formatter={(value: number) => Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })} style={{ fill: INK, fontSize: 10, fontWeight: 700 }} />
+                      <LabelList dataKey="amount" position="right" formatter={(value: number) => displayNumberGlobal(value).toLocaleString('en-US', { maximumFractionDigits: 0 })} style={{ fill: INK, fontSize: 10, fontWeight: 700 }} />
                     </Bar>
                   </BarChart>
                 </ResponsiveContainer>
                 <div className="mt-1 flex justify-center text-[10px] font-semibold" style={{ color: MUTED }}>
-                  <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-7" style={{ background: '#1B8E4B' }} /> MONTO EN US$</span>
+                  <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-7" style={{ background: '#1B8E4B' }} /> MONTO EN {displaySymbol()}</span>
                 </div>
               </div>
             ) : <EmptyChart text="Sin montos para graficar." />}
@@ -1163,7 +1134,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
 
           <div className="card overflow-hidden p-0">
             <ChartHeader
-              title={`Ventas por ${salesPeriod === 'year' ? 'ano' : 'mes'} (US$)`}
+              title={`Ventas por ${salesPeriod === 'year' ? 'ano' : 'mes'} (${displaySymbol()})`}
               subtitle={salesPeriod === 'year' ? 'Historico por ano' : (salesRange === 3 ? 'Ultimos 3 meses' : 'Ultimos 6 meses')}
               menuRows={[
                 [salesPeriod === 'year' ? 'Ano actual' : 'Mes actual', usdWhole(salesChartLast?.monto || 0)],

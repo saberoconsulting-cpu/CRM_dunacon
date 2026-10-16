@@ -7,6 +7,7 @@ const ts = require('typescript');
 const storage = new Map([['crm_display_currency', 'PEN'], ['crm_exchange_rate', '3.75']]);
 const react = {
   useState: (initial) => [initial, () => {}],
+  useSyncExternalStore: (_subscribe, getSnapshot) => getSnapshot(),
   useCallback: (callback) => callback,
   useEffect: (effect) => effect(),
 };
@@ -17,7 +18,7 @@ function evaluate(source, extra = {}) {
       assert.equal(name, 'react');
       return react;
     },
-    window: { localStorage: { getItem: (key) => storage.get(key), setItem: (key, value) => storage.set(key, value) } },
+    window: { localStorage: { getItem: (key) => storage.get(key), setItem: (key, value) => storage.set(key, value) }, addEventListener: () => {}, removeEventListener: () => {} },
     ...extra,
   };
   vm.runInNewContext(ts.transpileModule(source, {
@@ -26,15 +27,49 @@ function evaluate(source, extra = {}) {
   return context.exports;
 }
 const currency = evaluate(fs.readFileSync(path.join(__dirname, '../src/lib/currency.ts'), 'utf8'));
-const display = currency.useDisplayCurrency();
+let display = currency.useDisplayCurrency();
+// Hydration restores the saved preference for presentation only.
+display = currency.useDisplayCurrency();
+assert.equal(display.currency, 'PEN');
+assert.equal(storage.get('crm_display_currency'), 'PEN');
+for (const amount of [19933.87, 4933.87, 250, 0]) assert.equal(display.toDisplay(amount), amount * 3.75);
+assert.equal(currency.moneyGlobal(250), 'S/ 938');
+display.setCurrency('USD');
+display = currency.useDisplayCurrency();
 assert.equal(display.currency, 'USD');
 assert.equal(storage.get('crm_display_currency'), 'USD');
 for (const amount of [19933.87, 4933.87, 250, 0]) assert.equal(display.toDisplay(amount), amount);
-display.setCurrency('PEN');
-assert.equal(storage.get('crm_display_currency'), 'USD');
-currency.setCurrencyStore({ currency: 'PEN', rate: 3.75 });
-assert.equal(currency.currencyStore.currency, 'USD');
 assert.equal(currency.moneyGlobal(250), 'US$ 250');
+display.setExchangeRate(4);
+display.setCurrency('PEN');
+display = currency.useDisplayCurrency();
+assert.equal(display.toDisplay(250), 1000);
+assert.equal(currency.moneyGlobal(250), 'S/ 1,000');
+assert.equal(storage.get('crm_exchange_rate'), '4');
+// Switching view never mutates the source record or its serialized payload.
+const original = { amount: 250, amountUsd: 250, currency: 'USD' };
+const serialized = JSON.stringify(original);
+const shown = display.toDisplay(original.amount);
+assert.equal(shown, 1000);
+assert.equal(JSON.stringify(original), serialized);
+display.setCurrency('USD');
+display.setExchangeRate(3.75);
+
+let notifications = 0;
+const unsubscribe = currency.subscribeCurrencyStore(() => { notifications++; });
+currency.setCurrencyStore({ currency: 'PEN', rate: 4 });
+assert.equal(notifications, 1);
+assert.equal(currency.currencyStore.currency, 'PEN');
+display.setCurrency('PEN');
+display.setExchangeRate(4);
+assert.equal(currency.useDisplayCurrency().currency, 'PEN');
+assert.equal(currency.moneyGlobalDecimals(250), 'S/ 1,000.00');
+assert.equal(currency.convertDisplayAmount(250, 'USD', 99), 250);
+assert.equal(currency.convertDisplayAmount(250, 'PEN', 4), 1000);
+assert.equal(currency.convertDisplayAmount(250, 'PEN', -1), 937.5);
+unsubscribe();
+currency.useDisplayCurrency().setCurrency('USD');
+currency.useDisplayCurrency().setExchangeRate(3.75);
 
 const source = fs.readFileSync(path.join(__dirname, '../src/components/features/payments/PaymentsView.tsx'), 'utf8');
 const ast = ts.createSourceFile('PaymentsView.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -45,7 +80,7 @@ function visit(node) {
   ts.forEachChild(node, visit);
 }
 visit(ast);
-const history = evaluate(parts.join('\n') + '\nexports.format = showUsd; exports.totals = paymentHistoryInstallmentTotals;', { useCallback: react.useCallback });
+const history = evaluate(parts.join('\n') + '\nexports.format = showUsd; exports.totals = paymentHistoryInstallmentTotals;', { useCallback: react.useCallback, displayNumberGlobal: currency.displayNumberGlobal, displaySymbol: currency.displaySymbol, currency: 'USD', exchangeRate: 3.75 });
 assert.equal(history.format(19933.87), 'US$ 19,933.87');
 assert.equal(history.format(4933.87), 'US$ 4,933.87');
 assert.equal(history.format(250), 'US$ 250.00');
@@ -102,6 +137,17 @@ function cashflowData(saleValue, area = 24786, lots = 82, mode = 'estatico', ann
     salesYearRow: { values: annualSales }, visibleYears: [0, 1, 2],
   }).data;
 }
+const displayParts = [];
+function visitDisplay(node) {
+  if (ts.isVariableDeclaration(node) && ['amountToDisplay', 'isCellEditable'].includes(node.name.getText(cashflowAst))) displayParts.push(`const ${node.getText(cashflowAst)};`);
+  ts.forEachChild(node, visitDisplay);
+}
+visitDisplay(cashflowAst);
+const preview = evaluate(displayParts.join('\n') + '\nexports.amount = amountToDisplay; exports.editable = isCellEditable;', {
+  currency: 'PEN', exchangeRate: 4, mode: 'estatico', canEditRow: () => true,
+});
+assert.equal(preview.amount(250), 1000);
+assert.equal(preview.editable({ computed: false }, 0), false);
 const baseData = cashflowData(3470039.933333);
 assert.equal(baseData.dataVentaTotalLotes, 3470039.933333);
 assert.equal(baseData.dataPriceM2.toFixed(2), '140.00');
@@ -115,6 +161,10 @@ assert.equal(cashflowData(72900, 2084.39, 7, 'dinamico', [0, 0, 0]).dataVentaTot
 const changedData = cashflowData(4000000);
 assert.equal(changedData.dataPriceM2, 4000000 / 24786);
 assert.equal(changedData.dataAverageLotPrice, 4000000 / 82);
+currency.setCurrencyStore({ currency: 'PEN', rate: 4 });
+assert.equal(cashflowData(3470039.933333).dataVentaTotalLotes, 3470039.933333);
+assert.equal(cashflowData(3470039.933333).dataPriceM2, 3470039.933333 / 24786);
+currency.setCurrencyStore({ currency: 'USD', rate: 3.75 });
 const yearly = evaluate(fs.readFileSync(path.join(__dirname, '../src/lib/sales-by-year.ts'), 'utf8'));
 const staticAnnual = yearly.projectedSalesByYear([2, 30, 50], 3470039.933333, 3, 59);
 assert.equal(staticAnnual[0], 2 * baseData.dataAverageLotPrice);

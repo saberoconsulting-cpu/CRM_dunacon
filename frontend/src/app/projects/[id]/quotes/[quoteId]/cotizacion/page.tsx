@@ -1,11 +1,12 @@
 'use client';
+import { moneyGlobal, moneyGlobalDecimals, useDisplayCurrency, displaySymbol } from '@/lib/currency';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 
 const DUNACON_LOGO = '/logo/dunacon.png';
 
-const fmtUsd = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtUsd = (n: number) => moneyGlobalDecimals(n);
 const fmtPen = (n: number) => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const PAY_LABEL: Record<string, string> = { contado: 'Contado', Crédito: 'Crédito', credito: 'Crédito' };
 
@@ -68,6 +69,7 @@ function QuotePlanPreview({ planData, quote, lot }: { planData: any; quote: any;
 }
 
 export default function CotizacionDocPage() {
+  useDisplayCurrency();
   const { quoteId } = useParams<{ id: string; quoteId: string }>();
   const [data, setData] = useState<any>(null);
   const [planData, setPlanData] = useState<any>(null);
@@ -230,7 +232,7 @@ export default function CotizacionDocPage() {
               <p className="text-sm"><b>Lote elegido:</b> N.° {lot?.code}</p>
               <p className="text-sm"><b>Dirección del lote:</b> {lotAddress}</p>
               <p className="text-sm"><b>Área del lote (m²):</b> {lot?.areaM2}</p>
-              <p className="text-sm"><b>Precio US$/m²:</b> {fmtUsd(quote.pricePerM2Usd)}</p>
+              <p className="text-sm"><b>Precio {displaySymbol()}/m²:</b> {fmtUsd(quote.pricePerM2Usd)}</p>
             </div>
           </div>
 
@@ -239,7 +241,7 @@ export default function CotizacionDocPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[340px] text-sm">
                 <thead><tr className="text-left text-slate-500">
-                  <th className="py-1">Concepto</th><th className="py-1 text-right">US$</th>
+                  <th className="py-1">Concepto</th><th className="py-1 text-right">{displaySymbol()}</th>
                 </tr></thead>
                 <tbody>
                   {resumen.map(([label, usd]) => (
@@ -342,7 +344,7 @@ export default function CotizacionDocPage() {
                   <thead>
                     <tr className="text-left text-slate-500">
                       <th className="py-1">Parte</th>
-                      <th className="py-1 text-right">Monto US$</th>
+                      <th className="py-1 text-right">Monto {displaySymbol()}</th>
 
                       <th className="py-1 text-right">Fecha</th>
                     </tr>

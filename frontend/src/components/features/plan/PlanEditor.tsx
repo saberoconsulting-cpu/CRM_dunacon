@@ -1,4 +1,5 @@
 ﻿'use client';
+import { moneyGlobal, useDisplayCurrency } from '@/lib/currency';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { api, uploadFile } from '@/lib/api';
 import { Block, Lot, Point } from '@/lib/types';
@@ -68,10 +69,7 @@ function insidePolygon(x: number, y: number, pts: Point[]) {
   return inside;
 }
 
-function formatUsd(value: unknown) {
-  const n = Number(value || 0);
-  return `US$ ${n.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
-}
+function formatUsd(value: unknown) { return moneyGlobal(value); }
 
 function normalizeStreetText(value: string) {
   return String(value || '')
@@ -97,6 +95,7 @@ function streetNameFromAddress(value: unknown) {
 }
 
 export default function PlanEditor({ projectId }: { projectId: number }) {
+  useDisplayCurrency();
   const svgRef = useRef<SVGSVGElement>(null);
   const lotCatalogFileRef = useRef<HTMLInputElement>(null);
   const [imgUrl, setImgUrl] = useState('');

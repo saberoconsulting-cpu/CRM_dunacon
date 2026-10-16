@@ -3,36 +3,35 @@ type Partner = {
   adicional: string;
   aporteTotal?: string;
   inversionActualizada?: string;
+  newPartner?: boolean;
 };
 
+export function isNewPartner(partner: Partner, index: number): boolean {
+  return partner.newPartner ?? (index >= 2 && Number(partner.capital || 0) + Number(partner.adicional || 0) === 0);
+}
+
 export function partnerContribution(partner: Partner, index: number): number {
-  const base = Number(partner.capital || 0) + Number(partner.adicional || 0);
-  if (index < 2 || base > 0) return base;
-  // Conserva el importe ingresado en la version anterior del formulario.
-  const value = Number(partner.aporteTotal ?? partner.inversionActualizada ?? 0);
+  const value = isNewPartner(partner, index)
+    ? Number(partner.aporteTotal ?? partner.inversionActualizada ?? 0)
+    : Number(partner.capital || 0) + Number(partner.adicional || 0);
   return Number.isFinite(value) ? Math.max(0, value) : 0;
 }
 
-/** Las compras transfieren acciones existentes; no cambian el capital fundador. */
-export function transferPartnerShares(contributions: number[], purchases: number[], totalShares: number, sharePrice: number) {
+/** Los aportes nuevos emiten acciones al valor actualizado; los fundadores conservan las suyas. */
+export function issuePartnerShares(contributions: number[], newContributions: number[], totalShares: number, sharePrice: number) {
   const capital = contributions.reduce((sum, value) => sum + value, 0);
   const initial = contributions.map(value => capital > 0 ? value / capital * totalShares : 0);
-  const final = [...initial];
-  const bought = contributions.map(() => 0);
   const invalid: number[] = [];
-  purchases.forEach((amount, index) => {
-    if (contributions[index] > 0 || amount === 0) return;
-    const available = final.slice(0, index).reduce((sum, value) => sum + value, 0);
-    const shares = sharePrice > 0 ? amount / sharePrice : 0;
-    if (!Number.isFinite(amount) || amount < 0 || sharePrice <= 0 || shares > available + 1e-9) {
+  const bought = contributions.map((_, index) => {
+    const amount = newContributions[index] ?? 0;
+    if (amount === 0) return 0;
+    if (!Number.isFinite(amount) || amount < 0 || !Number.isFinite(sharePrice) || sharePrice <= 0 || totalShares <= 0) {
       invalid.push(index);
-      return;
+      return 0;
     }
-    for (let seller = 0; seller < index; seller++) {
-      final[seller] -= available > 0 ? shares * final[seller] / available : 0;
-    }
-    bought[index] = shares;
-    final[index] += shares;
+    return amount / sharePrice;
   });
-  return { initial, final, bought, invalid };
+  const final = initial.map((value, index) => value + bought[index]);
+  const finalTotal = final.reduce((sum, value) => sum + value, 0);
+  return { initial, final, bought, finalTotal, invalid };
 }

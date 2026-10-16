@@ -272,10 +272,14 @@ export class QuotesService {
         'SUM(CASE WHEN q.payment_method = :credito THEN 1 ELSE 0 END) AS "credito"',
         'SUM(CASE WHEN q.payment_method = :contado THEN 1 ELSE 0 END) AS "contado"',
         'COALESCE(SUM(q.final_price_usd), 0) AS "montoTotal"',
+        'COALESCE(SUM(CASE WHEN q.payment_method = :credito THEN GREATEST(q.final_price_usd - q.cuota_inicial_usd, 0) ELSE 0 END), 0) AS "financiamientoTotal"',
+        'COALESCE(SUM(CASE WHEN q.payment_method = :credito THEN q.total_cuotas ELSE 0 END), 0) AS "cuotasTotal"',
+        'COALESCE(SUM(CASE WHEN q.payment_method = :credito AND q.cuota_inicial_usd > 0 THEN 1 ELSE 0 END), 0) AS "inicialesCount"',
+        'COALESCE(SUM(CASE WHEN q.status = :convertida THEN q.final_price_usd ELSE 0 END), 0) AS "convertidaTotal"',
         'COALESCE(SUM(q.cuota_inicial_usd), 0) AS "cuotaInicialTotal"',
         'COALESCE(SUM(CASE WHEN q.payment_method = :contado THEN q.valor_cuota_usd ELSE 0 END), 0) AS "cuotaContadoTotal"',
       ])
-      .setParameters({ credito: 'credito', contado: 'contado' });
+      .setParameters({ credito: 'credito', contado: 'contado', convertida: 'convertida' });
 
     qb.andWhere('q.deleted_at IS NULL');
     if (projectId) qb.andWhere('q.project_id = :projectId', { projectId });
@@ -287,6 +291,10 @@ export class QuotesService {
       credito: Number(row?.credito || 0),
       contado: Number(row?.contado || 0),
       montoTotal: Number(row?.montoTotal || 0),
+      financiamientoTotal: Number(row?.financiamientoTotal || 0),
+      cuotasTotal: Number(row?.cuotasTotal || 0),
+      inicialesCount: Number(row?.inicialesCount || 0),
+      convertidaTotal: Number(row?.convertidaTotal || 0),
       cuotaInicialTotal: Number(row?.cuotaInicialTotal || 0),
       cuotaContadoTotal: Number(row?.cuotaContadoTotal || 0),
     };

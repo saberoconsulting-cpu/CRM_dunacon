@@ -204,7 +204,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const headerTitle = activeNavItem?.label || title || (isProjectContext ? 'Proyecto' : 'Dashboard general');
   const headerTitleMobile = activeNavItem?.shortLabel || activeNavItem?.label || title || 'Dashboard general';
   const headerTitleLogo = titleLogoUrl || (isProjectContext && activeProject?.logoImageUrl ? activeProject.logoImageUrl : null);
-  const showHeaderCurrency = pathname === '/dashboard';
+  const showHeaderCurrency = true;
 
   function isActive(href: string) {
     if (href.startsWith('#')) return false;
@@ -566,7 +566,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
       {drawerOpen && <div className="fixed inset-0 z-20 bg-black/25 md:hidden" onClick={() => setDrawerOpen(false)} />}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-4 border-b bg-white px-4 sm:px-5" style={{ borderColor: BRAND.border }}>
+        <header className="sticky top-0 z-10 flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b bg-white px-4 py-2 sm:px-5 md:h-14 md:flex-nowrap md:gap-4 md:py-0" style={{ borderColor: BRAND.border }}>
           <button type="button" className="text-[#374151] md:hidden" onClick={() => setDrawerOpen(true)} aria-label="Abrir menu">
             <FiMenu style={{ fontSize: 22 }} />
           </button>
@@ -601,7 +601,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           )}
           {showHeaderCurrency && (
             <CurrencyToggle
-              className="order-2 ml-auto shrink-0 md:order-none md:ml-0"
+              className="order-2 w-full justify-end md:order-none md:ml-0 md:w-auto"
               currency={currency}
               setCurrency={setCurrency}
               exchangeRate={exchangeRate}

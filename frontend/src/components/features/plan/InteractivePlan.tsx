@@ -1,4 +1,5 @@
 'use client';
+import { useDisplayCurrency } from '@/lib/currency';
 // src/components/interactive-plan/InteractivePlan.tsx
 import { useEffect, useRef, useState } from 'react';
 import { FiLock, FiRotateCcw, FiUnlock } from 'react-icons/fi';
@@ -44,6 +45,7 @@ export default function InteractivePlan({
   onBlockClick, onLotClick, highlightBlockId, selectedLotId, interactive = true,
   lotStatusColors, lotStatusLabels, tooltipMode = 'full',
 }: Props) {
+  useDisplayCurrency();
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [t, setT] = useState({ x: 0, y: 0 });

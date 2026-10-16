@@ -1,3 +1,4 @@
+import { moneyGlobal } from './currency';
 // src/lib/types.ts
 // Tipos compartidos del frontend alineados con el backend
 
@@ -193,8 +194,7 @@ export interface PaymentItem {
 
 // Los montos del CRM se muestran en dolares.
 export function formatMoney(n: number | string | undefined | null): string {
-  const v = Number(n || 0);
-  return 'US$ ' + v.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  return moneyGlobal(n);
 }
 
 export function formatDate(iso?: string | null): string {

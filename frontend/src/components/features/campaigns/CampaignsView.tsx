@@ -1,4 +1,5 @@
 'use client';
+import { useDisplayCurrency } from '@/lib/currency';
 import { useEffect, useState, useCallback } from 'react';
 import { Toaster, toast, Field, StatCard } from '@/components/ui/ui';
 import { api } from '@/lib/api';
@@ -12,6 +13,7 @@ const CHANNELS: any = { facebook: 'Facebook', tiktok: 'TikTok', instagram: 'Inst
 const CH_COLOR: any = { facebook: '#1877F2', tiktok: '#171717', instagram: '#1259C4', web: '#6B7280', referidos: '#166FE0', otro: '#9AA1AB' };
 
 export default function CampaignsView({ lockedProjectId }: { lockedProjectId?: number }) {
+  useDisplayCurrency();
   const [rows, setRows] = useState<C[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

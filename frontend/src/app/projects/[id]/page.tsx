@@ -9,16 +9,27 @@ import { Toaster, toast } from '@/components/ui/ui';
 import { MetricTile, KPI_GRID_8 } from '@/components/ui/Metrics';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
+import { useConstructionBudgetCalculations, isCleanDynamicCashflow } from '@/components/features/construction-budget/ConstructionBudgetView';
+import { useIncomeStatementReal } from '@/components/features/income-statement/IncomeStatementView';
 import ProjectReports from '@/components/features/projects/ProjectReports';
 import { api, getToken, uploadFile } from '@/lib/api';
+import { financingPending, clientDelinquencyRate } from '@/lib/financing-pending';
+import { lotListValue } from '@/lib/lot-summary';
+import { salesMonthlyAmounts } from '@/lib/sales-monthly';
 import { getSocket } from '@/lib/socket';
-import { Lot, LOT_STATUS_COLOR, LOT_STATUS_LABEL } from '@/lib/types';
+import { Lot, LOT_STATUS_LABEL } from '@/lib/types';
 import { useDisplayCurrency } from '@/lib/currency';
 
 type AgentRanking = { agentId?: number | null; agentName: string; salesCount: number; salesAmount: number; commission: number };
-type IncomeStatement = { egresos_clasificados?: Record<string, number | string> };
 
 const LOT_STATUSES = ['disponible', 'reservado', 'adelanto', 'primera_cuota', 'vendido'] as const;
+const DASHBOARD_LOT_COLORS: Record<(typeof LOT_STATUSES)[number], string> = {
+  disponible: '#86CFA5',
+  reservado: '#F59E0B',
+  adelanto: '#7C3AED',
+  primera_cuota: '#0284C7',
+  vendido: '#DC2626',
+};
 const LEAD_CHANNEL_LABEL: Record<string, string> = {
   facebook: 'Facebook',
   tiktok: 'TikTok',
@@ -28,12 +39,12 @@ const LEAD_CHANNEL_LABEL: Record<string, string> = {
   otro: 'Otro',
 };
 const LEAD_CHANNEL_COLOR: Record<string, string> = {
-  Facebook: '#1877F2',
-  TikTok: '#171717',
-  Instagram: '#1259C4',
-  Web: '#6B7280',
-  Referidos: '#A9C9FB',
-  Otro: '#9AA1AB',
+  Facebook: '#60A5FA',
+  TikTok: '#FDBA74',
+  Instagram: '#93C5FD',
+  Web: '#FB923C',
+  Referidos: '#BFDBFE',
+  Otro: '#FED7AA',
 };
 
 function asNumber(value: unknown): number {
@@ -53,11 +64,18 @@ export default function ProjectPage() {
   const [stats, setStats] = useState<any>(null);
   const [kpis, setKpis] = useState<any>(null);
   const [budgetSummary, setBudgetSummary] = useState<any>({ categories: {}, grandTotal: 0 });
-  const [statement, setStatement] = useState<IncomeStatement | null>(null);
+  const [budgetItems, setBudgetItems] = useState<any[]>([]);
+  const [budgetCashflow, setBudgetCashflow] = useState<any>(null);
+  const [budgetDynamicCashflow, setBudgetDynamicCashflow] = useState<any>(null);
+  const { budgetTotals } = useConstructionBudgetCalculations(budgetItems, budgetCashflow, budgetDynamicCashflow);
+  const [statementItems, setStatementItems] = useState<any[]>([]);
+  const { rowReal: statementReal } = useIncomeStatementReal(projectId, statementItems, budgetCashflow, budgetDynamicCashflow);
   const [selectedLot, setSelectedLot] = useState<number | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const [agentPage, setAgentPage] = useState(0);
   const [leadsByChannel, setLeadsByChannel] = useState<{ channel: string; total: number }[]>([]);
+  const [chartSales, setChartSales] = useState<any[]>([]);
+  const [financingTotal, setFinancingTotal] = useState({ amount: 0, count: 0, overdueAmount: 0, overdueCount: 0, initialAmount: 0, paidInstallmentAmount: 0 });
   const [cash, setCash] = useState<any>({ methods: [], byMonth: [], overdueByMonth: [], salesByMonth: [], metrics: {} });
   // Moneda unica de la pantalla: el toggle S/ <-> US$ la controla y `fmt` convierte
   // todos los montos (que vienen en soles de la base de datos) antes de pintarlos.
@@ -129,17 +147,53 @@ export default function ProjectPage() {
     api.get<any>(`/dashboards/project/${projectId}`).then(setStats).catch(() => {});
     api.get<any[]>(`/clients/metrics/channels?projectId=${projectId}`).then((data) => setLeadsByChannel(data || [])).catch(() => {});
     api.get<any>(`/payments/caja?projectId=${projectId}`).then(setCash).catch(() => {});
-    api.get<any>(`/construction-budget?projectId=${projectId}`).then((data) => setBudgetSummary(data?.summary || { categories: {}, grandTotal: 0 })).catch(() => {});
-    api.get<IncomeStatement>(`/finances/income-statement?projectId=${projectId}`).then(setStatement).catch(() => {});
+    let cancelled = false;
+    async function loadPages(path: string) {
+      const items: any[] = [];
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const result = await api.get<any>(`${path}?projectId=${projectId}&page=${page}&limit=100`);
+        items.push(...(Array.isArray(result) ? result : result?.items || []));
+        totalPages = Number(result?.totalPages || 1);
+        page += 1;
+      } while (page <= totalPages && !cancelled);
+      return items;
+    }
+    async function loadPaymentOperations() {
+      const [operations, sales] = await Promise.all([loadPages('/payments'), loadPages('/sales')]);
+      if (cancelled) return;
+      setChartSales(sales);
+      const ids = Array.from(new Set([...sales, ...operations].map(row => Number(row.lotId || 0)).filter(Boolean)));
+      const histories = await Promise.all(ids.map(id => api.get<any>(`/sales/lot/${id}/history`)));
+      if (!cancelled) setFinancingTotal(financingPending(histories, operations));
+    }
+    loadPaymentOperations().catch(() => {
+      if (!cancelled) toast('No se pudo actualizar el saldo de cuotas en mora. Recarga la pagina.', 'err');
+    });
+
+    Promise.all([
+      api.get<any>(`/construction-budget?projectId=${projectId}`),
+      api.get<any>(`/cashflow/model?projectId=${projectId}&mode=estatico`).catch(() => null),
+      api.get<any>(`/cashflow/model?projectId=${projectId}&mode=dinamico`).catch(() => null),
+      api.get<any>(`/income-statement?projectId=${projectId}`).catch(() => ({ items: [] })),
+    ]).then(([budget, projected, real, statement]) => {
+      setStatementItems(Array.isArray(statement?.items) ? statement.items : []);
+      setBudgetSummary(budget?.summary || { categories: {}, grandTotal: 0 });
+      setBudgetItems(budget?.items || []);
+      setBudgetCashflow(Array.isArray(projected?.rows) ? projected : null);
+      setBudgetDynamicCashflow(isCleanDynamicCashflow(real) ? real : null);
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, [projectId]);
 
   const countByStatus = (status: Lot['status']) => lots.filter((lot) => lot.status === status).length;
-  const amountByStatus = (status: Lot['status']) => lots.filter((lot) => lot.status === status).reduce((sum, lot) => sum + asNumber(lot.price), 0);
+  const amountByStatus = (status: Lot['status']) => sumBy(lots.filter((lot) => lot.status === status), lotListValue);
   const lotCountData = LOT_STATUSES.map((status) => ({ name: LOT_STATUS_LABEL[status], value: countByStatus(status) }));
   const lotAmountData = LOT_STATUSES.map((status) => ({ name: LOT_STATUS_LABEL[status], value: amountByStatus(status) }));
   const lotColorByLabel = (label: string) => {
     const status = LOT_STATUSES.find((item) => LOT_STATUS_LABEL[item] === label);
-    return status ? LOT_STATUS_COLOR[status] : '#9AA1AB';
+    return status ? DASHBOARD_LOT_COLORS[status] : '#9AA1AB';
   };
   const leadsChartData = leadsByChannel.map((item) => ({
     name: LEAD_CHANNEL_LABEL[item.channel] || item.channel || 'Otro',
@@ -147,21 +201,19 @@ export default function ProjectPage() {
   }));
   const totalLeads = sumBy(leadsByChannel, (item) => item.total);
   const salesCount = sumBy(stats?.salesByPeriod || [], (item: any) => item.total);
-  const income = asNumber(stats?.cards?.income);
-  const expense = asNumber(stats?.cards?.expense);
-  const profit = asNumber(stats?.cards?.profit);
+  const income = asNumber(statementReal['line-ingreso']);
+  const expense = asNumber(statementReal['line-costo']) + asNumber(statementReal['line-ventas_admin']) + asNumber(statementReal['line-financiero']);
+  const profit = asNumber(statementReal.net);
   const soldLots = countByStatus('vendido');
-  const constructionBudget = asNumber(budgetSummary?.grandTotal);
-  const obraReal = ['compra_terreno', 'inversion', 'costo_indirecto', 'ventas_admin', 'operacion', 'financiamiento', 'impuestos']
-    .reduce((sum, key) => sum + asNumber(statement?.egresos_clasificados?.[key]), 0);
-  const obraExecutionPct = constructionBudget > 0 ? (obraReal / constructionBudget) * 100 : 0;
-  const inventoryValue = stats?.cards?.inventoryValue != null ? asNumber(stats.cards.inventoryValue) : sumBy(lots, (lot) => lot.finalPrice ?? lot.salePrice ?? lot.price);
-  const soldListValue = stats?.cards?.soldListValue != null ? asNumber(stats.cards.soldListValue) : sumBy(lots.filter((lot) => lot.status === 'vendido'), (lot) => lot.finalPrice ?? lot.salePrice ?? lot.price);
+  const constructionBudget = budgetTotals.projected || asNumber(budgetSummary?.grandTotal);
+  const obraReal = budgetTotals.real;
+  const obraExecutionPct = budgetTotals.projected ? (obraReal / budgetTotals.projected) * 100 : obraReal ? 100 : 0;
+  const inventoryValue = sumBy(lots, lotListValue);
   const agentRanking = (stats?.agentRanking || []) as AgentRanking[];
 
   // --- Series para las 4 graficas del proyecto (columna 60%) ---
   const collectedByMonth = (cash?.byMonth || []) as { month: string; monto: number }[];
-  const salesByMonth = (cash?.salesByMonth || []) as { month: string; monto: number }[];
+  const salesByMonth = salesMonthlyAmounts(cash?.salesByMonth || [], chartSales);
   const overdueByMonth = (cash?.overdueByMonth || []) as { month: string; monto: number }[];
   const methods = (cash?.methods || []) as { method: string; total: number; monto: number }[];
   const cashMetrics = cash?.metrics || {};
@@ -170,9 +222,10 @@ export default function ProjectPage() {
   const totalLots = lots.length || asNumber(stats?.cards?.total);
   const totalLotValue = inventoryValue;
   const soldLotsCount = soldLots;
-  const soldAmount = soldListValue;
-  const paidAmount = Number(cashMetrics.paidCuotasAmount ?? sumBy(collectedByMonth, (r) => r.monto));
-  const pendingAmount = Number(cashMetrics.pendingAmount ?? 0);
+  // Mismo resumen de ventas y cobranzas que usa Finanzas/Pagos, en USD.
+  const soldAmount = asNumber(cashMetrics.totalSaleAmount);
+  const paidAmount = financingTotal.initialAmount + financingTotal.paidInstallmentAmount;
+  const pendingAmount = financingTotal.amount;
   const overdueAmount = Number(cashMetrics.overdueAmount ?? sumBy(overdueByMonth, (r) => r.monto));
 
   // Ventas por año (para el menu de la grafica de ventas).
@@ -184,15 +237,19 @@ export default function ProjectPage() {
     moroso: overdueByMonth.filter((r) => String(r.month || '').slice(0, 4) === year).reduce((sum, r) => sum + asNumber(r.monto), 0),
   }));
 
-  // Estado de resultados del proyecto (para los cajones y la TIR).
-  const costoVentas = soldAmount;
-  const gastosProyecto = expense;
-  const utilidadAntes = soldAmount - costoVentas - gastosProyecto;
-  const igv = Math.max(0, soldAmount - costoVentas) * 0.18;
-  const utilidadNeta = utilidadAntes - igv;
-  const tir = soldAmount > 0 && gastosProyecto > 0 ? (utilidadAntes / gastosProyecto) * 100 : 0;
-  const collectionRate = soldAmount > 0 ? (paidAmount / soldAmount) * 100 : 0;
-  const delinquencyRate = Number(cashMetrics.delinquencyRate ?? ((paidAmount + overdueAmount) > 0 ? (overdueAmount / (paidAmount + overdueAmount)) * 100 : 0));
+  // Mismas filas y subtotales de la columna Real del Estado de Resultados.
+  const realStatement = {
+    revenue: income,
+    costOfSales: asNumber(statementReal['line-costo']),
+    salesAdminCost: asNumber(statementReal['line-ventas_admin']),
+    financeCost: asNumber(statementReal['line-financiero']),
+    grossProfit: asNumber(statementReal.gross),
+    operatingProfit: asNumber(statementReal.operating),
+    profitBeforeTax: asNumber(statementReal['pre-tax']),
+    incomeTax: asNumber(statementReal['line-impuestos']),
+    netProfit: profit,
+  };
+  const delinquencyRate = clientDelinquencyRate(financingTotal.amount, financingTotal.overdueAmount);
 
   if (!project) {
     return (
@@ -250,14 +307,14 @@ export default function ProjectPage() {
         </div>
 
         <div className={`project-dashboard-kpis xl:col-span-3 ${KPI_GRID_8}`}>
-          <MetricTile label="Leads del proyecto" value={totalLeads} icon={<FiUsers />} />
           <MetricTile label="Ventas registradas" value={salesCount} icon={<FiTag />} tone="#111827" />
           <MetricTile label="Ingresos" value={fmt(income)} icon={<FiDollarSign />} tone="#0F8B5F" />
           <MetricTile label="Egresos" value={fmt(expense)} icon={<FiArrowDownCircle />} tone="#E11D48" />
-          <MetricTile label="Utilidad" value={fmt(profit)} icon={<FiTrendingUp />} tone="#1259C4" />
+          <MetricTile label="Utilidad neta real" value={fmt(profit)} icon={<FiTrendingUp />} tone="#1259C4" />
           <MetricTile label="Presupuesto de Obra" value={fmt(constructionBudget)} icon={<FiPieChart />} tone="#6B7280" />
-          <MetricTile label="Avance Ppto. de Obra S/" value={fmt(obraReal)} icon={<FiArrowDownCircle />} tone="#16A36A" />
+          <MetricTile label={`Avance Ppto. de Obra ${currency === 'PEN' ? 'S/' : 'US$'}`} value={fmt(obraReal)} icon={<FiArrowDownCircle />} tone="#16A36A" />
           <MetricTile label="Ejecucion de Obra %" value={`${obraExecutionPct.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`} icon={<FiTrendingUp />} tone="#1877F2" />
+          <MetricTile label="Leads del proyecto" value={totalLeads} icon={<FiUsers />} />
         </div>
 
         <div className="min-w-0 xl:col-span-3">
@@ -265,6 +322,9 @@ export default function ProjectPage() {
           <ProjectReports
             formatter={fmt}
             data={{
+              constructionBudget,
+              constructionReal: obraReal,
+              constructionExecutionPct: obraExecutionPct,
               paidAmount,
               soldAmount,
               overdueAmount,
@@ -276,15 +336,15 @@ export default function ProjectPage() {
               inventoryValue,
               soldLotsCount,
               pendingAmount,
-              costOfSales: costoVentas,
-              expenses: gastosProyecto,
-              tax: igv,
-              netProfit: utilidadNeta,
+              pendingInstallmentCount: financingTotal.count,
+              overdueInstallmentAmount: financingTotal.overdueAmount,
+              overdueInstallmentCount: financingTotal.overdueCount,
+              statement: realStatement,
               lotCountData,
               lotAmountData,
               lotColorByLabel,
               leadsChartData,
-              leadColorByLabel: (name: string) => LEAD_CHANNEL_COLOR[name] || '#9AA1AB',
+              leadColorByLabel: (name: string) => LEAD_CHANNEL_COLOR[name] || '#FED7AA',
               totalLeads,
               kpis,
             }}

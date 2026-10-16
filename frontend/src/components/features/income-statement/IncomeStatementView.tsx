@@ -6,7 +6,6 @@ import { FiAlertTriangle, FiBarChart2, FiChevronDown, FiChevronRight, FiDollarSi
 import { Toaster, toast, Field } from '@/components/ui/ui';
 import { Select } from '@/components/ui/Select';
 import { KpiCard as SharedKpiCard } from '@/components/ui/Metrics';
-import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
 import { printHtml } from '@/lib/print';
 import { Lot, Project } from '@/lib/types';
@@ -694,6 +693,170 @@ async function loadAllLots(projectId: number) {
   return all;
 }
 
+export function useIncomeStatementReal(projectId: number, items: StatementItem[], cashflow: CashflowModel | null, dynamicCashflow: CashflowModel | null) {
+  const treeByLine = useMemo(() => {
+    const { labels: projectedLabels } = cashflowTotals(cashflow);
+    const projectedIndex = cashflowTotals(cashflow);
+    const { totals: projectedTotals } = projectedIndex;
+    const realIndex = cashflowTotals(dynamicCashflow);
+    const { totals: realTotals } = realIndex;
+    const flowValue = (rowId: string, isProjected: boolean, fallback = 0) => {
+      const index = isProjected ? projectedIndex : realIndex;
+      const totals = isProjected ? projectedTotals : realTotals;
+      return matchedFlowTotal(index, { cashflowRowId: rowId, code: rowId, name: rowId }, null, totals.has(rowId) ? totals.get(rowId) || 0 : fallback);
+    };
+    // Filas del flujo indexadas por id y por label, igual que Presupuesto de Obra,
+    // para poder resolver una partida tanto por su id como por su nombre.
+    const staticRows = cashflow?.rows || [];
+    const dynamicRows = dynamicCashflow?.rows || [];
+    const findFlowRow = (id: string) => staticRows.find((row) => normalizeMatch(row.id) === normalizeMatch(id))
+      || dynamicRows.find((row) => normalizeMatch(row.id) === normalizeMatch(id));
+    const labelFor = (id: string, fallback: string) =>
+      findFlowRow(id)?.label || projectedLabels.get(id) || fallback;
+    const financialChildRows = () => {
+      const rows = [...staticRows, ...dynamicRows].filter((row) => normalizeMatch(row.parentId) === 'financial');
+      const seen = new Set<string>();
+      return rows.filter((row) => {
+        const key = normalizeMatch(row.id || row.label);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    };
+    const LINE_ID_OFFSET: Record<StatementLine, number> = {
+      ingreso: 0, costo: 1, ventas_admin: 2, financiero: 3, impuestos: 4, igv: 5, ajuste: 6,
+    };
+    const partida = (index: number, line: StatementLine, code: string, id: string, label: string): StatementTreeItemWithSource => ({
+      id: -1000 - LINE_ID_OFFSET[line] * 100 - index,
+      projectId,
+      parentId: null,
+      line,
+      code,
+      name: labelFor(id, label),
+      description: null,
+      amount: '0',
+      currency: 'PEN',
+      sortOrder: (index + 1) * 10,
+      isActive: true,
+      children: [],
+      cashflowRowId: id,
+      isVirtual: true,
+    });
+    const sectionPartidas = (line: StatementLine): StatementTreeItemWithSource[] => {
+      const def = LINE_CASHFLOW_SECTIONS.find((entry) => entry.line === line);
+      if (!def) return [];
+      if (line === 'financiero') {
+        const children = financialChildRows();
+        if (children.length) {
+          return children.map((child, index) => partida(index, line, `E.${String(index + 1).padStart(2, '0')}`, child.id, child.label || child.id));
+        }
+      }
+      // Filas que existen en cualquiera de los dos flujos
+      const present = def.children.filter((child) =>
+        staticRows.some((row) => normalizeMatch(row.id) === normalizeMatch(child.id)) ||
+        dynamicRows.some((row) => normalizeMatch(row.id) === normalizeMatch(child.id))
+      );
+      if (present.length) return present.map((child, index) => partida(index, line, child.code, child.id, child.label));
+      if (def.single && findFlowRow(def.single.id)) return [partida(0, line, def.single.code, def.single.id, def.single.label)];
+      return [];
+    };
+    const tree = buildTree(items);
+    const grouped: Record<StatementLine, StatementTreeItem[]> = {
+      ingreso: [], costo: [], ventas_admin: [], financiero: [], impuestos: [], igv: [], ajuste: [],
+    };
+    for (const item of tree) {
+      if (grouped[item.line]) grouped[item.line].push(item);
+    }
+    (['ingreso', 'costo', 'ventas_admin', 'financiero', 'impuestos', 'igv'] as StatementLine[]).forEach((line) => {
+      const flowPartidas = sectionPartidas(line) as StatementTreeItem[];
+      if (!flowPartidas.length) return;
+      const mapped = new Set(flowPartidas.map((item) => (item as StatementTreeItemWithSource).cashflowRowId).filter(Boolean) as string[]);
+      const ownItems = (grouped[line] || []) as StatementTreeItemWithSource[];
+      const extras = ownItems.filter((item) => {
+        const key = statementCashflowKey(item);
+        return Boolean(key) && !mapped.has(key as string) && Boolean(findFlowRow(key as string));
+      });
+      grouped[line] = extras.length ? [...flowPartidas, ...(extras as StatementTreeItem[])] : flowPartidas;
+    });
+    return grouped;
+  }, [items, cashflow, dynamicCashflow, projectId]);
+
+  const hasFinancialFlowChildren = useMemo(
+    () => (treeByLine.financiero || []).some((item) => normalizeMatch((item as StatementTreeItemWithSource).cashflowRowId) !== 'financial'),
+    [treeByLine],
+  );
+
+  const rowReal = useMemo(() => {
+    const dynamicIndex = cashflowTotals(dynamicCashflow);
+    const { totals: dynamicTotals } = dynamicIndex;
+    // Indice "real": UNICAMENTE el flujo DINAMICO (data de Cuentas y Bancos).
+    // No se mezcla con el estático.
+    const realAmount = (item: StatementTreeItemWithSource, parentFlowKey?: string | null): number => {
+      if (item.children.length) return item.children.reduce((sum, child) => sum + realAmount(child, parentFlowKeyFor(dynamicIndex, item)), 0);
+      // Partida virtual del flujo: el Real es el de su fila (dinamico).
+      if (item.cashflowRowId) {
+        const byId = cashflowRowAmount(dynamicIndex.byId, item.cashflowRowId);
+        if (byId != null) return byId;
+        if (dynamicTotals.has(item.cashflowRowId)) return dynamicTotals.get(item.cashflowRowId) || 0;
+        const fromFlow = matchedFlowTotal(dynamicIndex, {
+          cashflowRowId: item.cashflowRowId,
+          code: item.cashflowRowId,
+          name: item.cashflowRowId,
+        });
+        if (fromFlow) return fromFlow;
+      }
+      // Matching difuso (codigo/nombre) SOLO para partidas raiz: las subpartidas
+      // nacen en el flujo, por eso se resuelven aparte (por nombre acotado al padre).
+      if (item.parentId == null) {
+        const mappedRow = findCashflowRow(dynamicCashflow, item);
+        if (mappedRow) return cashflowRowTotal(mappedRow);
+      }
+      if (item.isVirtual) return 0;
+      return matchedFlowTotal(dynamicIndex, item, parentFlowKey, num(item.amount));
+    };
+    const totals: Record<string, number> = {};
+    for (const meta of LINES) {
+      const fallbackLineTotal = (treeByLine[meta.key] || []).reduce((sum, item) => sum + realAmount(item as StatementTreeItemWithSource), 0);
+      totals[`line-${meta.key}`] = meta.key === 'financiero' && hasFinancialFlowChildren
+        ? fallbackLineTotal
+        : cashflowLineAmount(dynamicCashflow, meta.key, fallbackLineTotal);
+      // Real por partida: el cuadro pinta cada fila con la clave `item-<id>`, por eso
+      // se replica aqui el mismo valor que aporta a su linea (los hijos suman el padre).
+      const walkItems = (nodes: StatementTreeItem[]) => {
+        for (const node of nodes) {
+          const withSource = node as StatementTreeItemWithSource;
+          totals[`item-${node.id}`] = realAmount(withSource);
+          if (node.children.length) walkItems(node.children);
+        }
+      };
+      walkItems(treeByLine[meta.key] || []);
+    }
+    const line = (key: StatementLine) => totals[`line-${key}`] || 0;
+    const gross = line('ingreso') - line('costo');
+    const operating = gross - line('ventas_admin');
+    const preTax = operating - line('financiero');
+    const net = preTax - line('impuestos');
+    totals.gross = gross;
+    totals.operating = operating;
+    totals['pre-tax'] = preTax;
+    totals.net = net;
+    totals.adjusted = net - line('igv') + line('ajuste');
+    return totals;
+  }, [treeByLine, dynamicCashflow, cashflow, hasFinancialFlowChildren]);
+
+  return { treeByLine, hasFinancialFlowChildren, rowReal };
+}
+
+export function projectedFinancialAmount(cashflow: CashflowModel | null, financialItems: StatementTreeItem[], hasChildren: boolean, fallback: number) {
+  if (!hasChildren) return cashflowLineAmount(cashflow, 'financiero', fallback);
+  const index = cashflowTotals(cashflow);
+  return financialItems.reduce((sum, item) => {
+    const rowId = (item as StatementTreeItemWithSource).cashflowRowId;
+    if (!rowId) return sum;
+    return sum + (cashflowRowAmount(index.byId, rowId) ?? cashflowRowAmount(index.totals, rowId) ?? matchedFlowTotal(index, { cashflowRowId: rowId, code: rowId, name: rowId }, null, 0));
+  }, 0);
+}
+
 export default function IncomeStatementView({ projectId }: { projectId: number }) {
   const [project, setProject] = useState<Project | null>(null);
   const [statement, setStatement] = useState<IncomeStatement | null>(null);
@@ -724,7 +887,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   const [ruc, setRuc] = useState(DEFAULT_RUC);
   const [labelOverrides, setLabelOverrides] = useState<Record<string, string>>({});
   const [editingLabel, setEditingLabel] = useState<string | null>(null);
-  const { currency, setCurrency, exchangeRate, setExchangeRate } = useDisplayCurrency();
+  const { currency, exchangeRate } = useDisplayCurrency();
   // Simbolo para los encabezados de la tabla segun la moneda activa.
   const symbol = String(currency).toUpperCase() === 'USD' ? 'US$' : 'S/';
   // El Estado de Resultados alimenta su columna "Real" desde el flujo de caja,
@@ -914,97 +1077,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
   }, [lots, statement, cashflow, dynamicCashflow, items]);
 
   /** Arbol de partidas por linea (padres + subpartidas), ya ordenado. */
-  const treeByLine = useMemo(() => {
-    const { labels: projectedLabels } = cashflowTotals(cashflow);
-    const projectedIndex = cashflowTotals(cashflow);
-    const { totals: projectedTotals } = projectedIndex;
-    const realIndex = cashflowTotals(dynamicCashflow);
-    const { totals: realTotals } = realIndex;
-    const flowValue = (rowId: string, isProjected: boolean, fallback = 0) => {
-      const index = isProjected ? projectedIndex : realIndex;
-      const totals = isProjected ? projectedTotals : realTotals;
-      return matchedFlowTotal(index, { cashflowRowId: rowId, code: rowId, name: rowId }, null, totals.has(rowId) ? totals.get(rowId) || 0 : fallback);
-    };
-    // Filas del flujo indexadas por id y por label, igual que Presupuesto de Obra,
-    // para poder resolver una partida tanto por su id como por su nombre.
-    const staticRows = cashflow?.rows || [];
-    const dynamicRows = dynamicCashflow?.rows || [];
-    const findFlowRow = (id: string) => staticRows.find((row) => normalizeMatch(row.id) === normalizeMatch(id))
-      || dynamicRows.find((row) => normalizeMatch(row.id) === normalizeMatch(id));
-    const labelFor = (id: string, fallback: string) =>
-      findFlowRow(id)?.label || projectedLabels.get(id) || fallback;
-    const financialChildRows = () => {
-      const rows = [...staticRows, ...dynamicRows].filter((row) => normalizeMatch(row.parentId) === 'financial');
-      const seen = new Set<string>();
-      return rows.filter((row) => {
-        const key = normalizeMatch(row.id || row.label);
-        if (!key || seen.has(key)) return false;
-        seen.add(key);
-        return true;
-      });
-    };
-    const LINE_ID_OFFSET: Record<StatementLine, number> = {
-      ingreso: 0, costo: 1, ventas_admin: 2, financiero: 3, impuestos: 4, igv: 5, ajuste: 6,
-    };
-    const partida = (index: number, line: StatementLine, code: string, id: string, label: string): StatementTreeItemWithSource => ({
-      id: -1000 - LINE_ID_OFFSET[line] * 100 - index,
-      projectId,
-      parentId: null,
-      line,
-      code,
-      name: labelFor(id, label),
-      description: null,
-      amount: '0',
-      currency: 'PEN',
-      sortOrder: (index + 1) * 10,
-      isActive: true,
-      children: [],
-      cashflowRowId: id,
-      isVirtual: true,
-    });
-    const sectionPartidas = (line: StatementLine): StatementTreeItemWithSource[] => {
-      const def = LINE_CASHFLOW_SECTIONS.find((entry) => entry.line === line);
-      if (!def) return [];
-      if (line === 'financiero') {
-        const children = financialChildRows();
-        if (children.length) {
-          return children.map((child, index) => partida(index, line, `E.${String(index + 1).padStart(2, '0')}`, child.id, child.label || child.id));
-        }
-      }
-      // Filas que existen en cualquiera de los dos flujos
-      const present = def.children.filter((child) => 
-        staticRows.some((row) => normalizeMatch(row.id) === normalizeMatch(child.id)) ||
-        dynamicRows.some((row) => normalizeMatch(row.id) === normalizeMatch(child.id))
-      );
-      if (present.length) return present.map((child, index) => partida(index, line, child.code, child.id, child.label));
-      if (def.single && findFlowRow(def.single.id)) return [partida(0, line, def.single.code, def.single.id, def.single.label)];
-      return [];
-    };
-    const tree = buildTree(items);
-    const grouped: Record<StatementLine, StatementTreeItem[]> = {
-      ingreso: [], costo: [], ventas_admin: [], financiero: [], impuestos: [], igv: [], ajuste: [],
-    };
-    for (const item of tree) {
-      if (grouped[item.line]) grouped[item.line].push(item);
-    }
-    (['ingreso', 'costo', 'ventas_admin', 'financiero', 'impuestos', 'igv'] as StatementLine[]).forEach((line) => {
-      const flowPartidas = sectionPartidas(line) as StatementTreeItem[];
-      if (!flowPartidas.length) return;
-      const mapped = new Set(flowPartidas.map((item) => (item as StatementTreeItemWithSource).cashflowRowId).filter(Boolean) as string[]);
-      const ownItems = (grouped[line] || []) as StatementTreeItemWithSource[];
-      const extras = ownItems.filter((item) => {
-        const key = statementCashflowKey(item);
-        return Boolean(key) && !mapped.has(key as string) && Boolean(findFlowRow(key as string));
-      });
-      grouped[line] = extras.length ? [...flowPartidas, ...(extras as StatementTreeItem[])] : flowPartidas;
-    });
-    return grouped;
-  }, [items, cashflow, dynamicCashflow, projectId]);
-
-  const hasFinancialFlowChildren = useMemo(
-    () => (treeByLine.financiero || []).some((item) => normalizeMatch((item as StatementTreeItemWithSource).cashflowRowId) !== 'financial'),
-    [treeByLine],
-  );
+  const { treeByLine, hasFinancialFlowChildren, rowReal } = useIncomeStatementReal(projectId, items, cashflow, dynamicCashflow);
 
   const sheet = useMemo<SheetRow[]>(() => {
     const rows: SheetRow[] = [];
@@ -1062,63 +1135,6 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
    * Real de cada fila del cuadro. Las lineas fijas suman sus partidas y los
    * subtotales se recalculan en cascada, igual que el PDF.
    */
-  const rowReal = useMemo(() => {
-    const dynamicIndex = cashflowTotals(dynamicCashflow);
-    const { totals: dynamicTotals } = dynamicIndex;
-    // Indice "real": UNICAMENTE el flujo DINAMICO (data de Cuentas y Bancos).
-    // No se mezcla con el estático.
-    const realAmount = (item: StatementTreeItemWithSource, parentFlowKey?: string | null): number => {
-      if (item.children.length) return item.children.reduce((sum, child) => sum + realAmount(child, parentFlowKeyFor(dynamicIndex, item)), 0);
-      // Partida virtual del flujo: el Real es el de su fila (dinamico).
-      if (item.cashflowRowId) {
-        const byId = cashflowRowAmount(dynamicIndex.byId, item.cashflowRowId);
-        if (byId != null) return byId;
-        if (dynamicTotals.has(item.cashflowRowId)) return dynamicTotals.get(item.cashflowRowId) || 0;
-        const fromFlow = matchedFlowTotal(dynamicIndex, {
-          cashflowRowId: item.cashflowRowId,
-          code: item.cashflowRowId,
-          name: item.cashflowRowId,
-        });
-        if (fromFlow) return fromFlow;
-      }
-      // Matching difuso (codigo/nombre) SOLO para partidas raiz: las subpartidas
-      // nacen en el flujo, por eso se resuelven aparte (por nombre acotado al padre).
-      if (item.parentId == null) {
-        const mappedRow = findCashflowRow(dynamicCashflow, item);
-        if (mappedRow) return cashflowRowTotal(mappedRow);
-      }
-      if (item.isVirtual) return 0;
-      return matchedFlowTotal(dynamicIndex, item, parentFlowKey, num(item.amount));
-    };
-    const totals: Record<string, number> = {};
-    for (const meta of LINES) {
-      const fallbackLineTotal = (treeByLine[meta.key] || []).reduce((sum, item) => sum + realAmount(item as StatementTreeItemWithSource), 0);
-      totals[`line-${meta.key}`] = meta.key === 'financiero' && hasFinancialFlowChildren
-        ? fallbackLineTotal
-        : cashflowLineAmount(dynamicCashflow, meta.key, fallbackLineTotal);
-      // Real por partida: el cuadro pinta cada fila con la clave `item-<id>`, por eso
-      // se replica aqui el mismo valor que aporta a su linea (los hijos suman el padre).
-      const walkItems = (nodes: StatementTreeItem[]) => {
-        for (const node of nodes) {
-          const withSource = node as StatementTreeItemWithSource;
-          totals[`item-${node.id}`] = realAmount(withSource);
-          if (node.children.length) walkItems(node.children);
-        }
-      };
-      walkItems(treeByLine[meta.key] || []);
-    }
-    const line = (key: StatementLine) => totals[`line-${key}`] || 0;
-    const gross = line('ingreso') - line('costo');
-    const operating = gross - line('ventas_admin');
-    const preTax = operating - line('financiero');
-    const net = preTax - line('impuestos');
-    totals.gross = gross;
-    totals.operating = operating;
-    totals['pre-tax'] = preTax;
-    totals.net = net;
-    totals.adjusted = net - line('igv') + line('ajuste');
-    return totals;
-  }, [treeByLine, dynamicCashflow, cashflow, hasFinancialFlowChildren]);
 
   const hasItems = items.length > 0 || Boolean(cashflow?.rows?.length || dynamicCashflow?.rows?.length);
 
@@ -1131,14 +1147,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     ingreso: report.projectedRevenue,
     costo: report.projectedCostOfSales,
     ventas_admin: report.projectedSalesAdmin,
-    financiero: hasFinancialFlowChildren
-      ? (treeByLine.financiero || []).reduce((sum, item) => {
-        const rowId = (item as StatementTreeItemWithSource).cashflowRowId;
-        if (!rowId) return sum;
-        const index = cashflowTotals(cashflow);
-        return sum + (cashflowRowAmount(index.byId, rowId) ?? cashflowRowAmount(index.totals, rowId) ?? matchedFlowTotal(index, { cashflowRowId: rowId, code: rowId, name: rowId }, null, 0));
-      }, 0)
-      : report.projectedFinanceTax,
+    financiero: projectedFinancialAmount(cashflow, treeByLine.financiero || [], hasFinancialFlowChildren, report.projectedFinanceTax),
     impuestos: report.projectedIncomeTax,
     igv: report.projectedIgv,
     ajuste: cashflowLineAmount(cashflow, 'ajuste', 0),
@@ -1586,15 +1595,6 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 </p>
               </div>
               <div className="grid w-full min-w-0 gap-3 rounded-md bg-white/10 p-3 ring-1 ring-white/20 backdrop-blur-sm lg:w-auto lg:min-w-[360px]">
-                <div className="flex items-center justify-between gap-3">
-                  <label className="text-xs font-semibold uppercase tracking-wide text-blue-50">Moneda</label>
-                  <CurrencyToggle
-                    currency={currency}
-                    setCurrency={setCurrency}
-                    exchangeRate={exchangeRate}
-                    setExchangeRate={setExchangeRate}
-                  />
-                </div>
                 <label className="text-xs font-semibold uppercase tracking-wide text-blue-50">Proyecto</label>
                 <div className="flex min-h-10 items-center rounded-md bg-white px-3 text-sm font-bold" style={{ color: INK }}>
                   {project?.name || `Proyecto ${projectId}`}

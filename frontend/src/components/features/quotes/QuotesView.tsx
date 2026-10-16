@@ -6,12 +6,11 @@ import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
 import { KpiCard, KPI_GRID_6 } from '@/components/ui/Metrics';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { Select } from '@/components/ui/Select';
-import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/types';
 import { buildQuery, normalizePaginated } from '@/lib/pagination';
 import { printHtml } from '@/lib/print';
-import { useDisplayCurrency } from '@/lib/currency';
+import { useDisplayCurrency, moneyGlobalDecimals } from '@/lib/currency';
 
 type Q = {
   id: number; projectId: number; lotId: number; lotCode?: string | null; clientName: string;
@@ -25,8 +24,8 @@ type ScheduleRow = {
   amortizacionExtraordinaria: number; cuota: number; saldoFinal: number;
 };
 
-const fmtUsd = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtUsdHeader = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtUsd = (n: number) => moneyGlobalDecimals(n);
+const fmtUsdHeader = (n: number) => moneyGlobalDecimals(n);
 const fmtPen = (n: number) => 'S/ ' + Number(n || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const PAY_LABEL: Record<string, string> = { contado: 'Contado', credito: 'Credito' };
 
@@ -652,6 +651,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [stats, setStats] = useState<{
     total: number; credito: number; contado: number;
     montoTotal: number; cuotaInicialTotal: number; cuotaContadoTotal: number;
+    financiamientoTotal: number; cuotasTotal: number; inicialesCount: number; convertidaTotal: number;
   } | null>(null);
   const [deletingId, setDeletingId] = useState(0);
   const [fPayment, setFPayment] = useState('');
@@ -681,7 +681,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [streetId, setStreetId] = useState(0);
   const [interestType, setInterestType] = useState<'sin_intereses' | 'tea'>('sin_intereses');
   const [tea, setTea] = useState(10);
-  const { currency, setCurrency, exchangeRate: displayExchangeRate, setExchangeRate: setDisplayExchangeRate } = useDisplayCurrency();
+  const { currency, exchangeRate: displayExchangeRate } = useDisplayCurrency();
 
   const formatQuoteAmount = (amountUsd: number | null | undefined) => {
     const usd = Number(amountUsd || 0);
@@ -927,54 +927,12 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
       <Toaster />
       <div className="space-y-5">
         <div className={`mb-4 ${KPI_GRID_6}`}>
-          <QuoteKpi
-            label="Nro. Cotizaciones"
-            value={String(stats?.total ?? 0)}
-            helper="Total registradas"
-            icon={<FiFileText />}
-            accent="#0B2F6E"
-            truncateLabel={false}
-          />
-          <QuoteKpi
-            label="Cotizado al Crédito"
-            value={String(stats?.credito ?? 0)}
-            helper="Financiamiento"
-            icon={<FiCreditCard />}
-            accent="#1877F2"
-            truncateLabel={false}
-          />
-          <QuoteKpi
-            label="Cotizado al Contado"
-            value={String(stats?.contado ?? 0)}
-            helper="Pago directo"
-            icon={<FiCheckCircle />}
-            accent="#16A36A"
-            truncateLabel={false}
-          />
-          <QuoteKpi
-            label={`Monto Cotizado ${currency === 'PEN' ? 'S/' : 'US$'}`}
-            value={formatQuoteAmountCard(stats?.montoTotal)}
-            helper="Suma de cotizaciones"
-            icon={<FiDollarSign />}
-            accent="#0B2F6E"
-            truncateLabel={false}
-          />
-          <QuoteKpi
-            label={`Cuota Inicial ${currency === 'PEN' ? 'S/' : 'US$'}`}
-            value={formatQuoteAmountCard(stats?.cuotaInicialTotal)}
-            helper="Iniciales cotizadas"
-            icon={<FiTrendingUp />}
-            accent="#1259C4"
-            truncateLabel={false}
-          />
-          <QuoteKpi
-            label={`VENTA CONTADO ${currency === 'PEN' ? 'S/' : 'US$'}`}
-            value={formatQuoteAmountCard(stats?.cuotaContadoTotal)}
-            helper=" Cuentas al contado cotizaciones"
-            icon={<FiDollarSign />}
-            accent="#0B2F6E"
-            truncateLabel={false}
-          />
+          <QuoteKpi label="Nro. Cotizaciones" value={String(stats?.total ?? 0)} helper="Total registradas" icon={<FiFileText />} accent="#0B2F6E" truncateLabel={false} />
+          <QuoteKpi label={`Monto Cotizado ${currency === 'PEN' ? 'S/' : 'US$'}`} value={formatQuoteAmountCard(stats?.montoTotal)} helper={`${stats?.total ?? 0} cotizaciones`} icon={<FiDollarSign />} accent="#0B2F6E" truncateLabel={false} />
+          <QuoteKpi label={`Cuota Inicial ${currency === 'PEN' ? 'S/' : 'US$'}`} value={formatQuoteAmountCard(stats?.cuotaInicialTotal)} helper={`${stats?.inicialesCount ?? 0} cuotas iniciales`} icon={<FiTrendingUp />} accent="#1259C4" truncateLabel={false} />
+          <QuoteKpi label={`Cuotas Financiadas ${currency === 'PEN' ? 'S/' : 'US$'}`} value={formatQuoteAmountCard(stats?.financiamientoTotal)} helper={`${stats?.cuotasTotal ?? 0} cuotas`} icon={<FiCheckCircle />} accent="#16A36A" truncateLabel={false} />
+          <QuoteKpi label="Cotizacion Contado" value={formatQuoteAmountCard(stats?.cuotaContadoTotal)} helper={`${stats?.contado ?? 0} cotizaciones`} icon={<FiDollarSign />} accent="#0B2F6E" truncateLabel={false} />
+          <QuoteKpi label={`Venta Convertida ${currency === 'PEN' ? 'S/' : 'US$'}`} value={formatQuoteAmountCard(stats?.convertidaTotal)} helper="Convertidas a venta" icon={<FiCreditCard />} accent="#1877F2" truncateLabel={false} />
         </div>
 
         <div className="card">
@@ -984,18 +942,19 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
               <p className="text-sm mt-0.5" style={{ color: '#6B7280' }}>Calcula el financiamiento y genera la cotizacion y el cronograma de pagos para el cliente.</p>
             </div>
             <div className="flex flex-wrap items-end justify-end gap-3">
-              <CurrencyToggle
-                currency={currency}
-                setCurrency={setCurrency}
-                exchangeRate={displayExchangeRate}
-                setExchangeRate={setDisplayExchangeRate}
+              <input
+                className="input hidden lg:block lg:!w-64"
+                placeholder="Buscar cliente o lote..."
+                aria-label="Buscar cliente o lote"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
               />
               <button className="btn-primary" onClick={() => setOpen(true)}>Nueva cotizacion</button>
             </div>
           </div>
           <div className="flex flex-col gap-2 mt-4 sm:flex-row sm:flex-wrap sm:items-center">
             <input
-              className="input w-full sm:!w-64"
+              className="input w-full sm:!w-64 lg:hidden"
               placeholder="Buscar cliente o lote..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -1030,9 +989,12 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                       <th className="th-base">Estado</th>
                       <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('finalPriceUsd')}>Precio Final ({currency === 'PEN' ? 'S/' : 'US$'}){sortArrow('finalPriceUsd')}</th>
                       <th className="th-base">Cuota Inicial ({currency === 'PEN' ? 'S/' : 'US$'})</th>
+                      <th className="th-base">Financiamiento ({currency === 'PEN' ? 'S/' : 'US$'})</th>
                       <th className="th-base">Cuotas</th>
                       <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')}>Fecha{sortArrow('createdAt')}</th>
-                      <th className="th-base"></th>
+                      <th className="th-base">Cotizacion</th>
+                      <th className="th-base">Financiamiento</th>
+                      <th className="th-base">Eliminar</th>
                     </tr></thead>
                     <tbody className="divide-y divide-slate-100">
                       {rows.map((q) => (
@@ -1051,18 +1013,31 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                               {q.status === 'enviada' ? 'Enviada' : q.status === 'desestimada' ? 'Desestimada' : q.status === 'actualizada' ? 'Actualizada' : q.status}
                             </span>
                           </td>
-                          <td className="td-base text-xs font-medium sm:text-sm">{formatQuoteAmount(q.finalPriceUsd)}</td>
-                          <td className="td-base text-xs sm:text-sm">{q.paymentMethod === 'credito' ? formatQuoteAmount(q.cuotaInicialUsd) : 'Contado'}</td>
+                          <td className="td-base text-xs font-medium sm:text-sm">{formatQuoteAmountCard(q.finalPriceUsd)}</td>
+                          <td className="td-base text-xs sm:text-sm">{q.paymentMethod === 'credito' ? formatQuoteAmountCard(q.cuotaInicialUsd) : 'Contado'}</td>
+                          <td className="td-base">{formatQuoteAmountCard(q.paymentMethod === 'credito' ? Math.max(0, Number(q.finalPriceUsd) - Number(q.cuotaInicialUsd)) : 0)}</td>
                           <td className="td-base">{q.totalCuotas || '-'}</td>
                           <td className="td-base">{formatDate(q.createdAt)}</td>
                           <td className="td-base whitespace-nowrap">
                             <button className="btn-secondary !h-7 !px-2 text-xs mr-1" onClick={() => setDoc({ id: q.id, type: 'cotizacion' })}><FiEye /> Ver Cotizacion</button>
+                          </td>
+                          <td className="td-base whitespace-nowrap">
                             {q.paymentMethod === 'credito' && <button className="btn-secondary !h-7 !px-2 text-xs" onClick={() => setDoc({ id: q.id, type: 'financiamiento' })}><FiEye /> Ver Financiamiento</button>}
+                          </td>
+                          <td className="td-base whitespace-nowrap">
                             <button className="btn-danger !h-7 !px-2 text-xs ml-1" disabled={deletingId === q.id} onClick={() => deleteQuote(q)}><FiTrash2 /> Eliminar</button>
                           </td>
                         </tr>
                       ))}
                     </tbody>
+                    <tfoot className="bg-[#0B2F6E] text-white font-semibold"><tr>
+                      <td className="td-base" colSpan={5}>TOTALES</td>
+                      <td className="td-base">{formatQuoteAmountCard(rows.reduce((sum, q) => sum + Number(q.finalPriceUsd || 0), 0))}</td>
+                      <td className="td-base">{formatQuoteAmountCard(rows.reduce((sum, q) => sum + (q.paymentMethod === 'credito' ? Number(q.cuotaInicialUsd || 0) : 0), 0))}</td>
+                      <td className="td-base">{formatQuoteAmountCard(rows.reduce((sum, q) => sum + (q.paymentMethod === 'credito' ? Math.max(0, Number(q.finalPriceUsd) - Number(q.cuotaInicialUsd)) : 0), 0))}</td>
+                      <td className="td-base">{rows.reduce((sum, q) => sum + Number(q.totalCuotas || 0), 0)}</td>
+                      <td colSpan={4} className="td-base text-xs">Pagina actual</td>
+                    </tr></tfoot>
                   </table>
                 )}
           </div>

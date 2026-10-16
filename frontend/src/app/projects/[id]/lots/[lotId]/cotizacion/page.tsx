@@ -1,4 +1,5 @@
 'use client';
+import { moneyGlobal, moneyGlobalDecimals, useDisplayCurrency } from '@/lib/currency';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
@@ -7,6 +8,7 @@ import { formatMoney, LOT_STATUS_LABEL, LotStatus } from '@/lib/types';
 const DUNACON_LOGO = '/logo/dunacon.png';
 
 export default function CotizacionPage() {
+  useDisplayCurrency();
   const { lotId } = useParams<{ id: string; lotId: string }>();
   const [data, setData] = useState<any>(null);
   const [project, setProject] = useState<any>(null);

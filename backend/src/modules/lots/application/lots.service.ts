@@ -120,28 +120,35 @@ export class LotsService {
     return { items, total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) };
   }
 
-  // Resumen de lotización por proyecto (para las tarjetas KPI de la vista).
-  // "Promoción" y "2da Etapa" quedan en 0 hasta que exista ese concepto en datos.
+  // Cantidad y valor de venta de todo el proyecto, independientes de la pagina visible.
   async stats(projectId?: number) {
-    const qb = this.lotRepo.createQueryBuilder('l');
+    const qb = this.lotRepo.createQueryBuilder('l')
+      .leftJoin(ProjectLotCatalogEntity, 'cat', 'cat.project_id = l.project_id AND cat.code = l.code');
     if (projectId) qb.where('l.project_id = :projectId', { projectId });
-    const [row] = await qb
-      .select('COUNT(*)', 'total')
-      .addSelect(`COUNT(*) FILTER (WHERE l.status = 'vendido')`, 'vendidos')
-      .addSelect(`COUNT(*) FILTER (WHERE l.status = 'disponible')`, 'disponibles')
-      .addSelect(`COUNT(*) FILTER (WHERE l.selling_stage = 'separado')`, 'separados')
-      .addSelect('0', 'promocion')
-      .addSelect('0', 'segundaEtapa')
-      .getRawMany();
-    const r = row || {};
-    return {
-      total: Number(r.total || 0),
-      vendidos: Number(r.vendidos || 0),
-      separados: Number(r.separados || 0),
-      disponibles: Number(r.disponibles || 0),
-      promocion: Number(r.promocion || 0),
-      segundaEtapa: Number(r.segundaEtapa || 0),
+    // Mismo precio que el listado: catalogo primero; si no hay precio de venta,
+    // se usa precio por m2 por area. Nunca sumar directamente el precio por m2.
+    const price = 'COALESCE(NULLIF(COALESCE(cat.sale_price, l.sale_price), 0), COALESCE(cat.price_m2, l.price, 0) * l.area_m2, 0)';
+    const stage = "(CASE WHEN l.status = 'disponible' THEN COALESCE(NULLIF(l.selling_stage, ''), l.status) ELSE l.status END)";
+    const conditions: Record<string, string> = {
+      vendidos: `${stage} IN ('vendido', 'primera_cuota', 'alquilado')`,
+      disponibles: `${stage} = 'disponible'`,
+      separados: `${stage} IN ('separado', 'reservado', 'adelanto')`,
+      promocion: `${stage} = 'promocion'`,
+      segundaEtapa: `${stage} = 'segunda_etapa'`,
     };
+    qb.select('COUNT(*)', 'total').addSelect(`COALESCE(SUM(${price}), 0)`, 'amount_total');
+    for (const [key, condition] of Object.entries(conditions)) {
+      qb.addSelect(`COUNT(*) FILTER (WHERE ${condition})`, key)
+        .addSelect(`COALESCE(SUM(${price}) FILTER (WHERE ${condition}), 0)`, `amount_${key}`);
+    }
+    const r = await qb.getRawOne() || {};
+    const amounts: Record<string, number> = { total: Number(r.amount_total || 0) };
+    const counts: Record<string, number> = { total: Number(r.total || 0) };
+    for (const key of Object.keys(conditions)) {
+      counts[key] = Number(r[key] || 0);
+      amounts[key] = Number(r[`amount_${key}`] || 0);
+    }
+    return { ...counts, amounts };
   }
 
   // Ficha completa del lote

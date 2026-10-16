@@ -3,13 +3,14 @@ import { useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Toaster, toast, EmptyState } from '@/components/ui/ui';
 import { KpiCard, KPI_GRID_6 } from '@/components/ui/Metrics';
+import { summarizeLots } from '@/lib/lot-summary';
 import { api, uploadFile } from '@/lib/api';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import { Lot, LOT_STATUS_LABEL, LOT_STATUS_COLOR, LOT_STATUS_SELECT_OPTIONS } from '@/lib/types';
 import { printHtml } from '@/lib/print';
 
 import { Select } from '@/components/ui/Select';
-import { formatCurrency } from '@/lib/currency';
+import { useDisplayCurrency, CURRENCY_SYMBOL } from '@/lib/currency';
 import { FiDownload, FiLayers, FiCheckCircle, FiBookmark, FiTrendingUp, FiTag, FiFlag } from 'react-icons/fi';
 
 const PAGE_SIZE = 15;
@@ -28,25 +29,45 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
   const [page, setPage] = useState(1);
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
   const [stats, setStats] = useState({ total: 0, vendidos: 0, separados: 0, disponibles: 0, promocion: 0, segundaEtapa: 0 });
+  const [lotAmounts, setLotAmounts] = useState<Record<string, number>>({});
+  const [soldFinalAmount, setSoldFinalAmount] = useState(0);
   const [viewMode, setViewMode] = useState<'general' | 'blocks'>('general');
-  const moneyLabel = 'US$';
+  const { currency, format: displayMoney } = useDisplayCurrency();
+  const moneyLabel = CURRENCY_SYMBOL[currency];
   const formatLotMoney = (value: unknown) => {
     const usd = Number(value || 0);
-    return usd ? formatCurrency(usd, 'USD') : '—';
+    return usd ? displayMoney(usd) : '—';
   };
   // Solo admin/superadmin pueden eliminar lotes (el backend tambien lo exige).
   const canDelete = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
 
   useEffect(() => {
-    const q = new URLSearchParams();
-    if (lockedProjectId || project) q.set('projectId', lockedProjectId ? String(lockedProjectId) : project);
-    api.get<any>(`/lots/stats?${q.toString()}`)
-      .then((d) => setStats({
-        total: Number(d?.total || 0), vendidos: Number(d?.vendidos || 0), separados: Number(d?.separados || 0),
-        disponibles: Number(d?.disponibles || 0), promocion: Number(d?.promocion || 0), segundaEtapa: Number(d?.segundaEtapa || 0),
-      }))
-      .catch(() => {});
-  }, [lockedProjectId, project, lots.length]);
+    let cancelled = false;
+    async function loadSummary() {
+      const q = new URLSearchParams();
+      if (lockedProjectId || project) q.set('projectId', String(lockedProjectId || project));
+      q.set('limit', '200');
+      const allLots: Lot[] = [];
+      for (let pageNo = 1; !cancelled; pageNo++) {
+        q.set('page', String(pageNo));
+        const result = await api.get<any>(`/lots?${q.toString()}`);
+        allLots.push(...(Array.isArray(result) ? result : result?.items || []));
+        if (Array.isArray(result) || pageNo >= Number(result?.totalPages || 1)) break;
+      }
+      if (cancelled) return;
+      const summary = summarizeLots(allLots);
+      setStats(summary.counts);
+      setLotAmounts(summary.amounts);
+      setSoldFinalAmount(allLots.reduce((sum, lot) => {
+        const status = lot.status === 'disponible' ? lot.sellingStage || lot.status : lot.status;
+        return sum + (['vendido', 'primera_cuota', 'alquilado'].includes(status) ? Number(lot.finalPrice || 0) : 0);
+      }, 0));
+    }
+    loadSummary().catch(() => {
+      if (!cancelled) toast('No se pudo actualizar el resumen de lotes', 'err');
+    });
+    return () => { cancelled = true; };
+  }, [lockedProjectId, project, lots]);
 
   useEffect(() => { if (lockedProjectId) setProject(String(lockedProjectId)); }, [lockedProjectId]);
 
@@ -354,16 +375,16 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
       <Toaster />
       <LotDetailModal lotId={selected?.id || null} initialFocus={selected?.focus} onClose={() => setSelected(null)} onChanged={load} />
 
-      <div className={`mb-4 ${KPI_GRID_6}`}>
+      <div className={`mb-4 ${KPI_GRID_6} [&_.kpi-helper-text]:!text-left [&_.kpi-helper-text]:!whitespace-normal [&_.kpi-helper-text]:font-semibold`}>
         {([
-          { label: 'Lotes Totales', value: stats.total, color: '#1259C4', icon: <FiLayers /> },
-          { label: 'Lotes Vendidos', value: stats.vendidos, color: '#B91C1C', icon: <FiCheckCircle /> },
-          { label: 'Lotes Separados', value: stats.separados, color: '#B45309', icon: <FiBookmark /> },
-          { label: 'Lotes Disponibles', value: stats.disponibles, color: '#047857', icon: <FiTrendingUp /> },
-          { label: 'Lotes Promoción', value: stats.promocion, color: '#7C3AED', icon: <FiTag /> },
-          { label: 'Lotes 2da Etapa', value: stats.segundaEtapa, color: '#0E7490', icon: <FiFlag /> },
+          { label: 'Lotes Totales', value: stats.total, amount: lotAmounts.total || 0, color: '#1259C4', icon: <FiLayers /> },
+          { label: 'Lotes Vendidos', value: stats.vendidos, amount: lotAmounts.vendidos || 0, color: '#B91C1C', icon: <FiCheckCircle /> },
+          { label: 'Lotes Separados', value: stats.separados, amount: lotAmounts.separados || 0, color: '#B45309', icon: <FiBookmark /> },
+          { label: 'Lotes Disponibles', value: stats.disponibles, amount: lotAmounts.disponibles || 0, color: '#047857', icon: <FiTrendingUp /> },
+          { label: 'Lotes Promoción', value: stats.promocion, amount: lotAmounts.promocion || 0, color: '#7C3AED', icon: <FiTag /> },
+          { label: 'Lotes 2da Etapa', value: stats.segundaEtapa, amount: lotAmounts.segundaEtapa || 0, color: '#0E7490', icon: <FiFlag /> },
         ] as const).map((k) => (
-          <KpiCard key={k.label} label={k.label} value={k.value} icon={k.icon} tone={k.color} valueAlign="center" />
+          <KpiCard key={k.label} label={k.label} value={k.value} icon={k.icon} tone={k.color} valueAlign="center" helper={`${displayMoney(k.amount)}${k.label === 'Lotes Vendidos' ? ` - Valor de lista ? Venta final: ${displayMoney(soldFinalAmount)}` : ''}`} />
         ))}
       </div>
 

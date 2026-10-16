@@ -1,11 +1,12 @@
 'use client';
+import { moneyGlobal, moneyGlobalDecimals, useDisplayCurrency, displaySymbol } from '@/lib/currency';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 
 const DUNACON_LOGO = '/logo/dunacon.png';
 
-const fmtUsd = (n: number) => 'US$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtUsd = (n: number) => moneyGlobalDecimals(n);
 
 type Row = {
   month: number; saldoInicial: number; interes: number; amortizacionCapital: number;
@@ -32,6 +33,7 @@ function fmtDate(iso?: string) {
 }
 
 export default function FinanciamientoDocPage() {
+  useDisplayCurrency();
   const { quoteId } = useParams<{ id: string; quoteId: string }>();
   const [data, setData] = useState<any>(null);
   const [rows, setRows] = useState<Row[]>([]);
@@ -131,7 +133,7 @@ export default function FinanciamientoDocPage() {
               <thead>
                 <tr className="text-left text-slate-500">
                   <th className="px-4 py-1 font-semibold">Parte</th>
-                  <th className="px-4 py-1 text-right font-semibold">Monto US$</th>
+                  <th className="px-4 py-1 text-right font-semibold">Monto {displaySymbol()}</th>
                   <th className="px-4 py-1 text-right font-semibold">Fecha</th>
                 </tr>
               </thead>
@@ -166,12 +168,12 @@ export default function FinanciamientoDocPage() {
               <tr style={{ background: '#0B2F6E' }} className="text-white">
                 <th className="px-2 py-2 text-left">Mes</th>
                 <th className="px-2 py-2 text-left">Fecha</th>
-                <th className="px-2 py-2 text-right">Saldo inicial US$</th>
-                <th className="px-2 py-2 text-right">Amort. capital US$</th>
-                <th className="px-2 py-2 text-right">Amort. extraordinaria US$</th>
-                <th className="px-2 py-2 text-right">Interés US$</th>
-                <th className="px-2 py-2 text-right">Cuota mes US$</th>
-                <th className="px-2 py-2 text-right">Saldo final US$</th>
+                <th className="px-2 py-2 text-right">Saldo inicial {displaySymbol()}</th>
+                <th className="px-2 py-2 text-right">Amort. capital {displaySymbol()}</th>
+                <th className="px-2 py-2 text-right">Amort. extraordinaria {displaySymbol()}</th>
+                <th className="px-2 py-2 text-right">Interés {displaySymbol()}</th>
+                <th className="px-2 py-2 text-right">Cuota mes {displaySymbol()}</th>
+                <th className="px-2 py-2 text-right">Saldo final {displaySymbol()}</th>
               </tr>
             </thead>
             <tbody className="divide-y" style={{ borderColor: '#F0F1F3' }}>
@@ -200,7 +202,7 @@ export default function FinanciamientoDocPage() {
           </table>
         </div>
         <p className="text-xs text-center text-slate-400 mt-6">
-          Cronograma en dólares (US$).
+          Cronograma en {displaySymbol()}.
         </p>
       </div>
     </div>

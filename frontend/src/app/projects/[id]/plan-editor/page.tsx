@@ -1,4 +1,5 @@
 'use client';
+import { moneyGlobal, moneyGlobalDecimals, useDisplayCurrency } from '@/lib/currency';
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import { FiEdit3, FiMap, FiTag } from 'react-icons/fi';
@@ -12,6 +13,7 @@ import { api, getSessionUser } from '@/lib/api';
 import { Block, Lot } from '@/lib/types';
 
 export default function PlanEditorPage() {
+  useDisplayCurrency();
   const params = useParams<{ id: string }>();
   const id = Number(params.id);
   const [can, setCan] = useState<boolean | null>(null);
@@ -47,8 +49,7 @@ export default function PlanEditorPage() {
   const totalValue = lots.reduce((sum, lot) => sum + Number(lot.salePrice ?? lot.price ?? 0), 0);
 
   function formatUsd(n: number | string | undefined | null): string {
-    const v = Number(n || 0);
-    return 'US$ ' + v.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    return moneyGlobal(n);
   }
 
   const summary: { value: number; label: string; icon: React.ReactNode; tone: string }[] = [

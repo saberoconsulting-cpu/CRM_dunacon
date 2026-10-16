@@ -4,8 +4,9 @@ import { Toaster, toast, Field } from '@/components/ui/ui';
 import { api, getToken } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import { formatDate } from '@/lib/types';
-import { partnerContribution, transferPartnerShares } from '@/lib/partner-shares';
-import { useDisplayCurrency } from '@/lib/currency';
+import { useIncomeStatementReal, projectedFinancialAmount } from '@/components/features/income-statement/IncomeStatementView';
+import { partnerContribution, isNewPartner, issuePartnerShares } from '@/lib/partner-shares';
+import { useDisplayCurrency, displayNumberGlobal, displaySymbol } from '@/lib/currency';
 import { Select } from '@/components/ui/Select';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { FiEdit3, FiSearch, FiTrash2, FiX } from 'react-icons/fi';
@@ -43,7 +44,7 @@ type FinanceDashManual = {
   dataLabels: Record<string, string>;
   commitmentLabels: Record<string, string>;
   structureLabels: Record<string, string>;
-  socios: Array<{ name: string; capital: string; adicional: string; aporteTotal?: string; inversionActualizada?: string }>;
+  socios: Array<{ name: string; capital: string; adicional: string; aporteTotal?: string; inversionActualizada?: string; newPartner?: boolean }>;
   dataRows: Array<{ code: string; label: string; value: string }>;
   commitmentRows: Array<{ priority: string; creditor: string; amount: string }>;
   structureRows: Array<{ label: string; amount: string }>;
@@ -90,15 +91,15 @@ function todayInput() {
 }
 
 function usd(value: number) {
-  return Number(value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return displayNumberGlobal(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function usd0(value: number) {
-  return Number(value || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+  return displayNumberGlobal(value).toLocaleString('en-US', { maximumFractionDigits: 0 });
 }
 
 function compactUsd(value: number) {
-  return `US$ ${Math.round(Number(value || 0)).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+  return `${displaySymbol()} ${Math.round(displayNumberGlobal(value)).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
 function num(value: unknown) {
@@ -134,6 +135,24 @@ function cashflowTotal(model: any, id: string) {
   const rows = Array.isArray(model?.rows) ? model.rows : [];
   const row = rows.find((item: any) => item?.id === id);
   return Array.isArray(row?.values) ? row.values.reduce((sum: number, value: unknown) => sum + num(value), 0) : 0;
+}
+
+function isLandMatrixLabel(label: string) {
+  return label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim() === 'precio de terreno matriz';
+}
+
+function landAcquisitionAmount(model: any) {
+  const rows: any[] = Array.isArray(model?.rows) ? model.rows : [];
+  const normalize = (value: unknown) => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const isLandChild = (row: any, seen = new Set<string>()): boolean => {
+    if (row.id === 'land-cost' || row.parentId === 'land' || row.parentId === 'land-cost') return true;
+    if (!row.parentId || seen.has(row.id)) return false;
+    seen.add(row.id);
+    const parent = rows.find(item => item.id === row.parentId);
+    return parent ? isLandChild(parent, seen) : false;
+  };
+  const acquisition = rows.find(row => isLandChild(row) && normalize(row.label) === 'adquisicion de terreno');
+  return cashflowTotal(model, acquisition?.id ?? 'land-cost');
 }
 
 function teaToTem(tea: unknown) {
@@ -209,7 +228,7 @@ const defaultFinanceDashManual = (): FinanceDashManual => ({
   socios: [
     { name: 'Socio 1', capital: '20000', adicional: '10000' },
     { name: 'Socio 2', capital: '20000', adicional: '' },
-    { name: 'Socio 3', capital: '', adicional: '' },
+    { name: 'Socio 3', capital: '', adicional: '', newPartner: true },
   ],
   dataRows: [],
   commitmentRows: [],
@@ -255,7 +274,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const inf = (k: string, v: any) => setIForm((p: any) => ({ ...p, [k]: v }));
   // Moneda unica de la pantalla: `show()` convierte los montos (que vienen en
   // soles de la base de datos) a la moneda activa antes de pintarlos.
-  const { format: show, toDisplay } = useDisplayCurrency();
+  const { currency, format: show } = useDisplayCurrency();
   const loanSettingsKey = lockedProjectId ? `loan_manual_${lockedProjectId}` : '';
   const financeDashSettingsKey = lockedProjectId ? `finance_dashboard_${lockedProjectId}` : '';
   const financeClassSettingsKey = lockedProjectId ? `finance_classification_${lockedProjectId}` : '';
@@ -491,7 +510,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         setFinanceDashManual({
           ...defaults,
           ...parsed,
-          socios: Array.isArray(parsed?.socios) ? parsed.socios : defaults.socios,
+          socios: Array.isArray(parsed?.socios) ? parsed.socios.map((socio: FinanceDashManual['socios'][number], index: number) => ({ ...socio, newPartner: isNewPartner(socio, index) })) : defaults.socios,
           dataLabels: parsed?.dataLabels && typeof parsed.dataLabels === 'object' ? parsed.dataLabels : defaults.dataLabels,
           commitmentLabels: parsed?.commitmentLabels && typeof parsed.commitmentLabels === 'object' ? parsed.commitmentLabels : defaults.commitmentLabels,
           structureLabels: parsed?.structureLabels && typeof parsed.structureLabels === 'object' ? parsed.structureLabels : defaults.structureLabels,
@@ -658,6 +677,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const statement = financeDash?.statement || {};
   const paymentsMetrics = financeDash?.payments?.metrics || {};
   const ingresoVentaLotes = cashflowTotal(financeDash?.staticFlow, 'income') || num(statement?.proyectado?.ingresos) || cashflowTotal(financeDash?.dynamicFlow, 'income');
+  const precioTerrenoMatriz = landAcquisitionAmount(financeDash?.staticFlow);
   const costoTerreno = firstPositive(cashflowTotal(financeDash?.staticFlow, 'land'), num(budget.costo_terreno));
   const costoDirecto = firstPositive(cashflowTotal(financeDash?.staticFlow, 'direct'), num(budget.costo_directo));
   const costoIndirecto = firstPositive(cashflowTotal(financeDash?.staticFlow, 'indirect'), num(budget.costo_indirecto));
@@ -669,7 +689,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const gastosFinancieros = cashflowTotal(financeDash?.staticFlow, 'financial') + cashflowTotal(financeDash?.staticFlow, 'tax');
   const ventaLotesReal = cashflowTotal(financeDash?.dynamicFlow, 'income') || num(statement?.ingresos);
   const pagoCuotasLotes = num(paymentsMetrics.initialPaymentAmount) + num(paymentsMetrics.paidCuotasAmount);
-  const ingresosExtra = toDisplay(extraordinaryAmount);
+  const ingresosExtra = extraordinaryAmount;
   const boletasEmitidas = num(paymentsMetrics.receiptCount);
   const boletasEmitidasMonto = num(paymentsMetrics.receiptAmount);
   const cuotasPorCobrar = Math.max(0, ingresoVentaLotes - pagoCuotasLotes);
@@ -678,43 +698,33 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const cuentasPorPagar = num(paymentsMetrics.pendingAmount);
   const totalAcciones = num(financeDashManual.totalAcciones);
   const sociosBase = financeDashManual.socios;
-  const totalAporteSocios = sociosBase.reduce((sum, socio) => sum + num(socio.capital) + num(socio.adicional), 0);
+  const totalAporteSocios = sociosBase.reduce((sum, socio, index) => sum + (isNewPartner(socio, index) ? 0 : partnerContribution(socio, index)), 0);
   const valorInicialAccion = totalAcciones > 0 ? totalAporteSocios / totalAcciones : 0;
   const factorActualizacion = num(financeDashManual.factorActualizacion);
   const valorActualAccion = valorInicialAccion * factorActualizacion;
-  const shareTransfers = transferPartnerShares(
-    sociosBase.map(socio => num(socio.capital) + num(socio.adicional)),
-    sociosBase.map((socio, index) => index >= 2 && num(socio.capital) + num(socio.adicional) === 0 ? partnerContribution(socio, index) : 0),
+  const shareIssue = issuePartnerShares(
+    sociosBase.map((socio, index) => isNewPartner(socio, index) ? 0 : partnerContribution(socio, index)),
+    sociosBase.map((socio, index) => isNewPartner(socio, index) ? Number(socio.aporteTotal ?? socio.inversionActualizada ?? 0) : 0),
     totalAcciones, valorActualAccion,
   );
   const sociosRows = sociosBase.map((socio, index) => {
-    const aporteCapital = num(socio.capital);
-    const aporteAdicional = num(socio.adicional);
-    const aporteTotal = partnerContribution(socio, index);
-    const acciones = shareTransfers.initial[index] + shareTransfers.bought[index];
+    const newPartner = isNewPartner(socio, index);
+    const aporteCapital = newPartner ? 0 : num(socio.capital);
+    const aporteAdicional = newPartner ? 0 : num(socio.adicional);
+    const aporteTotal = newPartner ? 0 : partnerContribution(socio, index);
+    const acciones = shareIssue.initial[index];
     const participacion = totalAcciones > 0 ? acciones / totalAcciones : 0;
-    const isNewPartner = index >= 2 && aporteCapital + aporteAdicional === 0;
-    const inversionActualizada = acciones * valorActualAccion;
-    const ventaAcciones = acciones - shareTransfers.final[index];
-    const accionesFinal = shareTransfers.final[index];
-    const pctAcciones = totalAcciones > 0 ? accionesFinal / totalAcciones : 0;
+    const inversionActualizada = newPartner ? partnerContribution(socio, index) : acciones * valorActualAccion;
+    const accionesFinal = shareIssue.final[index];
+    const pctAcciones = shareIssue.finalTotal > 0 ? accionesFinal / shareIssue.finalTotal : 0;
     const utilidad = pctAcciones * utilidadAjustada;
     return {
-      isNewPartner,
+      isNewPartner: newPartner,
       index: index + 1,
       name: socio.name,
-      aporteCapital,
-      aporteAdicional,
-      aporteTotal,
-      participacion,
-      acciones,
-      inversionActualizada,
-      ventaAcciones,
-      accionesFinal,
-      pctAcciones,
-      utilidad,
+      aporteCapital, aporteAdicional, aporteTotal, participacion, acciones,
+      inversionActualizada, accionesFinal, pctAcciones, utilidad,
       rentabilidadActualizada: inversionActualizada > 0 ? utilidad / inversionActualizada : 0,
-      rentabilidadInicial: aporteTotal > 0 ? utilidad / aporteTotal : 0,
     };
   });
   const socioTotals = sociosRows.reduce((acc, row) => {
@@ -723,26 +733,30 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     acc.total += row.aporteTotal;
     acc.acciones += row.acciones;
     acc.inversion += row.inversionActualizada;
-    acc.venta += row.ventaAcciones;
     acc.final += row.accionesFinal;
     acc.utilidad += row.utilidad;
     return acc;
-  }, { capital: 0, adicional: 0, total: 0, acciones: 0, inversion: 0, venta: 0, final: 0, utilidad: 0 });
-  const compromisoTerrenoValue = financeDashManual.compromisoTerreno === '' ? costoTerreno : num(financeDashManual.compromisoTerreno);
-  const estructuraRows = [
-    ['capital', financeDashManual.structureLabels.capital || 'Aporte de Capital', socioTotals.capital],
-    ['venta_lotes', financeDashManual.structureLabels.venta_lotes || 'Venta de Lotes (Pagos)', ingresoVentaLotes * 0.20],
-    ['preventa', financeDashManual.structureLabels.preventa || 'Preventa (25% de los lotes)', ingresoVentaLotes * 0.25],
-    ['prestamos_aporte', financeDashManual.structureLabels.prestamos_aporte || 'Prestamos (Aporte Adici)', socioTotals.total],
-    ['prestamos_bancos', financeDashManual.structureLabels.prestamos_bancos || 'Prestamos - Bancos', prestamosTotal],
-    ...financeDashManual.structureRows.map((row) => ['', row.label || 'Nuevo dato', num(row.amount)] as [string, string, number]),
-  ] as Array<[string, string, number]>;
+  }, { capital: 0, adicional: 0, total: 0, acciones: 0, inversion: 0, final: 0, utilidad: 0 });
+  const compromisoTerrenoValue = precioTerrenoMatriz;
+  const { treeByLine: statementTree, hasFinancialFlowChildren } = useIncomeStatementReal(lockedProjectId || 0, [], financeDash?.staticFlow || null, financeDash?.dynamicFlow || null);
+  const compromisoGastosFinancieros = projectedFinancialAmount(financeDash?.staticFlow || null, statementTree.financiero || [], hasFinancialFlowChildren, num(statement?.proyectado?.financiamiento));
+  const estructuraBase: Array<[string, string, number]> = [
+    ['capital', 'Aporte de Capital', socioTotals.inversion],
+    ['venta_lotes', 'Venta de Lotes (20% de Lotes)', ingresoVentaLotes * 0.20],
+    ['preventa', 'Preventa (25% de los lotes)', ingresoVentaLotes * 0.25],
+    ['prestamos_aporte', 'Prestamos (Aporte Adicional)', socioTotals.total],
+  ];
+  const financiamientoBancario = pptoObra - estructuraBase.reduce((sum, [, , value]) => sum + value, 0);
+  const estructuraRows: Array<[string, string, number]> = [
+    ...estructuraBase,
+    ['prestamos_bancos', 'Prestamos - Bancos', financiamientoBancario],
+  ];
   const estructuraTotal = estructuraRows.reduce((sum, row) => sum + num(row[2]), 0);
   const compromisoRows = [
     ['1', financeDashManual.commitmentLabels.terreno || 'Terreno', compromisoTerrenoValue, 'terreno'],
     ['2', financeDashManual.commitmentLabels.deuda_clientes || 'Deuda Clientes', pagoCuotasLotes, 'deuda_clientes'],
-    ['3', financeDashManual.commitmentLabels.gastos_financieros || 'Gastos Financieros', gastosFinancieros, 'gastos_financieros'],
-    ...sociosRows.map((row) => [String(row.index + 3), row.name || `Socio ${row.index}`, row.aporteTotal] as [string, string, number]),
+    ['3', financeDashManual.commitmentLabels.gastos_financieros || 'Gastos Financieros', compromisoGastosFinancieros, 'gastos_financieros'],
+    ...sociosRows.map((row) => [String(row.index + 3), row.name || `Socio ${row.index}`, row.inversionActualizada] as [string, string, number]),
     ...financeDashManual.commitmentRows.map((row, index) => [row.priority || String(sociosRows.length + 4 + index), row.creditor || 'Nuevo acreedor', num(row.amount)] as [string, string, number]),
   ] as Array<[string, string, number] | [string, string, number, string]>;
   const compromisoTotal = compromisoRows.reduce((sum, [, , value]) => sum + num(value), 0);
@@ -762,7 +776,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     { label: 'Cuotas en Mora', value: cuotasMora, note: `${cuotasMoraCount} cuotas`, color: '#DC2626' },
     { label: 'Cuentas por Pagar US$', value: cuentasPorPagar, note: 'Cuotas pendientes', color: '#CA8A04' },
   ];
-  const updateSocio = (index: number, patch: Partial<{ name: string; capital: string; adicional: string; aporteTotal?: string; inversionActualizada?: string }>) => {
+  const updateSocio = (index: number, patch: Partial<{ name: string; capital: string; adicional: string; aporteTotal?: string; inversionActualizada?: string; newPartner?: boolean }>) => {
     setFinanceDashManual((current) => ({
       ...current,
       socios: current.socios.map((socio, itemIndex) => itemIndex === index ? { ...socio, ...patch } : socio),
@@ -783,11 +797,11 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const removeSocio = (index: number) => {
     setFinanceDashManual((current) => ({
       ...current,
-      socios: current.socios.filter((_, itemIndex) => itemIndex !== index),
+      socios: current.socios.map((socio, itemIndex) => ({ ...socio, newPartner: isNewPartner(socio, itemIndex) })).filter((_, itemIndex) => itemIndex !== index),
     }));
   };
   const focusRowInput = (event: any) => {
-    const input = event.currentTarget.closest('tr')?.querySelector('input') as HTMLInputElement | null;
+    const input = event.currentTarget.closest('tr')?.querySelector('input:not(:disabled)') as HTMLInputElement | null;
     input?.focus();
     input?.select();
   };
@@ -910,7 +924,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                   <tfoot>
                     <tr style={{ background: '#0B2F6E' }}>
                       <td className="td-base !px-2 font-bold text-white" colSpan={4}></td>
-                      <td className="td-base !px-2 font-bold text-white">Totales US$</td>
+                      <td className="td-base !px-2 font-bold text-white">Totales {displaySymbol()}</td>
                       <td className="td-base !px-2 font-bold text-white text-right tabular-nums">{usd0(loanTotals.amount)}</td>
                       <td className="td-base !px-2" colSpan={3}></td>
                       <td className="td-base !px-2 font-bold text-white text-right tabular-nums">{usd0(loanTotals.interest)}</td>
@@ -952,7 +966,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                   <tfoot>
                     <tr style={{ background: '#0B2F6E' }}>
                       <td className="td-base !px-3 font-bold text-white"></td>
-                      <td className="td-base !px-3 font-bold text-white">Total US$</td>
+                      <td className="td-base !px-3 font-bold text-white">Total {displaySymbol()}</td>
                       <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{usd0(loanTotals.amount)}</td>
                       <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{usd0(loanTotals.interest)}</td>
                       <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{usd0(loanTotals.updated)}</td>
@@ -972,8 +986,8 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             <h3 className="mb-1 text-lg font-black" style={{ color: '#334155' }}>Indicadores Proyectados</h3>
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 2xl:grid-cols-7">
               {dashboardCards.slice(0, 7).map((card) => (
-                <div key={card.label} className="min-h-[92px] rounded-lg border bg-white px-2 py-3 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
-                  <p className="text-center text-[9px] font-bold uppercase leading-snug text-slate-600">{card.label}</p>
+                <div key={card.label.replace('US$', displaySymbol())} className="min-h-[92px] rounded-lg border bg-white px-2 py-3 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
+                  <p className="text-center text-[9px] font-bold uppercase leading-snug text-slate-600">{card.label.replace('US$', displaySymbol())}</p>
                   {card.manual ? (
                     <input
                       className="mt-0.5 w-full border-0 bg-transparent text-center text-sm font-black text-blue-700 outline-none sm:text-base"
@@ -984,7 +998,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                   ) : (
                     <p className="mt-0.5 break-words text-center text-sm font-black text-blue-700 sm:text-base">{compactUsd(card.value)}</p>
                   )}
-                  <p className="mt-1 break-words text-center text-[9px] text-slate-500">- {card.note}</p>
+                  <p className="mt-1 break-words text-left text-[9px] text-slate-500">- {card.note}</p>
                 </div>
               ))}
             </div>
@@ -995,8 +1009,8 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             <h3 className="mb-1 text-lg font-black" style={{ color: '#334155' }}>Indicadores Operación Real</h3>
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 2xl:grid-cols-7">
               {dashboardCards.slice(7).map((card) => (
-                <div key={card.label} className="min-h-[92px] rounded-lg border bg-white px-2 py-3 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
-                  <p className="text-center text-[9px] font-bold uppercase leading-snug text-slate-600">{card.label}</p>
+                <div key={card.label.replace('US$', displaySymbol())} className="min-h-[92px] rounded-lg border bg-white px-2 py-3 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
+                  <p className="text-center text-[9px] font-bold uppercase leading-snug text-slate-600">{card.label.replace('US$', displaySymbol())}</p>
                   {card.manual ? (
                     <input
                       className="mt-0.5 w-full border-0 bg-transparent text-center text-sm font-black text-blue-700 outline-none sm:text-base"
@@ -1007,7 +1021,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                   ) : (
                     <p className="mt-0.5 break-words text-center text-sm font-black text-blue-700 sm:text-base">{compactUsd(card.value)}</p>
                   )}
-                  <p className="mt-1 break-words text-center text-[9px] text-slate-500">- {card.note}</p>
+                  <p className="mt-1 break-words text-left text-[9px] text-slate-500">- {card.note}</p>
                 </div>
               ))}
             </div>
@@ -1015,12 +1029,12 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           <div className="min-w-0 rounded-lg border bg-white p-3 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
             <div className="mb-3 flex items-center justify-between gap-3">
               <h3 className="text-lg font-black" style={{ color: '#001BFF' }}>Socios</h3>
-              <button className="btn-neutral !h-9 text-sm" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, socios: [...current.socios, { name: `Socio ${current.socios.length + 1}`, capital: '', adicional: '' }] }))}>Agregar socio</button>
+              <button className="btn-neutral !h-9 text-sm" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, socios: [...current.socios, { name: `Socio ${current.socios.length + 1}`, capital: '', adicional: '', newPartner: true }] }))}>Agregar socio</button>
             </div>
             <div className="overflow-auto rounded-md border" style={{ borderColor: '#E5E7EB' }}>
-              <table className="table-base" style={{ minWidth: 1760, tableLayout: 'fixed' }}>
+              <table className="table-base" style={{ minWidth: 1500, tableLayout: 'fixed' }}>
                 <colgroup>
-                  {[60, 220, 115, 120, 110, 110, 95, 140, 100, 135, 85, 120, 110, 160, 80].map((width, index) => (
+                  {[60, 200, 115, 120, 110, 110, 95, 180, 130, 100, 130, 110, 80].map((width, index) => (
                     <col key={index} style={{ width }} />
                   ))}
                 </colgroup>
@@ -1034,36 +1048,35 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                       ['Aporte', 'Total US$'],
                       ['Participación', '%'],
                       ['Nro. de', 'Acciones'],
-                      ['Inversión', 'actualizada US$'],
-                      ['Venta de', 'acciones'],
+                      ['Aporte Capital', 'Nuevos Socios US$'],
                       ['Nro. de acciones', 'final'],
                       ['% de', 'acciones'],
                       ['Utilidad US$'],
                       ['Rentabilidad', '%'],
-                      ['Rentabilidad %', '(resp. inversión inicial)'],
                       ['Acción'],
                     ].map((lines, index) => (
-                      <th key={lines.join(' ')} scope="col" className="th-base !whitespace-normal !text-[13px] !font-semibold !tracking-normal !px-3 !py-2.5 !align-middle leading-snug text-white" style={{ textAlign: 'center', background: index >= 7 && index <= 11 ? '#A9D18E' : index >= 12 ? '#2F75B5' : '#7F7F7F', color: index >= 7 && index <= 11 ? '#000' : '#fff' }}>{lines.map((line) => <span key={line} className="block whitespace-nowrap">{line}</span>)}</th>
+                      <th key={lines.join(' ')} scope="col" className="th-base !whitespace-normal !text-[13px] !font-semibold !tracking-normal !px-3 !py-2.5 !align-middle leading-snug text-white" style={{ textAlign: 'center', background: index < 7 ? '#D1D5DB' : index <= 10 ? '#A9D18E' : '#2F75B5', color: index <= 10 ? '#1F2937' : '#fff' }}>{lines.map((line) => <span key={line} className="block whitespace-nowrap">{line.replace('US$', displaySymbol())}</span>)}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {sociosRows.map((row, index) => (
-                    <tr key={index}>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{row.index}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle overflow-hidden text-ellipsis"><input className="input input-ghost !h-9 !px-0 !text-sm !border-0 !bg-transparent !w-full !max-w-none" value={row.name} onChange={(e) => updateSocio(index, { name: e.target.value })} /></td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle"><input className="input input-ghost !h-9 !px-0 !text-sm !border-0 !bg-transparent text-right !w-full !max-w-none" disabled={row.isNewPartner} value={financeDashManual.socios[index]?.capital || ''} onChange={(e) => updateSocio(index, { capital: e.target.value })} /></td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle"><input className="input input-ghost !h-9 !px-0 !text-sm !border-0 !bg-transparent text-right !w-full !max-w-none" disabled={row.isNewPartner} value={financeDashManual.socios[index]?.adicional || ''} onChange={(e) => updateSocio(index, { adicional: e.target.value })} /></td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-semibold">{row.isNewPartner ? <input aria-label={`Aporte total de ${row.name}`} inputMode="decimal" className="input !h-9 text-right !w-full" value={financeDashManual.socios[index]?.aporteTotal ?? financeDashManual.socios[index]?.inversionActualizada ?? ''} onChange={(e) => updateSocio(index, { aporteTotal: e.target.value })} /> : usd(row.aporteTotal)}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{(row.participacion * 100).toFixed(0)}%</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{usd(row.acciones)}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{usd(row.inversionActualizada)}{shareTransfers.invalid.includes(index) && <p role="alert" className="mt-1 text-xs text-red-600">El monto supera las acciones disponibles o falta un valor actualizado de accion valido.</p>}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{usd(row.ventaAcciones)}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{usd(row.accionesFinal)}</td>
+                    <tr key={index} className="[&_td:nth-child(-n+7)]:!bg-[#F1F3F5]">
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{row.isNewPartner ? '' : row.index}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle overflow-hidden text-ellipsis"><input className="input !h-9 !rounded-md !px-2 !text-sm !bg-white !border-slate-200 !shadow-sm !w-full !max-w-none focus:!border-blue-400 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" aria-label={`Nombre del socio ${row.index}`} value={row.name} onChange={(e) => updateSocio(index, { name: e.target.value })} /></td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle">{!row.isNewPartner && (<input className="input !h-9 !rounded-md !px-2 !text-sm !bg-white !border-slate-200 !shadow-sm text-right !w-full !max-w-none focus:!border-blue-400 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" disabled={row.isNewPartner} readOnly={currency === 'PEN'} value={row.isNewPartner ? '' : currency === 'PEN' ? usd0(financeDashManual.socios[index]?.capital as any) : financeDashManual.socios[index]?.capital || ''} onChange={(e) => updateSocio(index, { capital: e.target.value })} />)}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle">{!row.isNewPartner && (<input className="input !h-9 !rounded-md !px-2 !text-sm !bg-white !border-slate-200 !shadow-sm text-right !w-full !max-w-none focus:!border-blue-400 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" disabled={row.isNewPartner} readOnly={currency === 'PEN'} value={row.isNewPartner ? '' : currency === 'PEN' ? usd0(financeDashManual.socios[index]?.adicional as any) : financeDashManual.socios[index]?.adicional || ''} onChange={(e) => updateSocio(index, { adicional: e.target.value })} />)}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-semibold">{row.isNewPartner ? '' : usd0(row.aporteTotal)}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{row.isNewPartner ? '' : `${(row.participacion * 100).toFixed(0)}%`}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{row.isNewPartner ? '' : usd0(row.acciones)}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">
+                        {row.isNewPartner ? <input aria-label={`Aporte de nuevo socio ${row.name}`} inputMode="decimal" className="input !h-9 !rounded-md !px-2 !text-sm !bg-white !border-slate-200 !shadow-sm text-right !w-full focus:!border-blue-400" readOnly={currency === 'PEN'} value={currency === 'PEN' ? usd0(row.inversionActualizada) : financeDashManual.socios[index]?.aporteTotal ?? financeDashManual.socios[index]?.inversionActualizada ?? ''} onChange={(e) => updateSocio(index, { aporteTotal: e.target.value })} /> : usd0(row.inversionActualizada)}
+                        {shareIssue.invalid.includes(index) && <p role="alert" className="mt-1 text-xs text-red-700">Ingresa un aporte positivo y un valor actualizado de accion valido.</p>}
+                      </td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{usd0(row.accionesFinal)}</td>
                       <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{(row.pctAcciones * 100).toFixed(0)}%</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{usd(row.utilidad)}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{(row.rentabilidadActualizada * 100).toFixed(1)}%</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{(row.rentabilidadInicial * 100).toFixed(1)}%</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right" title={`${displaySymbol()} ${usd0(utilidadAjustada)} x ${(row.pctAcciones * 100).toFixed(0)}%`}>{usd0(row.utilidad)}</td>
+                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{(row.rentabilidadActualizada * 100).toFixed(0)}%</td>
                       <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={16} /></button><button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeSocio(index)}><FiTrash2 size={16} /></button></div></td>
                     </tr>
                   ))}
@@ -1071,17 +1084,16 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                 <tfoot>
                   <tr style={{ background: '#000066' }}>
                     <td className="td-base !px-3 !py-3 !text-sm !align-middle font-bold text-white text-center" colSpan={2}>Total</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.capital)}</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.adicional)}</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.total)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.capital)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.adicional)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.total)}</td>
                     <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center font-bold text-white">100%</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.acciones)}</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.inversion)}</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.venta)}</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.final)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.acciones)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.inversion)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.final)}</td>
                     <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center font-bold text-white">100%</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd(socioTotals.utilidad)}</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center font-bold text-white" colSpan={3}>—</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.utilidad)}</td>
+                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center font-bold text-white" colSpan={2}>—</td>
                   </tr>
                 </tfoot>
               </table>
@@ -1101,24 +1113,25 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                     ['D.2', 'valor_inicial_accion', financeDashManual.dataLabels.valor_inicial_accion || 'Valor Inicial de la Accion US$', null],
                     ['D.3', 'factor_actualizacion', financeDashManual.dataLabels.factor_actualizacion || 'Factor Actualizacion de la accion', 'factorActualizacion'],
                     ['D.4', 'valor_actual_accion', financeDashManual.dataLabels.valor_actual_accion || 'Valor Actual de la Accion US$', null],
-                    ['D.6', 'utilidad_ajustada', financeDashManual.dataLabels.utilidad_ajustada || 'Utilidad Ajustada US$', null],
-                    ['D.7', 'ppto_obra', financeDashManual.dataLabels.ppto_obra || 'Ppto. de Obra US$', null],
+                    ['D.5', 'utilidad_ajustada', financeDashManual.dataLabels.utilidad_ajustada || 'Utilidad Ajustada US$', null],
+                    ['D.6', 'ppto_obra', financeDashManual.dataLabels.ppto_obra || 'Ppto. de Obra US$', null],
+                    ['D.7', 'precio_terreno_matriz', 'Precio de Terreno Matriz', null],
                   ].map(([code, labelKey, label, key]) => (
                     <tr key={String(code)} className="border-b border-[#F3E4B0]" style={{ background: '#FFF8DB' }}>
                       <td className="w-[42px] px-1.5 py-2 text-center text-[10px] font-bold text-[#8A6A00]">{code}</td>
-                      <td className="px-2 py-1.5"><input className="input input-ghost !h-7 !border-0 !bg-transparent !px-1 font-semibold text-[#1F2937]" value={String(label)} onChange={(e) => setFinanceDashManual((current) => ({ ...current, dataLabels: { ...current.dataLabels, [String(labelKey)]: e.target.value } }))} /></td>
+                      <td className="px-2 py-1.5"><input disabled={labelKey === 'precio_terreno_matriz'} className="input input-ghost !h-7 !border-0 !bg-transparent !px-1 font-semibold text-[#1F2937]" value={String(label).replace('US$', displaySymbol())} onChange={(e) => setFinanceDashManual((current) => ({ ...current, dataLabels: { ...current.dataLabels, [String(labelKey)]: e.target.value } }))} /></td>
                       <td className="w-[130px] px-2 py-1.5 text-right">
-                        {key ? <input className="input !h-7 !w-auto !rounded-md !px-2 min-w-[54px] max-w-[130px] text-right text-xs" style={{ width: `${Math.max(54, String((financeDashManual as any)[key] || '').length * 8 + 24)}px` }} value={(financeDashManual as any)[key]} onChange={(e) => setFinanceDashManual((current) => ({ ...current, [key as string]: e.target.value }))} /> : (labelKey === 'valor_inicial_accion' ? usd(valorInicialAccion) : labelKey === 'valor_actual_accion' ? usd(valorActualAccion) : labelKey === 'utilidad_ajustada' ? compactUsd(utilidadAjustada) : compactUsd(pptoObra))}
+                        {key ? <input className="input !h-7 !w-auto !rounded-md !px-2 min-w-[54px] max-w-[130px] text-right text-xs" style={{ width: `${Math.max(54, String((financeDashManual as any)[key] || '').length * 8 + 24)}px` }} value={(financeDashManual as any)[key]} onChange={(e) => setFinanceDashManual((current) => ({ ...current, [key as string]: e.target.value }))} /> : (labelKey === 'valor_inicial_accion' ? usd(valorInicialAccion) : labelKey === 'valor_actual_accion' ? usd(valorActualAccion) : labelKey === 'utilidad_ajustada' ? `${displaySymbol()} ${usd0(utilidadAjustada)}` : labelKey === 'precio_terreno_matriz' ? usd(precioTerrenoMatriz) : compactUsd(pptoObra))}
                       </td>
                       <td className="w-[72px] px-2 py-1.5 text-center">
                         <div className="flex justify-center gap-1">
-                          <button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button>
+                          <button disabled={labelKey === 'precio_terreno_matriz'} className={labelKey === 'precio_terreno_matriz' ? rowDangerDisabledButton : rowIconButton} type="button" title={labelKey === 'precio_terreno_matriz' ? 'Dato del flujo de caja' : 'Editar'} onClick={focusRowInput}><FiEdit3 size={13} /></button>
                           <button className={rowDangerDisabledButton} type="button" title="Fila base" disabled><FiTrash2 size={13} /></button>
                         </div>
                       </td>
                     </tr>
                   ))}
-                  {financeDashManual.dataRows.map((row, index) => (
+                  {financeDashManual.dataRows.map((row, index) => isLandMatrixLabel(row.label) ? null : (
                     <tr key={`data-${index}`} className="border-b border-[#F3E4B0]" style={{ background: '#FFF8DB' }}>
                       <td className="w-[42px] px-1.5 py-1.5 text-center"><input className="input input-ghost !h-7 !border-0 !bg-transparent !px-0 text-center text-[10px] font-bold text-[#8A6A00]" value={row.code} onChange={(e) => updateManualArray('dataRows', index, { code: e.target.value })} /></td>
                       <td className="px-2 py-1.5"><input className="input input-ghost !h-7 !border-0 !bg-transparent !px-1 font-semibold text-[#1F2937]" value={row.label} onChange={(e) => updateManualArray('dataRows', index, { label: e.target.value })} /></td>
@@ -1143,36 +1156,37 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                 </div>
                 {financePanel === 'commitments' ? (
                   <button className="btn-neutral !h-8 text-xs" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, commitmentRows: [...current.commitmentRows, { priority: String(sociosRows.length + current.commitmentRows.length + 4), creditor: 'Nuevo acreedor', amount: '' }] }))}>Agregar dato</button>
-                ) : (
-                  <button className="btn-neutral !h-8 text-xs" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, structureRows: [...current.structureRows, { label: 'Nuevo dato', amount: '' }] }))}>Agregar dato</button>
-                )}
+                ) : null}
               </div>
               <div className="overflow-x-auto">
               {financePanel === 'commitments' ? (
-              <table className="table-base text-xs" style={{ minWidth: 460 }}>
-                <thead><tr style={{ background: '#000066' }}><th className="px-2 py-2 text-left text-[10px] font-bold leading-tight text-white">Prioridad</th><th className="px-2 py-2 text-left text-[10px] font-bold leading-tight text-white">Acreedor</th><th className="px-2 py-2 text-right text-[10px] font-bold leading-tight text-white">USD</th><th className="px-2 py-2 text-center text-[10px] font-bold leading-tight text-white">Porcentaje</th><th className="px-2 py-2 text-center text-[10px] font-bold leading-tight text-white">Accion</th></tr></thead>
+              <table className="w-full table-fixed border-collapse text-xs [&_th]:!px-2 [&_th]:align-middle [&_td]:!px-2 [&_td]:align-middle [&_input]:min-w-0 [&_input]:!px-0" style={{ minWidth: 460 }}>
+                <colgroup><col style={{ width: '14%' }} /><col style={{ width: '32%' }} /><col style={{ width: '22%' }} /><col style={{ width: '16%' }} /><col style={{ width: '16%' }} /></colgroup>
+                <thead><tr style={{ background: '#000066' }}><th className="px-2 py-2 text-center text-[10px] font-bold leading-tight text-white">Prioridad</th><th className="px-2 py-2 text-left text-[10px] font-bold leading-tight text-white">Acreedor</th><th className="px-2 py-2 text-right text-[10px] font-bold leading-tight text-white">{displaySymbol()}</th><th className="px-2 py-2 text-center text-[10px] font-bold leading-tight text-white">Porcentaje</th><th className="px-2 py-2 text-center text-[10px] font-bold leading-tight text-white">Accion</th></tr></thead>
                 <tbody>
                   {compromisoRows.map((row, index) => {
                     const customIndex = index - (3 + sociosRows.length);
                     const isCustom = customIndex >= 0;
                     const labelKey = row.length === 4 ? String(row[3]) : '';
-                    return <tr key={`${row[0]}-${index}`}><td className="td-base text-center">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-center" value={financeDashManual.commitmentRows[customIndex]?.priority || ''} onChange={(e) => updateManualArray('commitmentRows', customIndex, { priority: e.target.value })} /> : row[0]}</td><td className="td-base">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={financeDashManual.commitmentRows[customIndex]?.creditor || ''} onChange={(e) => updateManualArray('commitmentRows', customIndex, { creditor: e.target.value })} /> : <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={row[1]} onChange={(e) => setFinanceDashManual((current) => ({ ...current, commitmentLabels: { ...current.commitmentLabels, [labelKey]: e.target.value } }))} />}</td><td className="td-base text-right">{labelKey === 'terreno' ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-right" value={financeDashManual.compromisoTerreno === '' ? String(costoTerreno || '') : financeDashManual.compromisoTerreno} onChange={(e) => setFinanceDashManual((current) => ({ ...current, compromisoTerreno: e.target.value }))} /> : isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-right" value={financeDashManual.commitmentRows[customIndex]?.amount || ''} onChange={(e) => updateManualArray('commitmentRows', customIndex, { amount: e.target.value })} /> : usd(num(row[2]))}</td><td className="td-base text-center whitespace-nowrap">{compromisoTotal > 0 ? `${((num(row[2]) / compromisoTotal) * 100).toFixed(1)}%` : '0%'}</td><td className="td-base text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button>{isCustom ? <button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeManualArrayRow('commitmentRows', customIndex)}><FiTrash2 size={13} /></button> : <button className={rowDangerDisabledButton} type="button" title="Fila base" disabled><FiTrash2 size={13} /></button>}</div></td></tr>;
+                    return <tr key={`${row[0]}-${index}`}><td className="td-base text-center">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-center" value={financeDashManual.commitmentRows[customIndex]?.priority || ''} onChange={(e) => updateManualArray('commitmentRows', customIndex, { priority: e.target.value })} /> : row[0]}</td><td className="td-base">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={financeDashManual.commitmentRows[customIndex]?.creditor || ''} onChange={(e) => updateManualArray('commitmentRows', customIndex, { creditor: e.target.value })} /> : <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={row[1]} onChange={(e) => setFinanceDashManual((current) => ({ ...current, commitmentLabels: { ...current.commitmentLabels, [labelKey]: e.target.value } }))} />}</td><td className="td-base text-right">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-right" readOnly={currency === 'PEN'} value={currency === 'PEN' ? usd0(num(row[2])) : financeDashManual.commitmentRows[customIndex]?.amount || ''} onChange={(e) => updateManualArray('commitmentRows', customIndex, { amount: e.target.value })} /> : usd0(num(row[2]))}</td><td className="td-base text-center whitespace-nowrap">{compromisoTotal > 0 ? `${((num(row[2]) / compromisoTotal) * 100).toFixed(0)}%` : '0%'}</td><td className="td-base text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button>{isCustom ? <button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeManualArrayRow('commitmentRows', customIndex)}><FiTrash2 size={13} /></button> : <button className={rowDangerDisabledButton} type="button" title="Fila base" disabled><FiTrash2 size={13} /></button>}</div></td></tr>;
                   })}
                 </tbody>
-                <tfoot><tr style={{ background: '#064E3B' }}><td className="td-base font-bold text-white" colSpan={2}>Total US$</td><td className="td-base text-right font-bold text-white">{usd(compromisoTotal)}</td><td className="td-base text-center font-bold text-white">{compromisoTotal > 0 ? '100.0%' : '0%'}</td><td className="td-base"></td></tr></tfoot>
+                <tfoot><tr style={{ background: '#064E3B' }}><td className="td-base font-bold text-white" colSpan={2}>Total {displaySymbol()}</td><td className="td-base text-right font-bold text-white">{usd0(compromisoTotal)}</td><td className="td-base text-center font-bold text-white">{compromisoTotal > 0 ? '100%' : '0%'}</td><td className="td-base"></td></tr></tfoot>
               </table>
               ) : (
-              <table className="w-full text-xs">
-                <thead><tr style={{ background: '#000066' }}><th className="w-[50%] px-3 py-2 text-left text-[10px] font-bold leading-tight text-white">Estructura Financiam.</th><th className="w-[22%] px-3 py-2 text-right text-[10px] font-bold leading-tight text-white">USD</th><th className="w-[10%] px-3 py-2 text-center text-[10px] font-bold leading-tight text-white">%</th><th className="w-[18%] px-3 py-2 text-center text-[10px] font-bold leading-tight text-white">Accion</th></tr></thead>
+              <table className="w-full table-fixed border-collapse text-xs [&_th]:!px-2 [&_th]:align-middle [&_td]:!px-2 [&_td]:align-middle" style={{ minWidth: 400 }}>
+                <colgroup><col style={{ width: '54%' }} /><col style={{ width: '28%' }} /><col style={{ width: '18%' }} /></colgroup>
+                <thead><tr style={{ background: '#000066' }}><th className="px-2 py-2 text-left text-[10px] font-bold text-white">Estructura Financiam.</th><th className="px-2 py-2 text-right text-[10px] font-bold text-white">{displaySymbol()}</th><th className="px-2 py-2 text-center text-[10px] font-bold text-white">%</th></tr></thead>
                 <tbody>
-                  {estructuraRows.map(([key, label, value], index) => {
-                    const v = num(value);
-                    const customIndex = index - 5;
-                    const isCustom = customIndex >= 0;
-                    return <tr key={`${label}-${index}`}><td className="td-base">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={financeDashManual.structureRows[customIndex]?.label || ''} onChange={(e) => updateManualArray('structureRows', customIndex, { label: e.target.value })} /> : <input className="input input-ghost !h-7 !border-0 !bg-transparent" value={label} onChange={(e) => setFinanceDashManual((current) => ({ ...current, structureLabels: { ...current.structureLabels, [key]: e.target.value } }))} />}</td><td className="td-base text-right">{isCustom ? <input className="input input-ghost !h-7 !border-0 !bg-transparent text-right" value={financeDashManual.structureRows[customIndex]?.amount || ''} onChange={(e) => updateManualArray('structureRows', customIndex, { amount: e.target.value })} /> : usd(v)}</td><td className="td-base text-center">{estructuraTotal > 0 ? `${((v / estructuraTotal) * 100).toFixed(1)}%` : '0%'}</td><td className="td-base text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button>{isCustom ? <button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeManualArrayRow('structureRows', customIndex)}><FiTrash2 size={13} /></button> : <button className={rowDangerDisabledButton} type="button" title="Fila base" disabled><FiTrash2 size={13} /></button>}</div></td></tr>;
-                  })}
+                  {estructuraRows.map(([key, label, value]) => (
+                    <tr key={key}>
+                      <td className="td-base">{label}</td>
+                      <td className="td-base text-right tabular-nums">{usd0(value)}</td>
+                      <td className="td-base text-center tabular-nums">{estructuraTotal !== 0 ? `${((value / estructuraTotal) * 100).toFixed(1)}%` : '0%'}</td>
+                    </tr>
+                  ))}
                 </tbody>
-                <tfoot><tr style={{ background: '#064E3B' }}><td className="td-base font-bold text-white">Total Financiamiento</td><td className="td-base text-right font-bold text-white">{usd(estructuraTotal)}</td><td className="td-base text-center font-bold text-white">100.0%</td><td className="td-base"></td></tr></tfoot>
+                <tfoot><tr style={{ background: '#064E3B' }}><td className="td-base font-bold text-white">Total Financiamiento</td><td className="td-base text-right font-bold text-white">{usd0(estructuraTotal)}</td><td className="td-base text-center font-bold text-white">{estructuraTotal !== 0 ? '100.0%' : '0%'}</td></tr></tfoot>
               </table>
               )}
               </div>
@@ -1246,7 +1260,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                 <thead><tr>
                   <th className="th-base">ID</th><th className="th-base">Lote</th><th className="th-base">Cliente/Proveedor</th><th className="th-base">Modo de Pago</th>
                   <th className="th-base">Tipo</th><th className="th-base !whitespace-normal !leading-snug"><span className="block whitespace-nowrap">Tipo de Pago/</span><span className="block whitespace-nowrap">Categoría</span></th><th className="th-base">Clasificacion</th><th className="th-base">Agente</th><th className="th-base">Concepto</th>
-                  <th className="th-base">Monto US$</th><th className="th-base">Fecha</th>
+                  <th className="th-base">Monto {displaySymbol()}</th><th className="th-base">Fecha</th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {txns.map((t) => (

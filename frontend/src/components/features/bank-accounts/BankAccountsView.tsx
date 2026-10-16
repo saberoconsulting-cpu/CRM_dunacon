@@ -3,13 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FiAlertCircle, FiArrowUp, FiCheckCircle, FiChevronDown, FiChevronLeft, FiChevronRight, FiCreditCard, FiDownload, FiEdit3, FiPlus, FiRefreshCw, FiSave, FiSettings, FiTrash2, FiUploadCloud, FiX } from 'react-icons/fi';
 import { Toaster, toast, Field } from '@/components/ui/ui';
-import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import AnnualReportPanel from '@/components/features/bank-accounts/AnnualReportPanel';
 import CategoryMasterPanel from '@/components/features/bank-accounts/CategoryMasterPanel';
 import { api, uploadFile } from '@/lib/api';
 import { printHtml } from '@/lib/print';
 import { BRAND } from '@/lib/types';
-import { useDisplayCurrency } from '@/lib/currency';
+import { useDisplayCurrency, DEFAULT_EXCHANGE_RATE } from '@/lib/currency';
 
 type Movement = {
   id: number;
@@ -186,7 +185,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [savingOpeningBalance, setSavingOpeningBalance] = useState(false);
   const [accounts, setAccounts] = useState<BankAccount[]>([]);
   const [accountKey, setAccountKey] = useState('GENERAL');
-  const [tableCurrency, setTableCurrency] = useState<'USD' | 'PEN'>('USD');
+
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [movementFilterOpen, setMovementFilterOpen] = useState(false);
@@ -195,7 +194,9 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
   const [savingAccount, setSavingAccount] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const formRef = useRef<HTMLDivElement | null>(null);
-  const { currency, setCurrency, exchangeRate, setExchangeRate } = useDisplayCurrency();
+  const { currency, exchangeRate: displayRate } = useDisplayCurrency();
+  const exchangeRate = DEFAULT_EXCHANGE_RATE;
+  const tableCurrency = currency;
   const [importExchangeRate, setImportExchangeRate] = useState(String(exchangeRate));
   const selectedAccount = accounts.find((account) => account.accountKey === accountKey);
   const accountCurrency = selectedAccount?.currency || 'USD';
@@ -204,19 +205,19 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     const converted = accountCurrency === currency
       ? amount
       : accountCurrency === 'PEN'
-        ? amount / exchangeRate
-        : amount * exchangeRate;
+        ? amount / displayRate
+        : amount * displayRate;
     return bankMoney(converted, currency);
-  }, [accountCurrency, currency, exchangeRate]);
+  }, [accountCurrency, currency, displayRate]);
   const tableAmount = useCallback((value: unknown, movementRate?: unknown) => {
     const amount = num(value);
-    const rate = num(movementRate) > 0 ? num(movementRate) : exchangeRate;
+    const rate = displayRate;
     return accountCurrency === tableCurrency
       ? amount
       : accountCurrency === 'PEN'
         ? amount / rate
         : amount * rate;
-  }, [accountCurrency, exchangeRate, tableCurrency]);
+  }, [accountCurrency, displayRate, tableCurrency]);
   const tableMoney = useCallback((value: unknown, movementRate?: unknown) => (
     bankMoney(tableAmount(value, movementRate), tableCurrency)
   ), [tableAmount, tableCurrency]);
@@ -225,10 +226,10 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
     const converted = importCurrency === currency
       ? amount
       : importCurrency === 'PEN'
-        ? amount / exchangeRate
-        : amount * exchangeRate;
+        ? amount / displayRate
+        : amount * displayRate;
     return bankMoney(converted, currency);
-  }, [currency, exchangeRate, importCurrency]);
+  }, [currency, displayRate, importCurrency]);
 
   const query = useMemo(() => {
     const params = new URLSearchParams({ projectId: String(projectId), accountKey });
@@ -659,7 +660,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
             <div className="relative flex w-full items-center gap-2 lg:w-auto">
               <button
                 type="button"
-                className="flex h-9 min-w-0 flex-1 items-center justify-between gap-2 rounded-md border bg-white px-3 text-left text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 sm:text-sm lg:w-56 lg:flex-none"
+                className="flex h-9 min-w-0 flex-1 items-center justify-between gap-2 rounded-md border bg-white px-3 text-left text-xs font-semibold text-slate-700 shadow-sm transition-colors hover:bg-slate-50 sm:text-sm lg:w-64 lg:flex-none"
                 style={{ borderColor: BORDER }}
                 onClick={() => setAccountMenuOpen((value) => !value)}
                 aria-expanded={accountMenuOpen}
@@ -692,14 +693,8 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   </div>
                 </>
               )}
-              <button className="btn-outline !h-9 shrink-0 justify-center whitespace-nowrap !px-2 text-xs sm:!px-3" onClick={() => setAccountModalOpen(true)}>
-                <FiPlus /> <span className="sm:hidden">Agregar</span><span className="hidden sm:inline">Agregar cuenta</span>
-              </button>
             </div>
-            <div className="grid w-full grid-cols-1 gap-2 min-[420px]:grid-cols-2 lg:w-[430px] lg:shrink-0">
-              <div className="flex min-h-10 min-w-0 items-center justify-center rounded-md border bg-white px-2 py-1 min-[420px]:col-span-2" style={{ borderColor: BORDER }}>
-                <CurrencyToggle currency={currency} setCurrency={setCurrency} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} className="w-full justify-center" />
-              </div>
+            <div className="grid w-full grid-cols-2 gap-2 lg:w-[430px] lg:shrink-0">
               <button className="btn-neutral !h-10 w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm" onClick={load} disabled={loading}>
                 <FiRefreshCw className={loading ? 'animate-spin' : ''} /> Actualizar
               </button>
@@ -719,6 +714,9 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 title="Configuracion de Categorias y Mapeo FC"
               >
                 <FiSettings /> Categorias{categoryRows ? ` (${categoryRows})` : ''}
+              </button>
+              <button className="btn-neutral !h-10 w-full justify-center whitespace-nowrap !px-3 text-xs sm:text-sm" onClick={() => setAccountModalOpen(true)}>
+                <FiPlus /> Agregar cuenta
               </button>
             </div>
           </div>
@@ -972,20 +970,6 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
               <div className="flex flex-wrap items-center justify-between gap-2 border-b bg-white px-4 py-2" style={{ borderColor: BORDER }}>
                 <p className="text-xs font-semibold" style={{ color: MUTED }}>Movimientos ordenados por fecha ascendente</p>
                 <div className="flex flex-wrap items-center gap-3">
-                  <div className="inline-flex items-center rounded-md border p-0.5" style={{ borderColor: BORDER }} aria-label="Moneda de los importes de la tabla">
-                    <button
-                      type="button"
-                      className={`rounded px-2.5 py-1 text-xs font-semibold ${tableCurrency === 'USD' ? 'bg-[#EAF3FF] text-[#1877F2]' : 'text-slate-500'}`}
-                      aria-pressed={tableCurrency === 'USD'}
-                      onClick={() => setTableCurrency('USD')}
-                    >US$</button>
-                    <button
-                      type="button"
-                      className={`rounded px-2.5 py-1 text-xs font-semibold ${tableCurrency === 'PEN' ? 'bg-[#EAF3FF] text-[#1877F2]' : 'text-slate-500'}`}
-                      aria-pressed={tableCurrency === 'PEN'}
-                      onClick={() => setTableCurrency('PEN')}
-                    >S/</button>
-                  </div>
                   <p className="text-xs" style={{ color: MUTED }}>{pageItems.length} de {items.length} · pagina {page} de {pageCount}</p>
                 </div>
               </div>
@@ -1087,7 +1071,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
           )}
         </section>
 
-        <AnnualReportPanel projectId={projectId} accountKey={accountKey} currency={currency} accountCurrency={accountCurrency} rate={exchangeRate} refreshKey={dataVersion} />
+        <AnnualReportPanel projectId={projectId} accountKey={accountKey} currency={currency} accountCurrency={accountCurrency} rate={displayRate} refreshKey={dataVersion} />
 
         {categoriesOpen && (
           <CategoryMasterPanel

@@ -1,4 +1,5 @@
 'use client';
+import { moneyGlobal, moneyGlobalDecimals, useDisplayCurrency } from '@/lib/currency';
 import { useEffect, useRef, useState } from 'react';
 import Layout from '@/components/layout/Layout';
 import { Toaster, toast, StatusBadge, Field } from '@/components/ui/ui';
@@ -9,6 +10,7 @@ import { BRAND, Project, formatMoney } from '@/lib/types';
 import ProjectsMap from '@/components/features/projects/ProjectsMap';
 
 export default function ProjectsPage() {
+  useDisplayCurrency();
   const router = useRouter();
   const [projects, setProjects] = useState<Project[]>([]);
   const [savingOrder, setSavingOrder] = useState(false);

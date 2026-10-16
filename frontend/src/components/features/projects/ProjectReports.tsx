@@ -2,14 +2,13 @@
 import type { ReactNode } from 'react';
 import { useState } from 'react';
 import { FiActivity, FiAlertTriangle, FiArrowDownCircle, FiChevronDown, FiCreditCard, FiDollarSign, FiMoreVertical, FiPieChart, FiTag, FiTrendingUp } from 'react-icons/fi';
+import { moneyGlobal } from '@/lib/currency';
 import { BRAND } from '@/lib/types';
 
 // --- Formato ---
 // Formato por defecto: Soles. El contenedor inyecta el formateador de la moneda
 // activa (S/ o US$) mediante el prop `formatter` para uniformizar la pantalla.
-function penMoney(value: unknown): string {
-  return `S/ ${Number(value || 0).toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-}
+function penMoney(value: unknown): string { return moneyGlobal(value); }
 
 function pct(value: unknown): string {
   const n = Number(value || 0);
@@ -17,7 +16,7 @@ function pct(value: unknown): string {
   return `${n.toLocaleString('es-PE', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
 }
 
-function KpiTile({ label, value, helper, icon, accent }: { label: string; value: string; helper: string; icon: ReactNode; accent: string }) {
+function KpiTile({ label, value, helper, icon, accent }: { label: string; value: string; helper?: string; icon: ReactNode; accent: string }) {
   return (
     <div className="rounded-md border bg-white px-3 py-2.5 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
       <div className="flex items-center justify-between gap-2">
@@ -25,7 +24,7 @@ function KpiTile({ label, value, helper, icon, accent }: { label: string; value:
         <span className="grid h-6 w-6 shrink-0 place-items-center rounded-md text-xs" style={{ background: `${accent}12`, color: accent }}>{icon}</span>
       </div>
       <p className="mt-1.5 truncate text-sm font-bold tabular-nums" style={{ color: '#111827' }}>{value}</p>
-      <p className="mt-0.5 truncate text-[10px]" style={{ color: '#6B7280' }}>{helper}</p>
+      {helper && <p className="mt-0.5 truncate text-[10px]" style={{ color: '#6B7280' }}>{helper}</p>}
     </div>
   );
 }
@@ -141,7 +140,7 @@ export function ChartShell({ title, subtitle, children, className = '', flex1 = 
 }
 
 // Donut con conic-gradient, total al centro y leyenda lateral.
-function DonutChart({ data, formatter = penMoney, centered = false }: { data: { name: string; value: number; color: string }[]; formatter?: (value: number) => string; centered?: boolean }) {
+function DonutChart({ data, formatter = penMoney, centered = false, centerValue, centerLabel = 'total' }: { centerValue?: string; centerLabel?: string; data: { name: string; value: number; color: string }[]; formatter?: (value: number) => string; centered?: boolean }) {
   const total = data.reduce((sum, item) => sum + item.value, 0);
   const [hover, setHover] = useState<number | null>(null);
   if (!total) return <EmptyChart text="Sin datos para graficar." />;
@@ -155,8 +154,8 @@ function DonutChart({ data, formatter = penMoney, centered = false }: { data: { 
         <div className="grid h-full w-full place-items-center transition-transform duration-300 ease-out group-hover:rotate-6" style={{ background: conicGradient(data, total), borderRadius: '50%' }}>
           <div className="grid h-28 w-28 place-items-center bg-white shadow-inner transition-transform duration-300 ease-out group-hover:scale-90" style={{ borderRadius: '50%' }}>
             <div className="px-2 text-center">
-              <p className="text-sm font-bold tabular-nums" style={{ color: BRAND.ink }}>{formatter(total)}</p>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">total</p>
+              <p className="text-sm font-bold tabular-nums" style={{ color: BRAND.ink }}>{centerValue ?? formatter(total)}</p>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-500">{centerLabel}</p>
             </div>
           </div>
         </div>
@@ -419,6 +418,9 @@ function HorizontalBars({ data, formatter = penMoney }: { data: { name: string; 
 }
 
 export interface ProjectReportsData {
+  constructionBudget: number;
+  constructionReal: number;
+  constructionExecutionPct: number;
   paidAmount: number;
   soldAmount: number;
   overdueAmount: number;
@@ -430,10 +432,20 @@ export interface ProjectReportsData {
   inventoryValue?: number;
   soldLotsCount?: number;
   pendingAmount?: number;
-  costOfSales?: number;
-  expenses?: number;
-  tax?: number;
-  netProfit?: number;
+  pendingInstallmentCount: number;
+  overdueInstallmentAmount: number;
+  overdueInstallmentCount: number;
+  statement: {
+    revenue: number;
+    costOfSales: number;
+    salesAdminCost: number;
+    financeCost: number;
+    grossProfit: number;
+    operatingProfit: number;
+    profitBeforeTax: number;
+    incomeTax: number;
+    netProfit: number;
+  };
   lotCountData?: { name: string; value: number }[];
   lotAmountData?: { name: string; value: number }[];
   lotColorByLabel?: (name: string) => string;
@@ -460,16 +472,13 @@ export default function ProjectReports({ data, formatter }: { data: ProjectRepor
     Number(rows.find((row) => row.month === month)?.monto || 0);
 
   const cards = data.kpis?.cards || {};
-  const st = data.kpis?.statement || {};
-  const cashKpi = data.kpis?.cash || {};
+  const st = data.statement;
 
   const totalLots = Number(cards.totalLots ?? data.totalLots ?? 0);
-  const inventoryValue = Number(cards.inventoryValue ?? data.inventoryValue ?? 0);
+  const inventoryValue = Number(data.inventoryValue ?? 0);
   const soldLotsCount = Number(cards.soldLotsCount ?? data.soldLotsCount ?? 0);
-  const soldAmount = Number(cards.soldListValue ?? data.soldAmount);
-  const paidAmount = Number(cards.collectedAmount ?? data.paidAmount);
-  const pendingAmount = Number(cashKpi.pendingAmount ?? cards.pendingAmount ?? data.pendingAmount ?? 0);
-  const delinquencyRate = Number(cashKpi.delinquencyRate ?? data.delinquencyRate ?? 0);
+  const soldAmount = Number(data.soldAmount);
+  const paidAmount = Number(data.paidAmount);
 
   const costoVentas = Number(st.costOfSales ?? 0);
   const gastosProyecto = Number(st.salesAdminCost ?? 0) + Number(st.financeCost ?? 0);
@@ -479,10 +488,10 @@ export default function ProjectReports({ data, formatter }: { data: ProjectRepor
   const igv = Number(st.incomeTax ?? 0);
   const utilidadNeta = Number(st.netProfit ?? 0);
   const ingresoReal = Number(st.revenue ?? 0);
-  const utilidadBrutaPct = soldAmount > 0 ? (utilidadBruta / soldAmount) * 100 : 0;
-  const margenNeto = Number(st.marginOnSales ?? 0);
-  const collectionRate = Number(cashKpi.collectionRate ?? 0);
-  const tir = Number(st.marginOnSales ?? 0);
+  const utilidadBrutaPct = ingresoReal > 0 ? (utilidadBruta / ingresoReal) * 100 : 0;
+  const margenNeto = ingresoReal > 0 ? (utilidadNeta / ingresoReal) * 100 : 0;
+  const delinquencyRate = Number(data.delinquencyRate);
+  const tir = margenNeto;
 
   const lotCountData = data.lotCountData || [];
   const lotAmountData = data.lotAmountData || [];
@@ -491,15 +500,15 @@ export default function ProjectReports({ data, formatter }: { data: ProjectRepor
   const leadColorByLabel = data.leadColorByLabel || (() => '#9AA1AB');
   const showLeadsChart = data.totalLeads != null ? data.totalLeads > 0 : leadsChartData.length > 0;
 
-  const investmentData = timeline.map((month) => ({
-    label: monthLabel(month),
-    values: [find(data.salesByMonth, month), find(data.overdueByMonth, month)],
-  }));
-  const collectionData = timeline.map((month) => ({ label: monthLabel(month), values: [find(data.collectedByMonth, month)] }));
-  const paymentVsDelinquency = timeline.map((month) => ({
-    label: monthLabel(month),
-    values: [find(data.collectedByMonth, month), find(data.overdueByMonth, month)],
-  }));
+  const investmentData = [{
+    label: 'Total real del proyecto',
+    values: [ingresoReal, costoVentas + gastosProyecto],
+  }];
+  const collectionData = timeline.map((month) => ({ label: monthLabel(month), values: [find(data.salesByMonth, month)] }));
+  const financingComparison = [{
+    label: 'Total del proyecto',
+    values: [data.overdueInstallmentAmount, data.pendingAmount ?? 0],
+  }];
 
   const rangeLabel = range === 1 ? 'Ultimo mes' : range === 6 ? 'Ultimos 6 meses' : 'Ultimos 12 meses';
 
@@ -507,49 +516,51 @@ export default function ProjectReports({ data, formatter }: { data: ProjectRepor
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       {/* Columna izquierda (60%) */}
       <div className="grid min-w-0 gap-4 lg:grid-rows-[auto_1fr_1fr]">
-        <ChartShell title="Ejecucion de la Obra" subtitle="Cobrado frente al saldo por cobrar">
+        <ChartShell title="Ejecucion de la Obra" subtitle={`Presupuesto de Obra: ${money(data.constructionBudget)}`}>
           <div className="flex min-h-[230px] items-center justify-center">
             <DonutChart
               centered
+              centerValue={pct(data.constructionExecutionPct)}
+              centerLabel="Ejecucion"
               formatter={money}
               data={[
-                { name: 'Cobrado', value: data.paidAmount, color: '#0F8B5F' },
-                { name: 'Por cobrar', value: Math.max(0, data.soldAmount - data.paidAmount), color: '#E5E7EB' },
+                { name: 'Avance real de obra', value: data.constructionReal, color: '#0F8B5F' },
+                { name: 'Presupuesto por ejecutar', value: Math.max(0, data.constructionBudget - data.constructionReal), color: '#E5E7EB' },
               ]}
             />
           </div>
         </ChartShell>
 
-        <ChartShell title="Recaudacion por mes" subtitle={rangeLabel} flex1>
+        <ChartShell title="Ventas por mes" subtitle={rangeLabel} flex1>
           <div className="mb-3 flex justify-end">
             <RangeFilter rangeMonths={rangeMonths} onChange={setRangeMonths} />
           </div>
           <div className="min-h-[190px] flex-1">
-            <LineSeriesChart rows={collectionData} series={[{ name: 'Recaudado', color: BRAND.blue }]} formatter={money} />
+            <LineSeriesChart rows={collectionData} series={[{ name: 'Vendido', color: BRAND.blue }]} formatter={money} />
           </div>
         </ChartShell>
 
-        <ChartShell title="Pagos vs Morosidad" subtitle={rangeLabel} flex1>
+        <ChartShell title="Cuotas en mora vs por financiar" subtitle="Pago de Lotes por Cliente" flex1>
           <div className="min-h-[190px] flex-1">
-            <LineSeriesChart
-              rows={paymentVsDelinquency}
+            <GroupedColumns
+              rows={financingComparison}
               formatter={money}
               series={[
-                { name: 'Pagado', color: BRAND.blue },
-                { name: 'Moroso', color: '#E11D48' },
+                { name: 'Cuotas en mora', color: '#E11D48' },
+                { name: 'Cuotas por financiar', color: BRAND.blue },
               ]}
             />
           </div>
         </ChartShell>
 
-        <ChartShell title="Inversiones y Gastos" subtitle={rangeLabel} flex1>
+        <ChartShell title="Inversiones y Gastos" subtitle="Ingresos y egresos reales del Estado de Resultados" flex1>
           <div className="min-h-[190px] flex-1">
             <GroupedColumns
               rows={investmentData}
               formatter={money}
               series={[
-                { name: 'Vendido', color: BRAND.blue },
-                { name: 'Moroso', color: '#E11D48' },
+                { name: 'Ingresos', color: '#0F8B5F' },
+                { name: 'Egresos', color: '#E11D48' },
               ]}
             />
           </div>
@@ -586,11 +597,11 @@ export default function ProjectReports({ data, formatter }: { data: ProjectRepor
               <KpiTile label="Lotes del proyecto" value={String(totalLots)} helper="Unidades registradas" icon={<FiPieChart />} accent="#1259C4" />
               <KpiTile label="Valor total" value={money(inventoryValue)} helper="Valor lista del inventario" icon={<FiDollarSign />} accent="#0F8B5F" />
               <KpiTile label="Lotes vendidos" value={String(soldLotsCount)} helper="Unidades vendidas" icon={<FiTag />} accent="#111827" />
-              <KpiTile label="Venta lotes" value={money(soldAmount)} helper="Valor lista vendido" icon={<FiTrendingUp />} accent="#1259C4" />
-              <KpiTile label="Pago lotes" value={money(paidAmount)} helper="Cuotas cobradas" icon={<FiCreditCard />} accent="#0F8B5F" />
-              <KpiTile label="Pago pendiente" value={money(pendingAmount)} helper="Saldo por cobrar" icon={<FiAlertTriangle />} accent="#B45309" />
-              <KpiTile label="Morosidad" value={pct(delinquencyRate)} helper="Mora sobre pendientes" icon={<FiActivity />} accent="#E11D48" />
-              <KpiTile label="Tasa de cobro" value={pct(collectionRate)} helper="Cobrado sobre vendido" icon={<FiTrendingUp />} accent="#7C3AED" />
+              <KpiTile label="Venta lotes" value={money(soldAmount)} helper="Ventas y separaciones registradas" icon={<FiTrendingUp />} accent="#1259C4" />
+              <KpiTile label="Pago lotes" value={money(paidAmount)} helper="Iniciales y cuotas de Pago de Lotes por Cliente" icon={<FiCreditCard />} accent="#0F8B5F" />
+              <KpiTile label="Cuotas en mora" value={`${money(data.overdueInstallmentAmount)} (${data.overdueInstallmentCount})`} helper="Cuotas vencidas por pagar" icon={<FiAlertTriangle />} accent="#B45309" />
+              <KpiTile label="Cuotas por financiar" value={`${money(data.pendingAmount ?? 0)} (${data.pendingInstallmentCount})`} helper="Cuotas de financiamiento por pagar" icon={<FiCreditCard />} accent="#1259C4" />
+              <KpiTile label="Morosidad" value={pct(delinquencyRate)} helper="Pago de Lotes por Cliente" icon={<FiActivity />} accent="#7C3AED" />
             </div>
 
             <div className="card overflow-hidden p-0">
@@ -606,13 +617,13 @@ export default function ProjectReports({ data, formatter }: { data: ProjectRepor
                 ]}
               />
               <div className="grid grid-cols-2 gap-3 p-4">
-                <KpiTile label="Ingreso real" value={money(ingresoReal)} helper="Cobrado registrado en finanzas" icon={<FiDollarSign />} accent="#1259C4" />
+                <KpiTile label="Ingreso real" value={money(ingresoReal)} helper="Real del Estado de Resultados" icon={<FiDollarSign />} accent="#1259C4" />
                 <KpiTile label="Costo de ventas" value={money(costoVentas)} helper="Terreno + directo + indirecto" icon={<FiArrowDownCircle />} accent="#6B7280" />
                 <KpiTile label="Utilidad bruta" value={money(utilidadBruta)} helper={`Margen ${pct(utilidadBrutaPct)}`} icon={<FiTrendingUp />} accent="#1259C4" />
                 <KpiTile label="Gastos operativos" value={money(gastosProyecto)} helper="Ventas, admin y financieros" icon={<FiArrowDownCircle />} accent="#E11D48" />
-                <KpiTile label="Utilidad operativa" value={money(utilidadOperativa)} helper="Bruta menos gastos" icon={<FiTrendingUp />} accent="#1259C4" />
-                <KpiTile label="Utilidad antes de impuestos" value={money(utilidadAntes)} helper="Resultado operativo" icon={<FiTrendingUp />} accent="#B45309" />
-                <KpiTile label="Impuesto a la renta" value={money(igv)} helper="29.5% sobre utilidad" icon={<FiActivity />} accent="#B45309" />
+                <KpiTile label="Utilidad operativa" value={money(utilidadOperativa)} helper="Bruta menos ventas y administracion" icon={<FiTrendingUp />} accent="#1259C4" />
+                <KpiTile label="Utilidad antes de impuestos" value={money(utilidadAntes)} helper="Operativa menos gastos financieros" icon={<FiTrendingUp />} accent="#B45309" />
+                <KpiTile label="Impuesto a la renta" value={money(igv)} helper="Real del Estado de Resultados" icon={<FiActivity />} accent="#B45309" />
                 <KpiTile label="Utilidad neta" value={money(utilidadNeta)} helper={`Margen neto ${pct(margenNeto)}`} icon={<FiTrendingUp />} accent="#0F8B5F" />
               </div>
             </div>

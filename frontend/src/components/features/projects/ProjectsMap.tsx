@@ -1,4 +1,5 @@
 'use client';
+import { useDisplayCurrency } from '@/lib/currency';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
@@ -45,6 +46,7 @@ function coords(project: Project): [number, number] {
 }
 
 export default function ProjectsMap({ projects, onOpen, focusProjectId = null }: Props) {
+  useDisplayCurrency();
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);

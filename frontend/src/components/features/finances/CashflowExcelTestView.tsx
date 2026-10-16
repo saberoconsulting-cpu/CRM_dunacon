@@ -7,8 +7,7 @@ import { api } from '@/lib/api';
 import { projectedSalesByYear, salesByYear } from '@/lib/sales-by-year';
 import { BRAND } from '@/lib/types';
 import { Toaster, toast } from '@/components/ui/ui';
-import CurrencyToggle from '@/components/ui/CurrencyToggle';
-import { formatCurrency, useDisplayCurrency } from '@/lib/currency';
+import { formatCurrency, useDisplayCurrency, DEFAULT_EXCHANGE_RATE } from '@/lib/currency';
 
 type Row = { id: string; label: string; group?: boolean; computed?: boolean; values: number[]; parentId?: string; depth?: number };
 type CashflowMode = 'estatico' | 'dinamico';
@@ -507,9 +506,8 @@ function SectionTitle({ section, color, label }: { section: { id: string; label:
 }
 
 export default function CashflowExcelTestView({ projectId }: { projectId: number }) {
-    const { currency, setCurrency, exchangeRate, setExchangeRate } = useDisplayCurrency();
-    const exchangeRateRef = useRef(exchangeRate);
-    useEffect(() => { exchangeRateRef.current = exchangeRate; }, [exchangeRate]);
+    const { currency, exchangeRate } = useDisplayCurrency();
+    const exchangeRateRef = useRef(DEFAULT_EXCHANGE_RATE);
     const [rows, setRows] = useState<Row[]>([]);
     const [manual, setManual] = useState({
         landArea: 0,
@@ -1160,7 +1158,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     // La base del flujo esta en DOLARES. La pantalla puede mostrarse en soles con
     // el toggle: en ese caso se MULTIPLICA por el tipo de cambio (solo visual, nunca
     // se guarda en soles). En US$ el valor se pinta tal cual.
-    const amountToDisplay = (value: number) => Number(value || 0);
+    const amountToDisplay = (value: number) => Number(value || 0) * (currency === 'PEN' ? exchangeRate : 1);
     const showAmount = (value: number | string | null | undefined) => formatCurrency(amountToDisplay(Number(value || 0)), currency);
     const displayNumber = (value: number) => Math.round(amountToDisplay(value));
     const formatInteger = (value: number) => displayNumber(value).toLocaleString('en-US');
@@ -1168,7 +1166,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const displayRowTotal = (values: number[]) => formatInteger(values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0));
     const displayPlainRowTotal = (values: number[]) => formatPlainInteger(values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0));
     const canEditRow = (item?: Row) => !item?.computed;
-    const isCellEditable = (item: Row | undefined, year: number) => mode === 'estatico'
+    const isCellEditable = (item: Row | undefined, year: number) => currency === 'PEN' ? false : mode === 'estatico'
         ? canEditRow(item) && item?.id !== 'sales-year'
         : Boolean(canEditRow(item) && item?.id === 'igv' && year >= 0);
     const writeCellValue = (id: string, year: number, numeric: number) => {
@@ -1867,12 +1865,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     <div>
                         <div className="inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold" style={{ background: `${BRAND.blue}14`, color: BRAND.blue }}><FiTrendingUp /> Flujo de caja</div>
                         <h2 className="mt-3 text-2xl font-bold" style={{ color: BRAND.ink }}>{project?.name || 'Proyecto'} - FLUJO DE CAJA</h2>
-                        <p className="mt-1 text-sm text-slate-500">Moneda de visualizacion: {currency === 'USD' ? 'dolares' : 'soles'}</p>
+                        <p className="mt-1 text-sm text-slate-500">Moneda de visualizacion: {currency === 'USD' ? 'dolares' : 'soles'}. {currency === 'PEN' && 'Para editar importes, selecciona US$.'}</p>
                     </div>
                     <div className="grid w-full grid-cols-2 gap-2 lg:flex lg:w-auto lg:flex-wrap lg:items-center">
-                        <div className="col-span-2 lg:col-span-1">
-                            <CurrencyToggle currency={currency} setCurrency={setCurrency} exchangeRate={exchangeRate} setExchangeRate={setExchangeRate} />
-                        </div>
                         <button className="btn-neutral min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" onClick={exportPdf}><FiDownload /> Exportar PDF</button>
                         <button className="btn-neutral min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm" onClick={() => (mode === 'dinamico' ? refreshDynamic() : loadModel('estatico'))}><FiRefreshCw /> {mode === 'dinamico' ? 'Actualizar data' : 'Recargar'}</button>
                         <button className="btn-primary col-span-2 min-w-0 justify-center whitespace-nowrap px-2 text-xs sm:px-3 sm:text-sm lg:col-span-1" onClick={openAssumptions}><FiEdit3 /> Ajustar supuestos</button>
@@ -2049,7 +2044,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     const value = lotsSoldRow.values[year] || 0;
                                     const editable = isCellEditable(lotsSoldRow, year);
                                     return (
-                                    <td key={`lots-sold-top-${year}`} className="border border-slate-200 bg-[#F8FAFC] px-1 py-1">
+                                    <td key={`lots-sold-top-${year}`} className={`border border-slate-200 px-1 py-1 ${mode === 'dinamico' ? 'bg-transparent' : 'bg-[#F8FAFC]'}`}>
                                         {mode === 'dinamico' ? (
                                             <span className="block min-w-[88px] px-1 py-1.5 text-right tabular-nums">{value ? formatPlainInteger(value) : ''}</span>
                                         ) : (
@@ -2076,7 +2071,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     const value = lotsSoldRow.values[year] || 0;
                                     const editable = isCellEditable(lotsSoldRow, year);
                                     return (
-                                    <td key={`lots-sold-top-${year}`} className="border border-slate-200 bg-[#F8FAFC] px-1 py-1">
+                                    <td key={`lots-sold-top-${year}`} className={`border border-slate-200 px-1 py-1 ${mode === 'dinamico' ? 'bg-transparent' : 'bg-[#F8FAFC]'}`}>
                                         {mode === 'dinamico' ? (
                                             <span className="block min-w-[88px] px-1 py-1.5 text-right tabular-nums">{value ? formatPlainInteger(value) : ''}</span>
                                         ) : (
@@ -2117,7 +2112,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                         ) : (
                                         <input
                                             aria-label={`${salesYearRow.label} ${YEARS[year]}`}
-                                            className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'}`}
+                                            className={`w-full min-w-[88px] border-0 bg-transparent px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:ring-1 focus:ring-[#1877F2]' : 'cursor-default'}`}
                                             value={editingDrafts[cellKey('sales-year', year)] ?? (value ? formatInteger(value) : '')}
                                             inputMode="numeric"
                                             readOnly={!editable}
@@ -2144,7 +2139,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                         ) : (
                                         <input
                                             aria-label={`${salesYearRow.label} ${YEARS[year]}`}
-                                            className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'}`}
+                                            className={`w-full min-w-[88px] border-0 bg-transparent px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:ring-1 focus:ring-[#1877F2]' : 'cursor-default'}`}
                                             value={editingDrafts[cellKey('sales-year', year)] ?? (value ? formatInteger(value) : '')}
                                             inputMode="numeric"
                                             readOnly={!editable}
@@ -2348,14 +2343,14 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                     </div>
                     <div className="space-y-2 p-4">
                         {[
-                            { label: 'Terreno US$', value: formatPlainInteger(landAcquisitionTotal) },
+                            { label: `Terreno ${currency === 'PEN' ? 'S/' : 'US$'}`, value: formatInteger(landAcquisitionTotal) },
                             { label: 'Area venta (m2)', value: formatPlainInteger(dataLandArea) },
                             { label: 'Nro. de lotes', value: formatPlainInteger(dataTotalLots) },
                             { label: 'Area promedio por lote (m2)', value: formatPlainInteger(dataAverageLotArea) },
                             { label: 'Precio US$/m²', value: formatPlainInteger(dataPriceM2) },
-                            { label: 'Precio lote prom. US$', value: formatPlainInteger(dataAverageLotPrice) },
+                            { label: `Precio lote prom. ${currency === 'PEN' ? 'S/' : 'US$'}`, value: formatInteger(dataAverageLotPrice) },
                             { label: 'Cuota inicial', value: `${formatPlainInteger(manual.initialPercent)}%` },
-                            { label: 'Venta total lotes US$', value: formatPlainInteger(dataVentaTotalLotes) },
+                            { label: `Venta total lotes ${currency === 'PEN' ? 'S/' : 'US$'}`, value: formatInteger(dataVentaTotalLotes) },
                         ].map(({ label, value }) => (
                             <button key={String(label)} type="button" onClick={openAssumptions} className="flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-left transition hover:brightness-95" style={{ background: '#FFF0B3' }}>
                                 <span className="text-xs font-medium text-slate-700">{label}</span>
@@ -2467,7 +2462,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                             {[
                                 ['Area venta (m2)', 'landArea'],
                                 ['Area promedio lote (m2)', 'lotArea'],
-                                [`Precio ${currency === 'USD' ? 'US$' : 'S/'}/m2`, 'priceM2'],
+                                ['Precio US$/m2', 'priceM2'],
                                 ['Cuota inicial %', 'initialPercent'],
                                 ['Anos de proyeccion', 'years'],
                                 ['Ano de inicio', 'startYear'],
@@ -2489,7 +2484,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 const visibleValue = key === 'lotArea'
                                     ? formatPlainInteger(calculatedLotArea)
                                     : key === 'priceM2'
-                                    ? formatInteger(rawValue)
+                                    ? formatPlainInteger(rawValue)
                                     : ['landArea', 'lotArea'].includes(String(key))
                                         ? formatPlainInteger(rawValue)
                                         : rawValue;

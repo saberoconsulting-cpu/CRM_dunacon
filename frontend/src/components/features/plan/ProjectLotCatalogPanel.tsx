@@ -1,4 +1,5 @@
 'use client';
+import { moneyGlobal, useDisplayCurrency, displaySymbol } from '@/lib/currency';
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { FiDownload, FiEdit3, FiTrash2 } from 'react-icons/fi';
@@ -18,11 +19,7 @@ const LOT_STATUS_OPTIONS_EXCLUDING_SOLD = LOT_STATUS_SELECT_OPTIONS.filter(
 
 // Los precios de la base de lotes se cargan y se muestran en dolares (US$).
 // Se formatean con separador de miles por comas, igual que en PlanEditor.
-function moneyUsd(value: unknown) {
-  const n = Number(value || 0);
-  const safe = Number.isFinite(n) ? n : 0;
-  return `US$ ${safe.toLocaleString('es-PE', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
-}
+function moneyUsd(value: unknown) { return moneyGlobal(value); }
 
 function escapeHtml(value: unknown) {
   return String(value ?? '')
@@ -86,6 +83,7 @@ const emptyCatalogRow = (): LotCatalogRow => ({
 });
 
 export default function ProjectLotCatalogPanel({ projectId, canManage }: { projectId: number; canManage: boolean }) {
+  useDisplayCurrency();
   const fileRef = useRef<HTMLInputElement>(null);
   const [mounted, setMounted] = useState(false);
   const [open, setOpen] = useState(false);
@@ -272,9 +270,9 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                 <th>Tipo</th>
                 <th>Area m²</th>
                 <th>Dimensiones</th>
-                <th>Precio m2 (US$)</th>
-                <th>Precio venta (US$)</th>
-                <th>Precio final (US$)</th>
+                <th>Precio m2 (${displaySymbol()})</th>
+                <th>Precio venta (${displaySymbol()})</th>
+                <th>Precio final (${displaySymbol()})</th>
                 <th>Estado</th>
                 <th>Cliente</th>
               </tr>
@@ -385,7 +383,7 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
                         ['Precio m2', '(US$)'], ['Precio venta', '(US$)'], ['Precio final', '(US$)'], ['Estado'], ['Cliente'], ['Accion'],
                       ].map((lines) => (
                         <th key={lines.join(' ')} className="th-base !px-1.5 !py-2 !whitespace-normal text-left !text-[11px] !leading-tight !tracking-normal !font-bold !text-white" style={{ backgroundColor: '#374151' }}>
-                          {lines.map(line => <span key={line} className="block whitespace-nowrap">{line}</span>)}
+                          {lines.map(line => <span key={line} className="block whitespace-nowrap">{line.replace('US$', displaySymbol())}</span>)}
                         </th>
                       ))}
                     </tr>

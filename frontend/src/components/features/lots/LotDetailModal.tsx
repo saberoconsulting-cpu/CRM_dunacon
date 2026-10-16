@@ -8,7 +8,7 @@ import { LOT_STATUS_COLOR, LOT_STATUS_EDIT_OPTIONS, LOT_STATUS_LABEL, LotStatus,
 import { Select } from '@/components/ui/Select';
 import { printHtml } from '@/lib/print';
 
-import { formatCurrency } from '@/lib/currency';
+import { useDisplayCurrency, moneyGlobal } from '@/lib/currency';
 import {
   FiArrowRight,
   FiCheckCircle,
@@ -230,9 +230,10 @@ export default function LotDetailModal({ lotId, onClose, onChanged, compact = fa
   const [view, setView] = useState<'detalle' | 'vender'>('detalle');
   const canEdit = (() => { try { const m = JSON.parse(localStorage.getItem('crm_user') || '{}'); return m.role === 'admin' || m.role === 'superadmin'; } catch { return false; } })();
   // Los precios y pagos del lote estan registrados en dolares.
+  const { format: displayMoney } = useDisplayCurrency();
   const formatLotMoney = (valueInUSD: unknown) => {
     const amount = Number(valueInUSD || 0);
-    return amount ? formatCurrency(amount, 'USD') : '';
+    return amount ? displayMoney(amount) : '';
   };
   const money = (value: unknown) => (Number(value || 0) ? formatLotMoney(value) : EMPTY);
   const toEditValue = (valueInUSD: unknown) => {
@@ -1022,7 +1023,7 @@ export function PagosTable({ rows }: { rows: Row[] }) {
               <td className="td-base capitalize">{p.type||''}</td>
               <td className="td-base capitalize">{(p as any).paymentMethod || '—'}</td>
               <td className="td-base">{(p as any).voucherUrl ? <a href={(p as any).voucherUrl} target="_blank" rel="noreferrer" className="text-[#1877F2] hover:underline">Ver comprobante</a> : '—'}</td>
-              <td className="td-base">{formatCurrency(Number((p as any).amountUsd ?? p.amount ?? 0), 'USD')}</td>
+              <td className="td-base">{moneyGlobal(Number((p as any).amountUsd ?? p.amount ?? 0))}</td>
               <td className="td-base"><StatusBadge status={(p as any).status||''}/></td>
               <td className="td-base">{formatDate((p as any).paidAt||(p as any).createdAt||'')}</td>
             </tr>
