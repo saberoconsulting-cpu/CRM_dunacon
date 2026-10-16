@@ -2050,6 +2050,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     const editable = isCellEditable(lotsSoldRow, year);
                                     return (
                                     <td key={`lots-sold-top-${year}`} className="border border-slate-200 bg-[#F8FAFC] px-1 py-1">
+                                        {mode === 'dinamico' ? (
+                                            <span className="block min-w-[88px] px-1 py-1.5 text-right tabular-nums">{value ? formatPlainInteger(value) : ''}</span>
+                                        ) : (
                                         <input
                                             aria-label={`${lotsSoldRow.label} ${YEARS[year]}`}
                                             className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'}`}
@@ -2062,6 +2065,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                             onBlur={(event) => editable && finishCellEdit('lots-sold', year, event.target.value)}
                                             onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                                         />
+                                        )}
                                     </td>
                                     );
                                 })}
@@ -2073,6 +2077,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     const editable = isCellEditable(lotsSoldRow, year);
                                     return (
                                     <td key={`lots-sold-top-${year}`} className="border border-slate-200 bg-[#F8FAFC] px-1 py-1">
+                                        {mode === 'dinamico' ? (
+                                            <span className="block min-w-[88px] px-1 py-1.5 text-right tabular-nums">{value ? formatPlainInteger(value) : ''}</span>
+                                        ) : (
                                         <input
                                             aria-label={`${lotsSoldRow.label} ${YEARS[year]}`}
                                             className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'}`}
@@ -2085,6 +2092,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                             onBlur={(event) => editable && finishCellEdit('lots-sold', year, event.target.value)}
                                             onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                                         />
+                                        )}
                                     </td>
                                     );
                                 })}
@@ -2104,6 +2112,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     const editable = isCellEditable(salesYearRow, year);
                                     return (
                                     <td key={`sales-year-top-${year}`} className="border border-slate-200 bg-[#F8FAFC] px-1 py-1">
+                                        {mode === 'dinamico' ? (
+                                            <span className="block min-w-[88px] px-1 py-1.5 text-right tabular-nums">{value ? formatInteger(value) : ''}</span>
+                                        ) : (
                                         <input
                                             aria-label={`${salesYearRow.label} ${YEARS[year]}`}
                                             className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'}`}
@@ -2116,6 +2127,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                             onBlur={(event) => editable && finishCellEdit('sales-year', year, event.target.value)}
                                             onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                                         />
+                                        )}
                                     </td>
                                     );
                                 })}
@@ -2127,6 +2139,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     const editable = isCellEditable(salesYearRow, year);
                                     return (
                                     <td key={`sales-year-top-${year}`} className="border border-slate-200 bg-[#F8FAFC] px-1 py-1">
+                                        {mode === 'dinamico' ? (
+                                            <span className="block min-w-[88px] px-1 py-1.5 text-right tabular-nums">{value ? formatInteger(value) : ''}</span>
+                                        ) : (
                                         <input
                                             aria-label={`${salesYearRow.label} ${YEARS[year]}`}
                                             className={`w-full min-w-[88px] rounded border border-transparent bg-white px-1 py-1.5 text-right tabular-nums outline-none transition ${editable ? 'focus:border-[#1877F2] focus:bg-[#F5F9FF]' : 'cursor-default'}`}
@@ -2139,6 +2154,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                             onBlur={(event) => editable && finishCellEdit('sales-year', year, event.target.value)}
                                             onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }}
                                         />
+                                        )}
                                     </td>
                                     );
                                 })}

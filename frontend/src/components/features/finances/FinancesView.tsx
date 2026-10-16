@@ -59,7 +59,6 @@ type FinanceDashData = {
   salesOverdue: { count: number; amount: number };
   paymentRowsOverdue: { count: number; amount: number };
   loans: { amount: number; interest: number; updated: number };
-  extraIncome: number;
 };
 
 type FinanceClassRow = {
@@ -227,6 +226,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [totalAmount, setTotalAmount] = useState(0);
+  const [extraordinaryAmount, setExtraordinaryAmount] = useState(0);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
   const [meta, setMeta] = useState({ total: 0, totalPages: 1 });
@@ -274,6 +274,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         totalPages: Number(Array.isArray(t) ? 1 : (t?.totalPages ?? 1)),
       });
       setTotalAmount(Number(Array.isArray(t) ? (t as T[]).reduce((sum, r) => sum + Number(r.amount || 0), 0) : (t?.totalAmount ?? 0)));
+      setExtraordinaryAmount(Number(Array.isArray(t)
+        ? (t as T[]).filter((r) => r.paymentId == null && ['ingreso', 'egreso'].includes(r.type)).reduce((sum, r) => sum + num(r.amount), 0)
+        : (t?.extraordinaryAmount ?? 0)));
     } catch (e: any) { toast(e.message, 'err'); } finally { setLoading(false); }
   }, [cat, typeFilter, debouncedSearch, lockedProjectId, page, limit]);
 
@@ -348,9 +351,6 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         return api.get<any>(`/bank-accounts?${q.toString()}`).catch(() => ({ items: [] }));
       }));
       const movements = bankResponses.flatMap((data) => Array.isArray(data) ? data : (data?.items || []));
-      const extraIncome = movements
-        .filter((item: any) => num(item.depositAmount) > 0 && !isLoanMovement(item))
-        .reduce((sum: number, item: any) => sum + num(item.depositAmount), 0);
       let loanParsed: any = {};
       try { loanParsed = loanSetting?.value ? JSON.parse(loanSetting.value) : {}; } catch { loanParsed = {}; }
       const loanManualData = loanParsed?.manual && typeof loanParsed.manual === 'object' ? loanParsed.manual : {};
@@ -383,7 +383,6 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           amount: overduePaymentRows.reduce((sum: number, row: any) => sum + paymentRowUsd(row), 0),
         },
         loans: { amount: loanAmount, interest: loanInterest, updated: loanAmount + loanInterest },
-        extraIncome,
       });
     } catch (e: any) {
       toast(e.message || 'No se pudo cargar el tablero financiero', 'err');
@@ -670,7 +669,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const gastosFinancieros = cashflowTotal(financeDash?.staticFlow, 'financial') + cashflowTotal(financeDash?.staticFlow, 'tax');
   const ventaLotesReal = cashflowTotal(financeDash?.dynamicFlow, 'income') || num(statement?.ingresos);
   const pagoCuotasLotes = num(paymentsMetrics.initialPaymentAmount) + num(paymentsMetrics.paidCuotasAmount);
-  const ingresosExtra = toDisplay(totalAmount);
+  const ingresosExtra = toDisplay(extraordinaryAmount);
   const boletasEmitidas = num(paymentsMetrics.receiptCount);
   const boletasEmitidasMonto = num(paymentsMetrics.receiptAmount);
   const cuotasPorCobrar = Math.max(0, ingresoVentaLotes - pagoCuotasLotes);

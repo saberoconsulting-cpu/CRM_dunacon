@@ -277,6 +277,15 @@ export class FinancesService {
       .getRawOne();
 
     if (filters.page || filters.limit) {
+      // El indicador usa todos los movimientos I/E del proyecto, sin pagos P ni filtros de la tabla.
+      const extraordinaryQuery = this.txnRepo.createQueryBuilder('t')
+        .select('COALESCE(SUM(t.amount), 0)', 'sum')
+        .where('t.payment_id IS NULL')
+        .andWhere('t.type IN (:...movementTypes)', { movementTypes: ['ingreso', 'egreso'] });
+      if (filters.projectId) {
+        extraordinaryQuery.andWhere('t.project_id = :projectId', { projectId: filters.projectId });
+      }
+      const extraordinaryTotals = await extraordinaryQuery.getRawOne();
       const page = Math.max(1, filters.page ?? 1);
       const limit = Math.min(200, Math.max(1, filters.limit ?? 20));
       const rows = await buildPageQuery()
@@ -290,6 +299,7 @@ export class FinancesService {
         items: rows.map((r) => this.mapTransactionRow(r)),
         total,
         totalAmount: Number(totals?.sum || 0),
+        extraordinaryAmount: Number(extraordinaryTotals?.sum || 0),
         page,
         limit,
         totalPages: Math.max(1, Math.ceil(total / limit)),
