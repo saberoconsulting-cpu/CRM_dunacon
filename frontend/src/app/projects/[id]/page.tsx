@@ -7,7 +7,6 @@ import { IoLocationSharp } from 'react-icons/io5';
 import Layout from '@/components/layout/Layout';
 import { Toaster, toast } from '@/components/ui/ui';
 import { MetricTile, KPI_GRID_8 } from '@/components/ui/Metrics';
-import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import { useConstructionBudgetCalculations, isCleanDynamicCashflow } from '@/components/features/construction-budget/ConstructionBudgetView';
 import { useIncomeStatementReal } from '@/components/features/income-statement/IncomeStatementView';
@@ -67,7 +66,7 @@ export default function ProjectPage() {
   const [budgetItems, setBudgetItems] = useState<any[]>([]);
   const [budgetCashflow, setBudgetCashflow] = useState<any>(null);
   const [budgetDynamicCashflow, setBudgetDynamicCashflow] = useState<any>(null);
-  const { budgetTotals } = useConstructionBudgetCalculations(budgetItems, budgetCashflow, budgetDynamicCashflow);
+  const { budgetTotals, staticConstructionCost } = useConstructionBudgetCalculations(budgetItems, budgetCashflow, budgetDynamicCashflow);
   const [statementItems, setStatementItems] = useState<any[]>([]);
   const { rowReal: statementReal } = useIncomeStatementReal(projectId, statementItems, budgetCashflow, budgetDynamicCashflow);
   const [selectedLot, setSelectedLot] = useState<number | null>(null);
@@ -79,7 +78,7 @@ export default function ProjectPage() {
   const [cash, setCash] = useState<any>({ methods: [], byMonth: [], overdueByMonth: [], salesByMonth: [], metrics: {} });
   // Moneda unica de la pantalla: el toggle S/ <-> US$ la controla y `fmt` convierte
   // todos los montos (que vienen en soles de la base de datos) antes de pintarlos.
-  const { currency, setCurrency, exchangeRate, setExchangeRate, format: fmt } = useDisplayCurrency();
+  const { currency, format: fmt } = useDisplayCurrency();
 
   async function loadAll() {
     try {
@@ -188,7 +187,9 @@ export default function ProjectPage() {
   }, [projectId]);
 
   const countByStatus = (status: Lot['status']) => lots.filter((lot) => lot.status === status).length;
-  const amountByStatus = (status: Lot['status']) => sumBy(lots.filter((lot) => lot.status === status), lotListValue);
+  const amountByStatus = (status: Lot['status']) => status === 'vendido'
+    ? asNumber(cash?.metrics?.totalSaleAmount)
+    : sumBy(lots.filter((lot) => lot.status === status), lotListValue);
   const lotCountData = LOT_STATUSES.map((status) => ({ name: LOT_STATUS_LABEL[status], value: countByStatus(status) }));
   const lotAmountData = LOT_STATUSES.map((status) => ({ name: LOT_STATUS_LABEL[status], value: amountByStatus(status) }));
   const lotColorByLabel = (label: string) => {
@@ -207,7 +208,7 @@ export default function ProjectPage() {
   const soldLots = countByStatus('vendido');
   const constructionBudget = budgetTotals.projected || asNumber(budgetSummary?.grandTotal);
   const obraReal = budgetTotals.real;
-  const obraExecutionPct = budgetTotals.projected ? (obraReal / budgetTotals.projected) * 100 : obraReal ? 100 : 0;
+  const obraExecutionPct = staticConstructionCost > 0 ? (obraReal / staticConstructionCost) * 100 : 0;
   const inventoryValue = sumBy(lots, lotListValue);
   const agentRanking = (stats?.agentRanking || []) as AgentRanking[];
 
@@ -283,12 +284,6 @@ export default function ProjectPage() {
             </div>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
-            <CurrencyToggle
-              currency={currency}
-              setCurrency={setCurrency}
-              exchangeRate={exchangeRate}
-              setExchangeRate={setExchangeRate}
-            />
             {canEdit && (
               <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-48 sm:flex-col">
                 <label className="btn-neutral !h-8 cursor-pointer justify-center text-xs">
@@ -322,7 +317,7 @@ export default function ProjectPage() {
           <ProjectReports
             formatter={fmt}
             data={{
-              constructionBudget,
+              constructionBudget: staticConstructionCost,
               constructionReal: obraReal,
               constructionExecutionPct: obraExecutionPct,
               paidAmount,

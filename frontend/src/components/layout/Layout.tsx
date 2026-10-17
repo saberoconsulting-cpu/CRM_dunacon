@@ -108,7 +108,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const [activeProject, setActiveProject] = useState<{ id: number; name: string; logoImageUrl?: string | null } | null>(null);
   const [projectDocumentsOpen, setProjectDocumentsOpen] = useState(false);
   const [moduleAccess, setModuleAccess] = useState<Record<number, string[] | null>>({});
-  const { currency, setCurrency, exchangeRate, setExchangeRate } = useCurrencyStoreSync();
+  const { currency, setCurrency } = useCurrencyStoreSync();
 
   const activeProjectId = useMemo(() => {
     const match = pathname.match(/^\/projects\/(\d+)/);
@@ -361,7 +361,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           title="Notificaciones"
           className={inline
             ? 'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-[#374151] transition-colors hover:bg-[#F3F4F6]'
-            : 'relative p-1 text-[#6B7280] hover:text-[#171717]'}
+            : 'relative grid h-8 w-7 place-items-center rounded-md text-[#6B7280] hover:bg-slate-50 hover:text-[#171717] md:h-auto md:w-auto md:p-1'}
         >
           <span className="relative grid w-5 shrink-0 place-items-center" style={{ fontSize: 16 }}>
             <FiBell />
@@ -566,21 +566,21 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
       {drawerOpen && <div className="fixed inset-0 z-20 bg-black/25 md:hidden" onClick={() => setDrawerOpen(false)} />}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-10 flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b bg-white px-4 py-2 sm:px-5 md:h-14 md:flex-nowrap md:gap-4 md:py-0" style={{ borderColor: BRAND.border }}>
-          <button type="button" className="text-[#374151] md:hidden" onClick={() => setDrawerOpen(true)} aria-label="Abrir menu">
+        <header className="sticky top-0 z-10 flex h-14 min-w-0 shrink-0 flex-nowrap items-center gap-1 border-b bg-white px-2 py-0 sm:px-5 md:gap-4" style={{ borderColor: BRAND.border }}>
+          <button type="button" className="grid h-8 w-7 shrink-0 place-items-center rounded-md text-[#374151] hover:bg-slate-50 md:hidden" onClick={() => setDrawerOpen(true)} aria-label="Abrir menu">
             <FiMenu style={{ fontSize: 22 }} />
           </button>
-          <div className="order-1 flex min-w-0 flex-1 items-center gap-3 md:order-none">
+          <div className="flex min-w-0 flex-1 items-center gap-1 md:gap-3">
             {/* Titulo a la misma altura y centrado vertical que la campanita y
                 las demas acciones del header (h-8 = 32px). */}
-            <h1 className="flex h-8 min-w-0 items-center truncate text-base font-semibold text-[#171717]">
-              {headerTitleMobile}
+            <h1 className="flex h-8 min-w-0 items-center text-sm font-semibold text-[#171717] md:text-base" title={headerTitleMobile}>
+              <span className="block min-w-0 truncate">{headerTitleMobile}</span>
             </h1>
             {headerTitleLogo && (
               <img
                 src={headerTitleLogo}
                 alt={headerTitle}
-                className="h-8 w-auto max-w-32 shrink-0 object-contain md:max-w-52"
+                className="h-9 w-auto max-w-[136px] shrink-0 object-contain md:h-8 md:max-w-52"
               />
             )}
           </div>
@@ -588,36 +588,35 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
             <button
               type="button"
               onClick={() => setProjectDocumentsOpen(true)}
-              className="hidden h-8 items-center gap-2 rounded-md border bg-white px-3 text-xs font-semibold text-[#1877F2] transition-colors hover:bg-softblue sm:inline-flex"
+              className="hidden h-8 items-center gap-2 rounded-md border bg-white px-3 text-xs font-semibold text-[#1877F2] transition-colors hover:bg-softblue md:inline-flex"
               style={{ borderColor: BRAND.border }}
             >
               <FiFileText /> Documentos del proyecto
             </button>
           )}
           {canManage && (
-            <span className="hidden items-center gap-1.5 rounded-md bg-softblue px-3 sm:inline-flex" style={{ height: 28, fontSize: 12, color: BRAND.blue }}>
+            <span className="hidden items-center gap-1.5 rounded-md bg-softblue px-3 md:inline-flex" style={{ height: 28, fontSize: 12, color: BRAND.blue }}>
               <span className="h-1.5 w-1.5 rounded-full" style={{ background: BRAND.blue }} /> Acceso de gerencia
             </span>
           )}
           {showHeaderCurrency && (
             <CurrencyToggle
-              className="order-2 w-full justify-end md:order-none md:ml-0 md:w-auto"
+              className="ml-auto shrink-0 !flex-nowrap !gap-0 [&_button]:!h-6 [&_button]:!px-1.5 [&_button]:!text-[10px] md:ml-0 md:[&_button]:!h-7 md:[&_button]:!px-3 md:[&_button]:!text-xs"
               currency={currency}
               setCurrency={setCurrency}
-              exchangeRate={exchangeRate}
-              setExchangeRate={setExchangeRate}
             />
           )}
-<div className="relative order-2 md:order-none">
+<div className="flex shrink-0 items-center gap-0.5 md:gap-4">
+          <div className="relative">
             {canManage && (
               <>
-                <button className="relative p-1 text-[#6B7280] hover:text-[#171717]" aria-label="Historial de proyectos" title="Historial de proyectos" onClick={() => { setBellOpen(false); setHistoryOpen((value) => !value); if (!historyOpen) loadDeletedProjects(); }}>
+                <button className="relative grid h-8 w-7 place-items-center rounded-md text-[#6B7280] hover:bg-slate-50 hover:text-[#171717] md:h-auto md:w-auto md:p-1" aria-label="Historial de proyectos" title="Historial de proyectos" onClick={() => { setBellOpen(false); setHistoryOpen((value) => !value); if (!historyOpen) loadDeletedProjects(); }}>
                   <FiClock style={{ fontSize: 17 }} />
                 </button>
                 {historyOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setHistoryOpen(false)} />
-                <div className="absolute right-0 top-11 z-50 max-h-[70vh] w-[min(24rem,calc(100vw-2rem))] overflow-auto rounded-lg border bg-white shadow-2xl" style={{ borderColor: BRAND.border }}>
+                <div className="fixed inset-x-3 top-16 z-50 max-h-[70vh] overflow-auto rounded-lg border bg-white shadow-2xl md:absolute md:inset-x-auto md:right-0 md:top-11 md:w-[min(24rem,calc(100vw-2rem))]" style={{ borderColor: BRAND.border }}>
                   <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: BRAND.border }}>
                     <span className="text-sm font-semibold">Historial de proyectos</span>
                     <span className="flex items-center gap-2">
@@ -674,8 +673,9 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
               </>
             )}
           </div>
-          <div className="order-2 md:order-none">
+          <div className="shrink-0">
             <NotificationMenu />
+          </div>
           </div>
         </header>
         <main className={`flex-1 overflow-y-auto bg-canvas ${title === 'Modelo financiero' ? 'p-2 sm:p-3 md:p-4' : 'p-4 sm:p-5 md:p-6'}`}>{children}</main>

@@ -1,6 +1,7 @@
 // modules/sales/interface/sales.controller.ts
 import {
   Body,
+  BadRequestException,
   Controller,
   Get,
   Param,
@@ -8,6 +9,8 @@ import {
   Post,
   Query,
   UseGuards,
+  StreamableFile,
+  Header,
 } from '@nestjs/common';
 import { SalesService } from '../application/sales.service';
 import { CreateSaleDto } from '../application/dto/sale.dto';
@@ -76,6 +79,31 @@ export class SalesController {
   @Get('payment/:paymentId/history')
   paymentHistory(@Param('paymentId', ParseIntPipe) paymentId: number, @CurrentUser() user: AuthUser) {
     return this.salesService.paymentHistory(paymentId, user.role === UserRole.AGENT ? user.id : undefined);
+  }
+
+  @Get(':id/contract/fields')
+  @Header('Cache-Control', 'no-store')
+  contractFields(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.salesService.contractRequirements(id, user.role === UserRole.AGENT ? user.id : undefined);
+  }
+
+  @Post(':id/contract')
+  @Header('Cache-Control', 'no-store')
+  async completedContract(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser, @Body() body: Record<string, unknown>) {
+    const fields = body?.fields;
+    if (!fields || typeof fields !== 'object' || Array.isArray(fields)) throw new BadRequestException('Completa los campos del contrato.');
+    const { buffer, fileName, contentType } = await this.salesService.contract(id, user.role === UserRole.AGENT ? user.id : undefined, fields as Record<string, string>);
+    return new StreamableFile(buffer, { type: contentType, disposition: `attachment; filename="${fileName}"` });
+  }
+
+  @Get(':id/contract')
+  @Header('Cache-Control', 'no-store')
+  async contract(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    const { buffer, fileName, contentType } = await this.salesService.contract(id, user.role === UserRole.AGENT ? user.id : undefined);
+    return new StreamableFile(buffer, {
+      type: contentType,
+      disposition: `attachment; filename="${fileName}"`,
+    });
   }
 
   @Get(':id/schedule')

@@ -7,6 +7,7 @@ import { formatDate } from '@/lib/types';
 import { useIncomeStatementReal, projectedFinancialAmount } from '@/components/features/income-statement/IncomeStatementView';
 import { partnerContribution, isNewPartner, issuePartnerShares } from '@/lib/partner-shares';
 import { useDisplayCurrency, displayNumberGlobal, displaySymbol } from '@/lib/currency';
+import ExchangeRateField from '@/components/features/finances/ExchangeRateField';
 import { Select } from '@/components/ui/Select';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { FiEdit3, FiSearch, FiTrash2, FiX } from 'react-icons/fi';
@@ -75,6 +76,11 @@ type FinanceClassRow = {
   custom?: boolean;
   deleted?: boolean;
 };
+
+// Shared row sizing for partners and financing tables.
+const SUMMARY_TABLE_STYLE = '[&_tbody_tr]:h-10 md:[&_tbody_tr]:h-[60px] [&_td]:!align-middle [&_td]:!py-2 md:[&_td]:!py-3 [&_td]:!text-xs md:[&_td]:!text-sm [&_input]:!h-6 md:[&_input]:!h-9 [&_input]:!text-xs md:[&_input]:!text-sm [&_th]:!py-2 md:[&_th]:!py-2.5 [&_th]:!text-xs md:[&_th]:!text-[13px]';
+
+const FINANCING_TABLE_STYLE = '[&_tbody_tr]:h-10 [&_td]:!align-middle [&_td]:!py-1.5 [&_td]:!text-xs lg:[&_td]:!text-sm [&_input]:!h-7 [&_input]:!text-xs lg:[&_input]:!text-sm [&_tbody_td]:border-b [&_tbody_td]:border-slate-200';
 
 const FINANCE_PAYMENT_CATEGORIES = ['cuota_inicial', 'cuota', 'lote', 'separacion', 'mantenimiento', 'operacion', 'prestamo', 'otros'];
 const FINANCE_CLASSIFICATIONS = ['Venta de Lote', 'Compra de Lote', 'Operacion', 'Financiamiento', 'Ingreso Extraordinario', 'Otros'];
@@ -252,6 +258,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const [openExp, setOpenExp] = useState(false);
   const [openIn, setOpenIn] = useState(false);
   const [showLoans, setShowLoans] = useState(false);
+  const [showAllPartnerColumns, setShowAllPartnerColumns] = useState(false);
   const [showClassification, setShowClassification] = useState(false);
   const [loanFrom, setLoanFrom] = useState('');
   const [loanTo, setLoanTo] = useState('');
@@ -735,8 +742,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     acc.inversion += row.inversionActualizada;
     acc.final += row.accionesFinal;
     acc.utilidad += row.utilidad;
+    acc.rentabilidad += row.rentabilidadActualizada;
     return acc;
-  }, { capital: 0, adicional: 0, total: 0, acciones: 0, inversion: 0, final: 0, utilidad: 0 });
+  }, { capital: 0, adicional: 0, total: 0, acciones: 0, inversion: 0, final: 0, utilidad: 0, rentabilidad: 0 });
   const compromisoTerrenoValue = precioTerrenoMatriz;
   const { treeByLine: statementTree, hasFinancialFlowChildren } = useIncomeStatementReal(lockedProjectId || 0, [], financeDash?.staticFlow || null, financeDash?.dynamicFlow || null);
   const compromisoGastosFinancieros = projectedFinancialAmount(financeDash?.staticFlow || null, statementTree.financiero || [], hasFinancialFlowChildren, num(statement?.proyectado?.financiamiento));
@@ -1027,73 +1035,111 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             </div>
           </div>
           <div className="min-w-0 rounded-lg border bg-white p-3 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <h3 className="text-lg font-black" style={{ color: '#001BFF' }}>Socios</h3>
-              <button className="btn-neutral !h-9 text-sm" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, socios: [...current.socios, { name: `Socio ${current.socios.length + 1}`, capital: '', adicional: '', newPartner: true }] }))}>Agregar socio</button>
+            <div className="mb-3 flex items-center justify-between gap-1 md:gap-3">
+              <h3 className="text-base md:text-lg font-black" style={{ color: '#001BFF' }}>Socios</h3>
+              <button className="btn-neutral !h-8 !px-2 text-[11px] whitespace-nowrap md:!h-9 md:!px-3 md:text-sm" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, socios: [...current.socios, { name: `Socio ${current.socios.length + 1}`, capital: '', adicional: '', newPartner: true }] }))}>Agregar socio</button>
+            <button
+              type="button"
+              className="btn-neutral !h-8 !px-2 text-[11px] whitespace-nowrap md:hidden"
+              aria-expanded={showAllPartnerColumns}
+              aria-controls="partners-full-table"
+              onClick={() => setShowAllPartnerColumns(current => !current)}
+            >
+              {showAllPartnerColumns ? 'Ocultar datos' : 'Mostrar datos'}
+            </button>
             </div>
-            <div className="overflow-auto rounded-md border" style={{ borderColor: '#E5E7EB' }}>
-              <table className="table-base" style={{ minWidth: 1500, tableLayout: 'fixed' }}>
+            {!showAllPartnerColumns && (
+              <div className="overflow-hidden rounded-md border border-slate-200 md:hidden">
+                <table className="w-full table-fixed border-collapse text-[11px] text-center [&_th]:border [&_th]:border-slate-300 [&_th]:align-middle [&_th]:px-1 [&_th]:py-2 [&_td]:border [&_td]:border-slate-300 [&_td]:px-1 [&_td]:py-1 [&_td]:align-middle [&_tbody_tr]:h-8">
+                  <colgroup><col className="w-[44%]" /><col className="w-[34%]" /><col className="w-[22%]" /></colgroup>
+                  <thead>
+                    <tr className="text-[#1F2937] [&_th:first-child]:bg-[#D1D5DB] [&_th:not(:first-child)]:bg-[#A9D18E]">
+                      <th scope="col" className="px-2 py-2 text-center"><span className="block">Nombre</span><span className="block">del socio</span></th>
+                      <th scope="col" className="px-2 py-2 text-center"><span className="block">Aporte final</span><span className="block">{displaySymbol()}</span></th>
+                      <th scope="col" className="px-2 py-2 text-center"><span className="block">Acciones</span><span className="block">finales (%)</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sociosRows.map((row, index) => (
+                      <tr key={index} className="[&_td:first-child]:bg-[#F1F3F5]">
+                        <td className="px-1 py-1"><input aria-label={`Nombre del socio ${row.index}`} className="h-7 w-full min-w-0 rounded-none border border-transparent bg-transparent px-1 text-center text-[11px] outline-none focus:border-blue-400 focus:bg-white focus:ring-1 focus:ring-blue-400" value={row.name} onChange={(event) => updateSocio(index, { name: event.target.value })} /></td>
+                        <td className="whitespace-nowrap px-2 py-2 text-center tabular-nums">{usd0(row.inversionActualizada)}</td>
+                        <td className="whitespace-nowrap px-2 py-2 text-center tabular-nums">{(row.pctAcciones * 100).toFixed(0)}%</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-[#000066] font-bold text-white">
+                      <td className="px-2 py-2">Total</td>
+                      <td className="whitespace-nowrap px-2 py-2 text-center tabular-nums">{usd0(socioTotals.inversion)}</td>
+                      <td className="px-2 py-2 text-center">100%</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+            <div id="partners-full-table" className={`${showAllPartnerColumns ? 'block' : 'hidden'} overflow-auto rounded-md border md:block`} style={{ borderColor: '#E5E7EB' }}>
+              <table className="w-full min-w-[1000px] md:min-w-0 table-fixed border-collapse text-[10px] lg:text-[11px] [&_td]:border [&_td]:border-slate-300 [&_th]:border [&_th]:border-slate-300">
                 <colgroup>
-                  {[60, 200, 115, 120, 110, 110, 95, 180, 130, 100, 130, 110, 80].map((width, index) => (
-                    <col key={index} style={{ width }} />
+                  {[15, 8, 8, 9, 7, 7, 11, 8, 6, 9, 7, 5].map((width, index) => (
+                    <col key={index} style={{ width: `${width}%` }} />
                   ))}
                 </colgroup>
                 <thead>
                   <tr>
                     {[
-                      ['Socios'],
-                      ['Nombres y', 'Apellidos'],
+                      ['Nombre'],
                       ['Aporte', 'Capital US$'],
                       ['Aporte', 'Adicional US$'],
                       ['Aporte', 'Total US$'],
                       ['Participación', '%'],
                       ['Nro. de', 'Acciones'],
-                      ['Aporte Capital', 'Nuevos Socios US$'],
-                      ['Nro. de acciones', 'final'],
+                      ['Aporte Capital -', 'Nuevos Socios $'],
+                      ['Acciones', 'finales'],
                       ['% de', 'acciones'],
                       ['Utilidad US$'],
                       ['Rentabilidad', '%'],
                       ['Acción'],
                     ].map((lines, index) => (
-                      <th key={lines.join(' ')} scope="col" className="th-base !whitespace-normal !text-[13px] !font-semibold !tracking-normal !px-3 !py-2.5 !align-middle leading-snug text-white" style={{ textAlign: 'center', background: index < 7 ? '#D1D5DB' : index <= 10 ? '#A9D18E' : '#2F75B5', color: index <= 10 ? '#1F2937' : '#fff' }}>{lines.map((line) => <span key={line} className="block whitespace-nowrap">{line.replace('US$', displaySymbol())}</span>)}</th>
+                      <th key={lines.join(' ')} scope="col" className="th-base !whitespace-normal !text-[10px] lg:!text-[11px] !font-semibold !tracking-normal !px-1 !py-2 !align-middle leading-snug text-white" style={{ textAlign: 'center', background: index < 6 ? '#D1D5DB' : index <= 9 ? '#A9D18E' : '#2F75B5', color: index <= 9 ? '#1F2937' : '#fff' }}>{lines.map((line) => <span key={line} className={`block whitespace-nowrap ${index === 6 ? 'text-[9px] lg:text-[10px] tracking-tight' : ''}`}>{line.replace('US$', displaySymbol())}</span>)}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {sociosRows.map((row, index) => (
-                    <tr key={index} className="[&_td:nth-child(-n+7)]:!bg-[#F1F3F5]">
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{row.isNewPartner ? '' : row.index}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle overflow-hidden text-ellipsis"><input className="input !h-9 !rounded-md !px-2 !text-sm !bg-white !border-slate-200 !shadow-sm !w-full !max-w-none focus:!border-blue-400 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" aria-label={`Nombre del socio ${row.index}`} value={row.name} onChange={(e) => updateSocio(index, { name: e.target.value })} /></td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle">{!row.isNewPartner && (<input className="input !h-9 !rounded-md !px-2 !text-sm !bg-white !border-slate-200 !shadow-sm text-right !w-full !max-w-none focus:!border-blue-400 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" disabled={row.isNewPartner} readOnly={currency === 'PEN'} value={row.isNewPartner ? '' : currency === 'PEN' ? usd0(financeDashManual.socios[index]?.capital as any) : financeDashManual.socios[index]?.capital || ''} onChange={(e) => updateSocio(index, { capital: e.target.value })} />)}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle">{!row.isNewPartner && (<input className="input !h-9 !rounded-md !px-2 !text-sm !bg-white !border-slate-200 !shadow-sm text-right !w-full !max-w-none focus:!border-blue-400 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" disabled={row.isNewPartner} readOnly={currency === 'PEN'} value={row.isNewPartner ? '' : currency === 'PEN' ? usd0(financeDashManual.socios[index]?.adicional as any) : financeDashManual.socios[index]?.adicional || ''} onChange={(e) => updateSocio(index, { adicional: e.target.value })} />)}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-semibold">{row.isNewPartner ? '' : usd0(row.aporteTotal)}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{row.isNewPartner ? '' : `${(row.participacion * 100).toFixed(0)}%`}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{row.isNewPartner ? '' : usd0(row.acciones)}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">
-                        {row.isNewPartner ? <input aria-label={`Aporte de nuevo socio ${row.name}`} inputMode="decimal" className="input !h-9 !rounded-md !px-2 !text-sm !bg-white !border-slate-200 !shadow-sm text-right !w-full focus:!border-blue-400" readOnly={currency === 'PEN'} value={currency === 'PEN' ? usd0(row.inversionActualizada) : financeDashManual.socios[index]?.aporteTotal ?? financeDashManual.socios[index]?.inversionActualizada ?? ''} onChange={(e) => updateSocio(index, { aporteTotal: e.target.value })} /> : usd0(row.inversionActualizada)}
+                    <tr key={index} className="[&_td:nth-child(-n+6)]:!bg-[#F1F3F5]">
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle overflow-hidden text-ellipsis"><input className="input !h-7 !min-w-0 !rounded-none !px-1 !text-[10px] lg:!text-[11px] !bg-transparent !border-transparent !shadow-none !w-full !max-w-none focus:!border-blue-400 focus:!bg-white focus:!ring-1 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" aria-label={`Nombre del socio ${row.index}`} value={row.name} onChange={(e) => updateSocio(index, { name: e.target.value })} /></td>
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle">{!row.isNewPartner && (<input className="input !h-7 !min-w-0 !rounded-none !px-1 !text-[10px] lg:!text-[11px] !bg-transparent !border-transparent !shadow-none text-right !w-full !max-w-none focus:!border-blue-400 focus:!bg-white focus:!ring-1 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" disabled={row.isNewPartner} readOnly={currency === 'PEN'} value={row.isNewPartner ? '' : currency === 'PEN' ? usd0(financeDashManual.socios[index]?.capital as any) : financeDashManual.socios[index]?.capital || ''} onChange={(e) => updateSocio(index, { capital: e.target.value })} />)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle">{!row.isNewPartner && (<input className="input !h-7 !min-w-0 !rounded-none !px-1 !text-[10px] lg:!text-[11px] !bg-transparent !border-transparent !shadow-none text-right !w-full !max-w-none focus:!border-blue-400 focus:!bg-white focus:!ring-1 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" disabled={row.isNewPartner} readOnly={currency === 'PEN'} value={row.isNewPartner ? '' : currency === 'PEN' ? usd0(financeDashManual.socios[index]?.adicional as any) : financeDashManual.socios[index]?.adicional || ''} onChange={(e) => updateSocio(index, { adicional: e.target.value })} />)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right font-semibold">{row.isNewPartner ? '' : usd0(row.aporteTotal)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-center">{row.isNewPartner ? '' : `${(row.participacion * 100).toFixed(0)}%`}</td>
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right">{row.isNewPartner ? '' : usd0(row.acciones)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right">
+                        {row.isNewPartner ? <input aria-label={`Aporte de nuevo socio ${row.name}`} inputMode="decimal" className="input !h-7 !min-w-0 !rounded-none !px-1 !text-[10px] lg:!text-[11px] !bg-transparent !border-transparent !shadow-none text-right !w-full focus:!border-blue-400 focus:!bg-white focus:!ring-1" readOnly={currency === 'PEN'} value={currency === 'PEN' ? usd0(row.inversionActualizada) : financeDashManual.socios[index]?.aporteTotal ?? financeDashManual.socios[index]?.inversionActualizada ?? ''} onChange={(e) => updateSocio(index, { aporteTotal: e.target.value })} /> : usd0(row.inversionActualizada)}
                         {shareIssue.invalid.includes(index) && <p role="alert" className="mt-1 text-xs text-red-700">Ingresa un aporte positivo y un valor actualizado de accion valido.</p>}
                       </td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right">{usd0(row.accionesFinal)}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{(row.pctAcciones * 100).toFixed(0)}%</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right" title={`${displaySymbol()} ${usd0(utilidadAjustada)} x ${(row.pctAcciones * 100).toFixed(0)}%`}>{usd0(row.utilidad)}</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center">{(row.rentabilidadActualizada * 100).toFixed(0)}%</td>
-                      <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={16} /></button><button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeSocio(index)}><FiTrash2 size={16} /></button></div></td>
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right">{usd0(row.accionesFinal)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-center">{(row.pctAcciones * 100).toFixed(0)}%</td>
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right" title={`${displaySymbol()} ${usd0(utilidadAjustada)} x ${(row.pctAcciones * 100).toFixed(0)}%`}>{usd0(row.utilidad)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-center">{(row.rentabilidadActualizada * 100).toFixed(0)}%</td>
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-center"><div className="flex justify-center gap-0"><button className="inline-flex h-6 w-4 items-center justify-center text-slate-600 hover:text-blue-700" type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={12} /></button><button className="inline-flex h-6 w-4 items-center justify-center text-red-600 hover:text-red-800" type="button" title="Eliminar" onClick={() => removeSocio(index)}><FiTrash2 size={12} /></button></div></td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#000066' }}>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle font-bold text-white text-center" colSpan={2}>Total</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.capital)}</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.adicional)}</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.total)}</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center font-bold text-white">100%</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.acciones)}</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.inversion)}</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.final)}</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center font-bold text-white">100%</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-right font-bold text-white">{usd0(socioTotals.utilidad)}</td>
-                    <td className="td-base !px-3 !py-3 !text-sm !align-middle text-center font-bold text-white" colSpan={2}>—</td>
+                    <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle font-bold text-white text-center" >Total</td>
+                    <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right font-bold text-white">{usd0(socioTotals.capital)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right font-bold text-white">{usd0(socioTotals.adicional)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right font-bold text-white">{usd0(socioTotals.total)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-center font-bold text-white">100%</td>
+                    <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right font-bold text-white">{usd0(socioTotals.acciones)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right font-bold text-white">{usd0(socioTotals.inversion)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right font-bold text-white">{usd0(socioTotals.final)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-center font-bold text-white">100%</td>
+                    <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right font-bold text-white">{usd0(socioTotals.utilidad)}</td>
+                    <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-center font-bold text-white">{(socioTotals.rentabilidad * 100).toFixed(0)}%</td>
+                    <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle" />
                   </tr>
                 </tfoot>
               </table>
@@ -1103,10 +1149,16 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             <div className="min-w-0 rounded-lg border bg-white p-2 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
               <div className="mb-1 flex items-center justify-between gap-2">
                 <h3 className="font-bold text-blue-700">Datos Importantes</h3>
-                <button className="btn-neutral !h-8 text-xs" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, dataRows: [...current.dataRows, { code: `D.${current.dataRows.length + 8}`, label: 'Nuevo dato', value: '' }] }))}>Agregar dato</button>
+                <button className="btn-neutral !h-8 text-xs" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, dataRows: [...current.dataRows, { code: `D.${current.dataRows.length + 9}`, label: 'Nuevo dato', value: '' }] }))}>Agregar dato</button>
               </div>
               <div className="overflow-x-auto rounded-md border" style={{ borderColor: '#E5E7EB' }}>
-              <table className="w-full border-collapse text-xs">
+              <table className="w-full table-fixed border-collapse text-xs">
+                <colgroup>
+                  <col className="w-[30px] lg:w-[38px]" />
+                  <col />
+                  <col className="w-[88px] lg:w-[120px]" />
+                  <col className="w-[48px] lg:w-[60px]" />
+                </colgroup>
                 <tbody>
                   {[
                     ['D.1', 'total_acciones', financeDashManual.dataLabels.total_acciones || 'Total Acciones', 'totalAcciones'],
@@ -1118,12 +1170,12 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                     ['D.7', 'precio_terreno_matriz', 'Precio de Terreno Matriz', null],
                   ].map(([code, labelKey, label, key]) => (
                     <tr key={String(code)} className="border-b border-[#F3E4B0]" style={{ background: '#FFF8DB' }}>
-                      <td className="w-[42px] px-1.5 py-2 text-center text-[10px] font-bold text-[#8A6A00]">{code}</td>
-                      <td className="px-2 py-1.5"><input disabled={labelKey === 'precio_terreno_matriz'} className="input input-ghost !h-7 !border-0 !bg-transparent !px-1 font-semibold text-[#1F2937]" value={String(label).replace('US$', displaySymbol())} onChange={(e) => setFinanceDashManual((current) => ({ ...current, dataLabels: { ...current.dataLabels, [String(labelKey)]: e.target.value } }))} /></td>
-                      <td className="w-[130px] px-2 py-1.5 text-right">
-                        {key ? <input className="input !h-7 !w-auto !rounded-md !px-2 min-w-[54px] max-w-[130px] text-right text-xs" style={{ width: `${Math.max(54, String((financeDashManual as any)[key] || '').length * 8 + 24)}px` }} value={(financeDashManual as any)[key]} onChange={(e) => setFinanceDashManual((current) => ({ ...current, [key as string]: e.target.value }))} /> : (labelKey === 'valor_inicial_accion' ? usd(valorInicialAccion) : labelKey === 'valor_actual_accion' ? usd(valorActualAccion) : labelKey === 'utilidad_ajustada' ? `${displaySymbol()} ${usd0(utilidadAjustada)}` : labelKey === 'precio_terreno_matriz' ? usd(precioTerrenoMatriz) : compactUsd(pptoObra))}
+                      <td className="w-[30px] lg:w-[38px] px-1 lg:px-1.5 py-2 text-center text-[10px] font-bold text-[#8A6A00]">{code}</td>
+                      <td className="px-1 lg:px-2 py-1.5"><input disabled={labelKey === 'precio_terreno_matriz'} className="input input-ghost !h-7 !w-full !min-w-0 !border-0 !bg-transparent !px-1 font-semibold text-[#1F2937]" value={String(label).replace('US$', displaySymbol())} onChange={(e) => setFinanceDashManual((current) => ({ ...current, dataLabels: { ...current.dataLabels, [String(labelKey)]: e.target.value } }))} /></td>
+                      <td className="w-[88px] lg:w-[120px] pl-1 pr-2 py-1.5 text-right whitespace-nowrap lg:text-sm">
+                        {key ? <input className="input !h-7 !w-full !min-w-0 !max-w-none !rounded-md !px-1 text-right text-xs lg:text-sm" value={(financeDashManual as any)[key]} onChange={(e) => setFinanceDashManual((current) => ({ ...current, [key as string]: e.target.value }))} /> : (labelKey === 'valor_inicial_accion' ? usd0(valorInicialAccion) : labelKey === 'valor_actual_accion' ? usd0(valorActualAccion) : labelKey === 'utilidad_ajustada' ? `${displaySymbol()} ${usd0(utilidadAjustada)}` : labelKey === 'precio_terreno_matriz' ? usd0(precioTerrenoMatriz) : compactUsd(pptoObra))}
                       </td>
-                      <td className="w-[72px] px-2 py-1.5 text-center">
+                      <td className="w-[48px] lg:w-[60px] px-0.5 lg:px-1 py-1.5 text-center">
                         <div className="flex justify-center gap-1">
                           <button disabled={labelKey === 'precio_terreno_matriz'} className={labelKey === 'precio_terreno_matriz' ? rowDangerDisabledButton : rowIconButton} type="button" title={labelKey === 'precio_terreno_matriz' ? 'Dato del flujo de caja' : 'Editar'} onClick={focusRowInput}><FiEdit3 size={13} /></button>
                           <button className={rowDangerDisabledButton} type="button" title="Fila base" disabled><FiTrash2 size={13} /></button>
@@ -1131,12 +1183,23 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                       </td>
                     </tr>
                   ))}
+                  <tr className="border-b border-[#F3E4B0]" style={{ background: '#FFF8DB' }}>
+                    <td className="w-[30px] lg:w-[38px] px-1 lg:px-1.5 py-2 text-center text-[10px] font-bold text-[#8A6A00]">D.8</td>
+                    <td className="px-1 lg:px-2 py-1.5"><input aria-label="Nombre del dato tipo de cambio" className="input input-ghost !h-7 !w-full !min-w-0 !border-0 !bg-transparent !px-1 font-semibold text-[#1F2937]" value={financeDashManual.dataLabels.tipo_cambio ?? 'Tipo de cambio'} onChange={(e) => setFinanceDashManual((current) => ({ ...current, dataLabels: { ...current.dataLabels, tipo_cambio: e.target.value } }))} /></td>
+                    <td className="w-[88px] lg:w-[120px] pl-1 pr-2 py-1.5 text-right whitespace-nowrap lg:text-sm"><ExchangeRateField /></td>
+                    <td className="w-[48px] lg:w-[60px] px-0.5 lg:px-1 py-1.5 text-center">
+                      <div className="flex justify-center gap-1">
+                        <button className={rowIconButton} type="button" title="Editar nombre" aria-label="Editar nombre del tipo de cambio" onClick={focusRowInput}><FiEdit3 size={13} /></button>
+                        <button className={rowDangerDisabledButton} type="button" title="Fila base" aria-label="Eliminar tipo de cambio" disabled><FiTrash2 size={13} /></button>
+                      </div>
+                    </td>
+                  </tr>
                   {financeDashManual.dataRows.map((row, index) => isLandMatrixLabel(row.label) ? null : (
                     <tr key={`data-${index}`} className="border-b border-[#F3E4B0]" style={{ background: '#FFF8DB' }}>
-                      <td className="w-[42px] px-1.5 py-1.5 text-center"><input className="input input-ghost !h-7 !border-0 !bg-transparent !px-0 text-center text-[10px] font-bold text-[#8A6A00]" value={row.code} onChange={(e) => updateManualArray('dataRows', index, { code: e.target.value })} /></td>
-                      <td className="px-2 py-1.5"><input className="input input-ghost !h-7 !border-0 !bg-transparent !px-1 font-semibold text-[#1F2937]" value={row.label} onChange={(e) => updateManualArray('dataRows', index, { label: e.target.value })} /></td>
-                      <td className="w-[130px] px-2 py-1.5 text-right"><input className="input !h-7 !w-auto !rounded-md !px-2 min-w-[54px] max-w-[130px] text-right text-xs" style={{ width: `${Math.max(54, String(row.value || '').length * 8 + 24)}px` }} value={row.value} onChange={(e) => updateManualArray('dataRows', index, { value: e.target.value })} /></td>
-                      <td className="w-[72px] px-2 py-1.5 text-center">
+                      <td className="w-[30px] lg:w-[38px] px-1 lg:px-1.5 py-1.5 text-center"><input className="input input-ghost !h-7 !border-0 !bg-transparent !px-0 text-center text-[10px] font-bold text-[#8A6A00]" value={row.code} onChange={(e) => updateManualArray('dataRows', index, { code: e.target.value })} /></td>
+                      <td className="px-1 lg:px-2 py-1.5"><input className="input input-ghost !h-7 !w-full !min-w-0 !border-0 !bg-transparent !px-1 font-semibold text-[#1F2937]" value={row.label} onChange={(e) => updateManualArray('dataRows', index, { label: e.target.value })} /></td>
+                      <td className="w-[88px] lg:w-[120px] pl-1 pr-2 py-1.5 text-right whitespace-nowrap lg:text-sm"><input className="input !h-7 !w-full !min-w-0 !max-w-none !rounded-md !px-1 text-right text-xs lg:text-sm" value={row.value} onChange={(e) => updateManualArray('dataRows', index, { value: e.target.value })} /></td>
+                      <td className="w-[48px] lg:w-[60px] px-0.5 lg:px-1 py-1.5 text-center">
                         <div className="flex justify-center gap-1">
                           <button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button>
                           <button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeManualArrayRow('dataRows', index)}><FiTrash2 size={13} /></button>
@@ -1158,9 +1221,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                   <button className="btn-neutral !h-8 text-xs" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, commitmentRows: [...current.commitmentRows, { priority: String(sociosRows.length + current.commitmentRows.length + 4), creditor: 'Nuevo acreedor', amount: '' }] }))}>Agregar dato</button>
                 ) : null}
               </div>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto rounded-md border border-slate-200">
               {financePanel === 'commitments' ? (
-              <table className="w-full table-fixed border-collapse text-xs [&_th]:!px-2 [&_th]:align-middle [&_td]:!px-2 [&_td]:align-middle [&_input]:min-w-0 [&_input]:!px-0" style={{ minWidth: 460 }}>
+              <table className={`w-full table-fixed border-collapse text-xs [&_th]:!px-2 [&_th]:align-middle [&_td]:!px-2 [&_td]:align-middle [&_input]:min-w-0 [&_input]:!px-0 ${FINANCING_TABLE_STYLE}`} style={{ minWidth: 460 }}>
                 <colgroup><col style={{ width: '14%' }} /><col style={{ width: '32%' }} /><col style={{ width: '22%' }} /><col style={{ width: '16%' }} /><col style={{ width: '16%' }} /></colgroup>
                 <thead><tr style={{ background: '#000066' }}><th className="px-2 py-2 text-center text-[10px] font-bold leading-tight text-white">Prioridad</th><th className="px-2 py-2 text-left text-[10px] font-bold leading-tight text-white">Acreedor</th><th className="px-2 py-2 text-right text-[10px] font-bold leading-tight text-white">{displaySymbol()}</th><th className="px-2 py-2 text-center text-[10px] font-bold leading-tight text-white">Porcentaje</th><th className="px-2 py-2 text-center text-[10px] font-bold leading-tight text-white">Accion</th></tr></thead>
                 <tbody>
@@ -1174,7 +1237,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                 <tfoot><tr style={{ background: '#064E3B' }}><td className="td-base font-bold text-white" colSpan={2}>Total {displaySymbol()}</td><td className="td-base text-right font-bold text-white">{usd0(compromisoTotal)}</td><td className="td-base text-center font-bold text-white">{compromisoTotal > 0 ? '100%' : '0%'}</td><td className="td-base"></td></tr></tfoot>
               </table>
               ) : (
-              <table className="w-full table-fixed border-collapse text-xs [&_th]:!px-2 [&_th]:align-middle [&_td]:!px-2 [&_td]:align-middle" style={{ minWidth: 400 }}>
+              <table className={`w-full table-fixed border-collapse text-xs [&_th]:!px-2 [&_th]:align-middle [&_td]:!px-2 [&_td]:align-middle ${FINANCING_TABLE_STYLE}`} style={{ minWidth: 400 }}>
                 <colgroup><col style={{ width: '54%' }} /><col style={{ width: '28%' }} /><col style={{ width: '18%' }} /></colgroup>
                 <thead><tr style={{ background: '#000066' }}><th className="px-2 py-2 text-left text-[10px] font-bold text-white">Estructura Financiam.</th><th className="px-2 py-2 text-right text-[10px] font-bold text-white">{displaySymbol()}</th><th className="px-2 py-2 text-center text-[10px] font-bold text-white">%</th></tr></thead>
                 <tbody>

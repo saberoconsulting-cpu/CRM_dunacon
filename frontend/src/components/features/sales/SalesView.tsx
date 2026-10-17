@@ -2,11 +2,11 @@
 import { salesMonthlyAmounts } from '@/lib/sales-monthly';
 import { useEffect, useState, useCallback, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Toaster, toast, Field, EmptyState } from '@/components/ui/ui';
+import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
 import { MetricTile } from '@/components/ui/Metrics';
 import { PaginationBar } from '@/components/ui/PaginationBar';
-import { api } from '@/lib/api';
-import { normalizePaginated, buildQuery } from '@/lib/pagination';
+import { api, getToken } from '@/lib/api';
+import { normalizePaginated, buildQuery, loadAllPages } from '@/lib/pagination';
 import { buildQuoteAssignedValues, findLotById, formatAmountIn, loadAllSalesQuotes, lotReferencePrice, type SaleCurrency } from './salesQuotes';
 import { formatMoney, formatDate } from '@/lib/types';
 import { DEFAULT_EXCHANGE_RATE, useDisplayCurrency, moneyGlobal, moneyGlobalDecimals, moneyGlobalShort, displayNumberGlobal, displaySymbol } from '@/lib/currency';
@@ -315,6 +315,48 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [selectedQuoteId, setSelectedQuoteId] = useState(0);
   const [selectedQuoteSnapshot, setSelectedQuoteSnapshot] = useState<any>(null);
   const [lotFichaId, setLotFichaId] = useState<number | null>(null);
+  const [contractBusy, setContractBusy] = useState<number | null>(null);
+  const [contractMissing, setContractMissing] = useState<{ saleId: number; fields: string[] } | null>(null);
+  const [contractValues, setContractValues] = useState<Record<string, string>>({});
+  const contractLabels: Record<string, string> = {
+    cliente_documento: 'Documento de identidad del comprador (DNI / CE)', cliente_domicilio: 'Domicilio del comprador', ciudad_firma: 'Ciudad de firma', cliente_nombre: 'Nombre del comprador',
+    lote_direccion: 'Dirección del lote', lote_dimensiones: 'Dimensiones y linderos', condiciones: 'Condiciones de la venta',
+    proyecto_ubicacion: 'Ubicación del proyecto', agente_nombre: 'Nombre del asesor',
+  };
+  async function downloadContract(saleId: number, fields?: Record<string, string>) {
+    setContractBusy(saleId);
+    try {
+      if (!fields) {
+        const requirements = await api.get<{ missingFields: string[] }>(`/sales/${saleId}/contract/fields`);
+        if (requirements.missingFields.length) {
+          setContractValues({});
+          setContractMissing({ saleId, fields: requirements.missingFields });
+          return;
+        }
+      }
+      const token = getToken();
+      const response = await fetch(`/api/sales/${saleId}/contract`, {
+        method: fields ? 'POST' : 'GET',
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(fields ? { 'Content-Type': 'application/json' } : {}) },
+        body: fields ? JSON.stringify({ fields }) : undefined,
+      });
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || 'No se pudo generar el contrato');
+      }
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `Contrato-V${saleId}.${response.headers.get('content-type')?.includes('application/pdf') ? 'pdf' : 'docx'}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setContractMissing(null);
+    } catch (error: any) { toast(error.message, 'err'); }
+    finally { setContractBusy(null); }
+  }
+
   const [priceIssueModal, setPriceIssueModal] = useState<{ title: string; message: string; lotId?: number } | null>(null);
   const [quoteSearch, setQuoteSearch] = useState('');
   const [quoteFrom, setQuoteFrom] = useState('');
@@ -494,12 +536,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     api.get<any[]>('/projects').then(setProjects).catch(() => {});
     api.get<any[]>('/clients').then((d) => setClients(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
     if (role === 'admin' || role === 'superadmin') api.get<any[]>('/users/agents').then(setAgents).catch(() => {});
-    const lotQuery = lockedProjectId ? `/lots?projectId=${lockedProjectId}&limit=1000` : '/lots?limit=1000';
-    api.get<any[]>(lotQuery).then((d) => setLots(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
-    const saleChartQuery = lockedProjectId ? `/sales?projectId=${lockedProjectId}&limit=1000` : '/sales?limit=1000';
-    api.get<unknown>(saleChartQuery)
-      .then((d) => setChartSales(normalizePaginated<S>(d, 1, 1000).items))
-      .catch(() => setChartSales([]));
+    const projectFilter = lockedProjectId ? { projectId: lockedProjectId } : {};
+    loadAllPages<any>((page, limit) => api.get(`/lots?${buildQuery({ ...projectFilter, page, limit })}`))
+      .then(setLots).catch(() => {});
+    loadAllPages<S>((page, limit) => api.get(`/sales?${buildQuery({ ...projectFilter, page, limit })}`))
+      .then(setChartSales).catch(() => setChartSales([]));
     const cashQuery = lockedProjectId ? `/payments/caja?projectId=${lockedProjectId}` : '/payments/caja';
     api.get<any>(cashQuery).then((d) => setCash(d || { salesByMonth: [] })).catch(() => setCash({ salesByMonth: [] }));
     loadAllSalesQuotes(api, lockedProjectId).then(setQuotes).catch(() => {});
@@ -1271,6 +1312,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <th className="th-base !whitespace-normal">Cuota sin interés</th><th className="th-base !whitespace-normal">Cuota con interés</th><th className="th-base">Fecha</th>
                 <th className="th-base">Agente</th><th className="th-base">Comisión</th><th className="th-base" style={{ textAlign: 'center' }}>Acción</th>
                 <th className="th-base" style={{ textAlign: 'center' }}>Ficha</th>
+                <th className="th-base" style={{ textAlign: 'center' }}>Contrato</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {pending.map((s) => {
@@ -1292,6 +1334,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     <td className="td-base">{showSaleAmount(s.commission)}</td>
                     <td className="td-base" style={{ textAlign: 'center' }}>
                       <button type="button" className="inline-grid h-7 w-7 place-items-center rounded-md border text-[#1877F2] hover:bg-slate-50" style={{ borderColor: '#E5E7EB' }} onClick={() => exportSalePdf(s)} title="Descargar ficha">
+                        <FiDownload />
+                      </button>
+                    </td>
+                    <td className="td-base text-center">
+                      <button type="button" className="inline-grid h-7 w-7 place-items-center rounded-md border border-slate-200 text-[#1877F2] hover:bg-slate-50 disabled:opacity-50" disabled={contractBusy !== null} onClick={() => downloadContract(s.id)} title="Descargar contrato" aria-label={`Descargar contrato de venta V${s.id}`}>
                         <FiDownload />
                       </button>
                     </td>
@@ -1319,6 +1366,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <th className="th-base !whitespace-normal">Cuota sin interés</th><th className="th-base !whitespace-normal">Cuota con interés</th><th className="th-base">Estado</th>
                 <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('saleDate')}>Fecha{sortArrow('saleDate')}</th><th className="th-base">Agente</th><th className="th-base">Comisión</th>
                 <th className="th-base" style={{ textAlign: 'center' }}>Ficha</th>
+                <th className="th-base" style={{ textAlign: 'center' }}>Contrato</th>
               </tr></thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map((s) => {
@@ -1344,6 +1392,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                         <FiDownload />
                       </button>
                     </td>
+                    <td className="td-base text-center">
+                      <button type="button" className="inline-grid h-7 w-7 place-items-center rounded-md border border-slate-200 text-[#1877F2] hover:bg-slate-50 disabled:opacity-50" disabled={contractBusy !== null} onClick={() => downloadContract(s.id)} title="Descargar contrato" aria-label={`Descargar contrato de venta V${s.id}`}>
+                        <FiDownload />
+                      </button>
+                    </td>
                   </tr>
                 );})}
               </tbody>
@@ -1357,6 +1410,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   <td className="td-base font-bold text-white">{visibleInstallmentsTotal.toLocaleString('es-PE')}</td>
                   <td className="td-base" colSpan={5}></td>
                   <td className="td-base font-bold text-white">{showSaleAmount(comm)}</td>
+                  <td className="td-base"></td>
                   <td className="td-base"></td>
                 </tr>
               </tfoot>
@@ -1679,6 +1733,23 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
           </div>
         </div>
       )}
+      <Modal open={Boolean(contractMissing)} onClose={() => { if (contractBusy === null) setContractMissing(null); }} title="Completar datos del contrato" width="max-w-lg">
+        <form onSubmit={(event) => { event.preventDefault(); if (contractMissing) downloadContract(contractMissing.saleId, contractValues); }}>
+          <p className="mb-4 text-sm text-slate-500">La plantilla solicita estos datos adicionales. Se usarán para esta descarga del contrato.</p>
+          <div className="space-y-3">
+            {contractMissing?.fields.map(field => (
+              <Field key={field} label={contractLabels[field] || field.replace(/_/g, ' ')}>
+                <input required maxLength={2000} type="text" className="input" value={contractValues[field] || ''} onChange={event => setContractValues(current => ({ ...current, [field]: event.target.value }))} />
+              </Field>
+            ))}
+          </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <button type="button" className="btn-neutral" disabled={contractBusy !== null} onClick={() => setContractMissing(null)}>Cancelar</button>
+            <button type="submit" className="btn-primary" disabled={contractBusy !== null}>{contractBusy !== null ? 'Generando...' : 'Generar contrato'}</button>
+          </div>
+        </form>
+      </Modal>
+
       {lotFichaId && (
         <LotDetailModal
           lotId={lotFichaId}

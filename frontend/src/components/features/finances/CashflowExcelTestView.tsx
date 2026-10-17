@@ -52,6 +52,59 @@ const PLAIN_NUMBER_ROW_IDS = ['initial-fee', 'financing-fee'];
 const money = (value: number) => value.toLocaleString('en-US', { maximumFractionDigits: 0 });
 const empty = () => Array(YEAR_COUNT).fill(0) as number[];
 const normalizeValues = (values?: number[]) => Array.from({ length: YEAR_COUNT }, (_, index) => Number(values?.[index] || 0));
+// Scope the Safari table sizing workaround strictly to iPhone at mobile widths.
+function IPhoneCashflowViewport({ children, yearColumns }: { children: ReactNode; yearColumns: number }) {
+    const viewportRef = useRef<HTMLDivElement>(null);
+    useEffect(() => {
+        if (!/iPhone/i.test(navigator.userAgent)) return;
+        const viewport = viewportRef.current;
+        if (!viewport) return;
+        const measure = () => {
+            if (!window.matchMedia('(max-width: 767px)').matches) {
+                viewport.removeAttribute('data-iphone-cashflow');
+                return;
+            }
+            const width = viewport.clientWidth;
+            if (!width) return;
+            const concept = Math.floor(width * 0.7);
+            viewport.style.setProperty('--iphone-concept', `${concept}px`);
+            viewport.style.setProperty('--iphone-total', `${width - concept}px`);
+            viewport.setAttribute('data-iphone-cashflow', 'true');
+        };
+        measure();
+        const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+        observer?.observe(viewport);
+        window.addEventListener('resize', measure);
+        return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+    }, []);
+    return (
+        <div ref={viewportRef} className="overflow-auto [container-type:inline-size]" style={{ WebkitOverflowScrolling: 'touch' }}>
+            <style>{`
+                @media (max-width: 767px) {
+                    [data-iphone-cashflow="true"] > table {
+                        table-layout: fixed;
+                        width: calc(var(--iphone-concept) + var(--iphone-total) + ${yearColumns * 100}px);
+                        -webkit-text-size-adjust: 100%;
+                    }
+                    [data-iphone-cashflow="true"] > table > * > tr > :first-child {
+                        width: var(--iphone-concept) !important;
+                        min-width: var(--iphone-concept) !important;
+                        max-width: var(--iphone-concept) !important;
+                        box-sizing: border-box;
+                    }
+                    [data-iphone-cashflow="true"] > table > * > tr > :nth-child(2) {
+                        width: var(--iphone-total) !important;
+                        min-width: var(--iphone-total) !important;
+                        max-width: var(--iphone-total) !important;
+                        box-sizing: border-box;
+                    }
+                }
+            `}</style>
+            {children}
+        </div>
+    );
+}
+
 const CONCEPT_COL = 'w-[70vw] min-w-[70vw] max-w-[70vw] supports-[width:1cqw]:w-[70cqw] supports-[width:1cqw]:min-w-[70cqw] supports-[width:1cqw]:max-w-[70cqw] md:w-[232px] md:min-w-[232px] md:max-w-none';
 const TOTAL_COL = 'w-[30vw] min-w-[30vw] max-w-[30vw] supports-[width:1cqw]:w-[30cqw] supports-[width:1cqw]:min-w-[30cqw] supports-[width:1cqw]:max-w-[30cqw] md:w-[100px] md:min-w-[100px] md:max-w-none';
 const YEAR_COL = 'w-[100px] min-w-[100px]';
@@ -1990,7 +2043,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 <p className="cashflow-no-print px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver los anos.</p>
                 {/* [container-type:inline-size] permite usar `cqw` (ancho visible) en las columnas
                     fijas: en movil Concepto + Total llenan la pantalla y los aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±os se ven al deslizar. */}
-                <div className="overflow-auto [container-type:inline-size]" style={{ WebkitOverflowScrolling: 'touch' }}>
+                <IPhoneCashflowViewport yearColumns={displayedYearIndexesBeforeHistory.length + displayedYearIndexesAfterHistory.length + (showHistoricalColumn ? 1 : 0)}>
                     <table className="w-max border-collapse text-xs">
                         <thead className="sticky top-0 z-[15]">
                             <tr>
@@ -2332,7 +2385,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                             ))}
                         </tbody>
                     </table>
-                </div>
+                </IPhoneCashflowViewport>
             </section>
 
             <section className="grid gap-5 lg:grid-cols-[minmax(250px,0.8fr)_minmax(0,2fr)]">

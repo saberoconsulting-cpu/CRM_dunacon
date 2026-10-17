@@ -693,8 +693,8 @@ async function loadAllLots(projectId: number) {
   return all;
 }
 
-export function useIncomeStatementReal(projectId: number, items: StatementItem[], cashflow: CashflowModel | null, dynamicCashflow: CashflowModel | null) {
-  const treeByLine = useMemo(() => {
+export function calculateIncomeStatementReal(projectId: number, items: StatementItem[], cashflow: CashflowModel | null, dynamicCashflow: CashflowModel | null) {
+  const treeByLine = (() => {
     const { labels: projectedLabels } = cashflowTotals(cashflow);
     const projectedIndex = cashflowTotals(cashflow);
     const { totals: projectedTotals } = projectedIndex;
@@ -779,14 +779,11 @@ export function useIncomeStatementReal(projectId: number, items: StatementItem[]
       grouped[line] = extras.length ? [...flowPartidas, ...(extras as StatementTreeItem[])] : flowPartidas;
     });
     return grouped;
-  }, [items, cashflow, dynamicCashflow, projectId]);
+  })();
 
-  const hasFinancialFlowChildren = useMemo(
-    () => (treeByLine.financiero || []).some((item) => normalizeMatch((item as StatementTreeItemWithSource).cashflowRowId) !== 'financial'),
-    [treeByLine],
-  );
+  const hasFinancialFlowChildren = (treeByLine.financiero || []).some((item) => normalizeMatch((item as StatementTreeItemWithSource).cashflowRowId) !== 'financial');
 
-  const rowReal = useMemo(() => {
+  const rowReal = (() => {
     const dynamicIndex = cashflowTotals(dynamicCashflow);
     const { totals: dynamicTotals } = dynamicIndex;
     // Indice "real": UNICAMENTE el flujo DINAMICO (data de Cuentas y Bancos).
@@ -842,9 +839,13 @@ export function useIncomeStatementReal(projectId: number, items: StatementItem[]
     totals.net = net;
     totals.adjusted = net - line('igv') + line('ajuste');
     return totals;
-  }, [treeByLine, dynamicCashflow, cashflow, hasFinancialFlowChildren]);
+  })();
 
   return { treeByLine, hasFinancialFlowChildren, rowReal };
+}
+
+export function useIncomeStatementReal(projectId: number, items: StatementItem[], cashflow: CashflowModel | null, dynamicCashflow: CashflowModel | null) {
+  return useMemo(() => calculateIncomeStatementReal(projectId, items, cashflow, dynamicCashflow), [projectId, items, cashflow, dynamicCashflow]);
 }
 
 export function projectedFinancialAmount(cashflow: CashflowModel | null, financialItems: StatementTreeItem[], hasChildren: boolean, fallback: number) {

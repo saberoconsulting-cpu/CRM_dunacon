@@ -651,7 +651,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [stats, setStats] = useState<{
     total: number; credito: number; contado: number;
     montoTotal: number; cuotaInicialTotal: number; cuotaContadoTotal: number;
-    financiamientoTotal: number; cuotasTotal: number; inicialesCount: number; convertidaTotal: number;
+    financiamientoTotal: number; cuotasTotal: number; inicialesCount: number; convertidaTotal: number; soldLotsCount: number;
   } | null>(null);
   const [deletingId, setDeletingId] = useState(0);
   const [fPayment, setFPayment] = useState('');
@@ -930,39 +930,31 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
           <QuoteKpi label="Nro. Cotizaciones" value={String(stats?.total ?? 0)} helper="Total registradas" icon={<FiFileText />} accent="#0B2F6E" truncateLabel={false} />
           <QuoteKpi label={`Monto Cotizado ${currency === 'PEN' ? 'S/' : 'US$'}`} value={formatQuoteAmountCard(stats?.montoTotal)} helper={`${stats?.total ?? 0} cotizaciones`} icon={<FiDollarSign />} accent="#0B2F6E" truncateLabel={false} />
           <QuoteKpi label={`Cuota Inicial ${currency === 'PEN' ? 'S/' : 'US$'}`} value={formatQuoteAmountCard(stats?.cuotaInicialTotal)} helper={`${stats?.inicialesCount ?? 0} cuotas iniciales`} icon={<FiTrendingUp />} accent="#1259C4" truncateLabel={false} />
-          <QuoteKpi label={`Cuotas Financiadas ${currency === 'PEN' ? 'S/' : 'US$'}`} value={formatQuoteAmountCard(stats?.financiamientoTotal)} helper={`${stats?.cuotasTotal ?? 0} cuotas`} icon={<FiCheckCircle />} accent="#16A36A" truncateLabel={false} />
+          <QuoteKpi label={`Financiamiento (${currency === 'PEN' ? 'S/' : 'US$'})`} value={formatQuoteAmountCard(stats?.financiamientoTotal)} helper={`${stats?.cuotasTotal ?? 0} cuotas`} icon={<FiCheckCircle />} accent="#16A36A" truncateLabel={false} />
           <QuoteKpi label="Cotizacion Contado" value={formatQuoteAmountCard(stats?.cuotaContadoTotal)} helper={`${stats?.contado ?? 0} cotizaciones`} icon={<FiDollarSign />} accent="#0B2F6E" truncateLabel={false} />
-          <QuoteKpi label={`Venta Convertida ${currency === 'PEN' ? 'S/' : 'US$'}`} value={formatQuoteAmountCard(stats?.convertidaTotal)} helper="Convertidas a venta" icon={<FiCreditCard />} accent="#1877F2" truncateLabel={false} />
+          <QuoteKpi label={`Venta total ${currency === 'PEN' ? 'S/' : 'US$'}`} value={formatQuoteAmountCard(stats?.convertidaTotal)} helper={`${stats?.soldLotsCount ?? 0} lotes vendidos`} icon={<FiCreditCard />} accent="#1877F2" truncateLabel={false} />
         </div>
 
-        <div className="card">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="card lg:flex lg:items-center lg:justify-between lg:gap-4">
+          <div className="min-w-0 lg:flex-1">
             <div>
               <h3 className="font-semibold">Cotizaciones de lotes</h3>
               <p className="text-sm mt-0.5" style={{ color: '#6B7280' }}>Calcula el financiamiento y genera la cotizacion y el cronograma de pagos para el cliente.</p>
             </div>
-            <div className="flex flex-wrap items-end justify-end gap-3">
-              <input
-                className="input hidden lg:block lg:!w-64"
-                placeholder="Buscar cliente o lote..."
-                aria-label="Buscar cliente o lote"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-              />
-              <button className="btn-primary" onClick={() => setOpen(true)}>Nueva cotizacion</button>
-            </div>
           </div>
-          <div className="flex flex-col gap-2 mt-4 sm:flex-row sm:flex-wrap sm:items-center">
+          <div className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)_auto_80px] items-center gap-1.5 sm:grid-cols-[minmax(0,256px)_auto_120px] sm:justify-start sm:gap-3 lg:mt-0 lg:flex lg:shrink-0">
             <input
-              className="input w-full sm:!w-64 lg:hidden"
+              className="input !min-w-0 !w-full !px-2 !text-[11px] sm:!text-sm lg:!w-48"
               placeholder="Buscar cliente o lote..."
+              aria-label="Buscar cliente o lote"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            <button className="btn-primary whitespace-nowrap !px-2 !text-[11px] sm:!px-4 sm:!text-sm" onClick={() => setOpen(true)}>Nueva cotizacion</button>
             <Select
               value={fPayment}
               onChange={setFPayment}
-              className="w-full sm:!w-auto"
+              className="!min-w-0 !w-full [&_button]:!min-w-0 [&_button]:!px-2 [&_button]:!text-[11px] sm:[&_button]:!text-sm lg:!w-[100px]"
               options={[{ value: '', label: 'Todos' }, { value: 'contado', label: 'Contado' }, { value: 'credito', label: 'Crédito' }]}
             />
             {(search || fPayment) && (
@@ -980,16 +972,16 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
             {loading ? <p className="p-4 text-slate-400">Cargando...</p>
               : rows.length === 0 ? <EmptyState text="Aun no hay cotizaciones generadas." />
                 : (
-                  <table className="table-base table-head-plomo" style={{ width: '100%', minWidth: 900 }}>
-                    <thead><tr>
+                  <table className="table-base table-head-plomo" style={{ width: '100%', minWidth: 0 }}>
+                    <thead className="[&_th]:!align-middle [&_th]:!leading-snug [&_th]:!py-3"><tr>
                       <th className="th-base">Id</th>
                       <th className="th-base">Lote</th>
                       <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('clientName')}>Cliente{sortArrow('clientName')}</th>
-                      <th className="th-base">Area M2</th>
+                      <th className="th-base whitespace-nowrap">Area M2</th>
                       <th className="th-base">Estado</th>
-                      <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('finalPriceUsd')}>Precio Final ({currency === 'PEN' ? 'S/' : 'US$'}){sortArrow('finalPriceUsd')}</th>
-                      <th className="th-base">Cuota Inicial ({currency === 'PEN' ? 'S/' : 'US$'})</th>
-                      <th className="th-base">Financiamiento ({currency === 'PEN' ? 'S/' : 'US$'})</th>
+                      <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('finalPriceUsd')}><span className="block whitespace-nowrap">Precio final{sortArrow('finalPriceUsd')}</span><span className="block text-center">({currency === 'PEN' ? 'S/' : 'US$'})</span></th>
+                      <th className="th-base !whitespace-normal"><span className="block whitespace-nowrap">Cuota inicial</span><span className="block text-center">({currency === 'PEN' ? 'S/' : 'US$'})</span></th>
+                      <th className="th-base !whitespace-normal"><span className="block whitespace-nowrap">Financiamiento</span><span className="block text-center">({currency === 'PEN' ? 'S/' : 'US$'})</span></th>
                       <th className="th-base">Cuotas</th>
                       <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')}>Fecha{sortArrow('createdAt')}</th>
                       <th className="th-base">Cotizacion</th>
@@ -1019,10 +1011,10 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                           <td className="td-base">{q.totalCuotas || '-'}</td>
                           <td className="td-base">{formatDate(q.createdAt)}</td>
                           <td className="td-base whitespace-nowrap">
-                            <button className="btn-secondary !h-7 !px-2 text-xs mr-1" onClick={() => setDoc({ id: q.id, type: 'cotizacion' })}><FiEye /> Ver Cotizacion</button>
+                            <button className="btn-secondary !h-7 !px-2 text-xs mr-1" onClick={() => setDoc({ id: q.id, type: 'cotizacion' })}><FiEye /> Cotizacion</button>
                           </td>
                           <td className="td-base whitespace-nowrap">
-                            {q.paymentMethod === 'credito' && <button className="btn-secondary !h-7 !px-2 text-xs" onClick={() => setDoc({ id: q.id, type: 'financiamiento' })}><FiEye /> Ver Financiamiento</button>}
+                            {q.paymentMethod === 'credito' && <button className="btn-secondary !h-7 !px-2 text-xs" onClick={() => setDoc({ id: q.id, type: 'financiamiento' })}><FiEye /> Finan..</button>}
                           </td>
                           <td className="td-base whitespace-nowrap">
                             <button className="btn-danger !h-7 !px-2 text-xs ml-1" disabled={deletingId === q.id} onClick={() => deleteQuote(q)}><FiTrash2 /> Eliminar</button>
@@ -1030,13 +1022,13 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                         </tr>
                       ))}
                     </tbody>
-                    <tfoot className="bg-[#0B2F6E] text-white font-semibold"><tr>
+                    <tfoot className="bg-[#0B2F6E] text-white font-semibold [&_td]:!bg-[#0B2F6E] [&_td]:!text-white"><tr>
                       <td className="td-base" colSpan={5}>TOTALES</td>
                       <td className="td-base">{formatQuoteAmountCard(rows.reduce((sum, q) => sum + Number(q.finalPriceUsd || 0), 0))}</td>
                       <td className="td-base">{formatQuoteAmountCard(rows.reduce((sum, q) => sum + (q.paymentMethod === 'credito' ? Number(q.cuotaInicialUsd || 0) : 0), 0))}</td>
                       <td className="td-base">{formatQuoteAmountCard(rows.reduce((sum, q) => sum + (q.paymentMethod === 'credito' ? Math.max(0, Number(q.finalPriceUsd) - Number(q.cuotaInicialUsd)) : 0), 0))}</td>
                       <td className="td-base">{rows.reduce((sum, q) => sum + Number(q.totalCuotas || 0), 0)}</td>
-                      <td colSpan={4} className="td-base text-xs">Pagina actual</td>
+                      <td colSpan={4} className="td-base" />
                     </tr></tfoot>
                   </table>
                 )}

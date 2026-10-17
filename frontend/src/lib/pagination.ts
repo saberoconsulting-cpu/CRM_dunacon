@@ -37,3 +37,15 @@ export function buildQuery(params: Record<string, string | number | undefined | 
   }
   return q.toString();
 }
+
+/** Read full datasets without exceeding the API's maximum of 100 per page. */
+export async function loadAllPages<T>(fetchPage: (page: number, limit: number) => Promise<unknown>): Promise<T[]> {
+  const result: T[] = [];
+  const limit = 100;
+  for (let page = 1; ; page++) {
+    const raw = await fetchPage(page, limit);
+    const response = normalizePaginated<T>(raw, page, limit);
+    result.push(...response.items);
+    if (Array.isArray(raw) || !response.items.length || page >= response.totalPages) return result;
+  }
+}

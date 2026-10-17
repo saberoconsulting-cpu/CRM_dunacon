@@ -89,7 +89,7 @@ export default function AgentsPage() {
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null);
   const [modalPeriod, setModalPeriod] = useState<Period>('month');
   // Moneda unica de la pantalla: `show()` convierte los montos a la moneda activa.
-  const { currency, setCurrency, exchangeRate, setExchangeRate, format: show } = useDisplayCurrency();
+  const { currency, setCurrency, format: show } = useDisplayCurrency();
 
   const load = useCallback(async () => {
     try {
@@ -213,8 +213,6 @@ export default function AgentsPage() {
             <CurrencyToggle
               currency={currency}
               setCurrency={setCurrency}
-              exchangeRate={exchangeRate}
-              setExchangeRate={setExchangeRate}
             />
             <select className="input max-w-xs" value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               <option value="">Todos los proyectos</option>

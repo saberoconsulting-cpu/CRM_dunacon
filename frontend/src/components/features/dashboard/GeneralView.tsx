@@ -2,6 +2,8 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { FiArrowDown, FiCreditCard, FiDownload, FiFileText, FiLayers, FiTag, FiUsers } from 'react-icons/fi';
 import { api } from '@/lib/api';
+import { calculateIncomeStatementReal } from '@/components/features/income-statement/IncomeStatementView';
+import { isCleanDynamicCashflow } from '@/components/features/construction-budget/ConstructionBudgetView';
 import { FormattedDashboard } from '@/lib/dboard';
 import { BRAND, LOT_STATUS_COLOR } from '@/lib/types';
 import { moneyGlobal, useCurrencyStoreSync } from '@/lib/currency';
@@ -10,11 +12,8 @@ import { Modal } from '@/components/ui/ui';
 
 const LOT_LABEL: Record<string, string> = {
   disponible: 'Disponible',
-  reservado: 'Reservado',
-  adelanto: 'Con adelanto',
-  primera_cuota: 'Primera cuota',
+  reservado: 'Separado',
   vendido: 'Vendido',
-  alquilado: 'Alquilado',
   promocion: 'En Promoción',
   segunda_etapa: '2da Etapa',
 };
@@ -25,8 +24,7 @@ const MOVEMENTS_HISTORY_SIZE = 10;
 const MOVEMENTS_EXPORT_SIZE = 100000;
 const CHART_COLORS = [BRAND.blue, BRAND.blueDark, '#16A36A', '#F59E0B', '#E11D48', '#8064A2', '#0EA5E9', '#64748B'];
 
-// Los montos llegan en soles desde el backend; `moneyGlobal` los convierte a la
-// moneda activa (S/ o US$) segun el almacen global de moneda.
+// Los importes internos están en USD; moneyGlobal aplica la moneda de presentación.
 function money(value: unknown): string {
   return moneyGlobal(value);
 }
@@ -172,40 +170,37 @@ export function SectionShell({ title, subtitle, children, className = '', contro
   );
 }
 
-function CommercialSummary({ d }: { d: FormattedDashboard }) {
-  const income = Number(d.cards.income || 0);
-  const costOfSales = Number(d.cards.expense || 0);
-  const expenses = Number(d.cards.campaignSpend || 0);
-  const adjustedUtility = income - costOfSales - expenses;
-  const taxes = 0;
-  const netUtility = adjustedUtility - taxes;
+type CommercialTotals = { income: number; costOfSales: number; expenses: number; preTax: number; taxes: number; net: number; adjusted: number; outflows: number };
+
+function CommercialSummary({ d, totals }: { d: FormattedDashboard; totals: CommercialTotals | null }) {
   const financialBoxes = [
-    { label: 'Ingresos US$', value: income, color: BRAND.blue },
-    { label: 'Costo de Ventas US$', value: costOfSales, color: '#E11D48' },
-    { label: 'Gastos US$', value: expenses, color: '#F59E0B' },
-    { label: 'Utilidad Adl', value: adjustedUtility, color: '#16A36A' },
-    { label: 'Impuestos (IR+IGV)', value: taxes, color: '#64748B' },
-    { label: 'Utilidad Neta US$', value: netUtility, color: BRAND.blueDark },
-    { label: 'Utilidad Ajustada', value: netUtility, color: '#8064A2' },
+    { label: 'Ingresos', value: totals?.income, color: BRAND.blue },
+    { label: 'Costo de Ventas', value: totals?.costOfSales, color: '#E11D48' },
+    { label: 'Gastos', value: totals?.expenses, color: '#F59E0B' },
+    { label: 'Utilidad antes de impuestos', value: totals?.preTax, color: '#16A36A' },
+    { label: 'Impuestos (IR+IGV)', value: totals?.taxes, color: '#64748B' },
+    { label: 'Utilidad Neta', value: totals?.net, color: BRAND.blueDark },
+    { label: 'Utilidad Ajustada', value: totals?.adjusted, color: '#8064A2' },
   ];
   const secondary = [
-    { label: 'Ventas del mes', value: d.cards.salesMonth, icon: <FiTag />, tone: BRAND.ink },
-    { label: 'Lotes vendidos del periodo', value: d.lots.vendido || 0, icon: <FiLayers />, tone: BRAND.blue },
-    { label: 'Leads del mes', value: d.cards.leadsMonth, icon: <FiUsers />, tone: BRAND.muted },
-    { label: 'Egresos', value: money(d.cards.expense), icon: <FiArrowDown />, tone: BRAND.blueDark },
+    { label: 'Ventas del mes', value: d.cards.salesMonth, icon: <FiTag />, tone: '#2563EB', period: 'Este mes' },
+    { label: 'Lotes vendidos acumulados', value: d.lots.vendido || 0, icon: <FiLayers />, tone: '#08916F', period: 'Acumulado' },
+    { label: 'Leads del mes', value: d.cards.leadsMonth, icon: <FiUsers />, tone: '#7C3AED', period: 'Este mes' },
+    { label: 'Egresos', value: totals ? money(totals.outflows) : '—', icon: <FiArrowDown />, tone: '#D97706', period: 'Acumulado' },
   ];
 
   return (
     <section className="grid gap-3 lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
-      <div className="relative overflow-hidden border bg-white p-5" style={{ borderColor: BRAND.border, borderRadius: 6 }}>
+      <div className="relative overflow-hidden border bg-white p-5" style={{ borderColor: BRAND.border, borderRadius: 6, background: 'linear-gradient(145deg, #FFFFFF 30%, #EFF6FF 100%)' }}>
         <div className="absolute left-0 top-0 h-full w-1.5" style={{ background: BRAND.blue }} />
         <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">Resumen comercial</p>
+        <p className="mt-1 text-xs text-slate-500">Total acumulado de todos los proyectos · Resultados reales</p>
         <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
           {financialBoxes.map((box) => (
-            <div key={box.label} className="min-w-0 border bg-white p-3" style={{ borderColor: BRAND.border, borderRadius: 6 }}>
+            <div key={box.label} className="min-w-0 border bg-white p-3" style={{ borderColor: `${box.color}26`, borderRadius: 6, background: `linear-gradient(145deg, #FFFFFF 35%, ${box.color}0D 100%)` }}>
               <span className="block h-1 w-9" style={{ background: box.color }} />
               <p className="mt-3 min-h-[2rem] text-[10px] font-semibold leading-4 text-slate-500 sm:text-[11px]">{box.label}</p>
-              <p className="mt-1 truncate text-center text-base font-semibold tabular-nums tracking-tight sm:text-lg" style={{ color: box.color }}>{money(box.value)}</p>
+              <p className="mt-1 truncate text-center text-base font-semibold tabular-nums tracking-tight sm:text-lg" style={{ color: box.color }}>{box.value == null ? '—' : money(box.value)}</p>
             </div>
           ))}
         </div>
@@ -213,14 +208,18 @@ function CommercialSummary({ d }: { d: FormattedDashboard }) {
 
       <div className="grid grid-cols-2 gap-3">
         {secondary.map((item) => (
-          <div key={item.label} className="min-w-0 border bg-white p-3 sm:p-4" style={{ borderColor: BRAND.border, borderRadius: 6 }}>
-            <div className="flex items-start justify-between gap-3">
-              <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md" style={{ background: `${item.tone}12`, color: item.tone }}>{item.icon}</span>
-              <span className="h-1.5 w-1.5 shrink-0" style={{ background: BRAND.blue }} />
+          <article key={item.label}
+            className="group relative isolate min-w-0 overflow-hidden rounded-xl border p-3 shadow-sm motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:-translate-y-0.5 hover:shadow-md sm:p-4"
+            style={{ borderColor: `${item.tone}26`, background: `linear-gradient(145deg, #fff 35%, ${item.tone}0D 100%)` }}>
+            <span aria-hidden="true" className="pointer-events-none absolute -bottom-4 -right-3 -z-10 rotate-[-15deg] text-[88px] opacity-[0.055] motion-safe:transition-transform motion-safe:group-hover:rotate-0" style={{ color: item.tone }}>{item.icon}</span>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-lg sm:h-10 sm:w-10" style={{ background: `${item.tone}12`, color: item.tone, boxShadow: `inset 0 0 0 1px ${item.tone}18` }}>{item.icon}</span>
+              <span className="rounded-full px-2 py-1 text-[9px] font-semibold sm:text-[10px]" style={{ color: item.tone, background: `${item.tone}0D` }}>{item.period}</span>
             </div>
-            <p className="mt-3 truncate text-[10px] font-medium leading-tight text-slate-500 sm:mt-4 sm:text-[11px]">{item.label}</p>
-            <p className="mt-1 truncate text-center text-lg font-semibold tabular-nums sm:text-xl" style={{ color: BRAND.ink }}>{item.value}</p>
-          </div>
+            <p className="mt-3 min-h-8 text-[11px] font-medium leading-4 text-slate-500 sm:text-xs">{item.label}</p>
+            <p className="mt-1 break-words text-xl font-bold tabular-nums tracking-tight sm:text-2xl" style={{ color: BRAND.ink }}>{item.value}</p>
+            <div aria-hidden="true" className="mt-3 h-0.5 w-10 rounded-full motion-safe:transition-all motion-safe:group-hover:w-16" style={{ background: item.tone }} />
+          </article>
         ))}
       </div>
     </section>
@@ -441,9 +440,9 @@ function LotStatusDistribution({ data }: { data: { key: string; label: string; v
   const main = [...data].sort((a, b) => b.value - a.value)[0];
 
   return (
-    <SectionShell title="Estados de lotes" subtitle={`Total registrado: ${total}`} className="h-full">
+    <SectionShell title="Estados de lotes" subtitle={`Total registrado: ${total}`} className="self-start bg-gradient-to-br from-white via-white to-blue-50/80">
       {total ? (
-        <div className="grid gap-4">
+        <div className="grid gap-3">
           <div className="group mx-auto grid h-44 w-44 place-items-center transition-transform duration-200 hover:scale-[1.02]" title={`${main?.label || 'Lotes'}: ${main?.value || 0}`}>
             <div
               className="grid h-full w-full place-items-center"
@@ -457,11 +456,11 @@ function LotStatusDistribution({ data }: { data: { key: string; label: string; v
               </div>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+          <div className="grid gap-1.5 sm:gap-2" style={{ gridTemplateColumns: `repeat(${data.length}, minmax(0, 1fr))` }}>
             {data.map((item) => (
-              <div key={item.key} className="group border p-2 transition-colors hover:bg-slate-50" style={{ borderColor: BRAND.border, borderRadius: 4 }} title={`${item.label}: ${item.value}`}>
+              <div key={item.key} className="group min-w-0 border p-1.5 sm:p-2 transition-colors hover:bg-slate-50" style={{ borderColor: `${item.color}35`, borderRadius: 6, background: `linear-gradient(145deg, #FFFFFF 35%, ${item.color}12 100%)` }} title={`${item.label}: ${item.value}`}>
                 <span className="block h-1 w-8 transition-all group-hover:w-12" style={{ background: item.color }} />
-                <p className="mt-2 truncate text-[11px] font-medium text-slate-500">{item.label}</p>
+                <p className="mt-2 break-words text-[10px] sm:text-[11px] font-medium text-slate-500">{item.label}</p>
                 <p className="text-center text-lg font-semibold tabular-nums" style={{ color: BRAND.ink }}>{item.value}</p>
               </div>
             ))}
@@ -907,15 +906,46 @@ function MovementsCenter({ sales, payments, projects, projectName }: {
 
 export default function GeneralView({ d, compact = false }: { d: FormattedDashboard | null; compact?: boolean }) {
   const [projects, setProjects] = useState<any[]>([]);
+  const [commercialTotals, setCommercialTotals] = useState<CommercialTotals | null>(null);
+  const [commercialError, setCommercialError] = useState(false);
   // Sincroniza el almacen global de moneda para que todos los sub-componentes
   // (que llaman a `money()`) se repinten al cambiar S/ <-> US$.
   useCurrencyStoreSync();
 
   useEffect(() => {
-    api.get<any[]>('/projects')
-      .then((data) => setProjects(Array.isArray(data) ? data : ((data as any)?.items || [])))
-      .catch(() => {});
-  }, []);
+    let cancelled = false;
+    setCommercialTotals(null);
+    setCommercialError(false);
+    async function loadTotals() {
+      const response = await api.get<any>('/projects');
+      const allProjects = Array.isArray(response) ? response : response?.items;
+      if (!Array.isArray(allProjects)) throw new Error('Lista de proyectos inválida');
+      if (!cancelled) setProjects(allProjects);
+      const rows = await Promise.all(allProjects.map(async (project: any) => {
+        const id = Number(project.id);
+        const [projected, real, statement] = await Promise.all([
+          api.get<any>(`/cashflow/model?projectId=${id}&mode=estatico`),
+          api.get<any>(`/cashflow/model?projectId=${id}&mode=dinamico`),
+          api.get<any>(`/income-statement?projectId=${id}`),
+        ]);
+        return calculateIncomeStatementReal(id, statement?.items || [], Array.isArray(projected?.rows) ? projected : null, isCleanDynamicCashflow(real) ? real : null).rowReal;
+      }));
+      const totals: CommercialTotals = { income: 0, costOfSales: 0, expenses: 0, preTax: 0, taxes: 0, net: 0, adjusted: 0, outflows: 0 };
+      for (const row of rows) {
+        totals.income += Number(row['line-ingreso'] || 0);
+        totals.costOfSales += Number(row['line-costo'] || 0);
+        totals.expenses += Number(row['line-ventas_admin'] || 0) + Number(row['line-financiero'] || 0);
+        totals.preTax += Number(row['pre-tax'] || 0);
+        totals.taxes += Number(row['line-impuestos'] || 0) + Number(row['line-igv'] || 0);
+        totals.net += Number(row.net || 0);
+        totals.adjusted += Number(row.adjusted || 0);
+      }
+      totals.outflows = totals.costOfSales + totals.expenses + totals.taxes;
+      if (!cancelled) setCommercialTotals(totals);
+    }
+    loadTotals().catch(() => { if (!cancelled) setCommercialError(true); });
+    return () => { cancelled = true; };
+  }, [d]);
 
   if (!d) return <p className="text-slate-400">Sin datos</p>;
 
@@ -926,9 +956,7 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
       .filter(Boolean)
       .map((id, index) => ({ id, name: projectName(id), color: CHART_COLORS[index % CHART_COLORS.length] }));
   const salesAmountByProject = new Map((d.salesByProject || []).map((row) => [Number(row.projectId), Number(row.amount || 0)]));
-  const investmentAmountByProject = new Map((d.investmentsByProject || []).map((row) => [Number(row.projectId), Number(row.amount || 0)]));
   const salesByProject = projectBase.map((project) => ({ name: project.name, value: salesAmountByProject.get(project.id) || 0, color: project.color }));
-  const investmentByProject = projectBase.map((project) => ({ name: project.name, value: investmentAmountByProject.get(project.id) || 0, color: project.color }));
   const availableLotsByProject = (d.availableLotsByProject || []).map((row, index) => ({
     name: projectName(row.projectId),
     value: Number(row.total || 0),
@@ -939,28 +967,38 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
     value: Number(row.value || 0),
     color: CHART_COLORS[index % CHART_COLORS.length],
   }));
+  // Match the active lot statuses used throughout the system.
+  const dashboardLots = {
+    ...d.lots,
+    reservado: Number(d.lots.reservado || 0) + Number(d.lots.adelanto || 0),
+    vendido: Number(d.lots.vendido || 0) + Number(d.lots.primera_cuota || 0) + Number(d.lots.alquilado || 0),
+  };
   const lotStatusData = Object.keys(LOT_LABEL).map((key) => ({
     key,
     label: LOT_LABEL[key],
-    value: Number(d.lots[key] || 0),
+    value: Number(dashboardLots[key as keyof typeof dashboardLots] || 0),
     color: LOT_STATUS_COLOR[key as keyof typeof LOT_STATUS_COLOR],
   })).filter((item) => item.value > 0 || !['promocion', 'segunda_etapa'].includes(item.key));
 
+  if (commercialError) return <p role="alert" className="text-red-600">No se pudo cargar el total de los proyectos. Recarga la página para reintentar.</p>;
+
   if (compact) {
-    return <CommercialSummary d={d} />;
+    return <CommercialSummary d={d} totals={commercialTotals} />;
   }
 
   return (
     <div className="space-y-5">
-      <CommercialSummary d={d} />
+      <CommercialSummary d={d} totals={commercialTotals} />
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,3fr)_minmax(360px,2fr)]">
-        <div className="grid gap-5">
+        <div className="grid content-start gap-5">
           <LotStatusDistribution data={lotStatusData} />
           <ProjectSales rows={salesByProject} />
+          <MovementsCenter sales={d.recentSales || []} payments={d.recentPayments || []} projects={projects} projectName={projectName} />
         </div>
 
-        <aside className="grid max-h-none gap-5 overflow-y-visible pr-0 lg:max-h-[940px] lg:overflow-y-auto lg:pr-1">
+        <div className="relative min-h-0 min-w-0">
+        <aside className="grid content-start gap-5 lg:absolute lg:inset-0 lg:overflow-y-auto lg:overscroll-contain lg:pr-1">
           <PieSummary
             title="Lotes disponibles por proyectos"
             subtitle="Grafico PIE"
@@ -968,7 +1006,6 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
             valueFormatter={(value) => `${value} lotes`}
             className="min-h-[260px]"
           />
-          <ProjectBars title="Inversiones por proyecto" subtitle="Grafico de barras" rows={investmentByProject} className="min-h-[320px]" />
           <ProjectBars title="Ventas US$ por proyecto" subtitle="Grafico de barras" rows={salesByProject} className="min-h-[320px]" />
           <PieSummary
             title="Pago de lotes"
@@ -978,9 +1015,9 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
             className="min-h-[260px]"
           />
         </aside>
+        </div>
       </div>
 
-      <MovementsCenter sales={d.recentSales || []} payments={d.recentPayments || []} projects={projects} projectName={projectName} />
     </div>
   );
 }

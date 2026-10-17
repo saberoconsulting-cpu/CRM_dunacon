@@ -1,5 +1,10 @@
+import { readFile } from 'fs/promises';
+import { join } from 'path';
+import { renderPdfContract, inspectPdfContractTemplate } from '../../../shared/application/pdf-contract-template';
+import { downloadContractTemplate, renderContract, inspectContractTemplate, CONTRACT_FIELDS } from '../../../shared/application/contract-template';
+import { ProjectDocumentEntity } from '../../../shared/infrastructure/entities/project-document.entity';
 // modules/sales/application/sales.service.ts
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { DataSource, EntityManager, In, Repository } from 'typeorm';
 import { SaleEntity } from '../../../shared/infrastructure/entities/sale.entity';
@@ -40,6 +45,62 @@ export class SalesService {
     @InjectDataSource()
     private readonly dataSource: DataSource,
   ) {}
+
+  private async prepareContract(saleId: number, agentId?: number, fields: Record<string, string> = {}) {
+    const sale = await this.saleRepo.findOne({ where: { id: saleId, ...(agentId ? { agentId } : {}) } });
+    if (!sale) throw new NotFoundException('Venta no encontrada');
+    const template = await this.dataSource.getRepository(ProjectDocumentEntity).findOne({
+      where: { projectId: sale.projectId, kind: 'contrato_venta' }, order: { createdAt: 'DESC', id: 'DESC' },
+    });
+    if (!template) throw new BadRequestException('Sube primero la plantilla PDF o Word en Documentos del proyecto > Contrato Venta de Lote.');
+    const [project, lot, client, agent] = await Promise.all([
+      this.dataSource.getRepository(ProjectEntity).findOne({ where: { id: sale.projectId } }),
+      this.lotRepo.findOne({ where: { id: sale.lotId } }),
+      sale.clientId ? this.clientRepo.findOne({ where: { id: sale.clientId } }) : null,
+      sale.agentId ? this.userRepo.findOne({ where: { id: sale.agentId } }) : null,
+    ]);
+    const amount = (value: unknown) => `US$ ${Number(value || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const contractData = {
+      venta_id: String(sale.id), fecha_venta: String(sale.saleDate).split('-').reverse().join('/'),
+      proyecto_nombre: project?.name || '', proyecto_ubicacion: project?.location || '',
+      cliente_nombre: client?.fullName || '', cliente_documento: '', cliente_domicilio: '', ciudad_firma: project?.location || '',
+      lote_codigo: lot?.code || '', lote_direccion: lot?.address || '', lote_area_m2: String(lot?.areaM2 ?? ''), lote_dimensiones: lot?.dimensions || '',
+      precio_venta: amount(sale.salePrice), cuota_inicial: amount(sale.cuotaInicial),
+      saldo_financiar: amount(Math.max(0, (Number(sale.financingBase) > 0 ? Number(sale.financingBase) : Number(sale.salePrice)) - Number(sale.cuotaInicial || 0))),
+      numero_cuotas: String(sale.totalCuotas), valor_cuota: amount(sale.valorCuota), condiciones: sale.conditions || '', agente_nombre: agent?.name || '',
+    };
+    for (const [key, value] of Object.entries(fields)) {
+      if (!(CONTRACT_FIELDS as readonly string[]).includes(key) || typeof value !== 'string' || value.length > 2000) throw new BadRequestException('Datos adicionales de contrato no válidos.');
+      if (!contractData[key]?.trim()) contractData[key] = value.trim();
+    }
+    const source = await downloadContractTemplate(template.url);
+    const isPdf = /\.pdf$/i.test(template.originalName || '');
+    return { source, isPdf, contractData, projectLogoUrl: project?.logoImageUrl };
+  }
+
+  async contractRequirements(saleId: number, agentId?: number) {
+    const { source, isPdf, contractData } = await this.prepareContract(saleId, agentId);
+    const info = isPdf ? await inspectPdfContractTemplate(source) : inspectContractTemplate(source);
+    const unknown = info.fields.filter(field => !(CONTRACT_FIELDS as readonly string[]).includes(field));
+    if (unknown.length) throw new BadRequestException(`Campos de plantilla no disponibles: ${unknown.join(', ')}`);
+    if (!info.fields.length) throw new BadRequestException('La plantilla no tiene campos para completar. Agrega campos como {cliente_nombre} y {lote_codigo}.');
+    return { missingFields: info.fields.filter(field => !contractData[field]?.trim()) };
+  }
+
+  async contract(saleId: number, agentId?: number, fields: Record<string, string> = {}) {
+    const { source, isPdf, contractData, projectLogoUrl } = await this.prepareContract(saleId, agentId, fields);
+    const companyLogo = await readFile(join(__dirname, '../../../assets/dunacon.png'));
+    let projectLogo: Buffer | undefined;
+    if (projectLogoUrl) {
+      const imageUrl = new URL(projectLogoUrl);
+      if (imageUrl.protocol !== 'https:' || imageUrl.hostname !== 'res.cloudinary.com') throw new BadRequestException('Vuelve a cargar el logo del proyecto para incorporarlo al contrato.');
+      imageUrl.pathname = imageUrl.pathname.replace('/image/upload/', '/image/upload/f_png,w_420,c_limit/');
+      projectLogo = await downloadContractTemplate(imageUrl.toString());
+    }
+    const branding = { companyLogo, projectLogo };
+    const buffer = isPdf ? await renderPdfContract(source, contractData, branding) : renderContract(source, contractData, branding);
+    return { buffer, fileName: `Contrato-V${saleId}.${isPdf ? 'pdf' : 'docx'}`, contentType: isPdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
+  }
 
   async audit(userId: number, action: string, entity?: string, entityId?: number, manager?: EntityManager) {
     const repo = manager ? manager.getRepository(AuditLogEntity) : this.auditRepo;

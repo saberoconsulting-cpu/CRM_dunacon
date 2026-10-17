@@ -516,7 +516,7 @@ export default function ProjectReports({ data, formatter }: { data: ProjectRepor
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
       {/* Columna izquierda (60%) */}
       <div className="grid min-w-0 gap-4 lg:grid-rows-[auto_1fr_1fr]">
-        <ChartShell title="Ejecucion de la Obra" subtitle={`Presupuesto de Obra: ${money(data.constructionBudget)}`}>
+        <ChartShell title="Ejecucion de la Obra" subtitle={`Costo de construcción: ${money(data.constructionBudget)}`} className="bg-gradient-to-br from-white via-emerald-50/40 to-blue-50/70">
           <div className="flex min-h-[230px] items-center justify-center">
             <DonutChart
               centered
@@ -525,7 +525,7 @@ export default function ProjectReports({ data, formatter }: { data: ProjectRepor
               formatter={money}
               data={[
                 { name: 'Avance real de obra', value: data.constructionReal, color: '#0F8B5F' },
-                { name: 'Presupuesto por ejecutar', value: Math.max(0, data.constructionBudget - data.constructionReal), color: '#E5E7EB' },
+                { name: 'Costo de construcción pendiente', value: Math.max(0, data.constructionBudget - data.constructionReal), color: '#E5E7EB' },
               ]}
             />
           </div>
@@ -553,7 +553,7 @@ export default function ProjectReports({ data, formatter }: { data: ProjectRepor
           </div>
         </ChartShell>
 
-        <ChartShell title="Inversiones y Gastos" subtitle="Ingresos y egresos reales del Estado de Resultados" flex1>
+        <ChartShell title="Ingresos y gastos" subtitle="Ingresos y egresos reales del Estado de Resultados" flex1>
           <div className="min-h-[190px] flex-1">
             <GroupedColumns
               rows={investmentData}
@@ -636,7 +636,7 @@ export default function ProjectReports({ data, formatter }: { data: ProjectRepor
               </div>
             </ChartShell>
 
-            <ChartShell title="Valor por estado" subtitle="Suma real del precio lista">
+            <ChartShell title="Valor por estado" subtitle="Vendidos: venta final real. Otros estados: valor base de lista.">
               <HorizontalBars data={lotAmountData.map((item) => ({ ...item, color: lotColorByLabel(item.name) }))} formatter={money} />
             </ChartShell>
 

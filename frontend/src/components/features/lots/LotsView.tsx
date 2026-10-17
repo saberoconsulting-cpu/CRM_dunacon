@@ -384,7 +384,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
           { label: 'Lotes Promoción', value: stats.promocion, amount: lotAmounts.promocion || 0, color: '#7C3AED', icon: <FiTag /> },
           { label: 'Lotes 2da Etapa', value: stats.segundaEtapa, amount: lotAmounts.segundaEtapa || 0, color: '#0E7490', icon: <FiFlag /> },
         ] as const).map((k) => (
-          <KpiCard key={k.label} label={k.label} value={k.value} icon={k.icon} tone={k.color} valueAlign="center" helper={`${displayMoney(k.amount)}${k.label === 'Lotes Vendidos' ? ` - Valor de lista ? Venta final: ${displayMoney(soldFinalAmount)}` : ''}`} />
+          <KpiCard key={k.label} label={k.label} value={k.value} icon={k.icon} tone={k.color} valueAlign="center" helper={k.label === 'Lotes Vendidos' ? `Venta final: ${displayMoney(soldFinalAmount)}` : displayMoney(k.amount)} />
         ))}
       </div>
 

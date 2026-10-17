@@ -1,3 +1,5 @@
+import { inspectPdfContractTemplate } from '../../../shared/application/pdf-contract-template';
+import { inspectContractTemplate, downloadContractTemplate } from '../../../shared/application/contract-template';
 import { randomUUID } from 'crypto';
 // modules/projects/application/projects.service.ts
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
@@ -247,10 +249,36 @@ export class ProjectsService {
     }));
   }
 
+  async contractTemplateFile(projectId: number) {
+    const template = await this.projectDocumentRepo.findOne({ where: { projectId, kind: 'contrato_venta' }, order: { createdAt: 'DESC', id: 'DESC' } });
+    if (!template) throw new NotFoundException('Sube primero la plantilla de contrato del proyecto.');
+    return { buffer: await downloadContractTemplate(template.url), fileName: template.originalName, contentType: /\.pdf$/i.test(template.originalName) ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
+  }
+
+  async contractTemplate(projectId: number) {
+    const template = await this.projectDocumentRepo.findOne({ where: { projectId, kind: 'contrato_venta' }, order: { createdAt: 'DESC', id: 'DESC' } });
+    if (!template) throw new NotFoundException('Sube primero la plantilla de contrato del proyecto.');
+    const buffer = await downloadContractTemplate(template.url);
+    const isPdf = /\.pdf$/i.test(template.originalName);
+    const { text, fields, availableFields } = isPdf ? await inspectPdfContractTemplate(buffer) : inspectContractTemplate(buffer);
+    return { originalName: template.originalName, text, fields, availableFields, format: isPdf ? 'pdf' : 'docx' };
+  }
+
   async uploadDocument(projectId: number, kind: string, file: Express.Multer.File, actorId: number) {
     const project = await this.projectRepo.findOne({ where: { id: projectId } });
     if (!project) throw new NotFoundException('Proyecto no encontrado');
     if (!file) throw new NotFoundException('Archivo no recibido');
+
+    if (kind === 'contrato_venta') {
+      if (!/\.(docx|pdf)$/i.test(file.originalname)) throw new BadRequestException('Sube un contrato en PDF o Word .docx.');
+      if (file.size > 10 * 1024 * 1024) throw new BadRequestException('El archivo supera el límite de 10 MB.');
+      if (/\.pdf$/i.test(file.originalname)) {
+        if (!file.buffer.subarray(0, 1024).includes(Buffer.from('%PDF-'))) throw new BadRequestException('El archivo no es un PDF válido.');
+        await inspectPdfContractTemplate(file.buffer);
+      } else {
+        inspectContractTemplate(file.buffer);
+      }
+    }
 
     const uploaded = await uploadToCloudinary(file.buffer, 'documents');
 

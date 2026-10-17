@@ -2,6 +2,8 @@ import { ReorderProjectsDto } from '../application/dto/reorder-projects.dto';
 // modules/projects/interface/projects.controller.ts
 import {
   Body,
+  Header,
+  StreamableFile,
   Delete,
   Controller,
   Get,
@@ -44,6 +46,18 @@ export class ProjectsController {
   history() {
     return this.projectsService.history();
   }
+  @Get(':id/contract-template/file')
+  @Header('Cache-Control', 'no-store')
+  async contractTemplateFile(@Param('id', ParseIntPipe) id: number) {
+    const file = await this.projectsService.contractTemplateFile(id);
+    return new StreamableFile(file.buffer, { type: file.contentType, disposition: `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}` });
+  }
+
+  @Get(':id/contract-template')
+  contractTemplate(@Param('id', ParseIntPipe) id: number) {
+    return this.projectsService.contractTemplate(id);
+  }
+
   @Get(':id/documents')
   listDocuments(@Param('id', ParseIntPipe) id: number) {
     return this.projectsService.listDocuments(id);
