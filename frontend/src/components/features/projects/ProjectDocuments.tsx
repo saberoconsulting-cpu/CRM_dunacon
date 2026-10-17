@@ -105,11 +105,6 @@ export default function ProjectDocuments({ projectId }: { projectId: number }) {
         })}
 
       </div>
-      <details className="mt-3 rounded-md border border-slate-200 p-3 text-xs text-slate-600">
-        <summary className="cursor-pointer font-semibold">Campos para la plantilla Word</summary>
-        <p className="mt-2">Puedes subir PDF o Word (.docx) para generar contratos. En tu plantilla, coloca estos campos donde deben ir los datos de cada venta; el sistema conserva el resto del documento.</p>
-        <p className="mt-2 break-words font-mono">{'{cliente_nombre}, {cliente_documento}, {cliente_domicilio}, {ciudad_firma}, {proyecto_nombre}, {proyecto_ubicacion}, {lote_codigo}, {lote_direccion}, {lote_area_m2}, {lote_dimensiones}, {precio_venta}, {cuota_inicial}, {saldo_financiar}, {numero_cuotas}, {valor_cuota}, {fecha_venta}, {venta_id}, {condiciones}, {agente_nombre}'}</p>
-      </details>
       {templatePreview && (
         <div className="mt-3 rounded-md border border-blue-100 bg-blue-50/40 p-3 text-xs">
           <h4 className="font-semibold">Texto de la plantilla</h4>

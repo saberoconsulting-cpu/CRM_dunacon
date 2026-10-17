@@ -33,6 +33,12 @@ export class SaleEntity {
   @Column({ name: 'sale_price', type: 'numeric', precision: 14, scale: 2 })
   salePrice: string;
 
+  @Column({ name: 'bono_total_usd', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  bonoTotalUsd: string | null;
+
+  @Column({ name: 'lot_price_usd', type: 'numeric', precision: 14, scale: 2, nullable: true })
+  lotPriceUsd: string | null;
+
   @Column({ name: 'sale_date', type: 'date', default: () => 'CURRENT_DATE' })
   saleDate: string;
 

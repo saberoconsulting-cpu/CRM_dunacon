@@ -69,6 +69,8 @@ export class ProjectsService {
       name: dto.name,
       description: dto.description,
       location: dto.location,
+      lotDeliveryDate: dto.lotDeliveryDate ?? null,
+      condominiumDeliveryDate: dto.condominiumDeliveryDate ?? null,
       status: dto.status || 'active',
       latitude: lat != null ? String(lat) : null,
       longitude: lng != null ? String(lng) : null,

@@ -1,0 +1,27 @@
+﻿const assert = require('node:assert/strict');
+require('ts-node').register({ transpileOnly: true, project: 'tsconfig.json' });
+const { prepareHighlightedContract } = require('../src/shared/application/highlighted-contract.ts');
+const paragraph = text => `<w:p><w:pPr><w:spacing w:after="80"/></w:pPr><w:r><w:rPr><w:b/><w:highlight w:val="yellow"/></w:rPr><w:t>${text}</w:t></w:r></w:p>`;
+const labels = ['Direcci\u00f3n', 'Area', 'Per\u00edmetro', 'Frente', 'Lado Izquierdo', 'Lado Derecho', 'Fondo', 'Precio de venta', 'Bonos de Descuento', 'Precio de venta Final', 'Cuota Inicial', 'Saldo a Financiar', 'Plazo de Financiamiento', 'Tasa Efectiva Anual', 'Cuotas sin intereses', 'Cuotas con intereses', 'Entrega del Lote', 'Entrega del Condominio', 'Empresa', 'RUC', 'Banco', 'Moneda', 'Nro. de Cuenta Corriente', 'C\u00f3digo de Cuenta Interbancario (CCI)'];
+const xml = '<w:document><w:body>' + paragraph('DATOS GENERALES PARA EL CONTRATO PREPARATORIO') + paragraph('El Promitente Comprador: Sr. Persona Ejemplo, identificado con D.N.I. N\u00b0 10002000.') + labels.map(label => paragraph(`${label}: valor de ejemplo`)).join('') + paragraph('Para mayor constancia en la fecha 17 de octubre de 2026  fecha de generar el sistema') + paragraph('[Nombre del Cliente]') + paragraph('D.N.I. N\u00b0 [............]') + '</w:body></w:document>';
+const result = prepareHighlightedContract(xml);
+assert.equal(new Set([...result.matchAll(/\{([^}]+)\}/g)].map(match => match[1])).size, 27);
+assert.ok(result.includes('<w:spacing w:after="80"/>'));
+assert.ok(result.includes('<w:highlight w:val="yellow"/>'));
+assert.ok(!result.includes('valor de ejemplo'));
+assert.ok(!result.includes('Persona Ejemplo'));
+assert.ok(!result.includes('10002000'));
+assert.ok(!result.includes('fecha de generar el sistema'));
+assert.equal(prepareHighlightedContract(result), result);
+assert.equal(prepareHighlightedContract(result.replace(/\{[^}]+\}/g, 'completado')), result.replace(/\{[^}]+\}/g, 'completado'));
+assert.throws(() => prepareHighlightedContract(xml.replace('Banco:', 'Entidad:')), /banco/);
+console.log('Word resaltado: 27 campos, nombre y DNI repetidos, fecha, formato original y deteccion de cambios verificados.');
+
+const { adaptContractPayment } = require('../src/shared/application/highlighted-contract.ts');
+const paymentXml = '<w:document>' + paragraph('Condiciones de Venta y Financiamiento') + paragraph('Precio de venta: {precio_venta}') + paragraph('Bonos de Descuento: {bono_total}') + paragraph('Precio de venta Final: {precio_venta_final}') + paragraph('Cuota Inicial: {cuota_inicial}') + paragraph('Saldo a Financiar: {saldo_financiar}') + paragraph('Plazo de Financiamiento: {plazo_financiamiento}') + paragraph('Tasa Efectiva Anual: {tasa_efectiva_anual}') + paragraph('Cuotas sin intereses: {cuotas_sin_intereses}') + paragraph('Cuotas con intereses: {cuotas_con_intereses}') + '</w:document>';
+const cashXml = adaptContractPayment(paymentXml, 'contado');
+assert.ok(cashXml.includes('Condiciones de venta y pago al contado'));
+assert.ok(cashXml.includes('{precio_venta}') && cashXml.includes('{bono_total}') && cashXml.includes('{precio_venta_final}'));
+assert.ok(!cashXml.includes('{cuota_inicial}') && !cashXml.includes('{saldo_financiar}') && !cashXml.includes('{plazo_financiamiento}') && !cashXml.includes('{tasa_efectiva_anual}') && !cashXml.includes('{cuotas_sin_intereses}') && !cashXml.includes('{cuotas_con_intereses}'));
+assert.equal(adaptContractPayment(paymentXml, 'credito'), paymentXml);
+console.log('Contado: solo precio, bonos y precio final; credito conserva todas las condiciones.');

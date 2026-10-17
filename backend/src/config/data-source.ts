@@ -1,3 +1,4 @@
+import { AppSettingEntity } from '../shared/infrastructure/entities/app-setting.entity';
 // config/data-source.ts
 // DataSource de TypeORM usado por la CLI de migraciones
 import 'dotenv/config';
@@ -41,6 +42,7 @@ export const AppDataSource = new DataSource({
     max: Number(process.env.DB_POOL_MAX || 10),
   },
   entities: [
+    AppSettingEntity,
     UserEntity,
     ProjectEntity,
     UserProjectEntity,

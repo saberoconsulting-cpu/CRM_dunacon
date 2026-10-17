@@ -119,6 +119,7 @@ export default function CotizacionDocPage() {
     ['Precio del lote', Number(quote.lotPriceUsd)],
     ['Bono de descuento', -Number(quote.bonoDescuentoUsd)],
     ['Bono especial', -Number(quote.bonoEspecialUsd)],
+    ['Bono contado', -Number(quote.bonoContadoUsd || 0)],
     ['Precio final', Number(quote.finalPriceUsd)],
   ];
   if (quote.paymentMethod === 'credito') {

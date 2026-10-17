@@ -24,6 +24,12 @@ export class ProjectEntity {
   @Column({ length: 255, nullable: true })
   location: string;
 
+  @Column({ name: 'lot_delivery_date', type: 'date', nullable: true })
+  lotDeliveryDate: string | null;
+
+  @Column({ name: 'condominium_delivery_date', type: 'date', nullable: true })
+  condominiumDeliveryDate: string | null;
+
   @Column({ type: 'numeric', precision: 10, scale: 7, nullable: true })
   latitude: string;
 

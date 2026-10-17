@@ -82,6 +82,8 @@ export default function ProjectsPage() {
       name: p.name,
       description: p.description || '',
       location: p.location || '',
+      lotDeliveryDate: p.lotDeliveryDate || '',
+      condominiumDeliveryDate: p.condominiumDeliveryDate || '',
       latitude: p.latitude != null ? String(p.latitude) : '',
       longitude: p.longitude != null ? String(p.longitude) : '',
       referencePrice: p.referencePrice != null ? String(p.referencePrice) : '',
@@ -99,6 +101,8 @@ export default function ProjectsPage() {
       name,
       description: form.description || '',
       location: form.location || '',
+      lotDeliveryDate: form.lotDeliveryDate || null,
+      condominiumDeliveryDate: form.condominiumDeliveryDate || null,
       latitude: numberOrUndefined(form.latitude),
       longitude: numberOrUndefined(form.longitude),
       referencePrice: numberOrUndefined(form.referencePrice),
@@ -307,8 +311,14 @@ export default function ProjectsPage() {
           <div className="relative max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6">
             <h3 className="font-semibold mb-5" style={{ fontSize: 17 }}>{editId != null ? 'Editar proyecto' : 'Nuevo proyecto'}</h3>
             <fieldset disabled={savingProject}>
+            <div className="grid grid-cols-2 gap-3">
             <Field label="Nombre *"><input className="input" value={form.name || ''} onChange={(e) => setf('name', e.target.value)} /></Field>
             <Field label="Ubicación / dirección"><input className="input" value={form.location || ''} onChange={(e) => setf('location', e.target.value)} /></Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Entrega del Lote"><input type="date" className="input min-w-0" value={form.lotDeliveryDate || ''} onChange={(e) => setf('lotDeliveryDate', e.target.value)} /></Field>
+              <Field label="Entrega del Condominio"><input type="date" className="input min-w-0" value={form.condominiumDeliveryDate || ''} onChange={(e) => setf('condominiumDeliveryDate', e.target.value)} /></Field>
+            </div>
             <Field label="Descripción"><textarea className="input" value={form.description || ''} onChange={(e) => setf('description', e.target.value)} /></Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Latitud (mapa)"><input className="input" value={form.latitude || ''} onChange={(e) => setf('latitude', e.target.value)} /></Field>

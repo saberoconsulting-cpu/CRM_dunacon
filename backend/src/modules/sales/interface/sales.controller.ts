@@ -92,7 +92,7 @@ export class SalesController {
   async completedContract(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser, @Body() body: Record<string, unknown>) {
     const fields = body?.fields;
     if (!fields || typeof fields !== 'object' || Array.isArray(fields)) throw new BadRequestException('Completa los campos del contrato.');
-    const { buffer, fileName, contentType } = await this.salesService.contract(id, user.role === UserRole.AGENT ? user.id : undefined, fields as Record<string, string>);
+    const { buffer, fileName, contentType } = await this.salesService.contract(id, user.role === UserRole.AGENT ? user.id : undefined, fields as Record<string, string>, typeof body.bankAccountId === 'string' ? body.bankAccountId : undefined);
     return new StreamableFile(buffer, { type: contentType, disposition: `attachment; filename="${fileName}"` });
   }
 

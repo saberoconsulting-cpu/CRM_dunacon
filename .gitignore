@@ -40,3 +40,6 @@ coverage/
 *.local
 tmp/
 *.tmp
+
+# Local contract review artifacts
+backend/.contract-review/

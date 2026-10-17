@@ -256,6 +256,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
     ['Precio de lote', Number(quote.lotPriceUsd || 0)],
     ['Bono descuento', -Number(quote.bonoDescuentoUsd || 0)],
     ['Bono especial', -Number(quote.bonoEspecialUsd || 0)],
+    ['Bono contado', -Number(quote.bonoContadoUsd || 0)],
     ['Precio final', Number(quote.finalPriceUsd || 0)],
   ];
   if (quote.paymentMethod === 'credito') {
@@ -666,7 +667,10 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [clientSearch, setClientSearch] = useState('');
   const [lotId, setLotId] = useState(0);
   const [lotPriceUsd, setLotPriceUsd] = useState(0);
-  const [finalPriceUsd, setFinalPriceUsd] = useState(0);
+  const openedPreselectedLot = useRef<string | null>(null);
+  const [bonoContadoPct, setBonoContadoPct] = useState(5);
+  const [editingBonoContado, setEditingBonoContado] = useState(false);
+  const [bonoContadoDraft, setBonoContadoDraft] = useState('5');
   const [bonoDescuento, setBonoDescuento] = useState(0);
   const [bonoEspecial, setBonoEspecial] = useState(0);
   const [exchangeRate, setExchangeRate] = useState(3.75);
@@ -739,9 +743,13 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   }, []);
   useEffect(() => {
     const pre = searchParams?.get('lotId');
-    if (pre) { selectLot(Number(pre)); setOpen(true); }
+    if (!pre) { openedPreselectedLot.current = null; return; }
+    if (openedPreselectedLot.current === pre || !lots.some(lot => lot.id === Number(pre))) return;
+    openedPreselectedLot.current = pre;
+    selectLot(Number(pre));
+    setOpen(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams, lots.length]);
+  }, [searchParams, lots]);
 
   useEffect(() => {
     if (clientSearch && clients.length > 0) {
@@ -789,7 +797,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
       const perM2 = Number(lot.price || 0);
       const total = Number(lot.finalPrice || lot.salePrice || (perM2 * area) || 0);
       setLotPriceUsd(Number(total.toFixed(2)));
-      setFinalPriceUsd(Number(total.toFixed(2)));
+      setBonoContadoPct(5); setEditingBonoContado(false);
       setBonoDescuento(0);
       setBonoEspecial(0);
       setCuotaInicialUsd(0);
@@ -818,10 +826,12 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     setLotId(0);
     setStreetId(0);
     setLotPriceUsd(0);
-    setFinalPriceUsd(0);
+    setBonoContadoPct(5); setEditingBonoContado(false);
   }
 
-  const finalPrice = Math.max(0, finalPriceUsd);
+  const bonoContadoUsd = paymentMethod === 'contado' ? Number((lotPriceUsd * bonoContadoPct / 100).toFixed(2)) : 0;
+  const bonoTotal = Number((bonoDescuento + bonoEspecial + bonoContadoUsd).toFixed(2));
+  const finalPrice = Number(Math.max(0, lotPriceUsd - bonoTotal).toFixed(2));
   const derivedPricePerM2Usd = selectedLot?.areaM2 ? Number((lotPriceUsd / Number(selectedLot.areaM2 || 1)).toFixed(2)) : 0;
   const safeTotalCuotas = Math.max(1, Number(totalCuotas || 0));
   const safeCuotaInicialUsd = paymentMethod === 'credito' ? Math.min(finalPrice, Math.max(0, Number(cuotaInicialUsd || 0))) : 0;
@@ -832,30 +842,16 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
 
   function resetForm() {
     setClientName(''); setClientEmail(''); setClientPhone(''); setClientId(null); setClientSearch('');
-    setLotId(0); setStreetId(0); setLotPriceUsd(0); setFinalPriceUsd(0); setBonoDescuento(0); setBonoEspecial(0); setQuoteDate(todayInput());
+    setLotId(0); setStreetId(0); setLotPriceUsd(0); setBonoContadoPct(5); setEditingBonoContado(false); setBonoDescuento(0); setBonoEspecial(0); setQuoteDate(todayInput());
     setPaymentMethod('credito'); setCuotaInicialUsd(0); setInitialPaymentMode('contado'); setInitialParts(3); setTotalCuotas(36); setGraceMonths(0); setApplyInterest(false); setTea(10);
   }
 
-  function recalcFinal(nextLotPrice = lotPriceUsd, nextBonoDescuento = bonoDescuento, nextBonoEspecial = bonoEspecial) {
-    setFinalPriceUsd(Number(Math.max(0, nextLotPrice - nextBonoDescuento - nextBonoEspecial).toFixed(2)));
-  }
-
-  function updateLotPrice(value: number) {
-    const next = Number(value || 0);
-    setLotPriceUsd(next);
-    recalcFinal(next, bonoDescuento, bonoEspecial);
-  }
-
   function updateBonoDescuento(value: number) {
-    const next = Number(value || 0);
-    setBonoDescuento(next);
-    recalcFinal(lotPriceUsd, next, bonoEspecial);
+    setBonoDescuento(Math.max(0, Number(value || 0)));
   }
 
   function updateBonoEspecial(value: number) {
-    const next = Number(value || 0);
-    setBonoEspecial(next);
-    recalcFinal(lotPriceUsd, bonoDescuento, next);
+    setBonoEspecial(Math.max(0, Number(value || 0)));
   }
 
   async function guardar() {
@@ -873,7 +869,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
       await api.post('/quotes', {
         projectId: lockedProjectId || selectedLot?.projectId || 1,
         lotId, clientId: clientId || undefined, clientName, clientEmail, clientPhone,
-        pricePerM2Usd: derivedPricePerM2Usd, lotPriceUsd, finalPriceUsd: finalPrice, bonoDescuentoUsd: bonoDescuento || undefined, bonoEspecialUsd: bonoEspecial || undefined,
+        pricePerM2Usd: derivedPricePerM2Usd, lotPriceUsd, finalPriceUsd: finalPrice, bonoDescuentoUsd: bonoDescuento || undefined, bonoEspecialUsd: bonoEspecial || undefined, bonoContadoUsd,
         paymentMethod,
         cuotaInicialUsd: paymentMethod === 'credito' ? safeCuotaInicialUsd || undefined : undefined,
         totalCuotas: paymentMethod === 'credito' ? totalCuotas || undefined : undefined,
@@ -1139,24 +1135,47 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
               <LotInfoBox label="Direccion" value={selectedLot?.address || selectedLot?.streetAddress || selectedLot?.blockAddress || '-'} placeholder="Sin lote" />
               <LotInfoBox label="Area (m2)" value={selectedLot ? String(Number(selectedLot.areaM2 || 0).toLocaleString('es-PE')) : '-'} placeholder="Sin lote" />
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Precio de lote US$"><input type="number" className="input" value={lotPriceUsd || ''} onChange={(e) => updateLotPrice(Number(e.target.value))} /></Field>
-              <Field label="Precio final US$"><input type="number" className="input" value={finalPriceUsd || ''} onChange={(e) => setFinalPriceUsd(Number(e.target.value || 0))} /></Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Bono de descuento US$"><input type="number" className="input" value={bonoDescuento || ''} onChange={(e) => updateBonoDescuento(Number(e.target.value))} /></Field>
-              <Field label="Bono especial US$"><input type="number" className="input" value={bonoEspecial || ''} onChange={(e) => updateBonoEspecial(Number(e.target.value))} /></Field>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <Field label="Precio de lote US$"><input type="number" className="input bg-slate-100" readOnly value={lotPriceUsd || ''} /></Field>
+              <Field label="Bono de descuento US$"><input type="number" min="0" className="input" value={bonoDescuento || ''} onChange={(e) => updateBonoDescuento(Number(e.target.value))} /></Field>
+              <Field label="Bono especial US$"><input type="number" min="0" className="input" value={bonoEspecial || ''} onChange={(e) => updateBonoEspecial(Number(e.target.value))} /></Field>
+              <Field label="Bono contado %">
+                <input
+                  type="text" inputMode="decimal"
+                  className="input disabled:bg-slate-100 disabled:text-slate-400"
+                  disabled={paymentMethod !== 'contado'}
+                  readOnly={!editingBonoContado}
+                  value={editingBonoContado ? bonoContadoDraft : bonoContadoPct}
+                  title="Haz clic para editar el porcentaje"
+                  onClick={() => {
+                    if (!editingBonoContado) { setBonoContadoDraft(String(bonoContadoPct)); setEditingBonoContado(true); }
+                  }}
+                  onChange={(e) => {
+                    const value = e.target.value.replace(',', '.');
+                    if (!/^\d{0,3}(\.\d{0,2})?$/.test(value) || Number(value) > 100) return;
+                    setBonoContadoDraft(value);
+                  }}
+                  onBlur={() => {
+                    if (editingBonoContado && bonoContadoDraft.trim() !== '') setBonoContadoPct(Number(bonoContadoDraft));
+                    setEditingBonoContado(false);
+                  }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }}
+                />
+                <span className="text-[11px] text-slate-500">{fmtUsd(bonoContadoUsd)}</span>
+              </Field>
             </div>
             <div className="rounded-lg bg-canvas p-3 text-sm flex justify-between mb-3">
               <span className="text-slate-600">Precio final:</span><b>{fmtUsd(finalPrice)}</b>
             </div>
 
             <h4 className="font-semibold text-sm text-slate-700 mb-2">Forma de pago</h4>
+            <div className={`grid gap-3 ${paymentMethod === 'credito' ? 'grid-cols-3' : 'grid-cols-2'}`}>
             <Field label="Forma de pago">
               <Select
                 value={paymentMethod}
                 onChange={(value) => {
                   setPaymentMethod(value as any);
+                  setEditingBonoContado(false);
                   if (value === 'contado') {
                     setCuotaInicialUsd(0);
                     setInitialPaymentMode('contado');
@@ -1168,12 +1187,18 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                 ]}
               />
             </Field>
-            {paymentMethod === 'credito' && (
-              <>
-                <div className="grid grid-cols-2 gap-3">
+              {paymentMethod === 'credito' && (
+                <>
                   <Field label="Cuota inicial US$"><input type="number" className="input" value={cuotaInicialUsd || ''} onChange={(e) => setCuotaInicialUsd(Number(e.target.value || 0))} /></Field>
                   <Field label="Cuotas de financiamiento"><input type="number" className="input" value={totalCuotas || ''} onChange={(e) => setTotalCuotas(Number(e.target.value || 0))} /></Field>
-                </div>
+                </>
+              )}
+              {paymentMethod === 'contado' && (
+                <Field label="Bono total US$"><input className="input bg-slate-100" readOnly value={bonoTotal.toFixed(2)} /></Field>
+              )}
+            </div>
+            {paymentMethod === 'credito' && (
+              <>
                 <p className="-mt-2 mb-3 text-[11px] text-slate-500">
                   La cuota inicial se registra por separado: cuenta como 1 cuota. El saldo se financia en {safeTotalCuotas} cuotas, mas la cuota inicial: {safeTotalCuotas + (safeCuotaInicialUsd > 0 ? 1 : 0)} en total.
                 </p>

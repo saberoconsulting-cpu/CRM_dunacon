@@ -1,3 +1,6 @@
+import { ProjectLotDataEntity } from '../../../shared/infrastructure/entities/project-lot-data.entity';
+import { AppSettingEntity } from '../../../shared/infrastructure/entities/app-setting.entity';
+import { lotDataCode } from '../../plan/application/lot-data-excel';
 import { readFile } from 'fs/promises';
 import { join } from 'path';
 import { renderPdfContract, inspectPdfContractTemplate } from '../../../shared/application/pdf-contract-template';
@@ -46,7 +49,7 @@ export class SalesService {
     private readonly dataSource: DataSource,
   ) {}
 
-  private async prepareContract(saleId: number, agentId?: number, fields: Record<string, string> = {}) {
+  private async prepareContract(saleId: number, agentId?: number, fields: Record<string, string> = {}, bankAccountId?: string) {
     const sale = await this.saleRepo.findOne({ where: { id: saleId, ...(agentId ? { agentId } : {}) } });
     if (!sale) throw new NotFoundException('Venta no encontrada');
     const template = await this.dataSource.getRepository(ProjectDocumentEntity).findOne({
@@ -59,14 +62,49 @@ export class SalesService {
       sale.clientId ? this.clientRepo.findOne({ where: { id: sale.clientId } }) : null,
       sale.agentId ? this.userRepo.findOne({ where: { id: sale.agentId } }) : null,
     ]);
+    const [dimensions, quote, financialSetting] = await Promise.all([
+      lot ? this.dataSource.getRepository(ProjectLotDataEntity).findOne({ where: { projectId: sale.projectId, code: lotDataCode(lot.code) } }) : null,
+      sale.quoteId ? this.dataSource.getRepository(QuoteEntity).findOne({ where: { id: sale.quoteId } }) : null,
+      this.dataSource.getRepository(AppSettingEntity).findOne({ where: { key: `finance_financial_data_${sale.projectId}` } }),
+    ]);
+    let accounts: Array<{ id: string; company: string; ruc: string; bank: string; currency: string; accountNumber: string; cci: string }> = [];
+    if (financialSetting?.value) {
+      try {
+        const saved = JSON.parse(financialSetting.value);
+        if (!Array.isArray(saved.accounts)) throw new Error();
+        accounts = saved.accounts;
+      } catch { throw new BadRequestException('Revisa los datos financieros del proyecto: no se pueden leer las cuentas guardadas.'); }
+    }
+    const account = bankAccountId ? accounts.find(item => item.id === bankAccountId) : accounts.length === 1 ? accounts[0] : undefined;
+    if (bankAccountId && !account) throw new BadRequestException('La cuenta elegida no pertenece a este proyecto.');
+    const cashSale = /Forma de pago:\s*Contado\b/i.test(sale.conditions || '') || (!/Forma de pago:/i.test(sale.conditions || '') && quote?.paymentMethod === 'contado');
+    const principal = Math.max(0, Number(sale.salePrice) - Number(sale.cuotaInicial || 0));
+    const graceMatch = String(sale.conditions || '').match(/Cuotas sin interes:\s*(\d+)/i);
+    const graceMonths = Number(graceMatch?.[1] ?? (sale.interestType === 'tea' ? 0 : sale.totalCuotas));
+    const schedule = buildGraceSchedule({ principal, totalCuotas: sale.totalCuotas, graceMonths, interestType: sale.interestType, teaPct: Number(sale.tea) });
+    const meters = (value?: string) => value?.trim() ? /m(?:etros?)?\.?$/i.test(value.trim()) ? value.trim() : `${value.trim()} m` : '';
     const amount = (value: unknown) => `US$ ${Number(value || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const contractData = {
+    const contractData: Record<string, string> = {
+      forma_pago: cashSale ? 'contado' : 'credito',
       venta_id: String(sale.id), fecha_venta: String(sale.saleDate).split('-').reverse().join('/'),
+      fecha_entrega_lote: project?.lotDeliveryDate?.split('-').reverse().join('/') || '',
+      fecha_entrega_condominio: project?.condominiumDeliveryDate?.split('-').reverse().join('/') || '',
       proyecto_nombre: project?.name || '', proyecto_ubicacion: project?.location || '',
-      cliente_nombre: client?.fullName || '', cliente_documento: sale.clientDni || client?.dni || '', cliente_domicilio: '', ciudad_firma: project?.location || '',
-      lote_codigo: lot?.code || '', lote_direccion: lot?.address || '', lote_area_m2: String(lot?.areaM2 ?? ''), lote_dimensiones: lot?.dimensions || '',
-      precio_venta: amount(sale.salePrice), cuota_inicial: amount(sale.cuotaInicial),
-      saldo_financiar: amount(Math.max(0, (Number(sale.financingBase) > 0 ? Number(sale.financingBase) : Number(sale.salePrice)) - Number(sale.cuotaInicial || 0))),
+      cliente_nombre: client?.fullName || quote?.clientName || '', cliente_documento: sale.clientDni || client?.dni || '', cliente_domicilio: '', ciudad_firma: project?.location || '',
+      lote_codigo: lot?.code || '', lote_direccion: dimensions?.address || lot?.address || '', lote_area_m2: dimensions ? Number(dimensions.areaM2).toFixed(2) : '', lote_dimensiones: dimensions?.dimensions || '',
+      lote_perimetro: meters(dimensions?.perimeter), lote_frente: meters(dimensions?.front),
+      lote_lado_izquierdo: meters(dimensions?.leftSide), lote_lado_derecho: meters(dimensions?.rightSide), lote_fondo: meters(dimensions?.back),
+      bono_total: sale.bonoTotalUsd != null ? amount(sale.bonoTotalUsd) : quote ? amount(quote.bonoTotalUsd) : '',
+      precio_venta_final: amount(sale.salePrice),
+      plazo_financiamiento: String(sale.totalCuotas), tasa_efectiva_anual: String(Number(sale.tea || 0)),
+      cuotas_sin_intereses: `${amount(schedule.graceMonths ? schedule.graceCuota : 0)} - ${schedule.graceMonths} Cuotas`,
+      cuotas_con_intereses: `${amount(schedule.interestMonths && sale.interestType === 'tea' ? schedule.interestCuota : 0)} - ${sale.interestType === 'tea' ? schedule.interestMonths : 0} Cuotas con Intereses`,
+      fecha_generacion: new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date()),
+      empresa_nombre: account?.company || '', empresa_ruc: account?.ruc || '',
+      banco: account?.bank || '', moneda: account?.currency === 'PEN' ? 'Soles' : account?.currency === 'USD' ? 'D\u00f3lares' : account?.currency || '',
+      cuenta_corriente: account?.accountNumber || '', cci: account?.cci || '',
+      precio_venta: sale.lotPriceUsd != null ? amount(sale.lotPriceUsd) : quote ? amount(quote.lotPriceUsd) : amount(sale.salePrice), cuota_inicial: amount(sale.cuotaInicial),
+      saldo_financiar: amount(cashSale ? 0 : Math.max(0, (Number(sale.financingBase) > 0 ? Number(sale.financingBase) : Number(sale.salePrice)) - Number(sale.cuotaInicial || 0))),
       numero_cuotas: String(sale.totalCuotas), valor_cuota: amount(sale.valorCuota), condiciones: sale.conditions || '', agente_nombre: agent?.name || '',
     };
     for (const [key, value] of Object.entries(fields)) {
@@ -75,20 +113,23 @@ export class SalesService {
     }
     const source = await downloadContractTemplate(template.url);
     const isPdf = /\.pdf$/i.test(template.originalName || '');
-    return { source, isPdf, contractData, projectLogoUrl: project?.logoImageUrl };
+    return { source, isPdf, contractData, projectLogoUrl: project?.logoImageUrl, accounts };
   }
 
   async contractRequirements(saleId: number, agentId?: number) {
-    const { source, isPdf, contractData } = await this.prepareContract(saleId, agentId);
-    const info = isPdf ? await inspectPdfContractTemplate(source) : inspectContractTemplate(source);
+    const { source, isPdf, contractData, accounts } = await this.prepareContract(saleId, agentId);
+    const info = isPdf ? await inspectPdfContractTemplate(source) : inspectContractTemplate(source, contractData.forma_pago);
     const unknown = info.fields.filter(field => !(CONTRACT_FIELDS as readonly string[]).includes(field));
     if (unknown.length) throw new BadRequestException(`Campos de plantilla no disponibles: ${unknown.join(', ')}`);
     if (!info.fields.length) throw new BadRequestException('La plantilla no tiene campos para completar. Agrega campos como {cliente_nombre} y {lote_codigo}.');
-    return { missingFields: info.fields.filter(field => !contractData[field]?.trim()) };
+    const bankFields = ['empresa_nombre', 'empresa_ruc', 'banco', 'moneda', 'cuenta_corriente', 'cci'];
+    const needsBank = info.fields.some(field => bankFields.includes(field));
+    if (needsBank && !accounts.length) throw new BadRequestException('Registra una cuenta en Finanzas > Datos financieros.');
+    return { missingFields: info.fields.filter(field => !contractData[field]?.trim() && !(needsBank && accounts.length > 1 && bankFields.includes(field))), bankAccounts: needsBank ? accounts.map(item => ({ id: item.id, label: [item.bank, item.currency].filter(Boolean).join(' - ') })) : [] };
   }
 
-  async contract(saleId: number, agentId?: number, fields: Record<string, string> = {}) {
-    const { source, isPdf, contractData, projectLogoUrl } = await this.prepareContract(saleId, agentId, fields);
+  async contract(saleId: number, agentId?: number, fields: Record<string, string> = {}, bankAccountId?: string) {
+    const { source, isPdf, contractData, projectLogoUrl } = await this.prepareContract(saleId, agentId, fields, bankAccountId);
     const companyLogo = await readFile(join(__dirname, '../../../assets/dunacon.png'));
     let projectLogo: Buffer | undefined;
     if (projectLogoUrl) {
@@ -248,6 +289,8 @@ export class SalesService {
         clientId: effectiveClientId,
         clientDni,
         quoteId: quote.id,
+        bonoTotalUsd: String(currentQuote.bonoTotalUsd || 0),
+        lotPriceUsd: String(currentQuote.lotPriceUsd),
         agentId: assignedAgentId,
         salePrice: String(dto.salePrice),
         saleDate: dto.saleDate || undefined,

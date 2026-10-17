@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useDisplayCurrency } from '@/lib/currency';
 
-export default function ExchangeRateField() {
+export default function ExchangeRateField({ className }: { className?: string } = {}) {
   const { exchangeRate, setExchangeRate } = useDisplayCurrency();
   const [draft, setDraft] = useState(String(exchangeRate));
   const [error, setError] = useState(false);
@@ -28,7 +28,7 @@ export default function ExchangeRateField() {
         aria-invalid={error}
         aria-describedby={error ? 'exchange-rate-error' : undefined}
         inputMode="decimal"
-        className="input !h-7 !w-full !min-w-0 !max-w-none !rounded-md !px-1 text-right !text-xs lg:!text-sm"
+        className={className || "input !h-7 !w-full !min-w-0 !max-w-none !rounded-md !px-1 text-right !text-xs lg:!text-sm"}
         value={draft}
         onChange={event => { setDraft(event.target.value); setError(false); }}
         onBlur={save}

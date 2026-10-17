@@ -1,18 +1,23 @@
+import { prepareHighlightedContract, adaptContractPayment } from './highlighted-contract';
 import { BadRequestException } from '@nestjs/common';
 import Docxtemplater from 'docxtemplater';
 import PizZip from 'pizzip';
 import { v2 as cloudinary } from 'cloudinary';
-import { normalizeContractText, ContractBranding } from './contract-presentation';
+import { ContractBranding } from './contract-presentation';
 
 export const CONTRACT_FIELDS = [
-  'venta_id', 'fecha_venta', 'proyecto_nombre', 'proyecto_ubicacion',
+  'venta_id', 'fecha_venta', 'proyecto_nombre', 'proyecto_ubicacion', 'fecha_entrega_lote', 'fecha_entrega_condominio',
   'cliente_nombre', 'cliente_documento', 'cliente_domicilio', 'ciudad_firma',
   'lote_codigo', 'lote_direccion', 'lote_area_m2', 'lote_dimensiones',
   'precio_venta', 'cuota_inicial', 'saldo_financiar', 'numero_cuotas',
-  'valor_cuota', 'condiciones', 'agente_nombre',
+  'valor_cuota', 'condiciones', 'agente_nombre', 'forma_pago',
+  'lote_perimetro', 'lote_frente', 'lote_lado_izquierdo', 'lote_lado_derecho', 'lote_fondo',
+  'bono_total', 'precio_venta_final', 'plazo_financiamiento', 'tasa_efectiva_anual',
+  'cuotas_sin_intereses', 'cuotas_con_intereses', 'fecha_generacion',
+  'empresa_nombre', 'empresa_ruc', 'banco', 'moneda', 'cuenta_corriente', 'cci',
 ] as const;
 
-export function inspectContractTemplate(buffer: Buffer) {
+export function inspectContractTemplate(buffer: Buffer, paymentMethod?: string) {
   try {
     if (buffer.length > 10 * 1024 * 1024) throw new Error('Archivo demasiado grande');
     const zip = new PizZip(buffer);
@@ -20,18 +25,7 @@ export function inspectContractTemplate(buffer: Buffer) {
     const expandedSize = entries.reduce((sum, entry: any) => sum + Number(entry._data?.uncompressedSize || 0), 0);
     if (entries.length > 2000 || expandedSize > 30 * 1024 * 1024) throw new Error('Documento demasiado grande');
     if (!zip.file('word/document.xml')) throw new Error('No es un documento Word');
-    for (const name of Object.keys(zip.files).filter(name => /^word\/(document|header\d*|footer\d*)\.xml$/.test(name))) {
-      const xml = zip.file(name)!.asText().replace(/<w:p\b[^>]*>[\s\S]*?<\/w:p>/g, paragraph => {
-        const text = [...paragraph.matchAll(/<w:t\b[^>]*>([\s\S]*?)<\/w:t>/g)].map(match => match[1]).join('')
-          .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
-        const cleaned = normalizeContractText(text);
-        if (cleaned === text.trim()) return paragraph;
-        const escaped = cleaned.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const properties = paragraph.match(/<w:pPr\b[^>]*>[\s\S]*?<\/w:pPr>/)?.[0] || '';
-        return `<w:p>${properties}<w:r><w:t xml:space="preserve">${escaped}</w:t></w:r></w:p>`;
-      });
-      zip.file(name, xml);
-    }
+    zip.file('word/document.xml', adaptContractPayment(prepareHighlightedContract(zip.file('word/document.xml')!.asText()), paymentMethod));
     const fields = new Set<string>();
     const document = new Docxtemplater(zip, {
       paragraphLoop: true,
@@ -54,18 +48,58 @@ export function inspectContractTemplate(buffer: Buffer) {
 }
 
 export function renderContract(buffer: Buffer, data: Record<string, string>, branding?: ContractBranding) {
-  const { document, fields } = inspectContractTemplate(buffer);
+  const { document, fields } = inspectContractTemplate(buffer, data.forma_pago);
   if (!fields.length) throw new BadRequestException('La plantilla no tiene campos para completar. Agrega al Word campos como {cliente_nombre}, {lote_codigo} y {precio_venta}.');
   const unknown = fields.filter(field => !(CONTRACT_FIELDS as readonly string[]).includes(field));
   if (unknown.length) throw new BadRequestException(`Campos de plantilla no disponibles: ${unknown.join(', ')}`);
   const missing = fields.filter(field => !data[field]?.trim());
   if (missing.length) throw new BadRequestException(`Completa los datos de la venta antes de generar el contrato: ${missing.join(', ')}`);
   document.render(data);
+  const outputZip = document.getZip();
+  for (const name of Object.keys(outputZip.files).filter(name => /^word\/(?:document|header\d*|footer\d*|styles)\.xml$/.test(name))) {
+    const xml = outputZip.file(name)!.asText()
+      .replace(/<w:highlight\b[^>]*\/>/g, '')
+      .replace(/<w:rPr\b[^>]*>[\s\S]*?<\/w:rPr>/g, properties => properties.replace(/<w:shd\b[^>]*\/>/g, ''));
+    outputZip.file(name, xml);
+  }
   if (branding?.companyLogo || branding?.projectLogo) addWordBranding(document.getZip(), branding);
   return document.getZip().generate({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
+function replaceExistingHeaderLogos(zip: PizZip, branding: ContractBranding): boolean {
+  let preserved = false;
+  for (const name of Object.keys(zip.files).filter(name => /^word\/header\d*\.xml$/.test(name))) {
+    const xml = zip.file(name)!.asText();
+    const relPath = name.replace('word/', 'word/_rels/') + '.rels';
+    let rels = zip.file(relPath)?.asText();
+    if (!rels) continue;
+    const logos = [...xml.matchAll(/<wp:anchor\b[\s\S]*?<\/wp:anchor>/g)].map(match => ({
+      side: /<wp:align>(left|right)<\/wp:align>/.exec(match[0])?.[1] || (/<wp:positionH[^>]*relativeFrom="margin"[^>]*>\s*<wp:posOffset>-?\d+<\/wp:posOffset>/.test(match[0]) && Number(/<wp:posOffset>(-?\d+)/.exec(match[0])?.[1]) <= 0 ? 'left' : undefined),
+      id: /r:embed="([^"]+)"/.exec(match[0])?.[1],
+    })).filter(item => item.id && item.side);
+    if (!logos.some(item => item.side === 'left') || !logos.some(item => item.side === 'right')) continue;
+    for (const logo of logos) {
+      const bytes = logo.side === 'left' ? branding.companyLogo : branding.projectLogo;
+      if (!bytes) continue;
+      const target = `media/contract-${logo.side}.png`;
+      zip.file('word/' + target, bytes);
+      rels = rels.replace(/<Relationship\b[^>]*\/>/g, relationship => {
+        if (!relationship.includes(`Id="${logo.id}"`)) return relationship;
+        return relationship.replace(/Target="[^"]+"/, `Target="${target}"`);
+      });
+    }
+    zip.file(relPath, rels);
+    preserved = true;
+  }
+  if (preserved) {
+    const types = zip.file('[Content_Types].xml')!.asText();
+    if (!/Extension="png"/.test(types)) zip.file('[Content_Types].xml', types.replace('</Types>', '<Default Extension="png" ContentType="image/png"/></Types>'));
+  }
+  return preserved;
+}
+
 function addWordBranding(zip: PizZip, branding: ContractBranding) {
+  if (replaceExistingHeaderLogos(zip, branding)) return;
   const image = (id: string, bytes: Buffer | undefined, align: string) => {
     if (!bytes) return '<w:p/>';
     const pixelWidth = bytes.readUInt32BE(16), pixelHeight = bytes.readUInt32BE(20);

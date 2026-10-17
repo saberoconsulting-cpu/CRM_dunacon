@@ -30,19 +30,25 @@ for (const [setter, key] of Object.entries({ setForm: 'form', setEditId: 'editId
 vm.createContext(state);
 vm.runInContext(ts.transpileModule(functions.join('\n'), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText, state);
 (async () => {
-  const existing = { id: 5, name: 'Proyecto', description: 'Anterior', latitude: 0, longitude: 0, referencePrice: 0, stats: { total: 82 } };
+  const existing = { id: 5, name: 'Proyecto', description: 'Anterior', lotDeliveryDate: '2026-12-31', condominiumDeliveryDate: '2028-12-31', latitude: 0, longitude: 0, referencePrice: 0, stats: { total: 82 } };
   state.projects = [existing];
   state.abrirEdicion(existing);
   assert.equal(state.editId, 5);
   assert.equal(state.open, true);
   assert.equal(state.form.latitude, '0');
   assert.equal(state.form.referencePrice, '0');
+  assert.equal(state.form.lotDeliveryDate, '2026-12-31');
+  assert.equal(state.form.condominiumDeliveryDate, '2028-12-31');
+  state.form.lotDeliveryDate = '2027-06-30';
+  state.form.condominiumDeliveryDate = '';
   state.form.name = 'Proyecto actualizado';
   state.form.description = '';
   await state.guardarProyecto();
   assert.equal(calls[0].url, '/projects/update/5');
   assert.equal(calls[0].body.name, 'Proyecto actualizado');
   assert.equal(calls[0].body.description, '');
+  assert.equal(calls[0].body.lotDeliveryDate, '2027-06-30');
+  assert.equal(calls[0].body.condominiumDeliveryDate, null);
   assert.equal(calls[0].body.latitude, 0);
   assert.equal(calls[0].body.referencePrice, 0);
   assert.equal(state.projects.length, 1);

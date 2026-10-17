@@ -26,6 +26,15 @@ assert.throws(() => inspectContractTemplate(Buffer.from('not a Word file')), /Wo
 assert.throws(() => inspectContractTemplate(word('<w:p><w:r><w:t>{cliente_nombre</w:t></w:r></w:p>')), /Word .docx/);
 console.log('Contratos Word: campos divididos entre estilos, formato, valores especiales, datos faltantes y archivos inválidos verificados.');
 
+const layoutTemplate = word('<w:p><w:pPr><w:spacing w:after="120"/></w:pPr><w:r><w:rPr><w:b/><w:highlight w:val="yellow"/></w:rPr><w:t xml:space="preserve">Nombre:  {cliente_nombre}</w:t></w:r></w:p><w:p><w:r><w:br w:type="page"/></w:r></w:p><w:p><w:r><w:rPr><w:highlight w:val="cyan"/><w:shd w:fill="00FFFF"/></w:rPr><w:t>{fecha_generacion}</w:t></w:r></w:p>');
+const layoutRendered = renderContract(layoutTemplate, { cliente_nombre: 'Carlos', fecha_generacion: '17 de octubre de 2026' });
+const layoutXml = new PizZip(layoutRendered).file('word/document.xml').asText();
+assert.match(layoutXml, /Nombre:  Carlos/);
+assert.doesNotMatch(layoutXml, /w:highlight|w:shd/);
+assert.match(new PizZip(layoutTemplate).file('word/document.xml').asText(), /w:highlight w:val="yellow"/);
+assert.match(layoutXml, /w:spacing w:after="120"/);
+assert.match(layoutXml, /w:br w:type="page"/);
+
 async function checkSaleContract() {
   await checkPdfContracts();
   const { SalesService } = require('../src/modules/sales/application/sales.service.ts');
@@ -40,6 +49,7 @@ async function checkSaleContract() {
     {}, {}, {},
     { getRepository: entity => {
       if (entity === ProjectDocumentEntity) return { findOne: async query => { requestedTemplate = query; return { url: 'https://res.cloudinary.com/test/template.docx' }; } };
+      if (entity.name === 'ProjectLotDataEntity' || entity.name === 'AppSettingEntity') return { findOne: async () => null };
       assert.equal(entity, ProjectEntity);
       return { findOne: async () => ({ name: 'Proyecto' }) };
     } },

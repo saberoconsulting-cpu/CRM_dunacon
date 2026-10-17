@@ -53,9 +53,11 @@ export class QuotesService implements OnModuleInit, OnModuleDestroy {
 
     const bonoDescuento = Number(dto.bonoDescuentoUsd || 0);
     const bonoEspecial = Number(dto.bonoEspecialUsd || 0);
+    const bonoContado = dto.paymentMethod === 'contado' ? Number(dto.bonoContadoUsd ?? Number(dto.lotPriceUsd) * 0.05) : 0;
+    const bonoTotal = Number((bonoDescuento + bonoEspecial + bonoContado).toFixed(2));
     const finalPrice = dto.finalPriceUsd != null
       ? Math.max(0, Number(dto.finalPriceUsd || 0))
-      : Math.max(0, Number(dto.lotPriceUsd) - bonoDescuento - bonoEspecial);
+      : Math.max(0, Number(dto.lotPriceUsd) - bonoDescuento - bonoEspecial - bonoContado);
     const cuotaInicial = dto.paymentMethod === 'credito' ? Math.max(0, Number(dto.cuotaInicialUsd || 0)) : 0;
     const totalCuotas = dto.paymentMethod === 'credito' ? Math.max(0, Number(dto.totalCuotas || 0)) : 0;
     const saldoAFinanciar = Math.max(0, finalPrice - cuotaInicial);
@@ -86,6 +88,8 @@ export class QuotesService implements OnModuleInit, OnModuleDestroy {
       lotPriceUsd: String(dto.lotPriceUsd),
       bonoDescuentoUsd: String(bonoDescuento),
       bonoEspecialUsd: String(bonoEspecial),
+      bonoContadoUsd: String(bonoContado),
+      bonoTotalUsd: String(bonoTotal),
       finalPriceUsd: String(finalPrice),
       paymentMethod: dto.paymentMethod,
       cuotaInicialUsd: String(cuotaInicial),
@@ -115,7 +119,7 @@ export class QuotesService implements OnModuleInit, OnModuleDestroy {
         'q.finalPriceUsd', 'q.cuotaInicialUsd', 'q.totalCuotas', 'q.paymentMethod',
         'q.interestType', 'q.tea', 'q.valorCuotaUsd', 'q.exchangeRate', 'q.status', 'q.createdAt',
         'q.graceMonths', 'q.initialPaymentMode', 'q.initialParts', 'q.createdBy',
-        'q.reusableUntil',
+        'q.reusableUntil', 'q.bonoTotalUsd', 'q.bonoDescuentoUsd', 'q.bonoEspecialUsd', 'q.bonoContadoUsd',
       ])
       .addSelect([
         'l.code AS "lotCode"',
@@ -152,6 +156,10 @@ export class QuotesService implements OnModuleInit, OnModuleDestroy {
       clientEmail: r.q_client_email,
       clientPhone: r.q_client_phone,
       finalPriceUsd: Number(r.q_final_price_usd),
+      bonoTotalUsd: Number(r.q_bono_total_usd || 0),
+      bonoDescuentoUsd: Number(r.q_bono_descuento_usd || 0),
+      bonoEspecialUsd: Number(r.q_bono_especial_usd || 0),
+      bonoContadoUsd: Number(r.q_bono_contado_usd || 0),
       cuotaInicialUsd: Number(r.q_cuota_inicial_usd),
       totalCuotas: Number(r.q_total_cuotas),
       graceMonths: Number(r.q_grace_months || 0),

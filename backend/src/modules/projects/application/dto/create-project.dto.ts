@@ -1,5 +1,5 @@
 // modules/projects/application/dto/create-project.dto.ts
-import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { Matches, IsDateString, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateProjectDto {
   @IsString()
@@ -13,6 +13,16 @@ export class CreateProjectDto {
   @IsOptional()
   @IsString()
   location?: string;
+
+  @IsOptional()
+  @IsDateString({ strict: true })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  lotDeliveryDate?: string | null;
+
+  @IsOptional()
+  @IsDateString({ strict: true })
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  condominiumDeliveryDate?: string | null;
 
   @IsOptional()
   latitude?: number;

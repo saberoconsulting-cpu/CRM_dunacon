@@ -103,6 +103,8 @@ export interface Project {
   name: string;
   description?: string;
   location?: string;
+  lotDeliveryDate?: string | null;
+  condominiumDeliveryDate?: string | null;
   latitude?: number;
   longitude?: number;
   coverImageUrl?: string;

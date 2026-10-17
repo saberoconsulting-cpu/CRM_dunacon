@@ -43,6 +43,11 @@ export class CreateQuoteDto {
   @IsNumber()
   bonoEspecialUsd?: number;
 
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  bonoContadoUsd?: number;
+
   @IsString()
   @IsIn(['contado', 'credito'])
   paymentMethod!: 'contado' | 'credito';

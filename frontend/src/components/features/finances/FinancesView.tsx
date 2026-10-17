@@ -7,7 +7,7 @@ import { formatDate } from '@/lib/types';
 import { useIncomeStatementReal, projectedFinancialAmount } from '@/components/features/income-statement/IncomeStatementView';
 import { partnerContribution, isNewPartner, issuePartnerShares } from '@/lib/partner-shares';
 import { useDisplayCurrency, displayNumberGlobal, displaySymbol } from '@/lib/currency';
-import ExchangeRateField from '@/components/features/finances/ExchangeRateField';
+import FinancialData from '@/components/features/finances/FinancialData';
 import { Select } from '@/components/ui/Select';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { KpiCard } from '@/components/ui/Metrics';
@@ -273,6 +273,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const [financeDash, setFinanceDash] = useState<FinanceDashData | null>(null);
   const [financeDashManual, setFinanceDashManual] = useState<FinanceDashManual>(defaultFinanceDashManual());
   const [financeDashLoaded, setFinanceDashLoaded] = useState(false);
+  const [dataPanel, setDataPanel] = useState<'important' | 'financial'>('important');
   const [financePanel, setFinancePanel] = useState<'commitments' | 'structure'>('commitments');
   const [financeClassRows, setFinanceClassRows] = useState<FinanceClassRow[]>([]);
   const [financeClassLoaded, setFinanceClassLoaded] = useState(false);
@@ -1138,10 +1139,19 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
           <div className="grid min-w-0 gap-3 lg:grid-cols-2 xl:gap-4">
             <div className="min-w-0 rounded-lg border bg-white p-2 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
-              <div className="mb-1 flex items-center justify-between gap-2">
-                <h3 className="font-bold text-blue-700">Datos Importantes</h3>
+              <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div className="inline-flex rounded-lg border bg-slate-50 p-1" style={{ borderColor: '#E5E7EB' }}>
+                  <button className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${dataPanel === 'important' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-blue-700'}`} type="button" onClick={() => setDataPanel('important')}>Datos importantes</button>
+                  <button className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${dataPanel === 'financial' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-blue-700'}`} type="button" onClick={() => setDataPanel('financial')}>Datos financieros</button>
+                </div>
+                {dataPanel === 'important' && (
                 <button className="btn-neutral !h-8 text-xs" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, dataRows: [...current.dataRows, { code: `D.${current.dataRows.length + 9}`, label: 'Nuevo dato', value: '' }] }))}>Agregar dato</button>
+                )}
               </div>
+              <div hidden={dataPanel !== 'financial'}>
+                {lockedProjectId && <FinancialData key={lockedProjectId} projectId={lockedProjectId} />}
+              </div>
+              <div hidden={dataPanel !== 'important'}>
               <div className="overflow-x-auto rounded-md border" style={{ borderColor: '#E5E7EB' }}>
               <table className="w-full table-fixed border-collapse text-xs">
                 <colgroup>
@@ -1174,17 +1184,6 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                       </td>
                     </tr>
                   ))}
-                  <tr className="border-b border-[#F3E4B0]" style={{ background: '#FFF8DB' }}>
-                    <td className="w-[30px] lg:w-[38px] px-1 lg:px-1.5 py-2 text-center text-[10px] font-bold text-[#8A6A00]">D.8</td>
-                    <td className="px-1 lg:px-2 py-1.5"><input aria-label="Nombre del dato tipo de cambio" className="input input-ghost !h-7 !w-full !min-w-0 !border-0 !bg-transparent !px-1 font-semibold text-[#1F2937]" value={financeDashManual.dataLabels.tipo_cambio ?? 'Tipo de cambio'} onChange={(e) => setFinanceDashManual((current) => ({ ...current, dataLabels: { ...current.dataLabels, tipo_cambio: e.target.value } }))} /></td>
-                    <td className="w-[88px] lg:w-[120px] pl-1 pr-2 py-1.5 text-right whitespace-nowrap lg:text-sm"><ExchangeRateField /></td>
-                    <td className="w-[48px] lg:w-[60px] px-0.5 lg:px-1 py-1.5 text-center">
-                      <div className="flex justify-center gap-1">
-                        <button className={rowIconButton} type="button" title="Editar nombre" aria-label="Editar nombre del tipo de cambio" onClick={focusRowInput}><FiEdit3 size={13} /></button>
-                        <button className={rowDangerDisabledButton} type="button" title="Fila base" aria-label="Eliminar tipo de cambio" disabled><FiTrash2 size={13} /></button>
-                      </div>
-                    </td>
-                  </tr>
                   {financeDashManual.dataRows.map((row, index) => isLandMatrixLabel(row.label) ? null : (
                     <tr key={`data-${index}`} className="border-b border-[#F3E4B0]" style={{ background: '#FFF8DB' }}>
                       <td className="w-[30px] lg:w-[38px] px-1 lg:px-1.5 py-1.5 text-center"><input className="input input-ghost !h-7 !border-0 !bg-transparent !px-0 text-center text-[10px] font-bold text-[#8A6A00]" value={row.code} onChange={(e) => updateManualArray('dataRows', index, { code: e.target.value })} /></td>
@@ -1200,6 +1199,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                   ))}
                 </tbody>
               </table>
+              </div>
               </div>
             </div>
             <div className="min-w-0 rounded-lg border bg-white p-2 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
@@ -1310,11 +1310,11 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             {loading ? <p className="p-4 text-slate-400">Cargando...</p>
               : txns.length === 0 ? <p className="p-6 text-center text-sm text-slate-400">Aun no hay movimientos.</p>
               : (
-              <table className="table-base table-head-plomo w-full [&_th]:!whitespace-normal [&_td]:!whitespace-normal [&_td]:break-words">
+              <table className="table-base table-head-plomo w-full [&_th]:!whitespace-nowrap [&_td]:!whitespace-nowrap sm:[&_th]:!whitespace-normal sm:[&_td]:!whitespace-normal sm:[&_td]:break-words">
                 <thead><tr>
                   <th className="th-base">ID</th><th className="th-base">Lote</th><th className="th-base">Cliente/Proveedor</th><th className="th-base">Modo de Pago</th>
-                  <th className="th-base">Tipo</th><th className="th-base !whitespace-normal !leading-snug"><span className="block whitespace-nowrap">Tipo de Pago/</span><span className="block whitespace-nowrap">Categoría</span></th><th className="th-base">Clasificacion</th><th className="th-base">Agente</th><th className="th-base">Concepto</th>
-                  <th className="th-base">Monto {displaySymbol()}</th><th className="th-base">Fecha</th>
+                  <th className="th-base">Tipo</th><th className="th-base !whitespace-normal !leading-snug"><span className="block whitespace-nowrap">Tipo de Pago/</span><span className="block whitespace-nowrap">Categoría</span></th><th className="th-base">Clasificacion</th><th className="th-base">Agente</th><th className="th-base max-w-[160px] sm:max-w-none">Concepto</th>
+                  <th className="th-base"><span className="inline-block whitespace-nowrap">Monto {displaySymbol()}</span></th><th className="th-base">Fecha</th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
                   {txns.map((t) => (
@@ -1327,9 +1327,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                       <td className="td-base capitalize">{t.paymentCategory || t.category}</td>
                       <td className="td-base">{t.classification || '-'}</td>
                       <td className="td-base">{t.agentName || '-'}</td>
-                      <td className="td-base">{t.concept}</td>
-                      <td className="td-base font-medium tabular-nums">{show(t.amount)}</td>
-                      <td className="td-base">{formatDate(t.txnDate)}</td>
+                      <td className="td-base max-w-[160px] sm:max-w-none"><div title={t.concept} className="w-[136px] max-w-full truncate sm:w-auto sm:whitespace-normal sm:overflow-visible sm:text-clip">{t.concept}</div></td>
+                      <td className="td-base font-medium tabular-nums"><span className="inline-block whitespace-nowrap">{show(t.amount)}</span></td>
+                      <td className="td-base"><span className="inline-block whitespace-nowrap">{formatDate(t.txnDate)}</span></td>
                     </tr>
                   ))}
                 </tbody>

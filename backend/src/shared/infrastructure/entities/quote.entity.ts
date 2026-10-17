@@ -41,6 +41,12 @@ export class QuoteEntity {
   @Column({ name: 'bono_especial_usd', type: 'numeric', precision: 14, scale: 2, default: 0 })
   bonoEspecialUsd: string;
 
+  @Column({ name: 'bono_contado_usd', type: 'numeric', precision: 14, scale: 2, default: 0 })
+  bonoContadoUsd: string;
+
+  @Column({ name: 'bono_total_usd', type: 'numeric', precision: 14, scale: 2, default: 0 })
+  bonoTotalUsd: string;
+
   @Column({ name: 'final_price_usd', type: 'numeric', precision: 14, scale: 2, default: 0 })
   finalPriceUsd: string;
 

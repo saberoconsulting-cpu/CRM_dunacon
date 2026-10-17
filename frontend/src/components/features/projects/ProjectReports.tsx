@@ -525,7 +525,7 @@ export default function ProjectReports({ data, formatter }: { data: ProjectRepor
               formatter={money}
               data={[
                 { name: 'Avance real de obra', value: data.constructionReal, color: '#0F8B5F' },
-                { name: 'Costo de construcción pendiente', value: Math.max(0, data.constructionBudget - data.constructionReal), color: '#E5E7EB' },
+                { name: 'Pendiente Ejecutar', value: Math.max(0, data.constructionBudget - data.constructionReal), color: '#E5E7EB' },
               ]}
             />
           </div>
