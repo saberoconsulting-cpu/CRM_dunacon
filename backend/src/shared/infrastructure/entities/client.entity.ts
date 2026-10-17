@@ -15,6 +15,9 @@ export class ClientEntity {
   @Column({ name: 'full_name', length: 200 })
   fullName: string;
 
+  @Column({ type: 'varchar', length: 8, nullable: true })
+  dni: string | null;
+
   @Column({ length: 50, nullable: true })
   phone: string;
 

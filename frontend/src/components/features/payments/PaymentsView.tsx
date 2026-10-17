@@ -4,6 +4,7 @@ import { Toaster, toast, Field, EmptyState } from '@/components/ui/ui';
 import { KpiCard } from '@/components/ui/Metrics';
 import { api, getToken, uploadFile } from '@/lib/api';
 import { financingCapitalAndInterest } from '@/lib/financing-interest';
+import { lotPaymentSummary } from '@/lib/lot-payment-summary';
 import { pendingInstallments, overdueInstallments, clientDelinquencyRate } from '@/lib/financing-pending';
 import {
   Bar,
@@ -215,6 +216,19 @@ function FinanceTooltip({ active, payload, label, formatter = money }: any) {
   );
 }
 
+function countInDescription<T extends { label: string; value: string; helper: string }>(item: T): T {
+  const match = item.value.match(/\s+(\(\d+\))$/);
+  if (!match) return item;
+  const descriptions: Record<string, string> = {
+    'Total Venta': 'lotes',
+    'Cuotas Iniciales': 'cuotas iniciales',
+    'Cuotas Pendientes': 'cuotas pendientes',
+    'Pagos de cuotas de financiamiento': 'cuotas de financiamiento',
+  };
+  if (descriptions[item.label]) return { ...item, value: item.value.slice(0, match.index), helper: `${match[1].slice(1, -1)} ${descriptions[item.label]}` };
+  return { ...item, value: item.value.slice(0, match.index), helper: `${match[1]} ${item.helper.replace(/^\(\d+\)\s*/, '')}` };
+}
+
 function KpiTile({ label, value, helper, icon, accent, truncateLabel = true }: {
   label: string;
   value: string;
@@ -223,7 +237,9 @@ function KpiTile({ label, value, helper, icon, accent, truncateLabel = true }: {
   accent: string;
   truncateLabel?: boolean;
 }) {
-  return <KpiCard label={label} value={value} helper={helper} icon={icon} tone={accent} truncateLabel={truncateLabel} valueAlign="center" />;
+  const count = helper.match(/^(\(?\d+\)?)\s/);
+  const description = count ? <><strong>{count[1]}</strong> {helper.slice(count[0].length)}</> : helper;
+  return <KpiCard label={label} value={value} helper={description} icon={icon} tone={accent} truncateLabel={truncateLabel} valueAlign="center" />;
 }
 
 function EmptyChart({ text }: { text: string }) {
@@ -1145,7 +1161,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     const webBarSvg = document.querySelector('#chart-composed svg.recharts-surface')?.outerHTML || barSvg;
     const cards = kpis.map(({ label, value, helper, accent }) => [label, value, helper, accent]);
     const cardIcons = Array.from(document.querySelectorAll('#payments-primary-kpis .kpi-label svg')).map(svg => svg.outerHTML);
-    const cardsHtml = cards.map(([label, value, helper, color], index) => `<div class="kpi" style="border-top-color:${color}"><span class="kpi-label"><i style="color:${color};background:${color}1F">${cardIcons[index] || ''}</i>${escapeHtml(label)}</span><strong style="color:${color}">${escapeHtml(value)}</strong><small>${escapeHtml(helper)}</small></div>`).join('');
+    const cardsHtml = cards.map(([label, value, helper, color], index) => `<div class="kpi" style="border-top-color:${color}"><span class="kpi-label"><i style="color:${color};background:${color}1F">${cardIcons[index] || ''}</i>${escapeHtml(label)}</span><strong style="color:${color}">${escapeHtml(value)}</strong><small>${escapeHtml(helper).replace(/^(\(?\d+\)?)(\s)/, '<b>$1</b>$2')}</small></div>`).join('');
     let chartImages = '';
     if (webPieSvg || webBarSvg) {
       chartImages = `
@@ -1302,7 +1318,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
       'Cuotas en Mora': `${usdMoney(totals.overdueUsd)} (${totals.overdueCount})`,
       'Morosidad %': pct(clientDelinquencyRate(totals.pendingUsd, totals.overdueUsd)),
     } as Record<string, string>)[item.label] ?? item.value,
-    helper: item.label === 'Pagos de cuotas de financiamiento' ? `Capital pagado de ${totals.totalCuotas} cuotas` : item.helper }));
+    helper: item.label === 'Pagos de cuotas de financiamiento' ? `Capital pagado de ${totals.totalCuotas} cuotas` : item.helper })).map(countInDescription);
     const exportedBreakdown = paymentBreakdown.map(item => ({ ...item, value: ({
       inicial: totals.initialUsd, cuotas: totals.paidUsd, pendientes: totals.pendingUsd, mora: totals.overdueUsd,
     } as Record<string, number>)[item.key] ?? 0 }));
@@ -1423,6 +1439,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     const pending = installments.filter(row => !row.paid);
     const financingPending = pendingInstallments(installments);
     const financing = financingCapitalAndInterest(history);
+    const dashboardAmounts = lotPaymentSummary(history);
     const financingOverdue = overdueInstallments(installments);
     const initials = (history.plan || []).filter((row: any) => row.kind === 'cuota_inicial');
     const paidInitials = initials.filter((row: any) => row.paid);
@@ -1431,9 +1448,9 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
       id: Number(history.sale.lotId), lotId: Number(history.sale.lotId),
       lotCode: history.lot?.code || history.lotCode || `Lote ${history.sale.lotId}`,
       area: Number(history.lot?.areaM2 || 0), clientName: history.client?.fullName || history.clientName || '-',
-      salePrice: Number(history.sale.salePrice || 0), initialUsd: Number(history.sale.cuotaInicial || 0),
+      salePrice: Number(history.sale.salePrice || 0), initialUsd: dashboardAmounts.initial,
       initialPaidUsd: sum(paidInitials), initialPaidCount: paidInitials.length,
-      totalCuotas: installments.length, paidCount: paid.length, paidUsd: financing.paidCapital,
+      totalCuotas: installments.length, paidCount: paid.length, paidUsd: dashboardAmounts.capital,
       pendingCount: financingPending.count, pendingUsd: financing.pendingCapital, interestUsd: financing.paidInterest,
       totalInterestUsd: financing.paidInterest + financing.pendingInterest,
       pendingInterestUsd: financing.pendingInterest,
@@ -1508,7 +1525,7 @@ export default function PaymentsView({ lockedProjectId }: { lockedProjectId?: nu
     { label: 'Interes pagado', value: kpiMoney(clientReportTotals.interestUsd), helper: 'Solo interes de cuotas pagadas', icon: <FiDollarSign />, accent: BLUE_DARK },
     { label: 'Cuotas en Mora', value: amountWithCount(kpiSource.overdueAmount, kpiSource.overduePayments), helper: 'Cuotas vencidas', icon: <FiAlertTriangle />, accent: RED },
     { label: 'Morosidad %', value: pct(delinquencyRate), helper: 'Mora sobre pendientes', icon: <FiActivity />, accent: AMBER },
-  ];
+  ].map(countInDescription);
   const paymentBreakdown = [
     { key: 'inicial', name: 'Cuotas Iniciales', value: kpiSource.initialPaymentAmount, color: BLUE },
     { key: 'cuotas', name: 'Pagos de cuotas de financiamiento', value: kpiSource.paidCuotasAmount, color: GREEN },

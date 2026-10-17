@@ -1974,7 +1974,6 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         ['Anos de proyeccion', 'years'],
                         ['Ano de inicio', 'startYear'],
                     ].map(([label, key]) => {
-                        const editable = (key === 'years' && mode === 'estatico') || key === 'startYear';
                         const summaryValue = ['income', 'cost-sales', 'selling', 'financial', 'pre-tax'].includes(key)
                             ? showAmount(calculatedRowTotal(key))
                             : '';
@@ -1985,8 +1984,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 : key === 'landArea'
                                     ? formatPlainInteger((manual as any)[key])
                                     : formatPlainInteger((manual as any)[key]));
-                        const content = <><p className="text-xs font-semibold text-slate-500">{label}</p><div className="mt-1 flex h-10 items-center justify-between rounded-md border bg-white px-2 text-sm font-semibold tabular-nums sm:px-3" style={{ borderColor: editable ? '#B9D2F4' : BRAND.border, color: BRAND.ink }}><span>{displayValue}</span>{editable && <FiEdit3 className="text-[#1259C4]" aria-hidden="true" />}</div></>;
-                        return editable ? <button type="button" key={key} onClick={openAssumptions} className="min-w-0 text-left">{content}</button> : <div key={key} className="min-w-0">{content}</div>;
+                        return <div key={key} className="min-w-0"><p className="text-xs font-semibold text-slate-500">{label}</p><div className="mt-1 flex h-10 items-center justify-between rounded-md border bg-white px-2 text-sm font-semibold tabular-nums sm:px-3" style={{ borderColor: BRAND.border, color: BRAND.ink }}><span>{displayValue}</span></div></div>;
                     })}
                 </div>
             </section>

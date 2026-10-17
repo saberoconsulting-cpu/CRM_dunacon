@@ -31,6 +31,7 @@ import { BankAccountEntity } from './shared/infrastructure/entities/bank-account
 import { BankCategoryMappingEntity } from './shared/infrastructure/entities/bank-category-mapping.entity';
 import { CashflowModelEntity } from './shared/infrastructure/entities/cashflow-model.entity';
 import { ProjectLotCatalogEntity } from './shared/infrastructure/entities/project-lot-catalog.entity';
+import { ProjectLotDataEntity } from './shared/infrastructure/entities/project-lot-data.entity';
 import { AuthModule } from './modules/auth/auth.module';
 import { UsersModule } from './modules/users/users.module';
 import { ProjectsModule } from './modules/projects/projects.module';
@@ -83,6 +84,7 @@ import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module
         BankAccountEntity,
         BankCategoryMappingEntity,
         ProjectLotCatalogEntity,
+        ProjectLotDataEntity,
         IncomeStatementItemEntity,
         CashflowModelEntity,
       ],

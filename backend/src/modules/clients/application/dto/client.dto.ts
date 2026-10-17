@@ -4,12 +4,18 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
 } from 'class-validator';
 
 export class CreateClientDto {
   @IsString()
   @IsNotEmpty()
   fullName!: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{8}$/, { message: 'El DNI debe tener 8 digitos.' })
+  dni?: string;
 
   @IsOptional()
   @IsString()

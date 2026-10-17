@@ -1,5 +1,11 @@
 // modules/sales/application/dto/sale.dto.ts
-import { IsBoolean, IsNumber, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsNumber, IsOptional, IsString, Matches } from 'class-validator';
+
+export class UpdateSaleDniDto {
+  @IsString()
+  @Matches(/^\d{8}$/, { message: 'El DNI debe tener 8 digitos.' })
+  clientDni!: string;
+}
 
 export class CreateSaleDto {
   @IsNumber()
@@ -10,6 +16,11 @@ export class CreateSaleDto {
 
   @IsOptional()
   clientId?: number;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{8}$/, { message: 'El DNI debe tener 8 digitos.' })
+  clientDni?: string;
 
   @IsOptional()
   @IsNumber()

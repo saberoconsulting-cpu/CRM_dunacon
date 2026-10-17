@@ -549,13 +549,15 @@ function rowTone(row: SheetRow) {
   return { bg: '#F8FAFC', color: INK, border: BORDER };
 }
 
-function KpiCard({ label, value, helper, icon, color = BLUE }: { label: string; value: string; helper: string; icon: JSX.Element; color?: string }) {
+function KpiCard({ label, value, helper, icon, color = BLUE, helperSeparated = false }: { label: string; value: string; helper: string; icon: JSX.Element; color?: string; helperSeparated?: boolean }) {
   return (
+    <div className={`min-w-0 [&>.card-card-kpi]:h-full ${helperSeparated ? '[&_.kpi-helper]:pt-2 [&_.kpi-helper]:text-left' : ''}`}>
     <SharedKpiCard label={label} value={<span className="block w-full text-center">{value}</span>}
       helper={helper}
       icon={icon}
       tone={color}
     />
+    </div>
   );
 }
 
@@ -1223,7 +1225,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     {
       label: 'Ingreso Proyectado',
       value: showUsdBase(lineProjected.ingreso || 0),
-      helper: 'Ingreso por venta de lotes - Prov. US$',
+      helper: 'Ingreso por venta de lotes',
       icon: <FiDollarSign />,
       color: BLUE,
       pdfTone: BLUE,
@@ -1231,7 +1233,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     {
       label: 'Costo de Ventas Proy.',
       value: showUsdBase(lineProjected.costo || 0),
-      helper: 'Costo de venta de lotes - Prov. US$',
+      helper: 'Costo de venta de lotes',
       icon: <FiBarChart2 />,
       color: GREEN,
       pdfTone: GREEN,
@@ -1239,7 +1241,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     {
       label: 'Gasto de Ventas y Adm',
       value: showUsdBase(lineProjected.ventas_admin || 0),
-      helper: 'Gastos de ventas y administrativos - Prov. US$',
+      helper: 'Gastos de ventas y administrativos',
       icon: <FiGrid />,
       color: BLUE_DARK,
       pdfTone: BLUE_DARK,
@@ -1247,7 +1249,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     {
       label: 'Utilidad Ajustada Proy.',
       value: showUsdBase(projectedComputed.adjusted || 0),
-      helper: 'Utilidad ajustada referencial - Prov. US$',
+      helper: 'Utilidad ajustada proyectada',
       icon: <FiFileText />,
       color: (projectedComputed.adjusted || 0) >= 0 ? BLUE : RED,
       pdfTone: (projectedComputed.adjusted || 0) >= 0 ? BLUE : RED,
@@ -1271,7 +1273,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     {
       label: 'INGRESO REAL',
       value: showUsdBase(rowReal['line-ingreso'] || 0),
-      helper: 'Ingresos de la operación diaria (transacciones)',
+      helper: 'Pago por venta de lotes',
       icon: <FiDollarSign />,
       color: GREEN,
       pdfTone: GREEN,
@@ -1279,7 +1281,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     {
       label: 'Costo de Ventas',
       value: showUsdBase(rowReal['line-costo'] || 0),
-      helper: `Margen neto ${pct(report.margin)}`,
+      helper: 'Pago terreno +CD+CI',
       icon: <FiBarChart2 />,
       color: BLUE,
       pdfTone: BLUE,
@@ -1287,7 +1289,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     {
       label: 'Gasto de Ventas y Adm',
       value: `${report.soldLots}/${lots.length}`,
-      helper: 'Conteo desde lotizacion.',
+      helper: 'Planilla -MKT+CV+GM',
       icon: <FiGrid />,
       color: BLUE_DARK,
       pdfTone: BLUE_DARK,
@@ -1295,7 +1297,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     {
       label: 'Gastos Financieros',
       value: showUsdBase(rowReal['line-financiero'] || 0),
-      helper: project?.location || 'Ubicacion del proyecto',
+      helper: 'Interés + comisiones bancarias',
       icon: <FiFileText />,
       color: '#7C3AED',
       pdfTone: '#7C3AED',
@@ -1303,7 +1305,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     {
       label: 'Utilidad Neta Real',
       value: showUsdBase(rowReal.net || 0),
-      helper: 'Utilidad neta - Real US$',
+      helper: 'Utilidad antes de IGV reembolso',
       icon: <FiTrendingUp />,
       color: (rowReal.net || 0) >= 0 ? BLUE_DARK : RED,
       pdfTone: (rowReal.net || 0) >= 0 ? BLUE_DARK : RED,
@@ -1311,7 +1313,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     {
       label: 'Utilidad Ajustada Real',
       value: showUsdBase(rowReal.adjusted || 0),
-      helper: project?.location || 'Ubicacion del proyecto',
+      helper: 'Utilidad final ventas proyectadas',
       icon: <FiTrendingUp />,
       color: (rowReal.adjusted || 0) >= 0 ? BLUE_DARK : RED,
       pdfTone: (rowReal.adjusted || 0) >= 0 ? BLUE_DARK : RED,
@@ -1659,7 +1661,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
             <h3 className="mb-2 text-lg font-black" style={{ color: '#334155' }}>{group.title}</h3>
             <div className="grid grid-cols-2 gap-3 lg:grid-cols-6">
               {group.cards.map((card) => (
-                <KpiCard key={card.label} label={card.label} value={card.value} helper={card.helper} icon={card.icon} color={card.color} />
+                <KpiCard key={card.label} label={card.label} value={card.value} helper={card.helper} icon={card.icon} color={card.color} helperSeparated={statementCards.slice(0, 4).includes(card) || statementCards.slice(6).includes(card)} />
               ))}
             </div>
           </section>

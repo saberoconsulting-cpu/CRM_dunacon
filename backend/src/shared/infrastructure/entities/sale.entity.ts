@@ -21,6 +21,12 @@ export class SaleEntity {
   @Column({ name: 'client_id', nullable: true })
   clientId: number;
 
+  @Column({ name: 'client_dni', type: 'varchar', length: 8, nullable: true })
+  clientDni: string | null;
+
+  @Column({ name: 'quote_id', type: 'integer', nullable: true })
+  quoteId: number | null;
+
   @Column({ name: 'agent_id', nullable: true })
   agentId: number;
 

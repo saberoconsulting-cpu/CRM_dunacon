@@ -28,6 +28,7 @@ import { BankAccountEntity } from '../shared/infrastructure/entities/bank-accoun
 import { BankCategoryMappingEntity } from '../shared/infrastructure/entities/bank-category-mapping.entity';
 import { CashflowModelEntity } from '../shared/infrastructure/entities/cashflow-model.entity';
 import { ProjectLotCatalogEntity } from '../shared/infrastructure/entities/project-lot-catalog.entity';
+import { ProjectLotDataEntity } from '../shared/infrastructure/entities/project-lot-data.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
@@ -64,6 +65,7 @@ export const AppDataSource = new DataSource({
     BankAccountEntity,
     BankCategoryMappingEntity,
     ProjectLotCatalogEntity,
+    ProjectLotDataEntity,
     CashflowModelEntity,
     IncomeStatementItemEntity,
   ],

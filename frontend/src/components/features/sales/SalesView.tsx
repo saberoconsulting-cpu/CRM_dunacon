@@ -127,7 +127,10 @@ type S = {
   lotCode?: string | null; conditions?: string | null; approvalStatus?: string; totalCuotas?: number;
   interestType?: string; tea?: number; financingBase?: number; valorCuota?: number; planStatus?: string; lotAreaM2?: number;
   cuotaInicial?: number; exchangeRate?: number; graceCuota?: number;
+  clientDni?: string | null;
+  quoteId?: number | null;
 };
+
 
 /**
  * La venta NO guarda columnas para el tipo de cambio, las cuotas sin interes ni
@@ -183,8 +186,15 @@ function financingBalanceOf(sale: S) {
 }
 
 function quoteIdOfSale(sale: S) {
+  if (sale.quoteId) return Number(sale.quoteId);
   const match = String(sale.conditions || '').match(/Cotizacion\s*Q(\d+)/i);
   return match ? Number(match[1]) : 0;
+}
+
+function saleApprovalLabel(sale: S) {
+  if (sale.approvalStatus === 'aprobada') return 'Aprobada';
+  if (sale.approvalStatus === 'rechazada') return 'Rechazada';
+  return 'Pendiente';
 }
 
 function lotFinalPrice(lot: any) {
@@ -311,6 +321,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [open, setOpen] = useState(false);
   const [showQuoteHint, setShowQuoteHint] = useState(true);
   const [showCotizaciones, setShowCotizaciones] = useState(false);
+  const [showInterestColumns, setShowInterestColumns] = useState(false);
   const [quotes, setQuotes] = useState<any[]>([]);
   const [selectedQuoteId, setSelectedQuoteId] = useState(0);
   const [selectedQuoteSnapshot, setSelectedQuoteSnapshot] = useState<any>(null);
@@ -403,6 +414,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [lotId, setLotId] = useState(0);
   const [clientId, setClientId] = useState(0);
   const [clientName, setClientName] = useState('');
+  const [clientDni, setClientDni] = useState('');
   const [agentId, setAgentId] = useState(0);
   const [salePrice, setSalePrice] = useState(0);
   const [paymentMethod, setPaymentMethod] = useState('Contado');
@@ -502,6 +514,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     if (!open) return undefined;
+    loadAllSalesQuotes(api, lockedProjectId).then(setQuotes).catch(() => {});
     setShowQuoteHint(true);
     const timer = window.setTimeout(() => setShowQuoteHint(false), 5000);
     return () => window.clearTimeout(timer);
@@ -534,7 +547,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   useEffect(() => {
     setIsAdmin(role === 'admin' || role === 'superadmin');
     api.get<any[]>('/projects').then(setProjects).catch(() => {});
-    api.get<any[]>('/clients').then((d) => setClients(Array.isArray(d) ? d : ((d as any)?.items || []))).catch(() => {});
+    loadAllPages<any>((page, limit) => api.get(`/clients?page=${page}&limit=${limit}`)).then(setClients).catch(() => {});
     if (role === 'admin' || role === 'superadmin') api.get<any[]>('/users/agents').then(setAgents).catch(() => {});
     const projectFilter = lockedProjectId ? { projectId: lockedProjectId } : {};
     loadAllPages<any>((page, limit) => api.get(`/lots?${buildQuery({ ...projectFilter, page, limit })}`))
@@ -669,6 +682,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   // Al elegir un lote manualmente no fija precio: la cotizacion elegida es la
   // fuente del precio final que se usara en la venta.
   function selectLot(id: number) {
+    setClientDni('');
     setLotId(id);
     setSelectedQuoteId(0);
     setSelectedQuoteSnapshot(null);
@@ -679,6 +693,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         setClientId(Number(lot.clientId));
         const client = clients.find((c: any) => Number(c.id) === Number(lot.clientId));
         setClientName(client?.fullName || client?.full_name || lot.clientName || '');
+        setClientDni(client?.dni || '');
       }
     }
   }
@@ -735,6 +750,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     setPreview(null);
 
     const quoteClientId = Number(q.clientId || 0);
+    const dniClient = clients.find((c: any) => quoteClientId > 0 ? Number(c.id) === quoteClientId : String(c.fullName || c.full_name || '').trim().toLowerCase() === values.clientName.trim().toLowerCase());
+    setClientDni(q.clientDni || q.dni || dniClient?.dni || '');
     if (quoteClientId > 0) {
       setClientId(quoteClientId);
     } else {
@@ -782,6 +799,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
 
     const created = await api.post<any>('/clients', {
       fullName: name,
+      dni: clientDni || undefined,
       projectInterestId: lockedProjectId || projectId || undefined,
       agentId: effectiveAgentId || undefined,
       pipelineStatus: 'ganado',
@@ -811,6 +829,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     if (!selectedQuoteId) return toast('Selecciona una cotizacion antes de registrar la venta. Si no existe, genera una primero.', 'err');
     if (!lotId) return toast('Selecciona un lote', 'err');
     if (!clientName.trim() && !clientId) return toast('Ingresa el nombre del cliente real.', 'err');
+    if (!/^\d{8}$/.test(clientDni)) return toast('Ingresa el DNI del cliente de 8 digitos.', 'err');
     if (!effectiveAgentId) return toast('No se pudo identificar el usuario logueado', 'err');
     if (!salePrice) return toast('Ingresa el precio de venta', 'err');
     const lotForSale = lots.find((l: any) => Number(l.id) === Number(lotId));
@@ -834,6 +853,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       await api.post('/sales', {
         projectId: lockedProjectId || projectId || lot?.projectId || 1, lotId: Number(lotId),
         clientId: resolvedClientId, agentId: effectiveAgentId, salePrice,
+        clientDni: clientDni || undefined,
         exchangeRate: Number(exchangeRate) > 0 ? Number(exchangeRate) : undefined,
         paymentMethod,
         totalCuotas: paymentMethod === 'Contado' ? undefined : (totalCuotas || undefined),
@@ -850,6 +870,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
           : (conditions || undefined),
       });
       toast('Separación registrada. Queda pendiente de validación.');
+      setClientDni('');
       setOpen(false); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setClientId(0); setClientName(''); setConditions(''); setSalePrice(0);
       setPaymentMethod('Contado'); setTotalCuotas(0); setCuotaInicial(0); setInitialPaymentMode('contado'); setInitialParts(3); setGraceMonths(0); setApplyInterest(false); setInterestType('sin_intereses'); setTea(0);
       setSaleDate(todayInput()); setAgentId(responsibleUserId); setPreview(null);
@@ -865,7 +886,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   }
   async function rechazar(s: any) {
     const suffix = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
-    try { await api.post(`/sales/reject/${s.id}${suffix}`); toast('Separación rechazada. Lote liberado.'); load(); }
+    try {
+      await api.post(`/sales/reject/${s.id}${suffix}`);
+      toast('Venta rechazada. Puedes reutilizar la cotizacion durante 7 dias.');
+      await Promise.all([load(), loadAllSalesQuotes(api, lockedProjectId).then(setQuotes),
+        loadAllPages<any>((page, limit) => api.get(`/lots?${buildQuery({ projectId: lockedProjectId, page, limit })}`)).then(setLots)]);
+    }
     catch (e: any) { toast(e.message, 'err'); }
   }
 
@@ -951,6 +977,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       ['Direccion', lotAddress || '-'],
       ['Area', s.lotAreaM2 ? `${Number(s.lotAreaM2).toLocaleString('es-PE', { maximumFractionDigits: 2 })} m2` : '-'],
       ['Cliente', s.clientName || '-'],
+      ['DNI', s.clientDni || '-'],
       ['Precio final', usdMoney(salePriceValue)],
       ['Fecha', formatDate(s.saleDate)],
       ['Agente', s.agentName || '-'],
@@ -960,7 +987,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       ['Cuotas sin interés', noInterestInstallments],
       ['Saldo a Financiar', usdMoney(saldoFin)],
       ['Interes', interestType === 'tea' ? `Con TEA = ${teaValue}%` : 'Sin intereses'],
-      ['Estado', s.approvalStatus === 'pendiente' ? 'Pendiente' : 'Aprobada'],
+      ['Estado', saleApprovalLabel(s)],
       ['Comisión', usdMoney(commission)],
     ];
     const detailSplitAt = Math.ceil(detailRows.length / 2);
@@ -1305,11 +1332,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         {isAdmin && pending.length > 0 && (
           <div className="card p-0 overflow-auto">
             <h3 className="font-semibold px-3 pt-2 text-sm">Separaciones por aprobar ({pending.length})</h3>
-            <table className="table-base table-head-plomo mt-1 [&_th]:!px-2 [&_th]:!py-1.5 [&_th]:!text-[10px] [&_td]:!px-2 [&_td]:!py-1.5 [&_td]:!text-[12px]" style={{ width: '100%', minWidth: 1080 }}>
+            <table className="table-base table-head-plomo mt-1 [&_th]:!px-2 [&_th]:!py-1.5 [&_th]:!text-[10px] [&_td]:!px-2 [&_td]:!py-1.5 [&_td]:!text-[12px]" style={{ width: '100%', minWidth: showInterestColumns ? 1080 : 0 }}>
               <thead><tr>
-                <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
-                <th className="th-base">Precio final</th><th className="th-base">Forma de pago</th><th className="th-base !whitespace-normal">Cuota Inicial</th><th className="th-base !whitespace-normal">Saldo a Financiar</th><th className="th-base">Cuotas</th>
-                <th className="th-base !whitespace-normal">Cuota sin interés</th><th className="th-base !whitespace-normal">Cuota con interés</th><th className="th-base">Fecha</th>
+                <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th><th className="th-base">DNI</th>
+                <th className="th-base">Precio final</th><th className="th-base">Forma de pago</th><th className="th-base !whitespace-normal">Cuota Inicial</th><th className="th-base !whitespace-normal">Saldo a Financiar</th><th className="th-base"><button type="button" className="inline-flex items-center gap-1 font-inherit" aria-expanded={showInterestColumns} title={showInterestColumns ? 'Ocultar detalle de cuotas' : 'Mostrar cuotas con y sin interes'} onClick={() => setShowInterestColumns(current => !current)}>Cuotas<span aria-hidden="true" className="text-sm font-black text-white">{showInterestColumns ? '▼' : '▶'}</span></button></th>
+                {showInterestColumns && <><th className="th-base !whitespace-normal">Cuota sin interés</th><th className="th-base !whitespace-normal">Cuota con interés</th></>}<th className="th-base">Fecha</th>
                 <th className="th-base">Agente</th><th className="th-base">Comisión</th><th className="th-base" style={{ textAlign: 'center' }}>Acción</th>
                 <th className="th-base" style={{ textAlign: 'center' }}>Ficha</th>
                 <th className="th-base" style={{ textAlign: 'center' }}>Contrato</th>
@@ -1322,13 +1349,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     <td className="td-base text-slate-400">V{s.id}</td>
                     <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
                     <td className="td-base">{s.clientName || '—'}</td>
+                    <td className="td-base tabular-nums">{s.clientDni || '—'}</td>
                     <td className="td-base font-medium">{showSaleAmount(f.salePrice)}</td>
                     <td className="td-base">{paymentMethodOf(s)}</td>
                     <td className="td-base font-medium whitespace-nowrap">{showSaleAmount(f.cuotaInicial)}</td>
                     <td className="td-base font-medium whitespace-nowrap">{showSaleAmount(f.balance)}</td>
                     <td className="td-base">{f.totalCuotas || 0}</td>
-                    <td className="td-base whitespace-nowrap">{f.noInterest ? `${showSaleAmount(f.noInterestAmount)} (${f.noInterest})` : '-'}</td>
-                    <td className="td-base whitespace-nowrap">{f.withInterest ? `${showSaleAmount(f.withInterestAmount)} (${f.withInterest})` : '-'}</td>
+                    {showInterestColumns && <td className="td-base whitespace-nowrap">{f.noInterest ? `${showSaleAmount(f.noInterestAmount)} (${f.noInterest})` : '-'}</td>}
+                    {showInterestColumns && <td className="td-base whitespace-nowrap">{f.withInterest ? `${showSaleAmount(f.withInterestAmount)} (${f.withInterest})` : '-'}</td>}
                     <td className="td-base">{formatDate(s.saleDate)}</td>
                     <td className="td-base">{s.agentName || '—'}</td>
                     <td className="td-base">{showSaleAmount(s.commission)}</td>
@@ -1359,12 +1387,12 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
           {loading ? <p className="p-4 text-slate-400">Cargando…</p>
             : rows.length === 0 ? <EmptyState text="Aún no hay ventas registradas." /> : (
             <>
-            <table className="table-base table-head-plomo [&_th]:!px-2 [&_th]:!py-1.5 [&_th]:!text-[10px] [&_td]:!px-2 [&_td]:!py-1.5 [&_td]:!text-[12px]" style={{ width: '100%', minWidth: 1080 }}>
+            <table className="table-base table-head-plomo [&_th]:!px-2 [&_th]:!py-1.5 [&_th]:!text-[10px] [&_td]:!px-2 [&_td]:!py-1.5 [&_td]:!text-[12px]" style={{ width: '100%', minWidth: showInterestColumns ? 1080 : 0 }}>
               <thead><tr>
-                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')} title="Ordenar por fecha de registro">Id{sortArrow('createdAt')}</th><th className="th-base">Lote</th><th className="th-base">Cliente</th>
-                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('salePrice')}>Precio final{sortArrow('salePrice')}</th><th className="th-base">Forma de pago</th><th className="th-base !whitespace-normal">Cuota Inicial</th><th className="th-base !whitespace-normal">Saldo a Financiar</th><th className="th-base">Cuotas</th>
-                <th className="th-base !whitespace-normal">Cuota sin interés</th><th className="th-base !whitespace-normal">Cuota con interés</th><th className="th-base">Estado</th>
-                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('saleDate')}>Fecha{sortArrow('saleDate')}</th><th className="th-base">Agente</th><th className="th-base">Comisión</th>
+                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')} title="Ordenar por fecha de registro">Id{sortArrow('createdAt')}</th><th className="th-base">Lote</th><th className="th-base">Cliente</th><th className="th-base">DNI</th>
+                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('salePrice')}>Precio final{sortArrow('salePrice')}</th><th className="th-base">Forma de pago</th><th className="th-base !whitespace-normal">Cuota Inicial</th><th className="th-base !whitespace-normal">Saldo a Financiar</th><th className="th-base"><button type="button" className="inline-flex items-center gap-1 font-inherit" aria-expanded={showInterestColumns} title={showInterestColumns ? 'Ocultar detalle de cuotas' : 'Mostrar cuotas con y sin interes'} onClick={() => setShowInterestColumns(current => !current)}>Cuotas<span aria-hidden="true" className="text-sm font-black text-white">{showInterestColumns ? '▼' : '▶'}</span></button></th>
+                {showInterestColumns && <><th className="th-base !whitespace-normal">Cuota sin interés</th><th className="th-base !whitespace-normal">Cuota con interés</th></>}<th className="th-base">Estado</th>
+                <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('saleDate')}>Fecha</th><th className="th-base">Agente</th><th className="th-base">Comisión</th>
                 <th className="th-base" style={{ textAlign: 'center' }}>Ficha</th>
                 <th className="th-base" style={{ textAlign: 'center' }}>Contrato</th>
               </tr></thead>
@@ -1376,14 +1404,15 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     <td className="td-base text-slate-400">V{s.id}</td>
                     <td className="td-base font-medium">{s.lotCode || `Lote ${s.lotId}`}</td>
                     <td className="td-base">{s.clientName || '—'}</td>
+                    <td className="td-base tabular-nums">{s.clientDni || '—'}</td>
                     <td className="td-base font-medium">{showSaleAmount(f.salePrice)}</td>
                     <td className="td-base">{paymentMethodOf(s)}</td>
                     <td className="td-base font-medium whitespace-nowrap">{showSaleAmount(f.cuotaInicial)}</td>
                     <td className="td-base font-medium whitespace-nowrap">{showSaleAmount(f.balance)}</td>
                     <td className="td-base">{f.totalCuotas || 'Contado'}</td>
-                    <td className="td-base whitespace-nowrap">{f.noInterest ? `${showSaleAmount(f.noInterestAmount)} (${f.noInterest})` : '-'}</td>
-                    <td className="td-base whitespace-nowrap">{f.withInterest ? `${showSaleAmount(f.withInterestAmount)} (${f.withInterest})` : '-'}</td>
-                    <td className="td-base">{s.approvalStatus === 'pendiente' ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#FEF3C7', color:'#92400E' }}>Pendiente</span> : <span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={{ background:'#D1FAE5', color:'#065F46' }}>Aprobada</span>}</td>
+                    {showInterestColumns && <td className="td-base whitespace-nowrap">{f.noInterest ? `${showSaleAmount(f.noInterestAmount)} (${f.noInterest})` : '-'}</td>}
+                    {showInterestColumns && <td className="td-base whitespace-nowrap">{f.withInterest ? `${showSaleAmount(f.withInterestAmount)} (${f.withInterest})` : '-'}</td>}
+                    <td className="td-base"><span className="px-2 py-0.5 rounded-full text-xs font-semibold" style={s.approvalStatus === 'aprobada' ? { background:'#D1FAE5', color:'#065F46' } : s.approvalStatus === 'rechazada' ? { background:'#FEE2E2', color:'#991B1B' } : { background:'#FEF3C7', color:'#92400E' }}>{saleApprovalLabel(s)}</span></td>
                     <td className="td-base">{formatDate(s.saleDate)}</td>
                     <td className="td-base">{s.agentName || '—'}</td>
                     <td className="td-base">{showSaleAmount(s.commission)}</td>
@@ -1402,13 +1431,13 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
               </tbody>
               <tfoot>
                 <tr style={{ background: '#0B2F6E' }}>
-                  <td className="td-base font-bold text-white" colSpan={3}>Totales ({totalSales})</td>
+                  <td className="td-base font-bold text-white" colSpan={4}>Totales ({totalSales})</td>
                   <td className="td-base font-bold text-white">{showSaleAmount(total)}</td>
                   <td className="td-base"></td>
                   <td className="td-base font-bold text-white">{showSaleAmount(visibleInitialPaymentTotal)}</td>
                   <td className="td-base font-bold text-white">{showSaleAmount(visibleFinancingBalanceTotal)}</td>
                   <td className="td-base font-bold text-white">{visibleInstallmentsTotal.toLocaleString('es-PE')}</td>
-                  <td className="td-base" colSpan={5}></td>
+                  <td className="td-base" colSpan={showInterestColumns ? 5 : 3}></td>
                   <td className="td-base font-bold text-white">{showSaleAmount(comm)}</td>
                   <td className="td-base"></td>
                   <td className="td-base"></td>
@@ -1424,41 +1453,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       {open && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-2 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" onClick={() => setOpen(false)} />
-          <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-3xl overflow-y-auto rounded-2xl border border-white/70 bg-white shadow-2xl sm:max-h-[92vh]">
+          <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-4xl overflow-y-auto rounded-2xl border border-white/70 bg-white shadow-2xl sm:max-h-[92vh]">
             <div className="border-b border-[#EAF1FF] bg-gradient-to-br from-[#F7FBFF] via-white to-[#EEF5FF] px-5 py-4 sm:px-6">
               <div className="flex flex-wrap items-start justify-between gap-4 sm:flex-nowrap">
                 <div className="min-w-0 flex-1">
                   <p className="text-[10px] font-bold uppercase tracking-[0.12em]" style={{ color: '#1259C4' }}>Ventas</p>
                   <h3 className="mt-0.5 font-semibold" style={{ fontSize: 19, color: '#0F172A' }}>Registrar venta</h3>
                   <p className="mt-1 text-xs text-slate-500">Asigna una cotizacion y valida el precio final desde la ficha del lote.</p>
-                </div>
-                {!quoteSelected && <div className="hidden rounded-2xl border-2 border-dashed border-[#1259C4] p-3 text-center sm:block sm:w-64 sm:shrink-0">
-                  <p className="mb-2 text-xs leading-relaxed text-slate-700">Si no tienes una cotización, debes generar previamente una para poder realizar la VENTA</p>
-                  <button type="button" className="btn-primary w-full justify-center" onClick={() => {
-                    if (!quoteProjectId) { toast('Selecciona un proyecto para crear la cotizacion.', 'err'); return; }
-                    const query = new URLSearchParams({ returnToSale: '1' });
-                    if (lotId) query.set('lotId', String(lotId));
-                    window.location.href = `/projects/${quoteProjectId}/quotes?${query}`;
-                  }}>Nueva cotización</button>
-                </div>}
-                <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border bg-white text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700" style={{ borderColor: '#DDEBFF' }} onClick={() => setOpen(false)} aria-label="Cerrar"><FiX /></button>
-              </div>
-              {/* Moneda de trabajo: los campos de monto se capturan en esta moneda
-                  y se registran siempre en dolares (US$). El tipo de cambio se
-                  conserva al alternar, así el monto real no cambia. */}
-              <div className="mt-2.5 flex flex-wrap items-center gap-2">
-                {!quoteSelected && (
-                  <div className="w-full rounded-2xl border-2 border-dashed border-[#1259C4] p-3 text-center sm:hidden">
-                  <p className="mb-2 text-xs leading-relaxed text-slate-700">Si no tienes una cotización, debes generar previamente una para poder realizar la VENTA</p>
-                  <button type="button" className="btn-primary !h-9 shrink-0 justify-center !px-3 !text-xs sm:hidden" onClick={() => {
-                    if (!quoteProjectId) { toast('Selecciona un proyecto para crear la cotizacion.', 'err'); return; }
-                    const query = new URLSearchParams({ returnToSale: '1' });
-                    if (lotId) query.set('lotId', String(lotId));
-                    window.location.href = `/projects/${quoteProjectId}/quotes?${query}`;
-                  }}>Nueva cotización</button>
-                  </div>
-                )}
-                <div className="flex min-w-0 items-center gap-2">
+                <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
                 <div className="inline-flex shrink-0 overflow-hidden rounded-lg border border-[#D9E7FF] bg-white p-0.5" role="group" aria-label="Moneda de la ficha">
                   {(['USD'] as SaleCurrency[]).map((option) => (
                     <button
@@ -1479,6 +1481,34 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     : 'Captura y registro en soles (S/)'}
                 </span>
                 </div>
+                </div>
+                {!quoteSelected && <div className="hidden rounded-2xl border-2 border-dashed border-[#1259C4] p-3 text-center sm:block sm:w-64 sm:shrink-0">
+                  <p className="mb-2 text-xs leading-relaxed text-slate-700">Si no tienes una cotización, debes generar previamente una para poder realizar la VENTA</p>
+                  <button type="button" className="btn-primary w-full justify-center" onClick={() => {
+                    if (!quoteProjectId) { toast('Selecciona un proyecto para crear la cotizacion.', 'err'); return; }
+                    const query = new URLSearchParams({ returnToSale: '1' });
+                    if (lotId) query.set('lotId', String(lotId));
+                    window.location.href = `/projects/${quoteProjectId}/quotes?${query}`;
+                  }}>Nueva cotización</button>
+                </div>}
+                <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border bg-white text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700" style={{ borderColor: '#DDEBFF' }} onClick={() => setOpen(false)} aria-label="Cerrar"><FiX /></button>
+              </div>
+              {/* Moneda de trabajo: los campos de monto se capturan en esta moneda
+                  y se registran siempre en dolares (US$). El tipo de cambio se
+                  conserva al alternar, así el monto real no cambia. */}
+              <div className="mt-2 flex flex-wrap items-center gap-2 sm:hidden">
+                {!quoteSelected && (
+                  <div className="w-full rounded-2xl border-2 border-dashed border-[#1259C4] p-3 text-center sm:hidden">
+                  <p className="mb-2 text-xs leading-relaxed text-slate-700">Si no tienes una cotización, debes generar previamente una para poder realizar la VENTA</p>
+                  <button type="button" className="btn-primary !h-9 shrink-0 justify-center !px-3 !text-xs sm:hidden" onClick={() => {
+                    if (!quoteProjectId) { toast('Selecciona un proyecto para crear la cotizacion.', 'err'); return; }
+                    const query = new URLSearchParams({ returnToSale: '1' });
+                    if (lotId) query.set('lotId', String(lotId));
+                    window.location.href = `/projects/${quoteProjectId}/quotes?${query}`;
+                  }}>Nueva cotización</button>
+                  </div>
+                )}
+
               </div>
             </div>
 
@@ -1562,9 +1592,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
             {/* Lote y responsable */}
             <fieldset disabled={formDisabled} className="mx-4 min-w-0 border-0 p-0 m-0 space-y-4 disabled:opacity-100 sm:mx-6">
             <legend className="sr-only">Datos de la venta</legend>
-            <div className={`grid grid-cols-2 gap-3 lg:grid-cols-3${disabledClass}`}>
+            <div className={`grid grid-cols-2 gap-3 lg:grid-cols-[1fr_1.5fr_1fr_1.2fr]${disabledClass}`}>
               {!lockedProjectId && (
-                <div className="col-span-2 lg:col-span-3">
+                <div className="col-span-2 lg:col-span-4">
                   <Field label="Proyecto">
                     <Select
                       value={projectId}
@@ -1587,13 +1617,16 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 <input
                   className="input"
                   value={clientName}
-                  onChange={(e) => { setClientName(e.target.value); setClientId(0); }}
+                  onChange={(e) => { setClientName(e.target.value); setClientId(0); setClientDni(''); }}
                   placeholder="Escribe el cliente real"
                   disabled={quoteLocked}
                   readOnly={quoteLocked}
                 />
               </Field>
-              <div className="col-span-2 lg:col-span-1">
+              <Field label="DNI del cliente *">
+                <input className="input tabular-nums" inputMode="numeric" required maxLength={8} value={clientDni} onChange={event => setClientDni(event.target.value.replace(/\D/g, '').slice(0, 8))} placeholder="8 digitos" />
+              </Field>
+              <div className="min-w-0">
                 <Field label="Responsable">
                   <div className="input flex items-center bg-slate-50 text-slate-700">
                     {responsibleUserName}

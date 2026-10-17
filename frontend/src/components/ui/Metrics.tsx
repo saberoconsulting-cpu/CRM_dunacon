@@ -151,7 +151,7 @@ export function KpiCard({
 }: {
   label: string;
   value: ReactNode;
-  helper?: string;
+  helper?: ReactNode;
   icon?: ReactNode;
   tone?: string;
   size?: KpiCardSize;

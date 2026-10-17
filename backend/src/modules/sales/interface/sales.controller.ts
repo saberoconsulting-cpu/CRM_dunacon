@@ -13,7 +13,7 @@ import {
   Header,
 } from '@nestjs/common';
 import { SalesService } from '../application/sales.service';
-import { CreateSaleDto } from '../application/dto/sale.dto';
+import { CreateSaleDto, UpdateSaleDniDto } from '../application/dto/sale.dto';
 import { ListSalesDto } from '../application/dto/list-sales.dto';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/application/guards/roles.guard';
@@ -135,6 +135,11 @@ export class SalesController {
   @Post('preview')
   preview(@Body() dto: CreateSaleDto) {
     return this.salesService.preview(dto);
+  }
+
+  @Post(':id/dni')
+  updateDni(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateSaleDniDto, @CurrentUser() user: AuthUser) {
+    return this.salesService.updateDni(id, dto.clientDni, user.role === UserRole.AGENT ? user.id : undefined);
   }
 
   @Post()

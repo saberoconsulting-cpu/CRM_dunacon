@@ -8,6 +8,7 @@ import { printHtml } from '@/lib/print';
 import { Field, toast } from '@/components/ui/ui';
 import { Select } from '@/components/ui/Select';
 import { LOT_STATUS_SELECT_OPTIONS } from '@/lib/types';
+import ProjectLotDataPanel from './ProjectLotDataPanel';
 
 const INK = '#0F172A';
 const BORDER = '#CBD5E1';
@@ -313,30 +314,38 @@ export default function ProjectLotCatalogPanel({ projectId, canManage }: { proje
 
   if (!canManage) {
     return (
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div className="flex w-full items-center justify-between gap-3 rounded-lg border bg-white p-4" style={{ borderColor: '#E5E7EB' }}>
         <div>
-          <h3 className="text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: INK }}>Base de lotes</h3>
-          <p className="text-[11px]" style={{ color: '#6B7280' }}>Cantidad cargada en el proyecto.</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: INK }}>Base de lotes</h3>
+            <span className="rounded-full border px-2.5 py-1 text-xs font-bold tabular-nums" style={{ borderColor: '#B9D2F4', color: '#1259C4', background: '#EAF2FD' }}>{rows.length} lotes</span>
+          </div>
         </div>
-        <span className="rounded-full border px-2.5 py-1 text-xs font-bold tabular-nums" style={{ borderColor: '#B9D2F4', color: '#1259C4', background: '#EAF2FD' }}>{rows.length}</span>
+      </div>
+      <ProjectLotDataPanel projectId={projectId} canManage={canManage} />
       </div>
     );
   }
 
   return (
     <>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex w-full items-center justify-between gap-3 rounded-lg border bg-white p-4 text-left transition hover:bg-[#F8FAFC]"
+        className="min-w-0 w-full rounded-lg border bg-white p-4 text-left transition hover:bg-[#F8FAFC]"
         style={{ borderColor: '#E5E7EB' }}
       >
-        <div>
-          <h3 className="text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: INK }}>Base de lotes</h3>
-          <p className="text-[11px]" style={{ color: '#6B7280' }}>Cargar, editar y eliminar lotes del Excel del proyecto.</p>
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: INK }}>Base de lotes</h3>
+            <span className="rounded-full border px-2.5 py-1 text-xs font-bold tabular-nums" style={{ borderColor: '#B9D2F4', color: '#1259C4', background: '#EAF2FD' }}>{rows.length} lotes</span>
+          </div>
         </div>
-        <span className="rounded-full border px-2.5 py-1 text-xs font-bold tabular-nums" style={{ borderColor: '#B9D2F4', color: '#1259C4', background: '#EAF2FD' }}>{rows.length}</span>
       </button>
+      <ProjectLotDataPanel projectId={projectId} canManage={canManage} />
+      </div>
 
       {open && mounted && createPortal((
         <aside className="fixed bottom-0 right-0 top-[72px] z-[9999] flex w-full justify-end lg:left-[248px] lg:w-auto" role="dialog" aria-modal="true">

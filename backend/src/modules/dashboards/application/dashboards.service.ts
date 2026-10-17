@@ -183,10 +183,11 @@ export class DashboardsService {
           .getRawMany(),
         this.paymentRepo
           .createQueryBuilder('p')
-          .select("COALESCE(SUM(CASE WHEN p.type IN ('reserva','adelanto','primera_cuota') AND p.status = 'pagado' THEN p.amount ELSE 0 END),0)", 'initialPaid')
-          .addSelect("COALESCE(SUM(CASE WHEN p.type = 'cuota' AND p.status = 'pagado' THEN p.amount ELSE 0 END),0)", 'installmentsPaid')
-          .addSelect("COALESCE(SUM(CASE WHEN p.status = 'pendiente' AND (p.due_date IS NULL OR p.due_date >= CURRENT_DATE) THEN p.amount ELSE 0 END),0)", 'pending')
-          .addSelect("COALESCE(SUM(CASE WHEN p.status = 'vencido' OR (p.status = 'pendiente' AND p.due_date < CURRENT_DATE) THEN p.amount ELSE 0 END),0)", 'overdue')
+          // Match the payment concepts and USD amounts used by Pago de lotes.
+          .select("COALESCE(SUM(CASE WHEN p.type IN ('reserva','adelanto','cuota_inicial') AND p.status = 'pagado' THEN COALESCE(p.amount_usd, p.amount) ELSE 0 END),0)", 'initialPaid')
+          .addSelect("COALESCE(SUM(CASE WHEN p.type IN ('primera_cuota','cuota') AND p.status = 'pagado' THEN COALESCE(p.amount_usd, p.amount) ELSE 0 END),0)", 'installmentsPaid')
+          .addSelect("COALESCE(SUM(CASE WHEN p.status = 'pendiente' AND (p.due_date IS NULL OR p.due_date >= CURRENT_DATE) THEN COALESCE(p.amount_usd, p.amount) ELSE 0 END),0)", 'pending')
+          .addSelect("COALESCE(SUM(CASE WHEN p.status = 'vencido' OR (p.status = 'pendiente' AND p.due_date < CURRENT_DATE) THEN COALESCE(p.amount_usd, p.amount) ELSE 0 END),0)", 'overdue')
           .getRawOne(),
         this.agentRankingQuery(),
         this.saleRepo.find({ order: { createdAt: 'DESC' }, take: 10 }),

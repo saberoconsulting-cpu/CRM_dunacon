@@ -10,7 +10,8 @@ import { useDisplayCurrency, displayNumberGlobal, displaySymbol } from '@/lib/cu
 import ExchangeRateField from '@/components/features/finances/ExchangeRateField';
 import { Select } from '@/components/ui/Select';
 import { PaginationBar } from '@/components/ui/PaginationBar';
-import { FiEdit3, FiSearch, FiTrash2, FiX } from 'react-icons/fi';
+import { KpiCard } from '@/components/ui/Metrics';
+import { FiEdit3, FiSearch, FiTrash2, FiX, FiDollarSign, FiCreditCard, FiTrendingUp, FiAlertTriangle, FiFileText, FiLayers } from 'react-icons/fi';
 
 type T = {
   id: number; type: string; displayType?: string; category: string; concept: string; amount: string; txnDate: string; projectId?: number | null;
@@ -989,51 +990,41 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         <section className="space-y-2">
           <h2 className="text-2xl font-black tracking-normal" style={{ color: '#001BFF' }}>FINANZAS</h2>
           
-          {/* Indicadores Proyectados */}
-          <div>
-            <h3 className="mb-1 text-lg font-black" style={{ color: '#334155' }}>Indicadores Proyectados</h3>
-            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 2xl:grid-cols-7">
-              {dashboardCards.slice(0, 7).map((card) => (
-                <div key={card.label.replace('US$', displaySymbol())} className="min-h-[92px] rounded-lg border bg-white px-2 py-3 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
-                  <p className="text-center text-[9px] font-bold uppercase leading-snug text-slate-600">{card.label.replace('US$', displaySymbol())}</p>
-                  {card.manual ? (
-                    <input
-                      className="mt-0.5 w-full border-0 bg-transparent text-center text-sm font-black text-blue-700 outline-none sm:text-base"
-                      value={financeDashManual[card.manual]}
-                      onChange={(e) => setFinanceDashManual((current) => ({ ...current, [card.manual!]: e.target.value }))}
-                      placeholder="0"
+          {[
+            { title: 'Indicadores Proyectados', cards: dashboardCards.slice(0, 7), offset: 0 },
+            { title: 'Indicadores Operación Real', cards: dashboardCards.slice(7), offset: 7 },
+          ].map((group) => (
+            <div key={group.title}>
+              <h3 className="mb-1 text-lg font-black" style={{ color: '#334155' }}>{group.title}</h3>
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-7 [&_.card-card-kpi]:!px-2 [&_.kpi-label]:gap-1 [&_.kpi-label>span:first-child]:!h-6 [&_.kpi-label>span:first-child]:!w-6 [&_.kpi-label-text]:!text-[9px] [&_.kpi-label-text]:tracking-normal [&_.kpi-helper]:!text-[9px]">
+                {group.cards.map((card, index) => {
+                  const icons = [FiDollarSign, FiLayers, FiLayers, FiCreditCard, FiTrendingUp, FiCreditCard, FiCreditCard, FiDollarSign, FiCreditCard, FiDollarSign, FiFileText, FiCreditCard, FiAlertTriangle, FiCreditCard];
+                  const Icon = icons[group.offset + index];
+                  return (
+                    <KpiCard
+                      key={card.label}
+                      label={card.label.replace('US$', displaySymbol())}
+                      value={card.manual ? (
+                        <input
+                          aria-label={card.label.replace('US$', displaySymbol())}
+                          className="w-full min-w-0 border-0 bg-transparent text-center text-[15px] font-extrabold tabular-nums outline-none sm:text-base"
+                          style={{ color: card.color }}
+                          value={financeDashManual[card.manual]}
+                          onChange={(event) => setFinanceDashManual((current) => ({ ...current, [card.manual!]: event.target.value }))}
+                          placeholder="0"
+                        />
+                      ) : compactUsd(card.value)}
+                      helper={<span className="block text-left">{card.note}</span>}
+                      icon={<Icon />}
+                      tone={card.color}
+                      truncateLabel={false}
+                      valueAlign="center"
                     />
-                  ) : (
-                    <p className="mt-0.5 break-words text-center text-sm font-black text-blue-700 sm:text-base">{compactUsd(card.value)}</p>
-                  )}
-                  <p className="mt-1 break-words text-left text-[9px] text-slate-500">- {card.note}</p>
-                </div>
-              ))}
+                  );
+                })}
+              </div>
             </div>
-          </div>
-
-          {/* Indicadores Operación Real */}
-          <div>
-            <h3 className="mb-1 text-lg font-black" style={{ color: '#334155' }}>Indicadores Operación Real</h3>
-            <div className="grid grid-cols-2 gap-2 lg:grid-cols-4 2xl:grid-cols-7">
-              {dashboardCards.slice(7).map((card) => (
-                <div key={card.label.replace('US$', displaySymbol())} className="min-h-[92px] rounded-lg border bg-white px-2 py-3 shadow-sm transition-shadow hover:shadow-md" style={{ borderColor: '#E5E7EB', borderTopColor: card.color, borderTopWidth: 3 }}>
-                  <p className="text-center text-[9px] font-bold uppercase leading-snug text-slate-600">{card.label.replace('US$', displaySymbol())}</p>
-                  {card.manual ? (
-                    <input
-                      className="mt-0.5 w-full border-0 bg-transparent text-center text-sm font-black text-blue-700 outline-none sm:text-base"
-                      value={financeDashManual[card.manual]}
-                      onChange={(e) => setFinanceDashManual((current) => ({ ...current, [card.manual!]: e.target.value }))}
-                      placeholder="0"
-                    />
-                  ) : (
-                    <p className="mt-0.5 break-words text-center text-sm font-black text-blue-700 sm:text-base">{compactUsd(card.value)}</p>
-                  )}
-                  <p className="mt-1 break-words text-left text-[9px] text-slate-500">- {card.note}</p>
-                </div>
-              ))}
-            </div>
-          </div>
+          ))}
           <div className="min-w-0 rounded-lg border bg-white p-3 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
             <div className="mb-3 flex items-center justify-between gap-1 md:gap-3">
               <h3 className="text-base md:text-lg font-black" style={{ color: '#001BFF' }}>Socios</h3>

@@ -71,6 +71,14 @@
   height: 1.55rem;
   font-size: 0.72rem;
 }
+@media (max-width: 639px) {
+  .project-dashboard-kpis .kpi-label {
+    font-size: 0.625rem;
+  }
+  .project-dashboard-kpis .kpi-value {
+    font-size: 1.125rem !important;
+  }
+}
 @media (min-width: 1280px) {
   .project-dashboard-kpis .card-card-kpi {
     min-height: 82px;

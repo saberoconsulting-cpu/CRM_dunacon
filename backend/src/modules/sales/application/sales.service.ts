@@ -63,7 +63,7 @@ export class SalesService {
     const contractData = {
       venta_id: String(sale.id), fecha_venta: String(sale.saleDate).split('-').reverse().join('/'),
       proyecto_nombre: project?.name || '', proyecto_ubicacion: project?.location || '',
-      cliente_nombre: client?.fullName || '', cliente_documento: '', cliente_domicilio: '', ciudad_firma: project?.location || '',
+      cliente_nombre: client?.fullName || '', cliente_documento: sale.clientDni || client?.dni || '', cliente_domicilio: '', ciudad_firma: project?.location || '',
       lote_codigo: lot?.code || '', lote_direccion: lot?.address || '', lote_area_m2: String(lot?.areaM2 ?? ''), lote_dimensiones: lot?.dimensions || '',
       precio_venta: amount(sale.salePrice), cuota_inicial: amount(sale.cuotaInicial),
       saldo_financiar: amount(Math.max(0, (Number(sale.financingBase) > 0 ? Number(sale.financingBase) : Number(sale.salePrice)) - Number(sale.cuotaInicial || 0))),
@@ -161,6 +161,10 @@ export class SalesService {
     if (!quote) {
       throw new BadRequestException('Selecciona una cotizacion antes de registrar la venta.');
     }
+    if (quote.deletedAt || (quote.reusableUntil && quote.reusableUntil.getTime() <= Date.now())) {
+      throw new BadRequestException('La cotizacion ya vencio. Genera una nueva cotizacion.');
+    }
+    if (quote.status === 'convertida') throw new BadRequestException('Esta cotizacion ya se esta usando en otra venta.');
     if (Number(quote.lotId) !== Number(lot.id) || Number(quote.projectId) !== Number(dto.projectId)) {
       throw new BadRequestException('La cotizacion seleccionada no corresponde al lote o proyecto de la venta.');
     }
@@ -172,6 +176,9 @@ export class SalesService {
       throw new BadRequestException('El precio de venta debe coincidir con el precio final de la cotizacion.');
     }
     const effectiveClientId = quote.clientId || dto.clientId;
+    const saleClient = effectiveClientId ? await this.clientRepo.findOne({ where: { id: effectiveClientId } }) : null;
+    const clientDni = dto.clientDni || saleClient?.dni || '';
+    if (!/^\d{8}$/.test(clientDni)) throw new BadRequestException('Ingresa el DNI del cliente de 8 digitos antes de registrar la venta.');
     const catalog = await this.dataSource.getRepository(ProjectLotCatalogEntity).findOne({ where: { projectId: lot.projectId, code: lot.code } }).catch(() => null);
     
 
@@ -212,6 +219,20 @@ export class SalesService {
     const valorCuota = totalCuotas > 0 ? gracePlan.interestCuota : 0;
 
     const saved = await this.dataSource.transaction(async (manager) => {
+      const currentLot = await manager.getRepository(LotEntity).findOne({ where: { id: lot.id }, lock: { mode: 'pessimistic_write' } });
+      if (!currentLot) throw new BadRequestException('Lote no encontrado');
+      const activeSales = await manager.getRepository(SaleEntity).createQueryBuilder('s')
+        .where('s.lot_id = :lotId', { lotId: lot.id })
+        .andWhere("s.approval_status <> 'rechazada' AND s.status <> 'rechazada'").getCount();
+      if (activeSales || currentLot.status === 'vendido' || ['vendido', 'separado'].includes(currentLot.sellingStage)) {
+        throw new BadRequestException('Este lote ya tiene una venta activa o pendiente de aprobacion.');
+      }
+      // Lock the quote so reuse and expiry cannot convert the same quote twice.
+      const currentQuote = await manager.getRepository(QuoteEntity).findOne({ where: { id: quote.id }, lock: { mode: 'pessimistic_write' } });
+      if (!currentQuote || currentQuote.deletedAt || (currentQuote.reusableUntil && currentQuote.reusableUntil.getTime() <= Date.now())) {
+        throw new BadRequestException('La cotizacion ya vencio. Genera una nueva cotizacion.');
+      }
+      if (currentQuote.status === 'convertida') throw new BadRequestException('Esta cotizacion ya se esta usando en otra venta.');
       const paymentDetails = [
         dto.paymentMethod ? `Forma de pago: ${dto.paymentMethod}` : null,
         dto.interestType === 'tea' && dto.tea ? `TEA: ${dto.tea}%` : null,
@@ -225,6 +246,8 @@ export class SalesService {
         projectId: dto.projectId,
         lotId: dto.lotId,
         clientId: effectiveClientId,
+        clientDni,
+        quoteId: quote.id,
         agentId: assignedAgentId,
         salePrice: String(dto.salePrice),
         saleDate: dto.saleDate || undefined,
@@ -264,7 +287,7 @@ export class SalesService {
       lot.agentId = assignedAgentId;
 
       if (dto.quoteId) {
-        await manager.update(QuoteEntity, { id: dto.quoteId }, { status: 'convertida' });
+        await manager.update(QuoteEntity, { id: dto.quoteId }, { status: 'convertida', reusableUntil: null });
       }
 
       await this.audit(actorId, 'CREAR_SEPARACION', 'sales', savedSale.id, manager);
@@ -287,6 +310,11 @@ export class SalesService {
 
     let lot: LotEntity | null = null;
     const kept = await this.dataSource.transaction(async (manager) => {
+      const lockedSale = await manager.getRepository(SaleEntity).findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
+      if (!lockedSale) throw new BadRequestException('Venta no encontrada');
+      if (lockedSale.approvalStatus === 'rechazada' || lockedSale.status === 'rechazada') throw new BadRequestException('Una venta rechazada no puede aprobarse. Registra una nueva venta desde la cotizacion.');
+      if (lockedSale.approvalStatus === 'aprobada') return lockedSale;
+      Object.assign(sale, lockedSale);
       sale.approvalStatus = 'aprobada';
       sale.status = 'cerrada';
       sale.approvedBy = actorId;
@@ -326,6 +354,11 @@ export class SalesService {
 
     let lot: LotEntity | null = null;
     const kept = await this.dataSource.transaction(async (manager) => {
+      const locked = await manager.getRepository(SaleEntity).findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
+      if (!locked) throw new BadRequestException('Venta no encontrada');
+      if (locked.approvalStatus === 'rechazada') return locked;
+      if (locked.approvalStatus === 'aprobada') throw new BadRequestException('Esta venta ya fue aprobada y no puede rechazarse como separacion.');
+      Object.assign(sale, locked);
       sale.approvalStatus = 'rechazada';
       sale.planStatus = 'cancelada';
       sale.status = 'rechazada';
@@ -337,11 +370,21 @@ export class SalesService {
         lot.clientId = null;
         await manager.save(LotEntity, lot);
       }
+      if (sale.quoteId) {
+        const activeSales = await manager.getRepository(SaleEntity).createQueryBuilder('s')
+          .where('s.quote_id = :quoteId', { quoteId: sale.quoteId })
+          .andWhere("s.approval_status <> 'rechazada'").getCount();
+        if (!activeSales) await manager.update(QuoteEntity, { id: sale.quoteId }, {
+          status: 'enviada', reusableUntil: new Date(Date.now() + 7 * 86400000),
+        });
+      }
       await this.audit(actorId, 'RECHAZAR_SEPARACION', 'sales', id, manager);
       return savedSale;
     });
 
     this.gateway.emitToAll('lot.updated', lot);
+    this.gateway.emitToAll('sale.updated', kept);
+    this.gateway.emitToAll('quote.updated', { id: sale.quoteId });
     return { kept, note };
   }
 
@@ -379,6 +422,21 @@ export class SalesService {
   }
 
 
+  async updateDni(id: number, clientDni: string, agentId?: number) {
+    if (!/^\d{8}$/.test(clientDni)) throw new BadRequestException('El DNI debe tener 8 digitos.');
+    await this.dataSource.transaction(async manager => {
+      const sale = await manager.getRepository(SaleEntity).findOne({
+        where: { id, ...(agentId ? { agentId } : {}) }, lock: { mode: 'pessimistic_write' },
+      });
+      if (!sale) throw new NotFoundException('Venta no encontrada');
+      const client = sale.clientId ? await manager.getRepository(ClientEntity).findOne({ where: { id: sale.clientId } }) : null;
+      if (sale.clientDni || client?.dni) throw new BadRequestException('El DNI ya fue registrado y no se puede modificar.');
+      await manager.getRepository(SaleEntity).update(id, { clientDni });
+    });
+    this.gateway.emitToAll('sale.updated', { id });
+    return { id, clientDni };
+  }
+
   async list(filters: ListSalesDto) {
     const { page, limit, skip } = normalizePagination(filters.page, filters.limit, 10);
 
@@ -388,7 +446,7 @@ export class SalesService {
       .leftJoinAndSelect(ClientEntity, 'c', 'c.id = s.client_id')
       .leftJoinAndSelect(LotEntity, 'l', 'l.id = s.lot_id')
       .select([
-        's.id', 's.projectId', 's.lotId', 's.clientId', 's.agentId',
+        's.id', 's.projectId', 's.lotId', 's.clientId', 's.agentId', 's.quoteId',
         's.salePrice', 's.saleDate', 's.commission', 's.financingBase', 's.valorCuota', 's.conditions', 's.status', 's.createdAt',
       ])
       // Postgres pliega a minúsculas cualquier alias sin comillas (AS agentName
@@ -396,6 +454,7 @@ export class SalesService {
       // ya se corrigió en lots.service.ts.
       .addSelect('u.name AS "agentName"')
       .addSelect('c.full_name AS "clientName"')
+      .addSelect('COALESCE(s.client_dni, c.dni) AS "clientDni"')
       .addSelect('l.code AS "lotCode"')
       .addSelect('l.area_m2 AS "lotAreaM2"')
       .addSelect('s.approval_status AS "approvalStatus"')
@@ -410,6 +469,7 @@ export class SalesService {
       .addSelect('s.tea AS "tea"');
     if (filters.projectId) qb.andWhere('s.project_id = :projectId', { projectId: filters.projectId });
     if (filters.agentId) qb.andWhere('s.agent_id = :agentId', { agentId: filters.agentId });
+    qb.andWhere("s.approval_status <> 'rechazada' AND s.status <> 'rechazada'");
     if (filters.status) qb.andWhere('s.approval_status = :status', { status: filters.status });
     if (filters.from) qb.andWhere('s.sale_date >= :from', { from: filters.from });
     if (filters.to) qb.andWhere('s.sale_date <= :to', { to: filters.to });
@@ -435,7 +495,7 @@ export class SalesService {
     };
     const sortCol = sortMap[filters.sort || 'saleDate'] || 's.sale_date';
     const order = String(filters.order || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-    const pagedQb = qb.clone().orderBy(sortCol, order);
+    const pagedQb = qb.clone().orderBy(sortCol, order).addOrderBy('s.id', order);
     // getRawMany no soporta skip/take (solo entidades); se usa offset/limit.
     const raw = await pagedQb.offset(skip).limit(limit).getRawMany();
     const items = raw.map((r) => {
@@ -458,6 +518,8 @@ export class SalesService {
         id: Number(r.s_id), projectId: Number(r.s_project_id), lotId: Number(r.s_lot_id),
         clientId: r.s_client_id ? Number(r.s_client_id) : null,
         clientName: r.clientName || null,
+        clientDni: r.clientDni || null,
+        quoteId: r.s_quote_id || null,
         agentId: r.s_agent_id ? Number(r.s_agent_id) : null,
         salePrice, saleDate: r.s_sale_date,
         commission: Number(r.s_commission), conditions,

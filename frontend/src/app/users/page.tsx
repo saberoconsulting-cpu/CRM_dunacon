@@ -1,5 +1,7 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { PaginationBar } from '@/components/ui/PaginationBar';
+import { Paginated, buildQuery } from '@/lib/pagination';
 import Layout from '@/components/layout/Layout';
 import { Toaster, toast, Field } from '@/components/ui/ui';
 import { api } from '@/lib/api';
@@ -44,6 +46,12 @@ export default function UsersPage() {
   const [rows, setRows] = useState<U[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [role, setRole] = useState('');
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const requestId = useRef(0);
   const [openAgent, setOpenAgent] = useState(false);
   const [openAdmin, setOpenAdmin] = useState(false);
   const [formA, setFormA] = useState<any>({});
@@ -116,13 +124,21 @@ export default function UsersPage() {
   }
 
   const load = useCallback(async () => {
+    const currentRequest = ++requestId.current;
+    setLoading(true);
     try {
-      const q = role ? `?role=${role}` : '';
-      setRows((await api.get<U[]>(`/users${q}`)) || []);
-    } catch (e: any) { toast(e.message, 'err'); }
-  }, [role]);
+      const data = await api.get<Paginated<U>>(`/users?${buildQuery({ role, page, limit })}`);
+      if (currentRequest !== requestId.current) return;
+      setRows(data.items);
+      setTotal(data.total);
+      setTotalPages(data.totalPages);
+      if (data.page !== page) setPage(data.page);
+    } catch (e: any) { if (currentRequest === requestId.current) { setRows([]); setTotal(0); toast(e.message, 'err'); } }
+    finally { if (currentRequest === requestId.current) setLoading(false); }
+  }, [role, page, limit]);
 
-  useEffect(() => { load(); api.get<any[]>('/projects').then(setProjects).catch(() => {}); }, [load]);
+  useEffect(() => { load(); return () => { requestId.current++; }; }, [load]);
+  useEffect(() => { api.get<any[]>('/projects').then(setProjects).catch(() => {}); }, []);
 
   async function crearAgente() {
     try {
@@ -256,7 +272,7 @@ export default function UsersPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <select className="input !w-auto" value={role} onChange={(e) => setRole(e.target.value)}>
+            <select className="input !w-auto" value={role} onChange={(e) => { setRole(e.target.value); setPage(1); }}>
               <option value="">Todos</option><option value="agent">Agentes</option>
               <option value="admin">Gerentes</option><option value="superadmin">Super Admins</option>
             </select>
@@ -279,7 +295,7 @@ export default function UsersPage() {
               <th className="th-base">Comisión</th><th className="th-base">Estado</th><th className="th-base">Acciones</th>
             </tr></thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map((u) => (
+              {loading ? <tr><td colSpan={6} className="td-base text-center">Cargando usuarios...</td></tr> : rows.length === 0 ? <tr><td colSpan={6} className="td-base text-center">No hay usuarios para este filtro.</td></tr> : rows.map((u) => (
                 <tr key={u.id}>
                   <td className="td-base truncate font-medium">{u.name}</td>
                   <td className="td-base truncate">{u.email}</td>
@@ -299,8 +315,8 @@ export default function UsersPage() {
               ))}
             </tbody>
           </table>
-          {rows.length === 0 && <p className="p-4 text-sm text-slate-400 text-center">Sin usuarios.</p>}
         </div>
+        {!loading && <PaginationBar page={page} totalPages={totalPages} total={total} limit={limit} setPage={setPage} setLimit={(value) => { setLimit(value); setPage(1); }} label="usuarios" />}
       </div>
 
       {openAgent && (

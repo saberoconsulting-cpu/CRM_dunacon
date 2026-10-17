@@ -1,5 +1,5 @@
 // modules/quotes/application/quotes.service.ts
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { QuoteEntity } from '../../../shared/infrastructure/entities/quote.entity';
@@ -12,7 +12,24 @@ import { ListQuotesDto } from './dto/list-quotes.dto';
 import { buildPaginatedResult, normalizePagination } from '../../../shared/application/dto/pagination.dto';
 
 @Injectable()
-export class QuotesService {
+export class QuotesService implements OnModuleInit, OnModuleDestroy {
+  private expiryTimer?: ReturnType<typeof setInterval>;
+  private readonly logger = new Logger(QuotesService.name);
+
+  async expireUnusedQuotes() {
+    await this.quoteRepo.query(`UPDATE quotes q SET deleted_at = NOW()
+      WHERE q.deleted_at IS NULL AND q.reusable_until <= NOW() AND q.status <> 'convertida'
+      AND NOT EXISTS (SELECT 1 FROM sales s WHERE s.quote_id = q.id AND s.approval_status <> 'rechazada')`);
+  }
+
+  async onModuleInit() {
+    const clean = () => this.expireUnusedQuotes().catch(error => this.logger.error('No se pudo limpiar cotizaciones vencidas', error.message));
+    await clean();
+    this.expiryTimer = setInterval(() => { void clean(); }, 60_000);
+    this.expiryTimer.unref();
+  }
+
+  onModuleDestroy() { if (this.expiryTimer) clearInterval(this.expiryTimer); }
   constructor(
     @InjectRepository(QuoteEntity) private readonly quoteRepo: Repository<QuoteEntity>,
     @InjectRepository(LotEntity) private readonly lotRepo: Repository<LotEntity>,
@@ -87,6 +104,7 @@ export class QuotesService {
   }
 
   async list(filters: ListQuotesDto, actorId?: number) {
+    await this.expireUnusedQuotes();
     const { page, limit, skip } = normalizePagination(filters.page, filters.limit, 10);
 
     const qb = this.quoteRepo
@@ -97,6 +115,7 @@ export class QuotesService {
         'q.finalPriceUsd', 'q.cuotaInicialUsd', 'q.totalCuotas', 'q.paymentMethod',
         'q.interestType', 'q.tea', 'q.valorCuotaUsd', 'q.exchangeRate', 'q.status', 'q.createdAt',
         'q.graceMonths', 'q.initialPaymentMode', 'q.initialParts', 'q.createdBy',
+        'q.reusableUntil',
       ])
       .addSelect([
         'l.code AS "lotCode"',
@@ -144,6 +163,7 @@ export class QuotesService {
       valorCuotaUsd: Number(r.q_valor_cuota_usd || 0),
       exchangeRate: Number(r.q_exchange_rate),
       status: r.q_status || 'enviada',
+      reusableUntil: r.q_reusable_until || null,
       createdAt: r.q_created_at,
       lotCode: r.lotCode || null,
       lotStatus: r.lotStatus || null,
@@ -218,6 +238,7 @@ export class QuotesService {
   }
 
   async getOne(id: number, actorId?: number) {
+    await this.expireUnusedQuotes();
     const quote = await this.quoteRepo.findOne({ where: { id } });
     if (!quote || quote.deletedAt) throw new NotFoundException('Cotizacion no encontrada');
     this.assertOwner(quote, actorId);
@@ -231,6 +252,7 @@ export class QuotesService {
   }
 
   async schedule(id: number, actorId?: number) {
+    await this.expireUnusedQuotes();
     const quote = await this.quoteRepo.findOne({ where: { id } });
     if (!quote || quote.deletedAt) return { rows: [], graceMonths: 0, interestMonths: 0, graceCuota: 0, interestCuota: 0, totalInteres: 0, totalPagar: 0, saldoAlFinGracia: 0, initialPlan: null, saldoAFinanciar: 0 };
     this.assertOwner(quote, actorId);

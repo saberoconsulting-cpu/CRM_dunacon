@@ -12,6 +12,10 @@ import { AuditLogEntity } from '../../shared/infrastructure/entities/audit-log.e
 import { WebsocketModule } from '../../shared/infrastructure/websocket/websocket.module';
 import { PlanController } from './interface/plan.controller';
 import { PlanService } from './application/plan.service';
+import { ProjectLotDataEntity } from '../../shared/infrastructure/entities/project-lot-data.entity';
+import { ProjectEntity } from '../../shared/infrastructure/entities/project.entity';
+import { ProjectLotDataController } from './interface/project-lot-data.controller';
+import { ProjectLotDataService } from './application/project-lot-data.service';
 
 @Module({
   imports: [
@@ -24,10 +28,12 @@ import { PlanService } from './application/plan.service';
       ClientEntity,
       LotStatusHistoryEntity,
       AuditLogEntity,
+      ProjectLotDataEntity,
+      ProjectEntity,
     ]),
     WebsocketModule,
   ],
-  controllers: [PlanController],
-  providers: [PlanService],
+  controllers: [PlanController, ProjectLotDataController],
+  providers: [PlanService, ProjectLotDataService],
 })
 export class PlanModule {}

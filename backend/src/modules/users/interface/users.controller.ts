@@ -27,7 +27,8 @@ export class UsersController {
 
   @Get()
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
-  list(@Query('role') role?: string, @Query('status') status?: string) {
+  list(@Query('role') role?: string, @Query('status') status?: string, @Query('page') page?: string, @Query('limit') limit?: string) {
+    if (page != null || limit != null) return this.usersService.listPaginated(role, status, Number(page), Number(limit));
     return this.usersService.list(role, status);
   }
 

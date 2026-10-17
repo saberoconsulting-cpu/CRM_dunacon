@@ -2,6 +2,8 @@
 import { ReactNode, useEffect, useState } from 'react';
 import { FiArrowDown, FiCreditCard, FiDownload, FiFileText, FiLayers, FiTag, FiUsers } from 'react-icons/fi';
 import { api } from '@/lib/api';
+import { loadAllPages } from '@/lib/pagination';
+import { paymentsByProject } from '@/lib/lot-payment-summary';
 import { calculateIncomeStatementReal } from '@/components/features/income-statement/IncomeStatementView';
 import { isCleanDynamicCashflow } from '@/components/features/construction-budget/ConstructionBudgetView';
 import { FormattedDashboard } from '@/lib/dboard';
@@ -906,6 +908,29 @@ function MovementsCenter({ sales, payments, projects, projectName }: {
 
 export default function GeneralView({ d, compact = false }: { d: FormattedDashboard | null; compact?: boolean }) {
   const [projects, setProjects] = useState<any[]>([]);
+  const [paymentProjects, setPaymentProjects] = useState<ReturnType<typeof paymentsByProject> | null>(null);
+  const [paymentError, setPaymentError] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    setPaymentProjects(null);
+    setPaymentError(false);
+    async function loadPayments() {
+      const [sales, payments] = await Promise.all([
+        loadAllPages<any>((page, limit) => api.get(`/sales?page=${page}&limit=${limit}`)),
+        loadAllPages<any>((page, limit) => api.get(`/payments?page=${page}&limit=${limit}`)),
+      ]);
+      const ids = [...new Set([...sales, ...payments].map(row => Number(row.lotId)).filter(Boolean))];
+      const histories: any[] = [];
+      // Bound requests while loading all lots, rather than publishing partial totals.
+      for (let index = 0; index < ids.length; index += 6) {
+        if (!alive) return;
+        histories.push(...await Promise.all(ids.slice(index, index + 6).map(id => api.get(`/sales/lot/${id}/history`))));
+      }
+      if (alive) setPaymentProjects(paymentsByProject(histories, payments, sales));
+    }
+    loadPayments().catch(() => { if (alive) setPaymentError(true); });
+    return () => { alive = false; };
+  }, [d]);
   const [commercialTotals, setCommercialTotals] = useState<CommercialTotals | null>(null);
   const [commercialError, setCommercialError] = useState(false);
   // Sincroniza el almacen global de moneda para que todos los sub-componentes
@@ -962,9 +987,10 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
     value: Number(row.total || 0),
     color: CHART_COLORS[index % CHART_COLORS.length],
   }));
-  const paymentPie = (d.paymentsSummary || []).map((row, index) => ({
-    name: row.label,
-    value: Number(row.value || 0),
+  const paymentScope = paymentProjects || [];
+  const paymentPie = paymentScope.map((row, index) => ({
+    name: projectName(row.projectId),
+    value: row.total,
     color: CHART_COLORS[index % CHART_COLORS.length],
   }));
   // Match the active lot statuses used throughout the system.
@@ -1007,13 +1033,15 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
             className="min-h-[260px]"
           />
           <ProjectBars title="Ventas US$ por proyecto" subtitle="Grafico de barras" rows={salesByProject} className="min-h-[320px]" />
-          <PieSummary
-            title="Pago de lotes"
-            subtitle="Grafico PIE"
-            rows={paymentPie}
-            valueFormatter={money}
-            className="min-h-[260px]"
-          />
+          <div className="space-y-3">
+            {paymentError ? <p role="alert" className="p-4 text-sm text-red-600">No se pudo cargar Pago de lotes. Recarga la pagina.</p> : paymentProjects === null ? <p className="p-4 text-sm text-slate-500">Cargando Pago de lotes...</p> : <>
+              <PieSummary title="Pago de lotes" subtitle="Iniciales registradas + capital de cuotas pagadas por proyecto" rows={paymentPie} valueFormatter={money} className="min-h-[260px]" />
+              <div className="space-y-1 px-4 text-xs text-slate-600">
+                <p>Cuotas Iniciales: <b>{money(paymentScope.reduce((sum, row) => sum + row.initial, 0))}</b></p>
+                <p>Pagos de cuotas de financiamiento: <b>{money(paymentScope.reduce((sum, row) => sum + row.capital, 0))}</b></p>
+              </div>
+            </>}
+          </div>
         </aside>
         </div>
       </div>

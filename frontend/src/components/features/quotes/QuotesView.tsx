@@ -986,7 +986,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                       <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('createdAt')}>Fecha{sortArrow('createdAt')}</th>
                       <th className="th-base">Cotizacion</th>
                       <th className="th-base">Financiamiento</th>
-                      <th className="th-base">Eliminar</th>
+                      <th className="th-base text-center [overflow-wrap:anywhere]">Eliminar</th>
                     </tr></thead>
                     <tbody className="divide-y divide-slate-100">
                       {rows.map((q) => (
@@ -1017,7 +1017,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                             {q.paymentMethod === 'credito' && <button className="btn-secondary !h-7 !px-2 text-xs" onClick={() => setDoc({ id: q.id, type: 'financiamiento' })}><FiEye /> Finan..</button>}
                           </td>
                           <td className="td-base whitespace-nowrap">
-                            <button className="btn-danger !h-7 !px-2 text-xs ml-1" disabled={deletingId === q.id} onClick={() => deleteQuote(q)}><FiTrash2 /> Eliminar</button>
+                            <button title="Eliminar cotizacion" aria-label={`Eliminar cotizacion Q${q.id}`} className="btn-danger mx-auto !h-7 !w-7 !min-w-0 !p-0" disabled={deletingId === q.id} onClick={() => deleteQuote(q)}><FiTrash2 /></button>
                           </td>
                         </tr>
                       ))}

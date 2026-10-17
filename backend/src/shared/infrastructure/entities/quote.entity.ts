@@ -77,6 +77,9 @@ export class QuoteEntity {
   @Column({ length: 20, default: 'enviada' })
   status: string;
 
+  @Column({ name: 'reusable_until', type: 'timestamptz', nullable: true })
+  reusableUntil: Date | null;
+
   @Column({ name: 'created_by', nullable: true })
   createdBy: number;
 

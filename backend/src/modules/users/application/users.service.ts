@@ -15,6 +15,7 @@ import { PaymentEntity } from '../../../shared/infrastructure/entities/payment.e
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { CreateAdminDto } from './dto/create-admin.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { normalizePagination, buildPaginatedResult } from '../../../shared/application/dto/pagination.dto';
 
 @Injectable()
 export class UsersService {
@@ -84,7 +85,7 @@ export class UsersService {
     return saved;
   }
 
-  async list(role?: string, status?: string) {
+  private listQuery(role?: string, status?: string) {
     const qb = this.userRepo
       .createQueryBuilder('u')
       .select([
@@ -94,9 +95,21 @@ export class UsersService {
       ]);
     if (role) qb.where('u.role = :role', { role });
     if (status) qb.andWhere('u.status = :status', { status });
-    qb.orderBy('u.createdAt', 'DESC');
-    const users = await qb.getMany();
+    return qb.orderBy('u.createdAt', 'DESC').addOrderBy('u.id', 'DESC');
+  }
+
+  async list(role?: string, status?: string) {
+    const users = await this.listQuery(role, status).getMany();
     return users.map(({ passwordHash, ...u }) => u);
+  }
+
+  async listPaginated(role?: string, status?: string, requestedPage?: number, requestedLimit?: number) {
+    const { page, limit } = normalizePagination(requestedPage, requestedLimit, 10);
+    const qb = this.listQuery(role, status);
+    const total = await qb.getCount();
+    const safePage = Math.min(page, Math.max(1, Math.ceil(total / limit)));
+    const users = await qb.skip((safePage - 1) * limit).take(limit).getMany();
+    return buildPaginatedResult(users.map(({ passwordHash, ...u }) => u), total, safePage, limit);
   }
 
   async getOne(id: number) {

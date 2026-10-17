@@ -3,13 +3,28 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Layout from '@/components/layout/Layout';
 import { Modal, StatCard, Toaster, toast } from '@/components/ui/ui';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
+import { PaginationBar } from '@/components/ui/PaginationBar';
 import { api } from '@/lib/api';
+import { loadAllPages } from '@/lib/load-all-pages';
 import { useDisplayCurrency } from '@/lib/currency';
 import { printHtml } from '@/lib/print';
 import { FiDownload, FiFileText, FiSettings } from 'react-icons/fi';
 
 type Agent = { id: number; name: string; email: string; status: string; commissionRate?: string; monthlyGoalLots?: number; monthlyGoalAmount?: string };
 type Period = 'all' | 'week' | 'month' | 'year';
+
+function useTablePage<T>(rows: T[]) {
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const totalPages = Math.max(1, Math.ceil(rows.length / limit));
+  const currentPage = Math.min(page, totalPages);
+  useEffect(() => { if (page !== currentPage) setPage(currentPage); }, [page, currentPage]);
+  return {
+    rows: rows.slice((currentPage - 1) * limit, currentPage * limit),
+    controls: { page: currentPage, totalPages, total: rows.length, limit, setPage, setLimit },
+    reset: () => setPage(1),
+  };
+}
 
 const PERIOD_LABEL: Record<Period, string> = {
   all: 'Todo',
@@ -95,12 +110,12 @@ export default function AgentsPage() {
     try {
       const [ag, sv, lt, pr] = await Promise.all([
         api.get<any>('/users/agents'),
-        api.get<any>('/sales'),
-        api.get<any>('/lots?limit=100000'),
+        loadAllPages<any>('/sales', api.get),
+        api.get<any>('/lots'),
         api.get<any>('/projects'),
       ]);
       setAgents(Array.isArray(ag) ? ag : (ag?.items || []));
-      setSales((Array.isArray(sv) ? sv : (sv?.items || [])).filter(isRealSale));
+      setSales(sv.filter(isRealSale));
       setLots(Array.isArray(lt) ? lt : (lt?.items || []));
       setProjects(Array.isArray(pr) ? pr : (pr?.items || []));
     } catch (e: any) {
@@ -136,6 +151,7 @@ export default function AgentsPage() {
 
   const totalSold = scopedSales.reduce((sum, sale) => sum + saleAmount(sale), 0);
   const totalCommission = scopedSales.reduce((sum, sale) => sum + saleCommission(sale), 0);
+  const agentSold = ranking.reduce((sum, row) => sum + row.amount, 0);
   const soldLots = scopedSales.length;
   const activeAgents = agents.filter((agent) => agent.status === 'active').length;
 
@@ -168,10 +184,16 @@ export default function AgentsPage() {
   };
 
   const fichaSales = selectedAgent
-    ? sales.filter((sale) => saleAgentId(sale) === selectedAgent.id && inPeriod(sale, modalPeriod))
+    ? scopedSales.filter((sale) => saleAgentId(sale) === selectedAgent.id && inPeriod(sale, modalPeriod))
     : [];
   const fichaAmount = fichaSales.reduce((sum, sale) => sum + saleAmount(sale), 0);
   const fichaCommission = fichaSales.reduce((sum, sale) => sum + saleCommission(sale), 0);
+  const agentsPage = useTablePage(agents);
+  const rankingPage = useTablePage(ranking);
+  const fichaPage = useTablePage(fichaSales);
+
+  useEffect(() => { agentsPage.reset(); rankingPage.reset(); fichaPage.reset(); }, [projectId]);
+  useEffect(() => { fichaPage.reset(); }, [selectedAgent?.id, modalPeriod]);
 
   function printFicha() {
     if (!selectedAgent) return;
@@ -226,7 +248,7 @@ export default function AgentsPage() {
           <StatCard label="Lotes Totales" value={scopedLots.length} color="#1259C4" />
           <StatCard label="Lotes Vendidos" value={soldLots} color="#1259C4" />
           <StatCard label="Monto vendido" value={show(totalSold)} color="#1259C4" />
-          <StatCard label="Monto vendido (agentes)" value={show(totalSold)} color="#125A3B" />
+          <StatCard label="Monto vendido (agentes)" value={show(agentSold)} color="#125A3B" />
           <StatCard label="Comision total" value={show(totalCommission)} color="#1259C4" />
         </div>
 
@@ -240,7 +262,7 @@ export default function AgentsPage() {
                   <th className="th-base">Monto vendido</th><th className="th-base">Comision acumulada</th><th className="th-base">Meta (lotes/mes)</th><th className="th-base">Estado</th><th className="th-base"></th><th className="th-base">Ficha ventas</th>
                 </tr></thead>
                 <tbody className="divide-y divide-slate-100">
-                  {agents.map((agent) => {
+                  {agentsPage.rows.map((agent) => {
                     const metric = metricOf(agent.id);
                     return (
                       <tr key={agent.id}>
@@ -260,6 +282,7 @@ export default function AgentsPage() {
               </table>
             )}
         </div>
+        {!loading && <PaginationBar {...agentsPage.controls} label="agentes" />}
 
         <section className="border bg-white p-4" style={{ borderColor: '#E5E7EB', borderRadius: 6, boxShadow: '0 1px 2px rgba(16,24,40,.035)' }}>
           <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -276,9 +299,9 @@ export default function AgentsPage() {
               </colgroup>
               <thead><tr><th className="th-base">#</th><th className="th-base">Agente</th><th className="th-base text-right">Ventas</th><th className="th-base text-right">Monto</th><th className="th-base text-right">Comision</th></tr></thead>
               <tbody className="divide-y divide-slate-100">
-                {ranking.map((row, index) => (
-                  <tr key={row.agent.id} className={index === 0 ? 'bg-softblue' : undefined}>
-                    <td className="td-base font-semibold" style={{ color: '#1877F2' }}>{index + 1}</td>
+                {rankingPage.rows.map((row, index) => (
+                  <tr key={row.agent.id} className={rankingPage.controls.page === 1 && index === 0 ? 'bg-softblue' : undefined}>
+                    <td className="td-base font-semibold" style={{ color: '#1877F2' }}>{(rankingPage.controls.page - 1) * rankingPage.controls.limit + index + 1}</td>
                     <td className="td-base truncate font-medium">{row.agent.name}</td>
                     <td className="td-base text-right tabular-nums">{row.count}</td>
                     <td className="td-base text-right font-semibold tabular-nums">{show(row.amount)}</td>
@@ -288,6 +311,7 @@ export default function AgentsPage() {
               </tbody>
             </table>
           </div>
+          {!loading && <PaginationBar {...rankingPage.controls} label="agentes" />}
         </section>
       </div>
 
@@ -320,7 +344,7 @@ export default function AgentsPage() {
             <table className="table-base">
               <thead><tr><th className="th-base">ID</th><th className="th-base">Lote</th><th className="th-base">Cliente</th><th className="th-base text-right">Monto</th><th className="th-base text-right">Comision</th><th className="th-base">Fecha</th></tr></thead>
               <tbody className="divide-y divide-slate-100">
-                {fichaSales.map((sale) => (
+                {fichaPage.rows.map((sale) => (
                   <tr key={sale.id}>
                     <td className="td-base">V{sale.id}</td>
                     <td className="td-base">{sale.lotCode || sale.lotId || '-'}</td>
@@ -334,6 +358,7 @@ export default function AgentsPage() {
               </tbody>
             </table>
           </div>
+          <PaginationBar {...fichaPage.controls} label="ventas" />
         </div>
       </Modal>
     </Layout>
