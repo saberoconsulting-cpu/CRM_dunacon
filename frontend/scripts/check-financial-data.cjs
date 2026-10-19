@@ -5,61 +5,78 @@ const ts = require('typescript');
 const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../src/components/features/finances/FinancialData.tsx'), 'utf8');
 const ast = ts.createSourceFile('FinancialData.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-let save;
+const functions = [];
 function visit(node) {
-  if (ts.isFunctionDeclaration(node) && node.name?.text === 'save') save = node.getText(ast);
+  if (ts.isFunctionDeclaration(node) && ['save', 'formatBankNumber'].includes(node.name?.text)) functions.push(node.getText(ast));
   ts.forEachChild(node, visit);
 }
 visit(ast);
 const calls = [];
 const state = {
   loading: false, failed: false, saving: false, dirty: true,
-  settingsKey: 'finance_financial_data_7', exchangeRate: 3.8,
+  dirtyAccounts: ['GENERAL', 'SECONDARY'],
+  settingsKey: '/settings/financial-data/7', exchangeRate: 3.8, labels: { accountNumber: 'Cuenta bancaria' },
   rows: [
-    { id: 'a', company: 'Dunacon Sociedad Anónima Cerrada', ruc: '20608624393', bank: 'BCP', currency: 'PEN', accountNumber: '0012345678901', cci: '00200100012345678901' },
-    { id: 'b', company: 'Dunacon Sociedad Anónima Cerrada', ruc: '20608624393', bank: 'Interbank', currency: 'USD', accountNumber: '0009876543210', cci: '00300100098765432101' },
+    { id: 'GENERAL', accountKey: 'GENERAL', name: 'Cuenta principal', company: 'Dunacon', ruc: '20608624393', bank: 'BCP', currency: 'USD', accountNumber: '0012-3456-78901', cci: '0020-0100-0123-4567-8901' },
+    { id: 'SECONDARY', accountKey: 'SECONDARY', name: 'Otra cuenta', company: 'Dunacon', ruc: '20608624393', bank: 'BCP', currency: 'PEN', accountNumber: '0009-8765-43210', cci: '0030-0100-0987-6543-2101' },
   ],
   api: { put: async (url, payload) => { calls.push({url, payload}); if (state.failSave) throw Error('offline'); } },
   toast: () => {},
   setSelectedAccountId: value => { state.selectedAccountId = value; },
   setSaving: value => { state.saving = value; },
   setDirty: value => { state.dirty = value; },
+  setDirtyAccounts: value => { state.dirtyAccounts = value; },
 };
+state.selectedAccount = state.rows[0];
 vm.createContext(state);
-vm.runInContext(ts.transpileModule(save, { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText, state);
+vm.runInContext(ts.transpileModule(functions.join('\n'), { compilerOptions: { target: ts.ScriptTarget.ES2020 } }).outputText, state);
 (async () => {
   await state.save();
-  assert.equal(calls[0].url, '/settings/value/finance_financial_data_7');
-  const saved = JSON.parse(calls[0].payload.value);
-  assert.deepEqual(saved.accounts, state.rows);
-  assert.equal(saved.exchangeRate, 3.8);
-  assert.equal(saved.accounts[0].cci, '00200100012345678901');
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].url, '/settings/financial-data/7');
+  assert.equal(calls[0].payload.accountKey, 'GENERAL');
+  assert.equal(calls[1].payload.accountKey, 'SECONDARY');
+  assert.equal(calls[0].payload.exchangeRate, 3.8);
+  assert.equal(calls[0].payload.labels.accountNumber, 'Cuenta bancaria');
+  assert.equal(calls[0].payload.cci, '0020-0100-0123-4567-8901');
   assert.equal(state.dirty, false);
-  state.dirty = true; state.failSave = true;
+  await state.save();
+  assert.equal(calls.length, 2);
+  state.dirty = true; state.failSave = true; state.dirtyAccounts = ['GENERAL'];
   await state.save();
   assert.equal(state.dirty, true);
+  assert.equal(state.dirtyAccounts[0], 'GENERAL');
   assert.equal(state.rows.length, 2);
   assert.equal(state.saving, false);
-  state.failed = true;
+  state.failSave = false;
+  for (const invalid of ['123456789012', '123456789012345678901']) {
+    state.rows[0].accountNumber = invalid;
+    await state.save();
+    assert.equal(calls.length, 3);
+  }
+  state.rows[0].accountNumber = '0012-3456 78901';
+  for (const invalid of ['123', '123456789012345678901']) {
+    state.rows[0].cci = invalid;
+    await state.save();
+    assert.equal(calls.length, 3);
+  }
+  state.rows[0].cci = '0020 0100-0123 4567 8901';
+  state.rows[1].cci = ''; // An untouched incomplete secondary account must not block saving the principal.
   await state.save();
-  assert.equal(calls.length, 2);
-  state.failed = false; state.failSave = false;
-  state.rows[0].accountNumber = '123';
-  await state.save();
-  assert.equal(calls.length, 2);
-  assert.equal(state.selectedAccountId, 'a');
-  state.rows[0].accountNumber = '12345678901234';
-  await state.save();
-  assert.equal(calls.length, 2);
-  state.rows[0].accountNumber = '0012345678901';
-  state.rows[0].cci = '123';
-  await state.save();
-  assert.equal(calls.length, 2);
-  state.rows[0].cci = '123456789012345678901';
-  await state.save();
-  assert.equal(calls.length, 2);
-  state.rows[0].cci = '00200100012345678901';
-  await state.save();
-  assert.equal(calls.length, 3);
-  console.log('Datos financieros: varias cuentas, ceros iniciales, tipo de cambio y conservacion ante errores verificados.');
+  assert.equal(calls.length, 4);
+  assert.equal(calls[3].payload.accountKey, 'GENERAL');
+  assert.equal(calls[3].payload.accountNumber, '0012-3456 78901');
+  assert.equal(state.formatBankNumber('0012345678901', 'accountNumber'), '0012-3456-78901');
+  assert.equal(state.formatBankNumber('00200100012345678901', 'cci'), '0020-0100-0123-4567-8901');
+  for (const digits of ['00123456789012', '00123456789012345678']) {
+    state.rows[0].accountNumber = state.formatBankNumber(digits, 'accountNumber');
+    assert.equal(state.rows[0].accountNumber.replace(/\D/g, ''), digits);
+    state.dirty = true; state.dirtyAccounts = ['GENERAL'];
+    const previousCalls = calls.length;
+    await state.save();
+    assert.equal(calls.length, previousCalls + 1);
+    assert.equal(calls.at(-1).payload.accountNumber.replace(/\D/g, ''), digits);
+  }
+  assert.ok(!source.includes('Agregar dato') && !source.includes('Eliminar cuenta'));
+  console.log('Datos financieros: cuentas vinculadas, guardado de cambios, cuenta 13-20 digitos y CCI 20 digitos, guiones y conservacion ante errores verificados.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

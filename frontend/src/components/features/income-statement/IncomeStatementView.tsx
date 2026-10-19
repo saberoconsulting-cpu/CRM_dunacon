@@ -1602,7 +1602,7 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
                 <div className="flex min-h-10 items-center rounded-md bg-white px-3 text-sm font-bold" style={{ color: INK }}>
                   {project?.name || `Proyecto ${projectId}`}
                 </div>
-                <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
+                <div className="flex min-w-0 flex-row items-end gap-2">
                   <div className="min-w-0 flex-1">
                     <label className="text-xs font-semibold uppercase tracking-wide text-blue-50">RUC editable</label>
                     <div className="mt-1 flex min-w-0 items-center gap-1.5 rounded-md bg-white px-2 sm:gap-2 sm:px-3">

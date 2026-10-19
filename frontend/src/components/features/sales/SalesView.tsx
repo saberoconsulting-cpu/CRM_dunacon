@@ -327,8 +327,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [selectedQuoteSnapshot, setSelectedQuoteSnapshot] = useState<any>(null);
   const [lotFichaId, setLotFichaId] = useState<number | null>(null);
   const [contractBusy, setContractBusy] = useState<number | null>(null);
-  const [contractMissing, setContractMissing] = useState<{ saleId: number; fields: string[]; bankAccounts: Array<{ id: string; label: string }> } | null>(null);
-  const [contractBankAccountId, setContractBankAccountId] = useState('');
+  const [contractMissing, setContractMissing] = useState<{ saleId: number; fields: string[] } | null>(null);
   const [contractValues, setContractValues] = useState<Record<string, string>>({});
   const contractLabels: Record<string, string> = {
     cliente_documento: 'Documento de identidad del comprador (DNI / CE)', cliente_domicilio: 'Domicilio del comprador', ciudad_firma: 'Ciudad de firma', cliente_nombre: 'Nombre del comprador',
@@ -336,15 +335,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     fecha_entrega_lote: 'Entrega del Lote', fecha_entrega_condominio: 'Entrega del Condominio',
     proyecto_ubicacion: 'Ubicación del proyecto', agente_nombre: 'Nombre del asesor',
   };
-  async function downloadContract(saleId: number, fields?: Record<string, string>, bankAccountId?: string) {
+  async function downloadContract(saleId: number, fields?: Record<string, string>) {
     setContractBusy(saleId);
     try {
       if (!fields) {
-        const requirements = await api.get<{ missingFields: string[]; bankAccounts: Array<{ id: string; label: string }> }>(`/sales/${saleId}/contract/fields`);
-        if (requirements.missingFields.length || requirements.bankAccounts?.length > 1) {
+        const requirements = await api.get<{ missingFields: string[] }>(`/sales/${saleId}/contract/fields`);
+        if (requirements.missingFields.length) {
           setContractValues({});
-          setContractBankAccountId(requirements.bankAccounts?.[0]?.id || '');
-          setContractMissing({ saleId, fields: requirements.missingFields, bankAccounts: requirements.bankAccounts || [] });
+          setContractMissing({ saleId, fields: requirements.missingFields });
           return;
         }
       }
@@ -352,7 +350,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       const response = await fetch(`/api/sales/${saleId}/contract`, {
         method: fields ? 'POST' : 'GET',
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(fields ? { 'Content-Type': 'application/json' } : {}) },
-        body: fields ? JSON.stringify({ fields, bankAccountId }) : undefined,
+        body: fields ? JSON.stringify({ fields }) : undefined,
       });
       if (!response.ok) {
         const error = await response.json().catch(() => ({}));
@@ -1770,12 +1768,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         </div>
       )}
       <Modal open={Boolean(contractMissing)} onClose={() => { if (contractBusy === null) setContractMissing(null); }} title="Completar datos del contrato" width="max-w-lg">
-        <form onSubmit={(event) => { event.preventDefault(); if (contractMissing) downloadContract(contractMissing.saleId, contractValues, contractBankAccountId); }}>
+        <form onSubmit={(event) => { event.preventDefault(); if (contractMissing) downloadContract(contractMissing.saleId, contractValues); }}>
           <p className="mb-4 text-sm text-slate-500">La plantilla solicita estos datos adicionales. Se usarán para esta descarga del contrato.</p>
           <div className="space-y-3">
-            {Boolean(contractMissing?.bankAccounts.length) && <Field label="Cuenta bancaria para el contrato">
-              <Select value={contractBankAccountId} onChange={setContractBankAccountId} options={contractMissing?.bankAccounts.map(account => ({ value: account.id, label: account.label })) || []} />
-            </Field>}
             {contractMissing?.fields.map(field => (
               <Field key={field} label={contractLabels[field] || field.replace(/_/g, ' ')}>
                 <input required maxLength={2000} type="text" className="input" value={contractValues[field] || ''} onChange={event => setContractValues(current => ({ ...current, [field]: event.target.value }))} />

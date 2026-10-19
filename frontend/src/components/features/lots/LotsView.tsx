@@ -388,12 +388,12 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
         ))}
       </div>
 
-      <div className="card mb-4 flex flex-wrap gap-3 items-end">
-        <div className="flex-1 min-w-48"><label className="label">Buscar por código</label>
+      <div className={`card mb-4 grid grid-cols-2 items-end gap-3 sm:grid-cols-4 ${lockedProjectId ? 'lg:grid-cols-6' : 'lg:grid-cols-7'} [&_button]:!h-10 [&_button]:!w-full [&_button]:!text-sm [&_svg]:h-4 [&_svg]:w-4 [&_svg]:shrink-0`}>
+        <div className="col-span-2 min-w-0 sm:col-span-4 lg:col-span-2"><label className="label">Buscar por código</label>
           <input className="input" value={buscar} onChange={(e)=>setBuscar(e.target.value)} onKeyDown={(e)=>{ if(e.key==='Enter') setSearch(buscar); }} placeholder="Ej: A-01" />
         </div>
         {!lockedProjectId && (
-          <div className="min-w-40"><label className="label">Proyecto</label>
+          <div className="min-w-0"><label className="label">Proyecto</label>
             <Select
               value={project}
               onChange={setProject}
@@ -401,7 +401,7 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
             />
           </div>
         )}
-        <div className="min-w-44"><label className="label">Estado</label>
+        <div className="min-w-0"><label className="label">Estado</label>
           <Select
             value={statusFilter}
             onChange={setStatusFilter}
@@ -409,15 +409,15 @@ export default function LotsView({ lockedProjectId }: { lockedProjectId?: number
           />
         </div>
         <button
-          className={viewMode === 'blocks' ? 'btn-primary' : 'btn-secondary'}
+          className={`${viewMode === 'blocks' ? 'btn-primary' : 'btn-secondary'} min-w-0 whitespace-nowrap !px-2`}
           onClick={() => setViewMode((current) => current === 'general' ? 'blocks' : 'general')}
         >
           <FiLayers /> {viewMode === 'blocks' ? 'General' : 'Por calles'}
         </button>
-        <button className="btn-secondary" onClick={exportPdf} disabled={!lots.length}>
+        <button className="btn-secondary min-w-0 whitespace-nowrap !px-2" onClick={exportPdf} disabled={!lots.length}>
           <FiDownload /> Exportar PDF
         </button>
-        <button className="btn-secondary" onClick={()=>{setBuscar('');setSearch('');setStatusFilter('');if(!lockedProjectId) setProject('');}}>Limpiar</button>
+        <button className="btn-secondary min-w-0 whitespace-nowrap !px-2" onClick={()=>{setBuscar('');setSearch('');setStatusFilter('');if(!lockedProjectId) setProject('');}}>Limpiar</button>
       </div>
 
       <div className="space-y-5">

@@ -849,30 +849,36 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 Ascendente
               </span>
             </div>
-            <div className="grid min-w-0 grid-cols-2 gap-2 lg:grid-cols-[140px_140px_minmax(200px,1fr)_160px_160px_auto]">
+            <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:flex-1 2xl:grid-cols-6">
+              <label className="block min-w-0 text-xs font-medium" style={{ color: MUTED }}>
+                <span className="mb-1 block">Fecha desde</span>
               <input
                 type="date"
-                className="input !h-9 text-xs sm:text-sm"
+                className="input block !h-9 min-w-0 max-w-full text-xs sm:text-sm"
                 value={filters.from}
                 onChange={(event) => f('from', event.target.value)}
                 title="Fecha desde"
                 aria-label="Fecha desde"
               />
+              </label>
+              <label className="block min-w-0 text-xs font-medium" style={{ color: MUTED }}>
+                <span className="mb-1 block">Fecha hasta</span>
               <input
                 type="date"
-                className="input !h-9 text-xs sm:text-sm"
+                className="input block !h-9 min-w-0 max-w-full text-xs sm:text-sm"
                 value={filters.to}
                 onChange={(event) => f('to', event.target.value)}
                 title="Fecha hasta"
                 aria-label="Fecha hasta"
               />
+              </label>
               <input
-                className="input !h-9 text-xs sm:text-sm"
+                className="input !h-9 min-w-0 max-w-full self-end text-xs sm:text-sm"
                 placeholder="Buscar texto o iniciales"
                 value={filters.search}
                 onChange={(event) => f('search', event.target.value)}
               />
-              <div className="relative min-w-0">
+              <div className="relative min-w-0 self-end">
                 <button
                   type="button"
                   className="flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-xl border bg-white px-3 text-left text-xs font-semibold shadow-sm transition-colors hover:bg-[#F8FAFC] sm:text-sm"
@@ -908,7 +914,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   </>
                 )}
               </div>
-              <div className="relative min-w-0">
+              <div className="relative min-w-0 self-end">
                 <button
                   type="button"
                   className="flex h-9 w-full min-w-0 items-center justify-between gap-2 rounded-xl border bg-white px-3 text-left text-xs font-semibold shadow-sm transition-colors hover:bg-[#F8FAFC] sm:text-sm"
@@ -944,7 +950,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                   </>
                 )}
               </div>
-              <button className="btn-neutral !h-9 justify-center !px-3 text-xs sm:text-sm" onClick={() => setFilters({ ...emptyFilters })} disabled={!activeFilters} title="Limpiar filtros">
+              <button className="btn-neutral !h-9 min-w-0 self-end justify-center !px-3 text-xs sm:text-sm" onClick={() => setFilters({ ...emptyFilters })} disabled={!activeFilters} title="Limpiar filtros">
                 <FiX /> Limpiar
               </button>
             </div>

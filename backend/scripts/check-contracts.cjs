@@ -49,6 +49,7 @@ async function checkSaleContract() {
     {}, {}, {},
     { getRepository: entity => {
       if (entity === ProjectDocumentEntity) return { findOne: async query => { requestedTemplate = query; return { url: 'https://res.cloudinary.com/test/template.docx' }; } };
+      if (entity.name === 'BankAccountEntity') return { find: async () => [] };
       if (entity.name === 'ProjectLotDataEntity' || entity.name === 'AppSettingEntity') return { findOne: async () => null };
       assert.equal(entity, ProjectEntity);
       return { findOne: async () => ({ name: 'Proyecto' }) };

@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AppSettingEntity } from '../../../shared/infrastructure/entities/app-setting.entity';
 
 export interface AppSettingsDto {
   companyName: string;
+  companyRuc: string;
   color: string;
   alertCuotas: string;
   approvalNotify: string;
@@ -28,6 +29,7 @@ export class SettingsService {
     const r = await this.getRaw();
     return {
       companyName: r.company_name || '',
+      companyRuc: r.company_ruc || '',
       color: r.color || '#1877F2',
       alertCuotas: r.alert_cuotas != null ? r.alert_cuotas : '1',
       approvalNotify: r.approval_notify != null ? r.approval_notify : '1',
@@ -35,8 +37,10 @@ export class SettingsService {
   }
 
   async set(partial: Partial<AppSettingsDto>) {
+    if (partial.companyRuc && !/^\d{11}$/.test(partial.companyRuc)) throw new BadRequestException('El RUC debe tener exactamente 11 digitos');
     const entries = {
       company_name: partial.companyName,
+      company_ruc: partial.companyRuc,
       color: partial.color,
       alert_cuotas: partial.alertCuotas,
       approval_notify: partial.approvalNotify,

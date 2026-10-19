@@ -123,6 +123,16 @@ function plainText(value: unknown) {
   return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
 }
 
+function financingPercentage(rows: FinanceDashManual['dataRows'], kind: 'venta' | 'preventa') {
+  const row = rows.find(({ label }) => {
+    const text = plainText(label);
+    return text.includes('estruct') && text.includes('financ') && (
+      kind === 'preventa' ? text.includes('preventa') : text.includes('venta') && !text.includes('preventa')
+    );
+  }) ?? rows.find(({ code }) => plainText(code) === (kind === 'venta' ? 'd.10' : 'd.11'));
+  return row ? numericText(row.value) : kind === 'venta' ? 20 : 25;
+}
+
 function isLoanMovement(item: Partial<BankMovement>) {
   const text = [
     item.movementType,
@@ -274,6 +284,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const [financeDashManual, setFinanceDashManual] = useState<FinanceDashManual>(defaultFinanceDashManual());
   const [financeDashLoaded, setFinanceDashLoaded] = useState(false);
   const [dataPanel, setDataPanel] = useState<'important' | 'financial'>('important');
+  const [financialToolbarContainer, setFinancialToolbarContainer] = useState<HTMLDivElement | null>(null);
   const [financePanel, setFinancePanel] = useState<'commitments' | 'structure'>('commitments');
   const [financeClassRows, setFinanceClassRows] = useState<FinanceClassRow[]>([]);
   const [financeClassLoaded, setFinanceClassLoaded] = useState(false);
@@ -750,10 +761,12 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const compromisoTerrenoValue = precioTerrenoMatriz;
   const { treeByLine: statementTree, hasFinancialFlowChildren } = useIncomeStatementReal(lockedProjectId || 0, [], financeDash?.staticFlow || null, financeDash?.dynamicFlow || null);
   const compromisoGastosFinancieros = projectedFinancialAmount(financeDash?.staticFlow || null, statementTree.financiero || [], hasFinancialFlowChildren, num(statement?.proyectado?.financiamiento));
+  const ventaLotesPercentage = financingPercentage(financeDashManual.dataRows, 'venta');
+  const preventaPercentage = financingPercentage(financeDashManual.dataRows, 'preventa');
   const estructuraBase: Array<[string, string, number]> = [
     ['capital', 'Aporte de Capital', socioTotals.inversion],
-    ['venta_lotes', 'Venta de Lotes (20% de Lotes)', ingresoVentaLotes * 0.20],
-    ['preventa', 'Preventa (25% de los lotes)', ingresoVentaLotes * 0.25],
+    ['venta_lotes', `Venta de Lotes (${ventaLotesPercentage}% de Lotes)`, ingresoVentaLotes * ventaLotesPercentage / 100],
+    ['preventa', `Preventa (${preventaPercentage}% de los lotes)`, ingresoVentaLotes * preventaPercentage / 100],
     ['prestamos_aporte', 'Prestamos (Aporte Adicional)', socioTotals.total],
   ];
   const financiamientoBancario = pptoObra - estructuraBase.reduce((sum, [, , value]) => sum + value, 0);
@@ -1139,26 +1152,27 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
           <div className="grid min-w-0 gap-3 lg:grid-cols-2 xl:gap-4">
             <div className="min-w-0 rounded-lg border bg-white p-2 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
-              <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="inline-flex rounded-lg border bg-slate-50 p-1" style={{ borderColor: '#E5E7EB' }}>
-                  <button className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${dataPanel === 'important' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-blue-700'}`} type="button" onClick={() => setDataPanel('important')}>Datos importantes</button>
-                  <button className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${dataPanel === 'financial' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-blue-700'}`} type="button" onClick={() => setDataPanel('financial')}>Datos financieros</button>
+              <div className="mb-2 flex w-full min-w-0 items-center justify-between gap-1 sm:gap-2">
+                <div className="inline-flex w-[55%] min-w-0 shrink-0 rounded-lg border bg-slate-50 p-1 sm:w-auto" style={{ borderColor: '#E5E7EB' }}>
+                  <button className={`min-w-0 flex-1 truncate rounded-md px-1.5 py-1.5 text-[10px] font-semibold transition sm:flex-none sm:px-3 sm:text-xs ${dataPanel === 'important' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-blue-700'}`} type="button" onClick={() => setDataPanel('important')}>Datos importantes</button>
+                  <button className={`min-w-0 flex-1 truncate rounded-md px-1.5 py-1.5 text-[10px] font-semibold transition sm:flex-none sm:px-3 sm:text-xs ${dataPanel === 'financial' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-blue-700'}`} type="button" onClick={() => setDataPanel('financial')}>Datos financieros</button>
                 </div>
                 {dataPanel === 'important' && (
                 <button className="btn-neutral !h-8 text-xs" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, dataRows: [...current.dataRows, { code: `D.${current.dataRows.length + 9}`, label: 'Nuevo dato', value: '' }] }))}>Agregar dato</button>
                 )}
+                <div ref={setFinancialToolbarContainer} hidden={dataPanel !== 'financial'} className="min-w-0 flex-1" />
               </div>
               <div hidden={dataPanel !== 'financial'}>
-                {lockedProjectId && <FinancialData key={lockedProjectId} projectId={lockedProjectId} />}
+                {lockedProjectId && <FinancialData key={lockedProjectId} projectId={lockedProjectId} toolbarContainer={financialToolbarContainer} active={dataPanel === 'financial'} />}
               </div>
               <div hidden={dataPanel !== 'important'}>
               <div className="overflow-x-auto rounded-md border" style={{ borderColor: '#E5E7EB' }}>
-              <table className="w-full table-fixed border-collapse text-xs">
+              <table className="w-full table-fixed border-collapse text-xs max-sm:text-[11px] max-sm:[&_input:not(.input-ghost)]:!text-[11px] max-sm:[&_.input-ghost.font-semibold]:!text-[13px] max-sm:[&_button]:shrink-0">
                 <colgroup>
                   <col className="w-[30px] lg:w-[38px]" />
                   <col />
                   <col className="w-[88px] lg:w-[120px]" />
-                  <col className="w-[48px] lg:w-[60px]" />
+                  <col className="w-[64px] sm:w-[48px] lg:w-[60px]" />
                 </colgroup>
                 <tbody>
                   {[
@@ -1176,9 +1190,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                       <td className="w-[88px] lg:w-[120px] pl-1 pr-2 py-1.5 text-right whitespace-nowrap lg:text-sm">
                         {key ? <input className="input !h-7 !w-full !min-w-0 !max-w-none !rounded-md !px-1 text-right text-xs lg:text-sm" value={(financeDashManual as any)[key]} onChange={(e) => setFinanceDashManual((current) => ({ ...current, [key as string]: e.target.value }))} /> : (labelKey === 'valor_inicial_accion' ? usd0(valorInicialAccion) : labelKey === 'valor_actual_accion' ? usd0(valorActualAccion) : labelKey === 'utilidad_ajustada' ? `${displaySymbol()} ${usd0(utilidadAjustada)}` : labelKey === 'precio_terreno_matriz' ? usd0(precioTerrenoMatriz) : compactUsd(pptoObra))}
                       </td>
-                      <td className="w-[48px] lg:w-[60px] px-0.5 lg:px-1 py-1.5 text-center">
+                      <td className="w-[64px] sm:w-[48px] lg:w-[60px] px-0.5 lg:px-1 py-1.5 text-center">
                         <div className="flex justify-center gap-1">
-                          <button disabled={labelKey === 'precio_terreno_matriz'} className={labelKey === 'precio_terreno_matriz' ? rowDangerDisabledButton : rowIconButton} type="button" title={labelKey === 'precio_terreno_matriz' ? 'Dato del flujo de caja' : 'Editar'} onClick={focusRowInput}><FiEdit3 size={13} /></button>
+                          <button disabled={labelKey === 'precio_terreno_matriz'} className={`${labelKey === 'precio_terreno_matriz' ? rowDangerDisabledButton : rowIconButton} max-sm:w-[30px]`} type="button" title={labelKey === 'precio_terreno_matriz' ? 'Dato del flujo de caja' : 'Editar'} onClick={focusRowInput}><FiEdit3 size={13} className="max-sm:h-3.5 max-sm:w-3.5" /></button>
                           <button className={rowDangerDisabledButton} type="button" title="Fila base" disabled><FiTrash2 size={13} /></button>
                         </div>
                       </td>
@@ -1189,9 +1203,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                       <td className="w-[30px] lg:w-[38px] px-1 lg:px-1.5 py-1.5 text-center"><input className="input input-ghost !h-7 !border-0 !bg-transparent !px-0 text-center text-[10px] font-bold text-[#8A6A00]" value={row.code} onChange={(e) => updateManualArray('dataRows', index, { code: e.target.value })} /></td>
                       <td className="px-1 lg:px-2 py-1.5"><input className="input input-ghost !h-7 !w-full !min-w-0 !border-0 !bg-transparent !px-1 font-semibold text-[#1F2937]" value={row.label} onChange={(e) => updateManualArray('dataRows', index, { label: e.target.value })} /></td>
                       <td className="w-[88px] lg:w-[120px] pl-1 pr-2 py-1.5 text-right whitespace-nowrap lg:text-sm"><input className="input !h-7 !w-full !min-w-0 !max-w-none !rounded-md !px-1 text-right text-xs lg:text-sm" value={row.value} onChange={(e) => updateManualArray('dataRows', index, { value: e.target.value })} /></td>
-                      <td className="w-[48px] lg:w-[60px] px-0.5 lg:px-1 py-1.5 text-center">
+                      <td className="w-[64px] sm:w-[48px] lg:w-[60px] px-0.5 lg:px-1 py-1.5 text-center">
                         <div className="flex justify-center gap-1">
-                          <button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button>
+                          <button className={`${rowIconButton} max-sm:w-[30px]`} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} className="max-sm:h-3.5 max-sm:w-3.5" /></button>
                           <button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeManualArrayRow('dataRows', index)}><FiTrash2 size={13} /></button>
                         </div>
                       </td>
@@ -1203,13 +1217,13 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
               </div>
             </div>
             <div className="min-w-0 rounded-lg border bg-white p-2 shadow-sm" style={{ borderColor: '#E5E7EB' }}>
-              <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                <div className="inline-flex rounded-lg border bg-slate-50 p-1" style={{ borderColor: '#E5E7EB' }}>
-                  <button className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${financePanel === 'commitments' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-blue-700'}`} type="button" onClick={() => setFinancePanel('commitments')}>Compromisos Financieros</button>
-                  <button className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${financePanel === 'structure' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-blue-700'}`} type="button" onClick={() => setFinancePanel('structure')}>Estructura de Financiamiento</button>
+              <div className="mb-2 flex flex-col gap-2 max-sm:min-w-0 max-sm:flex-row max-sm:items-center max-sm:gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div className="grid min-w-0 grid-cols-2 max-sm:flex-1 rounded-lg border bg-slate-50 p-1 sm:inline-flex" style={{ borderColor: '#E5E7EB' }}>
+                  <button className={`rounded-md px-3 py-1.5 text-xs font-semibold transition max-sm:min-w-0 max-sm:px-1 max-sm:text-[10px] max-sm:leading-tight max-sm:whitespace-normal ${financePanel === 'commitments' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-blue-700'}`} type="button" onClick={() => setFinancePanel('commitments')}>Compromisos Financieros</button>
+                  <button className={`rounded-md px-3 py-1.5 text-xs font-semibold transition max-sm:min-w-0 max-sm:px-1 max-sm:text-[10px] max-sm:leading-tight max-sm:whitespace-normal ${financePanel === 'structure' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-600 hover:text-blue-700'}`} type="button" onClick={() => setFinancePanel('structure')}>Estructura de Financiamiento</button>
                 </div>
                 {financePanel === 'commitments' ? (
-                  <button className="btn-neutral !h-8 text-xs" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, commitmentRows: [...current.commitmentRows, { priority: String(sociosRows.length + current.commitmentRows.length + 4), creditor: 'Nuevo acreedor', amount: '' }] }))}>Agregar dato</button>
+                  <button className="btn-neutral !h-8 text-xs max-sm:w-[62px] max-sm:shrink-0 max-sm:!px-1 max-sm:!text-[10px] max-sm:whitespace-normal max-sm:leading-tight" type="button" onClick={() => setFinanceDashManual((current) => ({ ...current, commitmentRows: [...current.commitmentRows, { priority: String(sociosRows.length + current.commitmentRows.length + 4), creditor: 'Nuevo acreedor', amount: '' }] }))}>Agregar dato</button>
                 ) : null}
               </div>
               <div className="overflow-x-auto rounded-md border border-slate-200">
@@ -1228,8 +1242,8 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                 <tfoot><tr style={{ background: '#064E3B' }}><td className="td-base font-bold text-white" colSpan={2}>Total {displaySymbol()}</td><td className="td-base text-right font-bold text-white">{usd0(compromisoTotal)}</td><td className="td-base text-center font-bold text-white">{compromisoTotal > 0 ? '100%' : '0%'}</td><td className="td-base"></td></tr></tfoot>
               </table>
               ) : (
-              <table className={`w-full table-fixed border-collapse text-xs [&_th]:!px-2 [&_th]:align-middle [&_td]:!px-2 [&_td]:align-middle ${FINANCING_TABLE_STYLE}`} style={{ minWidth: 400 }}>
-                <colgroup><col style={{ width: '54%' }} /><col style={{ width: '28%' }} /><col style={{ width: '18%' }} /></colgroup>
+              <table className={`w-full min-w-0 table-fixed border-collapse text-xs [&_th]:!px-1 sm:[&_th]:!px-2 [&_th]:align-middle [&_td]:!px-1 sm:[&_td]:!px-2 [&_td]:align-middle max-sm:[&_td]:!text-[11px] [&_td:first-child]:!whitespace-normal [&_td:first-child]:break-words [&_th]:whitespace-normal ${FINANCING_TABLE_STYLE}`}>
+                <colgroup><col className="w-[44%] sm:w-[54%]" /><col className="w-[34%] sm:w-[28%]" /><col className="w-[22%] sm:w-[18%]" /></colgroup>
                 <thead><tr style={{ background: '#000066' }}><th className="px-2 py-2 text-left text-[10px] font-bold text-white">Estructura Financiam.</th><th className="px-2 py-2 text-right text-[10px] font-bold text-white">{displaySymbol()}</th><th className="px-2 py-2 text-center text-[10px] font-bold text-white">%</th></tr></thead>
                 <tbody>
                   {estructuraRows.map(([key, label, value]) => (

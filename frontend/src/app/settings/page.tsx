@@ -4,7 +4,7 @@ import { Toaster, toast } from '@/components/ui/ui';
 import { api } from '@/lib/api';
 import { useEffect, useState } from 'react';
 
-const DEF = { companyName: 'Inmobiliaria S.A.C.', color: '#1877F2', alertCuotas: '1', approvalNotify: '1' };
+const DEF = { companyName: 'Inmobiliaria S.A.C.', companyRuc: '', color: '#1877F2', alertCuotas: '1', approvalNotify: '1' };
 const roleLabel = (value?: string) => value === 'admin' ? 'Gerente' : value === 'agent' ? 'Agente' : value === 'superadmin' ? 'Super Admin' : (value || '');
 
 export default function SettingsPage() {
@@ -18,10 +18,12 @@ export default function SettingsPage() {
   const set = (k: string, v: any) => setForm((p: any) => ({ ...p, [k]: v }));
 
   async function save() {
+    if (form.companyRuc && !/^\d{11}$/.test(form.companyRuc)) return toast('El RUC debe tener exactamente 11 digitos', 'err');
     setBusy(true);
     try {
       await api.put('/settings', {
         companyName: form.companyName,
+        companyRuc: form.companyRuc,
         color: form.color,
         alertCuotas: form.alertCuotas,
         approvalNotify: form.approvalNotify,
@@ -41,7 +43,10 @@ export default function SettingsPage() {
             <h3 className="font-semibold mb-1">Datos de la empresa</h3>
             <p className="text-sm mb-4" style={{ color: '#6B7280' }}>Identidad mostrada en la aplicación.</p>
             <div className="space-y-4">
-              <div><label className="label">Nombre de la inmobiliaria</label><input className="input" value={form.companyName || ''} onChange={(e) => set('companyName', e.target.value)} /></div>
+              <div className="grid grid-cols-[minmax(0,3fr)_minmax(0,2fr)] gap-3">
+                <div className="min-w-0"><label className="label" htmlFor="company-name">Nombre de la inmobiliaria</label><input id="company-name" className="input min-w-0" value={form.companyName || ''} onChange={(e) => set('companyName', e.target.value)} /></div>
+                <div className="min-w-0"><label className="label" htmlFor="company-ruc">RUC</label><input id="company-ruc" type="text" inputMode="numeric" maxLength={11} className="input min-w-0" value={form.companyRuc || ''} onChange={(e) => set('companyRuc', e.target.value.replace(/\D/g, '').slice(0, 11))} /></div>
+              </div>
               <div><label className="label">Correo de administración</label><input type="email" className="input" readOnly value={me?.email || ''} /></div>
               <div className="flex items-center gap-3">
                 <label className="label mb-0">Color de marca</label>

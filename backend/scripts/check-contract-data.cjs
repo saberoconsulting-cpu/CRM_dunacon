@@ -4,11 +4,15 @@ const { SalesService } = require('../src/modules/sales/application/sales.service
 const { buildGraceSchedule } = require('../src/shared/domain/finance.util.ts');
 const sale = { id: 8, projectId: 5, lotId: 26, clientId: 3, quoteId: 2, saleDate: '2026-10-17', salePrice: '53000', lotPriceUsd: '60000', bonoTotalUsd: '7000', cuotaInicial: '14000', financingBase: '53000', totalCuotas: 60, interestType: 'tea', tea: '10', conditions: 'Cuotas sin interes: 12' };
 const accounts = [
-  { id: 'pen', company: 'Dunacon', ruc: '20608624393', bank: 'BCP', currency: 'PEN', accountNumber: '0012345678901', cci: '00200100012345678901' },
-  { id: 'usd', company: 'Dunacon', ruc: '20608624393', bank: 'BCP', currency: 'USD', accountNumber: '0012345678902', cci: '00200100012345678902' },
+  { id: 'SECONDARY', accountKey: 'SECONDARY', company: 'Dunacon', ruc: '20608624393', bank: 'BCP', currency: 'PEN', accountNumber: '0012345678901', cci: '00200100012345678901' },
+  { id: 'GENERAL', accountKey: 'GENERAL', company: 'Dunacon', ruc: '20608624393', bank: 'BCP', currency: 'USD', accountNumber: '0012345678902', cci: '00200100012345678902' },
+];
+const masters = [
+ { id: 2, accountKey: 'SECONDARY', name: 'Cuenta secundaria', bank: 'BCP', currency: 'PEN', isActive: true },
+ { id: 1, accountKey: 'GENERAL', name: 'Cuenta principal', bank: 'BCP', currency: 'USD', isActive: true },
 ];
 let dimensionsQuery;
-const ds = { getRepository: entity => ({ findOne: async query => {
+const ds = { getRepository: entity => ({ find: async query => { assert.equal(entity.name, 'BankAccountEntity'); assert.equal(query.where.projectId, 5); return masters; }, findOne: async query => {
   switch (entity.name) {
     case 'ProjectDocumentEntity': return { url: 'https://res.cloudinary.com/test/template.docx', originalName: 'contrato.docx' };
     case 'ProjectEntity': return { name: 'Altaduna', location: 'Ica', lotDeliveryDate: '2026-12-31', condominiumDeliveryDate: '2028-12-31' };
@@ -22,7 +26,7 @@ const service = new SalesService({ findOne: async () => sale }, { findOne: async
 const originalFetch = global.fetch;
 global.fetch = async () => ({ ok: true, body: (async function* () { yield Buffer.from('placeholder'); })() });
 (async () => {
-  const result = await service.prepareContract(8, undefined, {}, 'usd');
+  const result = await service.prepareContract(8);
   const data = result.contractData;
   assert.deepEqual(dimensionsQuery.where, { projectId: 5, code: '26' });
   assert.equal(data.cliente_nombre, 'Carlos Jose Felipa Castro');
@@ -42,13 +46,30 @@ global.fetch = async () => ({ ok: true, body: (async function* () { yield Buffer
   assert.match(data.cuotas_sin_intereses, /12 Cuotas/);
   assert.match(data.cuotas_con_intereses, /48 Cuotas/);
   assert.equal(data.fecha_generacion, new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date()));
-  await assert.rejects(service.prepareContract(8, undefined, {}, 'other-project'), /no pertenece/);
+
   const noSelection = await service.prepareContract(8);
-  assert.equal(noSelection.contractData.cuenta_corriente, '');
+  assert.equal(noSelection.contractData.cuenta_corriente, accounts[1].accountNumber);
   assert.equal(noSelection.accounts.length, 2);
   sale.conditions = 'Forma de pago: Contado';
   const cash = await service.prepareContract(8, undefined, {}, 'usd');
   assert.equal(cash.contractData.forma_pago, 'contado');
   assert.equal(cash.contractData.saldo_financiar, 'US$ 0.00');
+  accounts[1].company = 'Empresa actualizada';
+  accounts[1].ruc = '20123456789';
+  accounts[1].bank = 'Banco actualizado';
+  accounts[1].currency = 'PEN';
+  accounts[1].accountNumber = '0099-8877-66554';
+  accounts[1].cci = '0099-8877-6655-4433-2211';
+  const current = await service.prepareContract(8, undefined, {}, 'usd');
+  assert.equal(current.contractData.empresa_nombre, 'Empresa actualizada');
+  assert.equal(current.contractData.empresa_ruc, '20123456789');
+  assert.equal(current.contractData.banco, 'Banco actualizado');
+  assert.equal(current.contractData.moneda, 'Soles');
+  assert.equal(current.contractData.cuenta_corriente, '0099-8877-66554');
+  assert.equal(current.contractData.cci, '0099-8877-6655-4433-2211');
+  masters.splice(1, 1);
+  const noPrincipal = await service.prepareContract(8);
+  assert.equal(noPrincipal.contractData.cuenta_corriente, '');
+  console.log('Datos financieros: cada generacion lee los valores actuales y rechaza cuentas eliminadas.');
   console.log('Contrato: dimensiones por proyecto y lote, datos de venta, importes historicos, entregas, cuenta elegida y fecha Peru verificados.');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => { global.fetch = originalFetch; });

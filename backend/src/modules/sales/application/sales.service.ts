@@ -1,3 +1,5 @@
+import { BankAccountEntity } from '../../../shared/infrastructure/entities/bank-account.entity';
+import { linkFinancialAccounts, parseFinancialStore } from '../../../shared/application/financial-accounts';
 import { ProjectLotDataEntity } from '../../../shared/infrastructure/entities/project-lot-data.entity';
 import { AppSettingEntity } from '../../../shared/infrastructure/entities/app-setting.entity';
 import { lotDataCode } from '../../plan/application/lot-data-excel';
@@ -49,7 +51,7 @@ export class SalesService {
     private readonly dataSource: DataSource,
   ) {}
 
-  private async prepareContract(saleId: number, agentId?: number, fields: Record<string, string> = {}, bankAccountId?: string) {
+  private async prepareContract(saleId: number, agentId?: number, fields: Record<string, string> = {}) {
     const sale = await this.saleRepo.findOne({ where: { id: saleId, ...(agentId ? { agentId } : {}) } });
     if (!sale) throw new NotFoundException('Venta no encontrada');
     const template = await this.dataSource.getRepository(ProjectDocumentEntity).findOne({
@@ -62,21 +64,14 @@ export class SalesService {
       sale.clientId ? this.clientRepo.findOne({ where: { id: sale.clientId } }) : null,
       sale.agentId ? this.userRepo.findOne({ where: { id: sale.agentId } }) : null,
     ]);
-    const [dimensions, quote, financialSetting] = await Promise.all([
+    const [dimensions, quote, financialSetting, masterAccounts] = await Promise.all([
       lot ? this.dataSource.getRepository(ProjectLotDataEntity).findOne({ where: { projectId: sale.projectId, code: lotDataCode(lot.code) } }) : null,
       sale.quoteId ? this.dataSource.getRepository(QuoteEntity).findOne({ where: { id: sale.quoteId } }) : null,
       this.dataSource.getRepository(AppSettingEntity).findOne({ where: { key: `finance_financial_data_${sale.projectId}` } }),
+      this.dataSource.getRepository(BankAccountEntity).find({ where: { projectId: sale.projectId, isActive: true }, order: { id: 'ASC' } }),
     ]);
-    let accounts: Array<{ id: string; company: string; ruc: string; bank: string; currency: string; accountNumber: string; cci: string }> = [];
-    if (financialSetting?.value) {
-      try {
-        const saved = JSON.parse(financialSetting.value);
-        if (!Array.isArray(saved.accounts)) throw new Error();
-        accounts = saved.accounts;
-      } catch { throw new BadRequestException('Revisa los datos financieros del proyecto: no se pueden leer las cuentas guardadas.'); }
-    }
-    const account = bankAccountId ? accounts.find(item => item.id === bankAccountId) : accounts.length === 1 ? accounts[0] : undefined;
-    if (bankAccountId && !account) throw new BadRequestException('La cuenta elegida no pertenece a este proyecto.');
+    const accounts = linkFinancialAccounts(masterAccounts, parseFinancialStore(financialSetting?.value));
+    const account = accounts.find(item => item.isPrincipal);
     const cashSale = /Forma de pago:\s*Contado\b/i.test(sale.conditions || '') || (!/Forma de pago:/i.test(sale.conditions || '') && quote?.paymentMethod === 'contado');
     const principal = Math.max(0, Number(sale.salePrice) - Number(sale.cuotaInicial || 0));
     const graceMatch = String(sale.conditions || '').match(/Cuotas sin interes:\s*(\d+)/i);
@@ -109,6 +104,7 @@ export class SalesService {
     };
     for (const [key, value] of Object.entries(fields)) {
       if (!(CONTRACT_FIELDS as readonly string[]).includes(key) || typeof value !== 'string' || value.length > 2000) throw new BadRequestException('Datos adicionales de contrato no válidos.');
+      if (['empresa_nombre', 'empresa_ruc', 'banco', 'moneda', 'cuenta_corriente', 'cci'].includes(key)) continue;
       if (!contractData[key]?.trim()) contractData[key] = value.trim();
     }
     const source = await downloadContractTemplate(template.url);
@@ -124,12 +120,15 @@ export class SalesService {
     if (!info.fields.length) throw new BadRequestException('La plantilla no tiene campos para completar. Agrega campos como {cliente_nombre} y {lote_codigo}.');
     const bankFields = ['empresa_nombre', 'empresa_ruc', 'banco', 'moneda', 'cuenta_corriente', 'cci'];
     const needsBank = info.fields.some(field => bankFields.includes(field));
-    if (needsBank && !accounts.length) throw new BadRequestException('Registra una cuenta en Finanzas > Datos financieros.');
-    return { missingFields: info.fields.filter(field => !contractData[field]?.trim() && !(needsBank && accounts.length > 1 && bankFields.includes(field))), bankAccounts: needsBank ? accounts.map(item => ({ id: item.id, label: [item.bank, item.currency].filter(Boolean).join(' - ') })) : [] };
+    if (needsBank && !accounts.some(item => item.isPrincipal)) throw new BadRequestException('Configura la cuenta principal en Cuentas y bancos del proyecto.');
+    const missingBank = needsBank ? bankFields.filter(field => !contractData[field]?.trim()) : [];
+    if (missingBank.length) throw new BadRequestException('Completa los datos de la cuenta principal en Finanzas > Datos financieros antes de generar el contrato.');
+    return { missingFields: info.fields.filter(field => !contractData[field]?.trim()), bankAccounts: [] };
+
   }
 
-  async contract(saleId: number, agentId?: number, fields: Record<string, string> = {}, bankAccountId?: string) {
-    const { source, isPdf, contractData, projectLogoUrl } = await this.prepareContract(saleId, agentId, fields, bankAccountId);
+  async contract(saleId: number, agentId?: number, fields: Record<string, string> = {}) {
+    const { source, isPdf, contractData, projectLogoUrl } = await this.prepareContract(saleId, agentId, fields);
     const companyLogo = await readFile(join(__dirname, '../../../assets/dunacon.png'));
     let projectLogo: Buffer | undefined;
     if (projectLogoUrl) {
