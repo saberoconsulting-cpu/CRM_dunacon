@@ -2,6 +2,7 @@
 // src/components/ui.tsx
 // Componentes UI reutilizables: estados, tarjetas, modales, toast
 import { ReactNode, useState as useReactState } from 'react';
+import { isSessionLockError } from '@/lib/api';
 import { LotStatus, LOT_STATUS_LABEL, LOT_STATUS_COLOR } from '@/lib/types';
 import { KpiCardShell, KpiCardValue } from '@/components/ui/Metrics';
 
@@ -140,7 +141,10 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg' }: {
 
 // Toast global simple
 let toastFn: (msg: string, type?: 'ok' | 'err') => void = () => {};
-export function toast(msg: string, type: 'ok' | 'err' = 'ok') { toastFn(msg, type); }
+export function toast(msg: string, type: 'ok' | 'err' = 'ok') {
+  if (type === 'err' && isSessionLockError(msg)) return;
+  toastFn(msg, type);
+}
 
 export function Toaster() {
   const [items, setItems] = useReactState<{ id: number; msg: string; type: 'ok' | 'err' }[]>([]);

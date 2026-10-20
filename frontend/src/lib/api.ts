@@ -3,6 +3,11 @@
 
 const BASE = '/api';
 
+export function isSessionLockError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  return message.startsWith('Candado activado.');
+}
+
 export function projectContextHeaders(): Record<string, string> {
   if (typeof window === 'undefined') return {};
   const match = window.location.pathname.match(/^\/projects\/(\d+)/);

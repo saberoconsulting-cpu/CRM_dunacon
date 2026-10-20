@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useState, useCallback, type InputHTMLAttributes } from 'react';
 import { Toaster, toast, Field, Modal } from '@/components/ui/ui';
-import { api, getToken } from '@/lib/api';
+import { api, getToken, isSessionLockError } from '@/lib/api';
+import { useProjectReadonly } from '@/lib/project-readonly-context';
 import { getSocket } from '@/lib/socket';
 import { formatDate } from '@/lib/types';
 import { useIncomeStatementReal, projectedFinancialAmount } from '@/components/features/income-statement/IncomeStatementView';
@@ -269,6 +270,7 @@ const defaultFinanceDashManual = (): FinanceDashManual => ({
 });
 
 export default function FinancesView({ lockedProjectId }: { lockedProjectId?: number }) {
+  const projectReadonly = useProjectReadonly();
   const [txns, setTxns] = useState<T[]>([]);
   const [projects, setProjects] = useState<any[]>([]);
   const [lots, setLots] = useState<any[]>([]);
@@ -490,15 +492,15 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   }, [showClassification, openExp, openIn, financeClassSettingsKey]);
 
   useEffect(() => {
-    if (!showClassification || !financeClassSettingsKey || !lockedProjectId || !financeClassLoaded) return;
+    if (projectReadonly || !showClassification || !financeClassSettingsKey || !lockedProjectId || !financeClassLoaded) return;
     const timer = setTimeout(() => {
       const rowsToSave = financeClassRows.map((row) => ({ ...row, code: cleanCategoryCode(row.code) }));
       api.put(`/settings/value/${encodeURIComponent(financeClassSettingsKey)}`, {
         value: JSON.stringify({ rows: rowsToSave }),
-      }).catch(() => toast('No se pudo guardar la clasificacion de Finanzas', 'err'));
+      }).catch((error: unknown) => { if (!projectReadonly && !isSessionLockError(error)) toast('No se pudo guardar la clasificacion de Finanzas', 'err'); });
     }, 600);
     return () => clearTimeout(timer);
-  }, [showClassification, financeClassSettingsKey, financeClassRows, lockedProjectId, financeClassLoaded]);
+  }, [projectReadonly, showClassification, financeClassSettingsKey, financeClassRows, lockedProjectId, financeClassLoaded]);
 
   useEffect(() => {
     if (!showLoans || !loanSettingsKey) return;
@@ -524,7 +526,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   }, [showLoans, loanSettingsKey]);
 
   useEffect(() => {
-    if (!showLoans || !loanSettingsKey || !loanManualLoaded) return;
+    if (projectReadonly || !showLoans || !loanSettingsKey || !loanManualLoaded) return;
     const timer = setTimeout(() => {
       api.put(`/settings/value/${encodeURIComponent(loanSettingsKey)}`, {
         value: JSON.stringify({
@@ -533,10 +535,10 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           tem: loanTem,
           manual: loanManual,
         }),
-      }).catch(() => toast('No se pudieron guardar los datos manuales de prestamos', 'err'));
+      }).catch((error: unknown) => { if (!projectReadonly && !isSessionLockError(error)) toast('No se pudieron guardar los datos manuales de prestamos', 'err'); });
     }, 600);
     return () => clearTimeout(timer);
-  }, [showLoans, loanSettingsKey, loanManualLoaded, loanUpdatedAt, loanTea, loanTem, loanManual]);
+  }, [projectReadonly, showLoans, loanSettingsKey, loanManualLoaded, loanUpdatedAt, loanTea, loanTem, loanManual]);
 
   useEffect(() => {
     if (!financeDashSettingsKey) return;
@@ -570,14 +572,14 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   }, [financeDashSettingsKey]);
 
   useEffect(() => {
-    if (!financeDashSettingsKey || !financeDashLoaded || deletingSocio) return;
+    if (projectReadonly || !financeDashSettingsKey || !financeDashLoaded || deletingSocio) return;
     const timer = setTimeout(() => {
       api.put(`/settings/value/${encodeURIComponent(financeDashSettingsKey)}`, {
         value: JSON.stringify(financeDashManual),
-      }).catch(() => toast('No se pudo guardar el tablero financiero', 'err'));
+      }).catch((error: unknown) => { if (!projectReadonly && !isSessionLockError(error)) toast('No se pudo guardar el tablero financiero', 'err'); });
     }, 600);
     return () => clearTimeout(timer);
-  }, [financeDashSettingsKey, financeDashLoaded, financeDashManual, deletingSocio]);
+  }, [projectReadonly, financeDashSettingsKey, financeDashLoaded, financeDashManual, deletingSocio]);
 
   async function addEgreso() {
     if (!eForm.concept || !eForm.amount) return toast('Completa concepto y monto', 'err');
@@ -890,7 +892,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     if (invalid) return toast('El codigo debe tener minimo 2 letras y maximo 3', 'err');
     api.put(`/settings/value/${encodeURIComponent(financeClassSettingsKey)}`, {
       value: JSON.stringify({ rows: rows.map((row) => ({ ...row, code: cleanCategoryCode(row.code) })) }),
-    }).then(() => toast('Clasificacion guardada')).catch(() => toast('No se pudo guardar la clasificacion de Finanzas', 'err'));
+    }).then(() => toast('Clasificacion guardada')).catch((error: unknown) => { if (!projectReadonly && !isSessionLockError(error)) toast('No se pudo guardar la clasificacion de Finanzas', 'err'); });
   };
 
   return (
@@ -921,34 +923,38 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           <option key={classification} value={classification} />
         ))}
       </datalist>
-      <div className="space-y-5">
+      <div className="min-w-0 space-y-5">
         {showLoans ? (
-          <div className="card w-full p-0">
+          <div className="card w-full min-w-0 p-0">
             <div className="flex flex-col gap-3 border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between" style={{ borderColor: '#E5E7EB' }}>
               <div className="flex flex-wrap items-center gap-3">
                 <span className="grid h-9 w-9 place-items-center rounded-xl bg-blue-50 text-blue-600"><FiCreditCard size={18} /></span>
                 <div><h3 className="font-bold text-slate-800">Préstamos</h3><p className="text-[11px] text-slate-500">Detalle y resúmenes de financiamiento</p></div>
-                <button type="button" aria-pressed={showLoanSummary} aria-controls={showLoanSummary ? 'loan-summary' : undefined} onClick={() => setShowLoanSummary(value => !value)} className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition-colors ${showLoanSummary ? 'border-blue-600 bg-blue-600 text-white shadow-sm' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`}><FiPieChart />{showLoanSummary ? 'Ver detalle' : 'Resúmenes'}</button>
+
               </div>
-              <div className="flex flex-wrap items-center justify-end gap-2 xl:flex-nowrap">
-                <label className="text-xs font-semibold text-slate-500">Fecha de actualizacion</label>
-                <input type="date" className="input !h-9 !w-auto" value={loanUpdatedAt} onChange={(e) => setLoanUpdatedAt(e.target.value)} />
-                <label className="text-xs font-semibold text-slate-500">TEA</label>
-                <input className="input !h-9 !w-20" value={loanTea} onChange={(e) => setLoanTea(e.target.value)} />
-                <label className="text-xs font-semibold text-slate-500">TEM</label>
-                <input className="input !h-9 !w-20 bg-slate-50 text-right" value={loanTemCalculated.toFixed(2)} readOnly />
-                <button className="btn-neutral !h-9" type="button" onClick={() => { setLoanFrom(''); setLoanTo(''); }}>Todo</button>
-                <button className="btn-neutral !h-9" type="button" onClick={() => setShowLoans(false)}><FiX /> Cerrar</button>
+              <div className="grid min-w-0 grid-cols-2 items-end gap-3 sm:flex sm:flex-wrap sm:items-end xl:justify-end">
+                <button type="button" aria-pressed={showLoanSummary} aria-controls={showLoanSummary ? 'loan-summary' : undefined} onClick={() => setShowLoanSummary(value => !value)} className={`inline-flex h-11 min-w-0 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-semibold transition-colors ${showLoanSummary ? 'border-blue-600 bg-blue-600 text-white shadow-sm' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`}><FiPieChart />{showLoanSummary ? 'Ver detalle' : 'Resúmenes'}</button>
+                <label className="min-w-0 text-xs font-semibold text-slate-500 sm:w-44">Fecha de actualización
+                  <input type="date" className="input mt-1 !h-11 !w-full !min-w-0" value={loanUpdatedAt} onChange={(e) => setLoanUpdatedAt(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-semibold text-slate-500 sm:w-24">TEA (%)
+                  <input inputMode="decimal" className="input mt-1 !h-11 !w-full !min-w-0" value={loanTea} onChange={(e) => setLoanTea(e.target.value)} />
+                </label>
+                <label className="min-w-0 text-xs font-semibold text-slate-500 sm:w-24">TEM (%)
+                  <input className="input mt-1 !h-11 !w-full !min-w-0 bg-slate-50" value={loanTemCalculated.toFixed(2)} readOnly />
+                </label>
+                <button className="btn-neutral !h-11" type="button" onClick={() => { setLoanFrom(''); setLoanTo(''); }}>Todo</button>
+                <button className="btn-neutral !h-11" type="button" onClick={() => setShowLoans(false)}><FiX /> Cerrar</button>
               </div>
             </div>
             <div className="min-w-0 p-2 sm:p-3">
               {!showLoanSummary && (loanLoading ? <p className="p-4 text-slate-400">Cargando prestamos...</p> : (
-                <table className="loans-grid w-full table-fixed border-separate border-spacing-0 text-[10px] [&_th]:!text-center [&_td]:!text-center [&_tbody_td:nth-child(6)]:!text-right [&_tbody_td:nth-child(10)]:!text-right [&_tbody_td:nth-child(11)]:!text-right [&_tfoot_td:nth-child(3)]:!text-right [&_tfoot_td:nth-child(5)]:!text-right [&_tfoot_td:nth-child(6)]:!text-right [&_th]:!align-middle [&_td]:!align-middle [&_th]:!px-1 [&_th]:!text-[10px] [&_th]:!whitespace-normal [&_td]:!px-1 [&_td]:!py-2 [&_td]:align-middle [&_td]:!text-[10px] [&_td]:!whitespace-normal [&_td]:[overflow-wrap:anywhere] xl:[&_td]:!text-[11px]">
+                <div className="max-w-full overflow-x-auto overscroll-x-contain rounded-lg" role="region" aria-label="Detalle de prestamos" tabIndex={0}>
+                <table className="loans-grid w-full min-w-[1100px] xl:min-w-0 table-fixed border-separate border-spacing-0 text-[10px] [&_th]:!text-center [&_td]:!text-center [&_tbody_td:nth-child(5)]:!text-right [&_tbody_td:nth-child(9)]:!text-right [&_tbody_td:nth-child(10)]:!text-right [&_tfoot_td:nth-child(3)]:!text-right [&_tfoot_td:nth-child(5)]:!text-right [&_tfoot_td:nth-child(6)]:!text-right [&_th]:!align-middle [&_td]:!align-middle [&_th]:!px-1 [&_th]:!text-[10px] [&_th]:!whitespace-normal [&_td]:!px-1 [&_td]:!py-2 [&_td]:align-middle [&_td]:!text-[10px] [&_td]:!whitespace-normal [&_td]:[overflow-wrap:anywhere] xl:[&_td]:!text-[11px]">
                   <colgroup>
-                    <col style={{ width: '3%' }} />
                     <col style={{ width: '8%' }} />
                     <col style={{ width: '7%' }} />
-                    <col style={{ width: '16%' }} />
+                    <col style={{ width: '19%' }} />
                     <col style={{ width: '12%' }} />
                     <col style={{ width: '10%' }} />
                     <col style={{ width: '9%' }} />
@@ -959,7 +965,6 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                   </colgroup>
                   <thead>
                     <tr>
-                      <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Item</span></span></th>
                       <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Fecha de</span><span>abono</span></span></th>
                       <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Mes</span></span></th>
                       <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Descripcion</span><span>(EC BCP)</span></span></th>
@@ -975,7 +980,6 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                   <tbody className="divide-y divide-slate-100">
                     {pagedLoanRows.map((row) => (
                       <tr key={row.id}>
-                        <td className="td-base !px-1 text-center">{row.index.toLocaleString('en-US')}</td>
                         <td className="td-base !px-1 text-center">{formatDate(row.movementDate)}</td>
                         <td className="td-base !px-1 text-center" style={{ overflow: 'hidden' }}>{row.monthLabel || '-'}</td>
                         <td className="td-base !px-1" style={{ overflow: 'hidden' }} title={row.description || '-'}>{row.description || '-'}</td>
@@ -991,7 +995,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                   </tbody>
                   <tfoot>
                     <tr style={{ background: '#0B2F6E' }}>
-                      <td className="td-base !px-1 font-bold text-white" colSpan={4}></td>
+                      <td className="td-base !px-1 font-bold text-white" colSpan={3}></td>
                       <td className="td-base !px-1 font-bold text-white">Totales {displaySymbol()}</td>
                       <td className="td-base !px-1 font-bold text-white text-center font-medium tabular-nums"><span className="inline-flex items-baseline justify-end gap-1 whitespace-nowrap tabular-nums leading-5"><span>{displaySymbol()}</span><span>{usd0(loanTotals.amount)}</span></span></td>
                       <td className="td-base !px-1" colSpan={3}></td>
@@ -1000,21 +1004,21 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                     </tr>
                   </tfoot>
                 </table>
+                </div>
               ))}
               {!showLoanSummary && !loanLoading && <div className="mt-3"><PaginationBar label="Préstamos" page={currentLoanPage} totalPages={loanTotalPages} total={loanTableRows.length} limit={15} setPage={setLoanPage} compact mobileCompact /></div>}
-              {showLoanSummary && <div id="loan-summary" className="rounded-xl border border-blue-100 bg-blue-50/30 p-3">
+              {showLoanSummary && <div id="loan-summary" className="min-w-0 rounded-xl border border-blue-100 bg-blue-50/30 p-2 sm:p-3">
                 <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-blue-800"><FiPieChart />Resumen por acreedor</h3>
-                <table className="loans-grid w-full table-fixed border-separate border-spacing-0 text-xs [&_th]:!text-center [&_td]:!text-center [&_th:nth-child(2)]:!text-left [&_td:nth-child(2)]:!text-left [&_td]:align-middle [&_th]:!px-1 [&_th]:!whitespace-normal [&_th]:!text-[11px] [&_td]:!px-1 [&_td]:!whitespace-normal [&_td]:[overflow-wrap:anywhere] [&_td]:!text-xs">
+                <div className="w-full min-w-0 rounded-lg" role="region" aria-label="Resumen de prestamos por acreedor" tabIndex={0}>
+                <table className="loans-grid w-full min-w-0 table-fixed border-separate border-spacing-0 text-xs [&_th]:!text-center [&_td]:!text-center [&_th:first-child]:!text-left [&_td:first-child]:!text-left [&_td]:align-middle [&_th]:!px-1 [&_th]:!whitespace-normal [&_th]:!text-[9px] sm:[&_th]:!text-[11px] [&_td]:!px-1 [&_td]:!whitespace-normal [&_td]:[overflow-wrap:anywhere] [&_td]:!text-[10px] sm:[&_td]:!text-xs max-sm:[&_th]:!py-2 max-sm:[&_th]:!leading-tight max-sm:[&_td]:!py-2 [&_td]:!whitespace-normal [&_td]:break-words">
                   <colgroup>
-                    <col style={{ width: '6%' }} />
                     <col style={{ width: '31%' }} />
-                    <col style={{ width: '21%' }} />
-                    <col style={{ width: '20%' }} />
+                    <col style={{ width: '23%' }} />
+                    <col style={{ width: '23%' }} />
                     <col style={{ width: '22%' }} />
                   </colgroup>
                   <thead>
                     <tr>
-                      <th scope="col" className="!px-1 !py-3 align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF' }}>Item</th>
                       <th scope="col" className="!px-1 !py-3 align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF' }}>Acreedor</th>
                       <th scope="col" className="!px-1 !py-3 align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF' }}>Prestamo {displaySymbol()}</th>
                       <th scope="col" className="!px-1 !py-3 align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF' }}>Intereses {displaySymbol()}</th>
@@ -1022,26 +1026,25 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                     </tr>
                   </thead>
                   <tbody>
-                    {loanSummaryRows.map((row, index) => (
+                    {loanSummaryRows.map((row) => (
                       <tr key={row.creditor}>
-                        <td className="td-base !px-3 text-center">{(index + 1).toLocaleString('en-US')}</td>
-                        <td className="td-base !px-3 font-medium" title={row.creditor}>{row.creditor}</td>
-                        <td className="td-base !px-3 text-right tabular-nums">{displaySymbol()} {usd0(row.amount)}</td>
-                        <td className="td-base !px-3 text-right tabular-nums">{displaySymbol()} {usd0(row.interest)}</td>
-                        <td className="td-base !px-3 text-right font-semibold tabular-nums">{displaySymbol()} {usd0(row.updated)}</td>
+                        <td className="td-base !px-1 font-medium" title={row.creditor}>{row.creditor}</td>
+                        <td className="td-base !px-1 sm:!px-3 text-right tabular-nums">{displaySymbol()} {usd0(row.amount)}</td>
+                        <td className="td-base !px-1 sm:!px-3 text-right tabular-nums">{displaySymbol()} {usd0(row.interest)}</td>
+                        <td className="td-base !px-1 sm:!px-3 text-right font-semibold tabular-nums">{displaySymbol()} {usd0(row.updated)}</td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
                     <tr style={{ background: '#0B2F6E' }}>
-                      <td className="td-base !px-3 font-bold text-white"></td>
-                      <td className="td-base !px-3 font-bold text-white">Total {displaySymbol()}</td>
-                      <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{displaySymbol()} {usd0(loanTotals.amount)}</td>
-                      <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{displaySymbol()} {usd0(loanTotals.interest)}</td>
-                      <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{displaySymbol()} {usd0(loanTotals.updated)}</td>
+                      <td className="td-base !px-1 font-bold text-white">Total {displaySymbol()}</td>
+                      <td className="td-base !px-1 sm:!px-3 font-bold text-white text-right tabular-nums">{displaySymbol()} {usd0(loanTotals.amount)}</td>
+                      <td className="td-base !px-1 sm:!px-3 font-bold text-white text-right tabular-nums">{displaySymbol()} {usd0(loanTotals.interest)}</td>
+                      <td className="td-base !px-1 sm:!px-3 font-bold text-white text-right tabular-nums">{displaySymbol()} {usd0(loanTotals.updated)}</td>
                     </tr>
                   </tfoot>
                 </table>
+                </div>
               </div>}
             </div>
           </div>
@@ -1411,7 +1414,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         )}
       </div>
       {showClassification && (
-        <div className="fixed right-6 top-24 z-40 max-h-[calc(100dvh-7rem)] overflow-auto rounded-md border bg-white shadow-2xl" style={{ borderColor: '#E5E7EB' }}>
+        <div className="fixed left-2 right-2 top-20 z-40 max-h-[calc(100dvh-6rem)] sm:left-auto sm:right-6 sm:top-24 sm:max-h-[calc(100dvh-7rem)] overflow-auto rounded-md border bg-white shadow-2xl" style={{ borderColor: '#E5E7EB' }}>
           <div className="sticky top-0 z-10 flex flex-col gap-3 border-b bg-white px-4 py-3 lg:flex-row lg:items-center lg:justify-between" style={{ borderColor: '#E5E7EB' }}>
             <h3 className="font-semibold">Clasificacion</h3>
             <div className="flex flex-wrap items-center justify-end gap-2">

@@ -37,6 +37,7 @@ import { BRAND, User, UserRole } from '@/lib/types';
 import ProjectDocuments from '@/components/features/projects/ProjectDocuments';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { lockProjectControls } from '@/lib/project-readonly';
+import { ProjectReadonlyContext } from '@/lib/project-readonly-context';
 
 interface NavItem {
   href: string;
@@ -733,7 +734,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
         </header>
         <main ref={projectContentRef} className={`flex-1 overflow-y-auto bg-canvas ${title === 'Modelo financiero' ? 'p-2 sm:p-3 md:p-4' : 'p-4 sm:p-5 md:p-6'}`}>
           {activeProjectId && lockError && <div role="alert" className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{lockError}</div>}
-          {children}
+          <ProjectReadonlyContext.Provider value={!!activeProjectId && sessionLocked !== false}>{children}</ProjectReadonlyContext.Provider>
         </main>
       </div>
       {projectDocumentsOpen && activeProjectId && (
