@@ -6,6 +6,29 @@ type Partner = {
   newPartner?: boolean;
 };
 
+/** Normaliza los dos socios fundadores sin cambiar el tipo de los posteriores. */
+export function ensureFounderPartners<T extends Partner & { name: string; deletedAt?: string }>(partners: T[]): Array<T | (Partner & { name: string; deletedAt?: string })> {
+  let active = 0;
+  const result = partners.map((partner, index) => {
+    const newPartner = isNewPartner(partner, index);
+    if (partner.deletedAt) return { ...partner, newPartner };
+    active++;
+    if (active > 2) return { ...partner, newPartner };
+    return {
+      ...partner,
+      newPartner: false,
+      capital: newPartner && !Number(partner.capital || 0) && !Number(partner.adicional || 0)
+        ? partner.aporteTotal ?? partner.inversionActualizada ?? ''
+        : partner.capital,
+    };
+  });
+  while (active < 2) {
+    active++;
+    result.push({ name: `Socio ${active}`, capital: '', adicional: '', newPartner: false } as typeof result[number]);
+  }
+  return result;
+}
+
 export function isNewPartner(partner: Partner, index: number): boolean {
   return partner.newPartner ?? (index >= 2 && Number(partner.capital || 0) + Number(partner.adicional || 0) === 0);
 }

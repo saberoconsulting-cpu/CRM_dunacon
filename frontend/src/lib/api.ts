@@ -3,12 +3,19 @@
 
 const BASE = '/api';
 
+export function projectContextHeaders(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  const match = window.location.pathname.match(/^\/projects\/(\d+)/);
+  return match ? { 'X-Project-Id': match[1] } : {};
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const token = getToken();
   const res = await fetch(BASE + path, {
     method,
     headers: {
       'Content-Type': 'application/json',
+      ...projectContextHeaders(),
       ...(token ? { Authorization: 'Bearer ' + token } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -77,7 +84,7 @@ export async function uploadFile(path: string, file: File, fields?: Record<strin
   const token = getToken();
   const res = await fetch(BASE + path, {
     method: 'POST',
-    headers: token ? { Authorization: 'Bearer ' + token } : {},
+    headers: { ...projectContextHeaders(), ...(token ? { Authorization: 'Bearer ' + token } : {}) },
     body: form,
   });
   const text = await res.text();

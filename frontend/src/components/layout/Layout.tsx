@@ -1,5 +1,5 @@
 'use client';
-import { ReactNode, useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -13,6 +13,8 @@ import {
   FiFileText,
   FiHome,
   FiLayers,
+  FiLock,
+  FiUnlock,
   FiLogOut,
   FiMap,
   FiMenu,
@@ -34,6 +36,7 @@ import { getSocket } from '@/lib/socket';
 import { BRAND, User, UserRole } from '@/lib/types';
 import ProjectDocuments from '@/components/features/projects/ProjectDocuments';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
+import { lockProjectControls } from '@/lib/project-readonly';
 
 interface NavItem {
   href: string;
@@ -96,6 +99,10 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<User | null>(null);
+  const [sessionLocked, setSessionLocked] = useState<boolean | null>(true);
+  const [lockError, setLockError] = useState('');
+  const projectContentRef = useRef<HTMLElement>(null);
+  const [lockBusy, setLockBusy] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
   const [pendingApp, setPendingApp] = useState<{ count: number; rows: any[] }>({ count: 0, rows: [] });
@@ -109,11 +116,45 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
   const [projectDocumentsOpen, setProjectDocumentsOpen] = useState(false);
   const [moduleAccess, setModuleAccess] = useState<Record<number, string[] | null>>({});
   const { currency, setCurrency } = useCurrencyStoreSync();
-
   const activeProjectId = useMemo(() => {
     const match = pathname.match(/^\/projects\/(\d+)/);
     return match ? Number(match[1]) : null;
   }, [pathname]);
+
+  useEffect(() => {
+    if (!activeProjectId || sessionLocked === false || !projectContentRef.current) return;
+    return lockProjectControls(projectContentRef.current);
+  }, [activeProjectId, sessionLocked, pathname]);
+
+  useEffect(() => {
+    setSessionLocked(true);
+    setLockError('');
+    if (!user || !activeProjectId) return;
+    let active = true;
+    const refresh = () => api.get<{ locked: boolean }>(`/auth/session-lock?projectId=${activeProjectId}`)
+      .then((data) => { if (active) { setSessionLocked(data.locked); setLockError(''); } })
+      .catch(() => { if (active) setLockError('No se pudo consultar el candado. Comprueba que el backend esté actualizado y vuelve a intentarlo.'); });
+    refresh();
+    window.addEventListener('focus', refresh);
+    const timer = window.setInterval(refresh, 30000);
+    return () => { active = false; window.removeEventListener('focus', refresh); window.clearInterval(timer); };
+  }, [user, activeProjectId]);
+
+  async function toggleSessionLock() {
+    if (lockBusy || sessionLocked === null || !activeProjectId) return;
+    setLockBusy(true);
+    try {
+      const data = await api.post<{ locked: boolean }>('/auth/session-lock', { locked: !sessionLocked, projectId: activeProjectId });
+      setSessionLocked(data.locked);
+      setLockError('');
+      toast(data.locked ? 'Candado activado: sesión de solo lectura.' : 'Candado desactivado: ya puedes realizar cambios.');
+    } catch (error: any) {
+      setLockError('No se pudo cambiar el candado. ' + (error.message || 'Comprueba la conexión con el servidor.'));
+      toast(error.message || 'No se pudo cambiar el candado.', 'err');
+    } finally {
+      setLockBusy(false);
+    }
+  }
 
   useEffect(() => {
     setCollapsed(readSidebarPreference());
@@ -607,6 +648,18 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
             />
           )}
 <div className="flex shrink-0 items-center gap-0.5 md:gap-4">
+          {activeProjectId && <button
+            type="button"
+            onClick={toggleSessionLock}
+            disabled={lockBusy || sessionLocked === null}
+            aria-pressed={sessionLocked === true}
+            aria-label={sessionLocked ? 'Desactivar candado del proyecto' : 'Activar candado del proyecto'}
+            title={sessionLocked === null ? 'Consultando estado del candado' : sessionLocked ? 'Proyecto en solo lectura: desactivar candado' : 'Activar candado: bloquear cambios en este proyecto'}
+            className={`grid h-8 w-7 shrink-0 place-items-center rounded-md border-0 !bg-transparent transition-colors hover:bg-slate-50 disabled:opacity-50 [&_svg]:h-[17px] [&_svg]:w-[17px] md:h-8 md:w-8 md:border md:!bg-[var(--lock-background)] ${sessionLocked ? '!text-[#1877F2] md:!text-white' : '!text-[#6B7280]'}`}
+            style={{ '--lock-background': sessionLocked ? BRAND.blue : '#FFFFFF', borderColor: sessionLocked ? BRAND.blue : BRAND.border } as React.CSSProperties}
+          >
+            {sessionLocked ? <FiLock size={17} /> : <FiUnlock size={17} />}
+          </button>}
           <div className="relative">
             {canManage && (
               <>
@@ -678,7 +731,10 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           </div>
           </div>
         </header>
-        <main className={`flex-1 overflow-y-auto bg-canvas ${title === 'Modelo financiero' ? 'p-2 sm:p-3 md:p-4' : 'p-4 sm:p-5 md:p-6'}`}>{children}</main>
+        <main ref={projectContentRef} className={`flex-1 overflow-y-auto bg-canvas ${title === 'Modelo financiero' ? 'p-2 sm:p-3 md:p-4' : 'p-4 sm:p-5 md:p-6'}`}>
+          {activeProjectId && lockError && <div role="alert" className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{lockError}</div>}
+          {children}
+        </main>
       </div>
       {projectDocumentsOpen && activeProjectId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

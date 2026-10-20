@@ -5,7 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import { Toaster, toast, Field, EmptyState, Modal } from '@/components/ui/ui';
 import { MetricTile } from '@/components/ui/Metrics';
 import { PaginationBar } from '@/components/ui/PaginationBar';
-import { api, getToken } from '@/lib/api';
+import { api, getToken, projectContextHeaders } from '@/lib/api';
 import { normalizePaginated, buildQuery, loadAllPages } from '@/lib/pagination';
 import { buildQuoteAssignedValues, findLotById, formatAmountIn, loadAllSalesQuotes, lotReferencePrice, type SaleCurrency } from './salesQuotes';
 import { formatMoney, formatDate } from '@/lib/types';
@@ -349,7 +349,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       const token = getToken();
       const response = await fetch(`/api/sales/${saleId}/contract`, {
         method: fields ? 'POST' : 'GET',
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(fields ? { 'Content-Type': 'application/json' } : {}) },
+        headers: { ...projectContextHeaders(), ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(fields ? { 'Content-Type': 'application/json' } : {}) },
         body: fields ? JSON.stringify({ fields }) : undefined,
       });
       if (!response.ok) {

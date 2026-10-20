@@ -530,6 +530,7 @@ export class PaymentsService {
       paidCuotas,
       initialPaid,
       receipts,
+      paidLots,
     ] = await Promise.all([
       this.installmentRepo.createQueryBuilder('i')
         .innerJoin(SaleEntity, 's', 's.id = i.sale_id')
@@ -600,6 +601,12 @@ export class PaymentsService {
         .select('COUNT(*)', 'count')
         .addSelect('COALESCE(SUM(COALESCE(p.amount_usd, p.amount, p.receipt_value)),0)', 'amount')
         .getRawOne(),
+      this.paymentRepo.createQueryBuilder('p')
+        .where("p.type IN ('cuota','reserva','adelanto','cuota_inicial','primera_cuota') AND p.status = 'pagado'")
+        .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
+        .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
+        .select('COUNT(DISTINCT p.lot_id)', 'count')
+        .getRawOne(),
     ]);
 
     const pendingAmount = Number(pendingCuotas?.amount || 0);
@@ -620,6 +627,7 @@ export class PaymentsService {
       financedCuotas: Number(financedCuotas?.count || 0),
       paidCuotas: Number(paidCuotas?.count || 0),
       paidCuotasAmount: Number(paidCuotas?.amount || 0),
+      paidLots: Number(paidLots?.count || 0),
       receiptCount: Number(receipts?.count || 0),
       receiptAmount: Number(receipts?.amount || 0),
     };

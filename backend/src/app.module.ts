@@ -1,6 +1,7 @@
 // app.module.ts
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
+import { SessionLockGuard } from './shared/application/guards/session-lock.guard';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
@@ -108,6 +109,6 @@ import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module
     IncomeStatementModule,
     BankAccountsModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }, { provide: APP_GUARD, useClass: SessionLockGuard }],
 })
 export class AppModule {}

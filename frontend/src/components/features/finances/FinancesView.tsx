@@ -1,17 +1,18 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
-import { Toaster, toast, Field } from '@/components/ui/ui';
+import { useEffect, useState, useCallback, type InputHTMLAttributes } from 'react';
+import { Toaster, toast, Field, Modal } from '@/components/ui/ui';
 import { api, getToken } from '@/lib/api';
 import { getSocket } from '@/lib/socket';
 import { formatDate } from '@/lib/types';
 import { useIncomeStatementReal, projectedFinancialAmount } from '@/components/features/income-statement/IncomeStatementView';
-import { partnerContribution, isNewPartner, issuePartnerShares } from '@/lib/partner-shares';
+import { partnerContribution, isNewPartner, issuePartnerShares, ensureFounderPartners } from '@/lib/partner-shares';
+import { bankLoanAmountUsd } from '@/lib/bank-loan-currency';
 import { useDisplayCurrency, displayNumberGlobal, displaySymbol } from '@/lib/currency';
 import FinancialData from '@/components/features/finances/FinancialData';
 import { Select } from '@/components/ui/Select';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import { KpiCard } from '@/components/ui/Metrics';
-import { FiEdit3, FiSearch, FiTrash2, FiX, FiDollarSign, FiCreditCard, FiTrendingUp, FiAlertTriangle, FiFileText, FiLayers } from 'react-icons/fi';
+import { FiEdit3, FiSearch, FiTrash2, FiX, FiDollarSign, FiCreditCard, FiTrendingUp, FiAlertTriangle, FiFileText, FiLayers, FiPieChart } from 'react-icons/fi';
 
 type T = {
   id: number; type: string; displayType?: string; category: string; concept: string; amount: string; txnDate: string; projectId?: number | null;
@@ -27,6 +28,8 @@ type BankMovement = {
   description?: string | null;
   counterparty?: string | null;
   depositAmount?: string | number;
+  currency?: string | null;
+  exchangeRate?: string | number | null;
   movementType?: string | null;
   eerrClassification?: string | null;
   code?: string | null;
@@ -46,7 +49,7 @@ type FinanceDashManual = {
   dataLabels: Record<string, string>;
   commitmentLabels: Record<string, string>;
   structureLabels: Record<string, string>;
-  socios: Array<{ name: string; capital: string; adicional: string; aporteTotal?: string; inversionActualizada?: string; newPartner?: boolean }>;
+  socios: Array<{ name: string; capital: string; adicional: string; aporteTotal?: string; inversionActualizada?: string; newPartner?: boolean; deletedAt?: string }>;
   dataRows: Array<{ code: string; label: string; value: string }>;
   commitmentRows: Array<{ priority: string; creditor: string; amount: string }>;
   structureRows: Array<{ label: string; amount: string }>;
@@ -111,6 +114,19 @@ function compactUsd(value: number) {
 
 function num(value: unknown) {
   return Number(value || 0) || 0;
+}
+
+function PartnerNumberInput({ value, onChange, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+  const [focused, setFocused] = useState(false);
+  const raw = String(value ?? '').replace(/,/g, '');
+  const [whole, fraction] = raw.split('.');
+  const display = `${whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${fraction === undefined ? '' : `.${fraction}`}`;
+  return <input {...props} inputMode="decimal" value={focused ? raw : display}
+    onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
+    onChange={(event) => {
+      event.target.value = event.target.value.replace(/,/g, '');
+      if (/^-?\d*(\.\d*)?$/.test(event.target.value)) onChange?.(event);
+    }} />;
 }
 
 function numericText(value: unknown) {
@@ -190,8 +206,8 @@ function monthsBetweenDates(from?: string | null, to?: string | null) {
 
 function loanMonths(value: number) {
   if (value <= 0) return '0';
-  if (value < 1) return value.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return value.toLocaleString('es-PE', { maximumFractionDigits: 2 });
+  if (value < 1) return value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return value.toLocaleString('en-US', { maximumFractionDigits: 2 });
 }
 
 function firstPositive(...values: number[]) {
@@ -269,10 +285,13 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const [openExp, setOpenExp] = useState(false);
   const [openIn, setOpenIn] = useState(false);
   const [showLoans, setShowLoans] = useState(false);
+  const [loanPage, setLoanPage] = useState(1);
+  const [showLoanSummary, setShowLoanSummary] = useState(false);
   const [showAllPartnerColumns, setShowAllPartnerColumns] = useState(false);
   const [showClassification, setShowClassification] = useState(false);
   const [loanFrom, setLoanFrom] = useState('');
   const [loanTo, setLoanTo] = useState('');
+  useEffect(() => { setLoanPage(1); }, [lockedProjectId, showLoans, loanFrom, loanTo]);
   const [loanUpdatedAt, setLoanUpdatedAt] = useState(todayInput());
   const [loanTea, setLoanTea] = useState('10');
   const [loanTem, setLoanTem] = useState('0.80');
@@ -282,6 +301,8 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const [loanLoading, setLoanLoading] = useState(false);
   const [financeDash, setFinanceDash] = useState<FinanceDashData | null>(null);
   const [financeDashManual, setFinanceDashManual] = useState<FinanceDashManual>(defaultFinanceDashManual());
+  const [deleteSocioIndex, setDeleteSocioIndex] = useState<number | null>(null);
+  const [deletingSocio, setDeletingSocio] = useState(false);
   const [financeDashLoaded, setFinanceDashLoaded] = useState(false);
   const [dataPanel, setDataPanel] = useState<'important' | 'financial'>('important');
   const [financialToolbarContainer, setFinancialToolbarContainer] = useState<HTMLDivElement | null>(null);
@@ -294,7 +315,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const inf = (k: string, v: any) => setIForm((p: any) => ({ ...p, [k]: v }));
   // Moneda unica de la pantalla: `show()` convierte los montos (que vienen en
   // soles de la base de datos) a la moneda activa antes de pintarlos.
-  const { currency, format: show } = useDisplayCurrency();
+  const { currency, exchangeRate, format: show } = useDisplayCurrency();
   const loanSettingsKey = lockedProjectId ? `loan_manual_${lockedProjectId}` : '';
   const financeDashSettingsKey = lockedProjectId ? `finance_dashboard_${lockedProjectId}` : '';
   const financeClassSettingsKey = lockedProjectId ? `finance_classification_${lockedProjectId}` : '';
@@ -356,7 +377,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         return api.get<any>(`/bank-accounts?${q.toString()}`).catch(() => ({ items: [] }));
       }));
       setLoanRows(responses
-        .flatMap((data) => Array.isArray(data) ? data : (data?.items || []))
+        .flatMap((data, index) => (Array.isArray(data) ? data : (data?.items || [])).map((row: BankMovement) => ({ ...row, currency: accounts[index].currency || row.currency || 'PEN' })))
         .filter(isLoanMovement));
     } catch (e: any) {
       toast(e.message || 'No se pudieron cargar los prestamos', 'err');
@@ -389,13 +410,13 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         q.set('accountKey', account.accountKey);
         return api.get<any>(`/bank-accounts?${q.toString()}`).catch(() => ({ items: [] }));
       }));
-      const movements = bankResponses.flatMap((data) => Array.isArray(data) ? data : (data?.items || []));
+      const movements = bankResponses.flatMap((data, index) => (Array.isArray(data) ? data : (data?.items || [])).map((row: BankMovement) => ({ ...row, currency: bankAccounts[index].currency || row.currency || 'PEN' })));
       let loanParsed: any = {};
       try { loanParsed = loanSetting?.value ? JSON.parse(loanSetting.value) : {}; } catch { loanParsed = {}; }
       const loanManualData = loanParsed?.manual && typeof loanParsed.manual === 'object' ? loanParsed.manual : {};
-      const loanInterest = Object.values(loanManualData).reduce((sum: number, item: any) => sum + num(item?.interest), 0);
       const loanRowsData = movements.filter(isLoanMovement);
-      const loanAmount = loanRowsData.reduce((sum: number, item: any) => sum + num(item.depositAmount), 0);
+      const loanInterest = loanRowsData.reduce((sum: number, item: BankMovement) => sum + bankLoanAmountUsd({ ...item, depositAmount: loanManualData[item.id]?.interest || 0 }, exchangeRate), 0);
+      const loanAmount = loanRowsData.reduce((sum: number, item: BankMovement) => sum + bankLoanAmountUsd(item, exchangeRate), 0);
       const overduePlanRows = (Array.isArray(salesContext?.sales) ? salesContext.sales : [])
         .flatMap((sale: any) => Array.isArray(sale?.plan) ? sale.plan : (Array.isArray(sale?.installments) ? sale.installments : []))
         .filter((row: any) => row?.overdue && !row?.paid);
@@ -426,7 +447,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     } catch (e: any) {
       toast(e.message || 'No se pudo cargar el tablero financiero', 'err');
     }
-  }, [lockedProjectId, loanSettingsKey]);
+  }, [lockedProjectId, loanSettingsKey, exchangeRate]);
 
   useEffect(() => { loadFinanceDash(); }, [loadFinanceDash]);
 
@@ -530,7 +551,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         setFinanceDashManual({
           ...defaults,
           ...parsed,
-          socios: Array.isArray(parsed?.socios) ? parsed.socios.map((socio: FinanceDashManual['socios'][number], index: number) => ({ ...socio, newPartner: isNewPartner(socio, index) })) : defaults.socios,
+          socios: Array.isArray(parsed?.socios) ? ensureFounderPartners(parsed.socios as FinanceDashManual['socios']) : defaults.socios,
           dataLabels: parsed?.dataLabels && typeof parsed.dataLabels === 'object' ? parsed.dataLabels : defaults.dataLabels,
           commitmentLabels: parsed?.commitmentLabels && typeof parsed.commitmentLabels === 'object' ? parsed.commitmentLabels : defaults.commitmentLabels,
           structureLabels: parsed?.structureLabels && typeof parsed.structureLabels === 'object' ? parsed.structureLabels : defaults.structureLabels,
@@ -549,14 +570,14 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   }, [financeDashSettingsKey]);
 
   useEffect(() => {
-    if (!financeDashSettingsKey || !financeDashLoaded) return;
+    if (!financeDashSettingsKey || !financeDashLoaded || deletingSocio) return;
     const timer = setTimeout(() => {
       api.put(`/settings/value/${encodeURIComponent(financeDashSettingsKey)}`, {
         value: JSON.stringify(financeDashManual),
       }).catch(() => toast('No se pudo guardar el tablero financiero', 'err'));
     }, 600);
     return () => clearTimeout(timer);
-  }, [financeDashSettingsKey, financeDashLoaded, financeDashManual]);
+  }, [financeDashSettingsKey, financeDashLoaded, financeDashManual, deletingSocio]);
 
   async function addEgreso() {
     if (!eForm.concept || !eForm.amount) return toast('Completa concepto y monto', 'err');
@@ -665,7 +686,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
 
   const loanTemCalculated = teaToTem(loanTea);
   const loanTableRows = loanRows.map((row, index) => {
-    const amount = Number(row.depositAmount || 0);
+    const amount = bankLoanAmountUsd(row, exchangeRate);
     const months = monthsBetweenDates(row.movementDate, loanUpdatedAt);
     const interest = months > 0 && loanTemCalculated > 0
       ? amount * (Math.pow(1 + loanTemCalculated / 100, months) - 1)
@@ -679,6 +700,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
       updatedAmount: amount + interest,
     };
   });
+  const loanTotalPages = Math.max(1, Math.ceil(loanTableRows.length / 15));
+  const currentLoanPage = Math.min(loanPage, loanTotalPages);
+  const pagedLoanRows = loanTableRows.slice((currentLoanPage - 1) * 15, currentLoanPage * 15);
   const loanTotals = loanTableRows.reduce((acc, row) => {
     acc.amount += row.amount;
     acc.interest += row.interest;
@@ -717,7 +741,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const cuotasMoraCount = num(financeDash?.paymentRowsOverdue.count);
   const cuentasPorPagar = num(paymentsMetrics.pendingAmount);
   const totalAcciones = num(financeDashManual.totalAcciones);
-  const sociosBase = financeDashManual.socios;
+  const sociosBase = financeDashManual.socios.map((socio, sourceIndex) => ({ ...socio, sourceIndex, newPartner: isNewPartner(socio, sourceIndex) })).filter(socio => !socio.deletedAt);
   const totalAporteSocios = sociosBase.reduce((sum, socio, index) => sum + (isNewPartner(socio, index) ? 0 : partnerContribution(socio, index)), 0);
   const valorInicialAccion = totalAcciones > 0 ? totalAporteSocios / totalAcciones : 0;
   const factorActualizacion = num(financeDashManual.factorActualizacion);
@@ -792,9 +816,9 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     { label: 'Prestamos US$', value: prestamosTotal, note: 'Capital', color: '#DC2626' },
     { label: 'Gastos Financieros US$', value: gastosFinancieros, note: 'Flujo de caja', color: '#CA8A04' },
     { label: 'Venta de Lotes Real', value: ventaLotesReal, note: `${num(paymentsMetrics.totalSaleLots)} lotes`, color: '#16A36A' },
-    { label: 'Pago Cuotas de Lotes', value: pagoCuotasLotes, note: `${num(paymentsMetrics.paidCuotas)} cuotas`, color: '#16A36A' },
+    { label: 'Pago Cuotas de Lotes', value: pagoCuotasLotes, note: `${num(paymentsMetrics.paidLots).toLocaleString('en-US')} ${num(paymentsMetrics.paidLots) === 1 ? 'lote' : 'lotes'}`, color: '#16A36A' },
     { label: 'Ingresos Extraordinarios US$', value: ingresosExtra, note: 'Flujo financiero', color: '#2563EB' },
-    { label: 'Facturas / Boletas', value: boletasEmitidas, note: `Total: ${compactUsd(boletasEmitidasMonto)}`, color: '#2563EB' },
+    { label: 'Facturas / Boletas', value: boletasEmitidasMonto, note: `${boletasEmitidas.toLocaleString('en-US')} facturas / boletas`, color: '#2563EB' },
     { label: 'Cuotas por Cobrar US$', value: cuotasPorCobrar, note: `${num(paymentsMetrics.pendingCuotas)} cuotas`, color: '#DC2626' },
     { label: 'Cuotas en Mora', value: cuotasMora, note: `${cuotasMoraCount} cuotas`, color: '#DC2626' },
     { label: 'Cuentas por Pagar US$', value: cuentasPorPagar, note: 'Cuotas pendientes', color: '#CA8A04' },
@@ -802,7 +826,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
   const updateSocio = (index: number, patch: Partial<{ name: string; capital: string; adicional: string; aporteTotal?: string; inversionActualizada?: string; newPartner?: boolean }>) => {
     setFinanceDashManual((current) => ({
       ...current,
-      socios: current.socios.map((socio, itemIndex) => itemIndex === index ? { ...socio, ...patch } : socio),
+      socios: current.socios.map((socio, itemIndex) => itemIndex === sociosBase[index]?.sourceIndex ? { ...socio, ...patch } : socio),
     }));
   };
   const updateManualArray = <K extends 'dataRows' | 'commitmentRows' | 'structureRows'>(key: K, index: number, patch: Partial<FinanceDashManual[K][number]>) => {
@@ -818,10 +842,27 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
     }));
   };
   const removeSocio = (index: number) => {
-    setFinanceDashManual((current) => ({
-      ...current,
-      socios: current.socios.map((socio, itemIndex) => ({ ...socio, newPartner: isNewPartner(socio, itemIndex) })).filter((_, itemIndex) => itemIndex !== index),
-    }));
+    setDeleteSocioIndex(sociosBase[index].sourceIndex);
+  };
+  const confirmRemoveSocio = async () => {
+    if (deleteSocioIndex === null || deletingSocio || !financeDashSettingsKey) return;
+    setDeletingSocio(true);
+    const next = {
+      ...financeDashManual,
+      socios: financeDashManual.socios.map((socio, index) => index === deleteSocioIndex
+        ? { ...socio, newPartner: isNewPartner(socio, index), deletedAt: new Date().toISOString() }
+        : { ...socio, newPartner: isNewPartner(socio, index) }),
+    };
+    try {
+      await api.put(`/settings/value/${encodeURIComponent(financeDashSettingsKey)}`, { value: JSON.stringify(next) });
+      setFinanceDashManual(next);
+      setDeleteSocioIndex(null);
+      toast('Socio eliminado. Sus datos se conservan mediante eliminación lógica.');
+    } catch (error: any) {
+      toast(error.message || 'No se pudo eliminar el socio.', 'err');
+    } finally {
+      setDeletingSocio(false);
+    }
   };
   const focusRowInput = (event: any) => {
     const input = event.currentTarget.closest('tr')?.querySelector('input:not(:disabled)') as HTMLInputElement | null;
@@ -882,9 +923,13 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
       </datalist>
       <div className="space-y-5">
         {showLoans ? (
-          <div className="card w-full p-0 overflow-hidden">
+          <div className="card w-full p-0">
             <div className="flex flex-col gap-3 border-b px-4 py-3 xl:flex-row xl:items-center xl:justify-between" style={{ borderColor: '#E5E7EB' }}>
-              <h3 className="font-semibold">Prestamos</h3>
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="grid h-9 w-9 place-items-center rounded-xl bg-blue-50 text-blue-600"><FiCreditCard size={18} /></span>
+                <div><h3 className="font-bold text-slate-800">Préstamos</h3><p className="text-[11px] text-slate-500">Detalle y resúmenes de financiamiento</p></div>
+                <button type="button" aria-pressed={showLoanSummary} aria-controls={showLoanSummary ? 'loan-summary' : undefined} onClick={() => setShowLoanSummary(value => !value)} className={`inline-flex h-9 items-center gap-2 rounded-lg border px-3 text-xs font-semibold transition-colors ${showLoanSummary ? 'border-blue-600 bg-blue-600 text-white shadow-sm' : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100'}`}><FiPieChart />{showLoanSummary ? 'Ver detalle' : 'Resúmenes'}</button>
+              </div>
               <div className="flex flex-wrap items-center justify-end gap-2 xl:flex-nowrap">
                 <label className="text-xs font-semibold text-slate-500">Fecha de actualizacion</label>
                 <input type="date" className="input !h-9 !w-auto" value={loanUpdatedAt} onChange={(e) => setLoanUpdatedAt(e.target.value)} />
@@ -896,93 +941,94 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                 <button className="btn-neutral !h-9" type="button" onClick={() => setShowLoans(false)}><FiX /> Cerrar</button>
               </div>
             </div>
-            <div className="overflow-auto p-3">
-              {loanLoading ? <p className="p-4 text-slate-400">Cargando prestamos...</p> : (
-                <table className="table-base table-fixed border-separate border-spacing-0 text-[12px]" style={{ minWidth: 1460, width: '100%' }}>
+            <div className="min-w-0 p-2 sm:p-3">
+              {!showLoanSummary && (loanLoading ? <p className="p-4 text-slate-400">Cargando prestamos...</p> : (
+                <table className="loans-grid w-full table-fixed border-separate border-spacing-0 text-[10px] [&_th]:!text-center [&_td]:!text-center [&_tbody_td:nth-child(6)]:!text-right [&_tbody_td:nth-child(10)]:!text-right [&_tbody_td:nth-child(11)]:!text-right [&_tfoot_td:nth-child(3)]:!text-right [&_tfoot_td:nth-child(5)]:!text-right [&_tfoot_td:nth-child(6)]:!text-right [&_th]:!align-middle [&_td]:!align-middle [&_th]:!px-1 [&_th]:!text-[10px] [&_th]:!whitespace-normal [&_td]:!px-1 [&_td]:!py-2 [&_td]:align-middle [&_td]:!text-[10px] [&_td]:!whitespace-normal [&_td]:[overflow-wrap:anywhere] xl:[&_td]:!text-[11px]">
                   <colgroup>
-                    <col style={{ width: 54 }} />
-                    <col style={{ width: 104 }} />
-                    <col style={{ width: 120 }} />
-                    <col style={{ width: 250 }} />
-                    <col style={{ width: 190 }} />
-                    <col style={{ width: 116 }} />
-                    <col style={{ width: 140 }} />
-                    <col style={{ width: 126 }} />
-                    <col style={{ width: 116 }} />
-                    <col style={{ width: 118 }} />
-                    <col style={{ width: 128 }} />
+                    <col style={{ width: '3%' }} />
+                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '7%' }} />
+                    <col style={{ width: '16%' }} />
+                    <col style={{ width: '12%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '9%' }} />
+                    <col style={{ width: '8%' }} />
+                    <col style={{ width: '7%' }} />
+                    <col style={{ width: '10%' }} />
+                    <col style={{ width: '10%' }} />
                   </colgroup>
                   <thead>
                     <tr>
-                      <th className="th-base !px-2 text-center" style={{ background: '#6B7280', color: '#fff' }}>Item</th>
-                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-center" style={{ background: '#6B7280', color: '#fff' }}>Fecha de<br />ABONO</th>
-                      <th className="th-base !whitespace-normal !px-4 !leading-tight text-center" style={{ background: '#6B7280', color: '#fff', overflow: 'hidden' }}>Mes</th>
-                      <th className="th-base !whitespace-normal !px-4 !leading-tight text-left" style={{ background: '#6B7280', color: '#fff', overflow: 'hidden' }}>Descripcion<br />(EC BCP)</th>
-                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-left" style={{ background: '#6B7280', color: '#fff' }}>Proveedor (Egreso)<br />Cliente (Ingreso)</th>
-                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-right" style={{ background: '#6B7280', color: '#fff' }}>Abono<br />(Ingreso)</th>
-                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-left" style={{ background: '#6B7280', color: '#fff' }}>TIPO INGRESO<br />GASTO</th>
-                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-center" style={{ background: '#6B7280', color: '#fff' }}>Fecha de<br />Actualizacion</th>
-                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-right" style={{ background: '#6B7280', color: '#fff' }}>Meses del<br />Prestamo</th>
-                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-right" style={{ background: '#6B7280', color: '#fff' }}>Intereses<br />US$</th>
-                      <th className="th-base !whitespace-normal !px-2 !leading-tight text-right" style={{ background: '#6B7280', color: '#fff' }}>Monto<br />Actualizado</th>
+                      <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Item</span></span></th>
+                      <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Fecha de</span><span>abono</span></span></th>
+                      <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Mes</span></span></th>
+                      <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Descripcion</span><span>(EC BCP)</span></span></th>
+                      <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Proveedor (Egreso)</span><span>Cliente (Ingreso)</span></span></th>
+                      <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Abono</span><span>(Ingreso) {displaySymbol()}</span></span></th>
+                      <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Tipo de ingreso</span><span>o gasto</span></span></th>
+                      <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Fecha de</span><span>Actualizacion</span></span></th>
+                      <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Meses del</span><span>Prestamo</span></span></th>
+                      <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Intereses</span><span>{displaySymbol()}</span></span></th>
+                      <th scope="col" className="!px-1 !py-3 !text-center align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF', textAlign: 'center', verticalAlign: 'middle' }}><span className="flex min-h-10 flex-col items-center justify-center gap-0.5 text-center leading-4"><span>Monto</span><span>actualizado {displaySymbol()}</span></span></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {loanTableRows.map((row) => (
+                    {pagedLoanRows.map((row) => (
                       <tr key={row.id}>
-                        <td className="td-base !px-2 text-center">{row.index}</td>
-                        <td className="td-base !px-2 text-center">{formatDate(row.movementDate)}</td>
-                        <td className="td-base !px-4 text-center" style={{ overflow: 'hidden' }}>{row.monthLabel || '-'}</td>
-                        <td className="td-base !px-4 truncate" style={{ overflow: 'hidden' }} title={row.description || '-'}>{row.description || '-'}</td>
-                        <td className="td-base !px-2 truncate font-medium" title={row.counterparty || '-'}>{row.counterparty || '-'}</td>
-                        <td className="td-base !px-2 text-right tabular-nums">{usd0(row.amount)}</td>
-                        <td className="td-base !px-2 truncate" title={row.movementType || 'PRESTAMO'}>{row.movementType || 'PRESTAMO'}</td>
-                        <td className="td-base !px-2 text-center">{formatDate(loanUpdatedAt)}</td>
-                        <td className="td-base !px-2 text-right tabular-nums">{loanMonths(row.months)}</td>
-                        <td className="td-base !px-2 text-right tabular-nums">{usd0(row.interest)}</td>
-                        <td className="td-base !px-2 text-right font-semibold tabular-nums">{usd0(row.updatedAmount)}</td>
+                        <td className="td-base !px-1 text-center">{row.index.toLocaleString('en-US')}</td>
+                        <td className="td-base !px-1 text-center">{formatDate(row.movementDate)}</td>
+                        <td className="td-base !px-1 text-center" style={{ overflow: 'hidden' }}>{row.monthLabel || '-'}</td>
+                        <td className="td-base !px-1" style={{ overflow: 'hidden' }} title={row.description || '-'}>{row.description || '-'}</td>
+                        <td className="td-base !px-1 font-medium" title={row.counterparty || '-'}>{row.counterparty || '-'}</td>
+                        <td className="td-base !px-1 text-center font-medium tabular-nums"><span className="inline-flex items-baseline justify-end gap-1 whitespace-nowrap tabular-nums leading-5"><span>{displaySymbol()}</span><span>{usd0(row.amount)}</span></span></td>
+                        <td className="td-base !px-1" title={row.movementType || 'PRESTAMO'}>{row.movementType || 'PRESTAMO'}</td>
+                        <td className="td-base !px-1 text-center">{formatDate(loanUpdatedAt)}</td>
+                        <td className="td-base !px-1 text-center tabular-nums">{loanMonths(row.months)}</td>
+                        <td className="td-base !px-1 text-center font-medium tabular-nums"><span className="inline-flex items-baseline justify-end gap-1 whitespace-nowrap tabular-nums leading-5"><span>{displaySymbol()}</span><span>{usd0(row.interest)}</span></span></td>
+                        <td className="td-base !px-1 text-center font-medium tabular-nums"><span className="inline-flex items-baseline justify-end gap-1 whitespace-nowrap tabular-nums leading-5"><span>{displaySymbol()}</span><span>{usd0(row.updatedAmount)}</span></span></td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
                     <tr style={{ background: '#0B2F6E' }}>
-                      <td className="td-base !px-2 font-bold text-white" colSpan={4}></td>
-                      <td className="td-base !px-2 font-bold text-white">Totales {displaySymbol()}</td>
-                      <td className="td-base !px-2 font-bold text-white text-right tabular-nums">{usd0(loanTotals.amount)}</td>
-                      <td className="td-base !px-2" colSpan={3}></td>
-                      <td className="td-base !px-2 font-bold text-white text-right tabular-nums">{usd0(loanTotals.interest)}</td>
-                      <td className="td-base !px-2 font-bold text-white text-right tabular-nums">{usd0(loanTotals.updated)}</td>
+                      <td className="td-base !px-1 font-bold text-white" colSpan={4}></td>
+                      <td className="td-base !px-1 font-bold text-white">Totales {displaySymbol()}</td>
+                      <td className="td-base !px-1 font-bold text-white text-center font-medium tabular-nums"><span className="inline-flex items-baseline justify-end gap-1 whitespace-nowrap tabular-nums leading-5"><span>{displaySymbol()}</span><span>{usd0(loanTotals.amount)}</span></span></td>
+                      <td className="td-base !px-1" colSpan={3}></td>
+                      <td className="td-base !px-1 font-bold text-white text-center font-medium tabular-nums"><span className="inline-flex items-baseline justify-end gap-1 whitespace-nowrap tabular-nums leading-5"><span>{displaySymbol()}</span><span>{usd0(loanTotals.interest)}</span></span></td>
+                      <td className="td-base !px-1 font-bold text-white text-center font-medium tabular-nums"><span className="inline-flex items-baseline justify-end gap-1 whitespace-nowrap tabular-nums leading-5"><span>{displaySymbol()}</span><span>{usd0(loanTotals.updated)}</span></span></td>
                     </tr>
                   </tfoot>
                 </table>
-              )}
-              <div className="mt-6 max-w-3xl">
-                <h3 className="mb-2 font-semibold">Resumen</h3>
-                <table className="table-base table-fixed text-[12px]" style={{ minWidth: 680, width: '100%' }}>
+              ))}
+              {!showLoanSummary && !loanLoading && <div className="mt-3"><PaginationBar label="Préstamos" page={currentLoanPage} totalPages={loanTotalPages} total={loanTableRows.length} limit={15} setPage={setLoanPage} compact mobileCompact /></div>}
+              {showLoanSummary && <div id="loan-summary" className="rounded-xl border border-blue-100 bg-blue-50/30 p-3">
+                <h3 className="mb-3 flex items-center gap-2 text-sm font-bold text-blue-800"><FiPieChart />Resumen por acreedor</h3>
+                <table className="loans-grid w-full table-fixed border-separate border-spacing-0 text-xs [&_th]:!text-center [&_td]:!text-center [&_th:nth-child(2)]:!text-left [&_td:nth-child(2)]:!text-left [&_td]:align-middle [&_th]:!px-1 [&_th]:!whitespace-normal [&_th]:!text-[11px] [&_td]:!px-1 [&_td]:!whitespace-normal [&_td]:[overflow-wrap:anywhere] [&_td]:!text-xs">
                   <colgroup>
-                    <col style={{ width: 64 }} />
-                    <col style={{ width: 220 }} />
-                    <col style={{ width: 120 }} />
-                    <col style={{ width: 120 }} />
-                    <col style={{ width: 156 }} />
+                    <col style={{ width: '6%' }} />
+                    <col style={{ width: '31%' }} />
+                    <col style={{ width: '21%' }} />
+                    <col style={{ width: '20%' }} />
+                    <col style={{ width: '22%' }} />
                   </colgroup>
                   <thead>
                     <tr>
-                      <th className="th-base !px-3 text-center" style={{ background: '#6B7280', color: '#fff' }}>Item</th>
-                      <th className="th-base !px-3 text-left" style={{ background: '#6B7280', color: '#fff' }}>Acreedor</th>
-                      <th className="th-base !px-3 text-right" style={{ background: '#6B7280', color: '#fff' }}>Prestamo</th>
-                      <th className="th-base !px-3 text-right" style={{ background: '#6B7280', color: '#fff' }}>Intereses</th>
-                      <th className="th-base !px-3 text-right" style={{ background: '#6B7280', color: '#fff' }}>Deuda Actualizada</th>
+                      <th scope="col" className="!px-1 !py-3 align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF' }}>Item</th>
+                      <th scope="col" className="!px-1 !py-3 align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF' }}>Acreedor</th>
+                      <th scope="col" className="!px-1 !py-3 align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF' }}>Prestamo {displaySymbol()}</th>
+                      <th scope="col" className="!px-1 !py-3 align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF' }}>Intereses {displaySymbol()}</th>
+                      <th scope="col" className="!px-1 !py-3 align-middle !whitespace-normal text-[10px] font-semibold leading-4 tracking-normal first:rounded-tl-lg last:rounded-tr-lg" style={{ background: '#52728F', color: '#FFFFFF' }}>Deuda Actualizada {displaySymbol()}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {loanSummaryRows.map((row, index) => (
                       <tr key={row.creditor}>
-                        <td className="td-base !px-3 text-center">{index + 1}</td>
-                        <td className="td-base !px-3 truncate font-medium" title={row.creditor}>{row.creditor}</td>
-                        <td className="td-base !px-3 text-right tabular-nums">{usd0(row.amount)}</td>
-                        <td className="td-base !px-3 text-right tabular-nums">{usd0(row.interest)}</td>
-                        <td className="td-base !px-3 text-right font-semibold tabular-nums">{usd0(row.updated)}</td>
+                        <td className="td-base !px-3 text-center">{(index + 1).toLocaleString('en-US')}</td>
+                        <td className="td-base !px-3 font-medium" title={row.creditor}>{row.creditor}</td>
+                        <td className="td-base !px-3 text-right tabular-nums">{displaySymbol()} {usd0(row.amount)}</td>
+                        <td className="td-base !px-3 text-right tabular-nums">{displaySymbol()} {usd0(row.interest)}</td>
+                        <td className="td-base !px-3 text-right font-semibold tabular-nums">{displaySymbol()} {usd0(row.updated)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -990,13 +1036,13 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                     <tr style={{ background: '#0B2F6E' }}>
                       <td className="td-base !px-3 font-bold text-white"></td>
                       <td className="td-base !px-3 font-bold text-white">Total {displaySymbol()}</td>
-                      <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{usd0(loanTotals.amount)}</td>
-                      <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{usd0(loanTotals.interest)}</td>
-                      <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{usd0(loanTotals.updated)}</td>
+                      <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{displaySymbol()} {usd0(loanTotals.amount)}</td>
+                      <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{displaySymbol()} {usd0(loanTotals.interest)}</td>
+                      <td className="td-base !px-3 font-bold text-white text-right tabular-nums">{displaySymbol()} {usd0(loanTotals.updated)}</td>
                     </tr>
                   </tfoot>
                 </table>
-              </div>
+              </div>}
             </div>
           </div>
         ) : (
@@ -1114,13 +1160,13 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
                   {sociosRows.map((row, index) => (
                     <tr key={index} className="[&_td:nth-child(-n+6)]:!bg-[#F1F3F5]">
                       <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle overflow-hidden text-ellipsis"><input className="input !h-7 !min-w-0 !rounded-none !px-1 !text-[10px] lg:!text-[11px] !bg-transparent !border-transparent !shadow-none !w-full !max-w-none focus:!border-blue-400 focus:!bg-white focus:!ring-1 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" aria-label={`Nombre del socio ${row.index}`} value={row.name} onChange={(e) => updateSocio(index, { name: e.target.value })} /></td>
-                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle">{!row.isNewPartner && (<input className="input !h-7 !min-w-0 !rounded-none !px-1 !text-[10px] lg:!text-[11px] !bg-transparent !border-transparent !shadow-none text-right !w-full !max-w-none focus:!border-blue-400 focus:!bg-white focus:!ring-1 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" disabled={row.isNewPartner} readOnly={currency === 'PEN'} value={row.isNewPartner ? '' : currency === 'PEN' ? usd0(financeDashManual.socios[index]?.capital as any) : financeDashManual.socios[index]?.capital || ''} onChange={(e) => updateSocio(index, { capital: e.target.value })} />)}</td>
-                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle">{!row.isNewPartner && (<input className="input !h-7 !min-w-0 !rounded-none !px-1 !text-[10px] lg:!text-[11px] !bg-transparent !border-transparent !shadow-none text-right !w-full !max-w-none focus:!border-blue-400 focus:!bg-white focus:!ring-1 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" disabled={row.isNewPartner} readOnly={currency === 'PEN'} value={row.isNewPartner ? '' : currency === 'PEN' ? usd0(financeDashManual.socios[index]?.adicional as any) : financeDashManual.socios[index]?.adicional || ''} onChange={(e) => updateSocio(index, { adicional: e.target.value })} />)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle">{!row.isNewPartner && (<PartnerNumberInput className="input !h-7 !min-w-0 !rounded-none !px-1 !text-[10px] lg:!text-[11px] !bg-transparent !border-transparent !shadow-none text-right !w-full !max-w-none focus:!border-blue-400 focus:!bg-white focus:!ring-1 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" disabled={row.isNewPartner} readOnly={currency === 'PEN'} value={row.isNewPartner ? '' : currency === 'PEN' ? usd0(sociosBase[index]?.capital as any) : sociosBase[index]?.capital || ''} onChange={(e) => updateSocio(index, { capital: e.target.value })} />)}</td>
+                      <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle">{!row.isNewPartner && (<PartnerNumberInput className="input !h-7 !min-w-0 !rounded-none !px-1 !text-[10px] lg:!text-[11px] !bg-transparent !border-transparent !shadow-none text-right !w-full !max-w-none focus:!border-blue-400 focus:!bg-white focus:!ring-1 disabled:!bg-transparent disabled:!border-transparent disabled:!shadow-none" disabled={row.isNewPartner} readOnly={currency === 'PEN'} value={row.isNewPartner ? '' : currency === 'PEN' ? usd0(sociosBase[index]?.adicional as any) : sociosBase[index]?.adicional || ''} onChange={(e) => updateSocio(index, { adicional: e.target.value })} />)}</td>
                       <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right font-semibold">{row.isNewPartner ? '' : usd0(row.aporteTotal)}</td>
                       <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-center">{row.isNewPartner ? '' : `${(row.participacion * 100).toFixed(0)}%`}</td>
                       <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right">{row.isNewPartner ? '' : usd0(row.acciones)}</td>
                       <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right">
-                        {row.isNewPartner ? <input aria-label={`Aporte de nuevo socio ${row.name}`} inputMode="decimal" className="input !h-7 !min-w-0 !rounded-none !px-1 !text-[10px] lg:!text-[11px] !bg-transparent !border-transparent !shadow-none text-right !w-full focus:!border-blue-400 focus:!bg-white focus:!ring-1" readOnly={currency === 'PEN'} value={currency === 'PEN' ? usd0(row.inversionActualizada) : financeDashManual.socios[index]?.aporteTotal ?? financeDashManual.socios[index]?.inversionActualizada ?? ''} onChange={(e) => updateSocio(index, { aporteTotal: e.target.value })} /> : usd0(row.inversionActualizada)}
+                        {row.isNewPartner ? <PartnerNumberInput aria-label={`Aporte de nuevo socio ${row.name}`} inputMode="decimal" className="input !h-7 !min-w-0 !rounded-none !px-1 !text-[10px] lg:!text-[11px] !bg-transparent !border-transparent !shadow-none text-right !w-full focus:!border-blue-400 focus:!bg-white focus:!ring-1" readOnly={currency === 'PEN'} value={currency === 'PEN' ? usd0(row.inversionActualizada) : sociosBase[index]?.aporteTotal ?? sociosBase[index]?.inversionActualizada ?? ''} onChange={(e) => updateSocio(index, { aporteTotal: e.target.value })} /> : usd0(row.inversionActualizada)}
                         {shareIssue.invalid.includes(index) && <p role="alert" className="mt-1 text-xs text-red-700">Ingresa un aporte positivo y un valor actualizado de accion valido.</p>}
                       </td>
                       <td className="td-base !px-1 !py-1 !text-[10px] lg:!text-[11px] !align-middle text-right">{usd0(row.accionesFinal)}</td>
@@ -1244,7 +1290,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
               ) : (
               <table className={`w-full min-w-0 table-fixed border-collapse text-xs [&_th]:!px-1 sm:[&_th]:!px-2 [&_th]:align-middle [&_td]:!px-1 sm:[&_td]:!px-2 [&_td]:align-middle max-sm:[&_td]:!text-[11px] [&_td:first-child]:!whitespace-normal [&_td:first-child]:break-words [&_th]:whitespace-normal ${FINANCING_TABLE_STYLE}`}>
                 <colgroup><col className="w-[44%] sm:w-[54%]" /><col className="w-[34%] sm:w-[28%]" /><col className="w-[22%] sm:w-[18%]" /></colgroup>
-                <thead><tr style={{ background: '#000066' }}><th className="px-2 py-2 text-left text-[10px] font-bold text-white">Estructura Financiam.</th><th className="px-2 py-2 text-right text-[10px] font-bold text-white">{displaySymbol()}</th><th className="px-2 py-2 text-center text-[10px] font-bold text-white">%</th></tr></thead>
+                <thead><tr style={{ background: '#000066' }}><th className="px-2 py-2 text-left text-[10px] font-bold text-white">Estructura Financiam.</th><th scope="col" className="px-2 py-2 text-center text-[10px] font-bold text-white"><span style={{ position: 'relative', left: 36 }}>{displaySymbol()}</span></th><th className="px-2 py-2 text-center text-[10px] font-bold text-white">%</th></tr></thead>
                 <tbody>
                   {estructuraRows.map(([key, label, value]) => (
                     <tr key={key}>
@@ -1267,7 +1313,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 max-sm:[&_button]:min-w-0 max-sm:[&_button]:px-2 max-sm:[&_button]:text-xs">
               <button className="btn-primary whitespace-nowrap" onClick={() => setOpenIn(true)}>Registrar ingreso</button>
               <button className="btn-outline whitespace-nowrap" onClick={() => setOpenExp(true)}>Registrar egreso</button>
-              <button className="btn-outline whitespace-nowrap" onClick={() => setShowLoans(true)}>Prestamos</button>
+              <button className="btn-outline whitespace-nowrap" onClick={() => { setShowLoanSummary(false); setShowLoans(true); }}>Prestamos</button>
               <button className="btn-outline whitespace-nowrap" onClick={() => setShowClassification(true)}>Clasificacion</button>
             </div>
           </div>
@@ -1488,6 +1534,15 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
         </div>
       )}
+      <Modal open={deleteSocioIndex !== null} onClose={() => { if (!deletingSocio) setDeleteSocioIndex(null); }} title="Eliminar socio" width="max-w-md">
+        <div className="space-y-4">
+          <p className="text-sm text-slate-600">¿Seguro que deseas eliminar a <strong>{deleteSocioIndex !== null ? financeDashManual.socios[deleteSocioIndex]?.name : ''}</strong>? Se retirará de la tabla y de los cálculos. Sus datos se conservarán mediante eliminación lógica.</p>
+          <div className="flex justify-end gap-2">
+            <button type="button" className="btn-neutral" disabled={deletingSocio} onClick={() => setDeleteSocioIndex(null)}>Cancelar</button>
+            <button type="button" className="btn-primary !bg-red-600" disabled={deletingSocio} onClick={confirmRemoveSocio}>{deletingSocio ? 'Eliminando…' : 'Eliminar socio'}</button>
+          </div>
+        </div>
+      </Modal>
     </>
   );
 }

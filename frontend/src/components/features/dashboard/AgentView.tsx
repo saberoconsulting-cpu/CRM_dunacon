@@ -47,7 +47,7 @@ function money(value: unknown): string {
 
 function KpiTile({ label, value, helper, icon, accent }: { label: string; value: string; helper: string; icon: JSX.Element; accent: string }) {
   return (
-    <div className="rounded-md border bg-white px-4 py-3 shadow-sm" style={{ borderColor: BORDER }}>
+    <div className="rounded-md border bg-white px-4 py-3 shadow-sm" style={{ borderColor: '#CBD5E1' }}>
       <div className="flex items-center justify-between gap-3">
         <p className="min-w-0 truncate text-[11px] font-semibold uppercase" style={{ color: MUTED }}>{label}</p>
         <span className="grid h-7 w-7 shrink-0 place-items-center rounded-md" style={{ background: `${accent}12`, color: accent }}>{icon}</span>

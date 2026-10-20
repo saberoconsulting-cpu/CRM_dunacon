@@ -1,6 +1,9 @@
 // modules/auth/interface/auth.controller.ts
 import {
   Body,
+  BadRequestException,
+  Headers,
+  Query,
   Controller,
   Get,
   Post,
@@ -18,10 +21,35 @@ import { UpdateProfileDto } from '../application/dto/update-profile.dto';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
 import { CurrentUser } from '../../../shared/application/decorators/current-user.decorator';
 import { uploadToCloudinary } from '../../../shared/infrastructure/upload/cloudinary.util';
+import { DataSource } from 'typeorm';
+import { AppSettingEntity } from '../../../shared/infrastructure/entities/app-setting.entity';
+import { sessionLockKey } from '../../../shared/application/guards/session-lock.guard';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService, private readonly db: DataSource) {}
+
+  @UseGuards(JwtAuthGuard)
+  @Get('session-lock')
+  async getSessionLock(@Headers('authorization') authorization: string, @Query('projectId') projectId: string) {
+    const id = Number(projectId);
+    if (!Number.isSafeInteger(id) || id <= 0) throw new BadRequestException('Proyecto inválido');
+    const row = await this.db.getRepository(AppSettingEntity).findOneBy({ key: sessionLockKey(authorization, id) });
+    return { locked: row?.value !== 'false' };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('session-lock')
+  async setSessionLock(@Headers('authorization') authorization: string, @Body() body: { locked: boolean; projectId: number }) {
+    if (typeof body.locked !== 'boolean') throw new BadRequestException('locked debe ser booleano');
+    const repo = this.db.getRepository(AppSettingEntity);
+    const id = Number(body.projectId);
+    if (!Number.isSafeInteger(id) || id <= 0) throw new BadRequestException('Proyecto inválido');
+    const key = sessionLockKey(authorization, id);
+    if (body.locked) await repo.delete({ key });
+    else await repo.upsert({ key, value: 'false' }, ['key']);
+    return { locked: body.locked };
+  }
 
   // Máx. 5 intentos por minuto por IP — evita fuerza bruta de contraseñas.
   @Throttle({ default: { limit: 5, ttl: 60_000 } })

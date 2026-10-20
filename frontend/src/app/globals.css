@@ -232,3 +232,48 @@ body {
   to { opacity: 1; transform: translateY(0); }
 }
 .toast-in { animation: toast-in 0.2s ease-out; }
+
+/* Cuadrícula de préstamos con cabecera y primera columna fijas. */
+.loans-grid th,
+.loans-grid td {
+  box-sizing: border-box;
+  border-right: 1px solid #d5dde5;
+  border-bottom: 1px solid #d5dde5;
+}
+.loans-grid tr > :first-child { border-left: 1px solid #d5dde5; }
+.loans-grid thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  border-top: 1px solid #45627d;
+  border-color: #7890a5;
+  box-shadow: 0 1px 0 #7890a5;
+}
+.loans-grid tbody td { background: #fff; }
+.loans-grid tbody tr:nth-child(even) td { background: #f3f7fa; }
+.loans-grid tbody tr:hover td { background: #e8f2fc; }
+.loans-grid thead th:first-child,
+.loans-grid tbody td:first-child {
+  position: sticky;
+  left: 0;
+  border-left: 1px solid #bdcbd8;
+  border-right: 1px solid #bdcbd8;
+  border-radius: 0;
+  box-shadow: none;
+  text-align: center;
+  white-space: nowrap;
+}
+.loans-grid tbody td:first-child {
+  z-index: 2;
+  background: #e9eff5;
+  font-weight: 600;
+  color: #46637f;
+}
+.loans-grid thead th:first-child {
+  left: 0;
+  z-index: 4;
+}
+.loans-grid tfoot td {
+  border-color: #345782;
+  background: #0b2f6e;
+}

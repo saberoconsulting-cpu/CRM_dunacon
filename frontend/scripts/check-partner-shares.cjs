@@ -7,7 +7,20 @@ const code = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../src/lib
 }).outputText;
 const output = { exports: {} };
 new Function('exports', code)(output.exports);
-const { partnerContribution, isNewPartner, issuePartnerShares } = output.exports;
+const { partnerContribution, isNewPartner, issuePartnerShares, ensureFounderPartners } = output.exports;
+const normalized = ensureFounderPartners([
+  { name: 'Socio 1', capital: '20000', adicional: '10000', newPartner: false },
+  { name: 'Socio 2', capital: '', adicional: '', aporteTotal: '8000', newPartner: true },
+  { name: 'Socio 3', capital: '', adicional: '', aporteTotal: '4000', newPartner: true },
+]);
+assert.deepEqual(normalized.map(partner => partner.newPartner), [false, false, true]);
+assert.equal(normalized[1].capital, '8000');
+assert.equal(normalized[2].aporteTotal, '4000');
+assert.deepEqual(ensureFounderPartners(normalized), normalized);
+const missingFounder = ensureFounderPartners([normalized[0]]);
+assert.equal(missingFounder[1].name, 'Socio 2');
+assert.equal(missingFounder[1].newPartner, false);
+assert.equal(missingFounder[1].capital, '');
 const founders = [{ capital: '20000', adicional: '10000' }, { capital: '20000', adicional: '' }];
 const partners = [...founders, { capital: '', adicional: '', aporteTotal: '40000', newPartner: true }, { capital: '', adicional: '', aporteTotal: '30000', newPartner: true }];
 assert.equal(partnerContribution({ capital: '', adicional: '', inversionActualizada: '8000' }, 2), 8000);

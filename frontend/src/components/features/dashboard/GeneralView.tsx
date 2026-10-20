@@ -156,7 +156,7 @@ function Pagination({ page, total, size, onPage }: { page: number; total: number
 
 export function SectionShell({ title, subtitle, children, className = '', control }: { title: string; subtitle?: string; children: ReactNode; className?: string; control?: ReactNode }) {
   return (
-    <section className={`border bg-white p-4 ${className}`} style={{ borderColor: BRAND.border, borderRadius: 6, boxShadow: '0 1px 2px rgba(16,24,40,.035)' }}>
+    <section className={`border bg-white p-4 ${className}`} style={{ borderColor: '#CBD5E1', borderRadius: 6, boxShadow: '0 1px 2px rgba(16,24,40,.035)' }}>
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold uppercase tracking-[0.08em]" style={{ color: BRAND.ink }}>{title}</h3>
@@ -193,13 +193,13 @@ function CommercialSummary({ d, totals }: { d: FormattedDashboard; totals: Comme
 
   return (
     <section className="grid gap-3 lg:grid-cols-[minmax(0,1.7fr)_minmax(320px,1fr)]">
-      <div className="relative overflow-hidden border bg-white p-5" style={{ borderColor: BRAND.border, borderRadius: 6, background: 'linear-gradient(145deg, #FFFFFF 30%, #EFF6FF 100%)' }}>
+      <div className="relative overflow-hidden border bg-white p-5" style={{ borderColor: '#CBD5E1', borderRadius: 6, background: 'linear-gradient(145deg, #FFFFFF 30%, #EFF6FF 100%)' }}>
         <div className="absolute left-0 top-0 h-full w-1.5" style={{ background: BRAND.blue }} />
         <p className="text-xs font-semibold uppercase tracking-[0.1em] text-slate-500">Resumen comercial</p>
         <p className="mt-1 text-xs text-slate-500">Total acumulado de todos los proyectos · Resultados reales</p>
         <div className="mt-4 grid grid-cols-2 gap-3 xl:grid-cols-4">
           {financialBoxes.map((box) => (
-            <div key={box.label} className="min-w-0 border bg-white p-3" style={{ borderColor: `${box.color}26`, borderRadius: 6, background: `linear-gradient(145deg, #FFFFFF 35%, ${box.color}0D 100%)` }}>
+            <div key={box.label} className="min-w-0 border bg-white p-3" style={{ borderColor: `${box.color}59`, borderRadius: 6, background: `linear-gradient(145deg, #FFFFFF 35%, ${box.color}0D 100%)` }}>
               <span className="block h-1 w-9" style={{ background: box.color }} />
               <p className="mt-3 min-h-[2rem] text-[10px] font-semibold leading-4 text-slate-500 sm:text-[11px]">{box.label}</p>
               <p className="mt-1 truncate text-center text-base font-semibold tabular-nums tracking-tight sm:text-lg" style={{ color: box.color }}>{box.value == null ? '—' : money(box.value)}</p>
@@ -212,14 +212,14 @@ function CommercialSummary({ d, totals }: { d: FormattedDashboard; totals: Comme
         {secondary.map((item) => (
           <article key={item.label}
             className="group relative isolate min-w-0 overflow-hidden rounded-xl border p-3 shadow-sm motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:-translate-y-0.5 hover:shadow-md sm:p-4"
-            style={{ borderColor: `${item.tone}26`, background: `linear-gradient(145deg, #fff 35%, ${item.tone}0D 100%)` }}>
+            style={{ borderColor: `${item.tone}59`, background: `linear-gradient(145deg, #fff 35%, ${item.tone}0D 100%)` }}>
             <span aria-hidden="true" className="pointer-events-none absolute -bottom-4 -right-3 -z-10 rotate-[-15deg] text-[88px] opacity-[0.055] motion-safe:transition-transform motion-safe:group-hover:rotate-0" style={{ color: item.tone }}>{item.icon}</span>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span aria-hidden="true" className="grid h-9 w-9 shrink-0 place-items-center rounded-xl text-lg sm:h-10 sm:w-10" style={{ background: `${item.tone}12`, color: item.tone, boxShadow: `inset 0 0 0 1px ${item.tone}18` }}>{item.icon}</span>
               <span className="rounded-full px-2 py-1 text-[9px] font-semibold sm:text-[10px]" style={{ color: item.tone, background: `${item.tone}0D` }}>{item.period}</span>
             </div>
             <p className="mt-3 min-h-8 text-[11px] font-medium leading-4 text-slate-500 sm:text-xs">{item.label}</p>
-            <p className="mt-1 break-words text-xl font-bold tabular-nums tracking-tight sm:text-2xl" style={{ color: BRAND.ink }}>{item.value}</p>
+            <p className="mt-1 break-words text-center text-xl font-bold tabular-nums tracking-tight sm:text-2xl" style={{ color: BRAND.ink }}>{item.value}</p>
             <div aria-hidden="true" className="mt-3 h-0.5 w-10 rounded-full motion-safe:transition-all motion-safe:group-hover:w-16" style={{ background: item.tone }} />
           </article>
         ))}
@@ -460,7 +460,7 @@ function LotStatusDistribution({ data }: { data: { key: string; label: string; v
           </div>
           <div className="grid gap-1.5 sm:gap-2" style={{ gridTemplateColumns: `repeat(${data.length}, minmax(0, 1fr))` }}>
             {data.map((item) => (
-              <div key={item.key} className="group min-w-0 border p-1.5 sm:p-2 transition-colors hover:bg-slate-50" style={{ borderColor: `${item.color}35`, borderRadius: 6, background: `linear-gradient(145deg, #FFFFFF 35%, ${item.color}12 100%)` }} title={`${item.label}: ${item.value}`}>
+              <div key={item.key} className="group min-w-0 border p-1.5 sm:p-2 transition-colors hover:bg-slate-50" style={{ borderColor: `${item.color}99`, borderRadius: 6, background: `linear-gradient(145deg, #FFFFFF 35%, ${item.color}12 100%)` }} title={`${item.label}: ${item.value}`}>
                 <span className="block h-1 w-8 transition-all group-hover:w-12" style={{ background: item.color }} />
                 <p className="mt-2 break-words text-[10px] sm:text-[11px] font-medium text-slate-500">{item.label}</p>
                 <p className="text-center text-lg font-semibold tabular-nums" style={{ color: BRAND.ink }}>{item.value}</p>
@@ -1003,7 +1003,7 @@ export default function GeneralView({ d, compact = false }: { d: FormattedDashbo
     key,
     label: LOT_LABEL[key],
     value: Number(dashboardLots[key as keyof typeof dashboardLots] || 0),
-    color: LOT_STATUS_COLOR[key as keyof typeof LOT_STATUS_COLOR],
+    color: key === 'disponible' ? '#9CA3AF' : LOT_STATUS_COLOR[key as keyof typeof LOT_STATUS_COLOR],
   })).filter((item) => item.value > 0 || !['promocion', 'segunda_etapa'].includes(item.key));
 
   if (commercialError) return <p role="alert" className="text-red-600">No se pudo cargar el total de los proyectos. Recarga la página para reintentar.</p>;

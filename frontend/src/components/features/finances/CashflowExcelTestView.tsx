@@ -32,7 +32,7 @@ type BankCategory = {
 const MODE_LABEL: Record<CashflowMode, string> = { estatico: 'Flujo estatico', dinamico: 'Flujo dinamico' };
 const MAX_PROJECTION_YEARS = 15;
 const YEAR_COUNT = MAX_PROJECTION_YEARS + 1;
-const YEARS = Array.from({ length: YEAR_COUNT }, (_, index) => `Ano ${index}`);
+const YEARS = Array.from({ length: YEAR_COUNT }, (_, index) => `Año ${index}`);
 // El endpoint /sales valida limit con @Max(100) (pagination.dto.ts): pedir 500
 // devolvÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â­a 400 Bad Request y el flujo se generaba sin ventas.
 const SALES_EXPORT_LIMIT = 100;
@@ -138,7 +138,7 @@ const CONSTRUCTION_CHILD_ROWS: SectionRowDefinition[] = [
 const SECTIONS: Array<{ id: string; label: string; tone: string; computed?: boolean; rows: SectionRowDefinition[] }> = [
     {
         id: 'income', label: 'Ingreso por venta de lotes', tone: BRAND.blue, rows: [
-            { id: 'lots-sold', label: 'Venta de lotes por ano' },
+            { id: 'lots-sold', label: 'Venta de lotes por año' },
             { id: 'initial-fee', label: 'Cuota inicial' },
             { id: 'financing-fee', label: 'Cuota financiamiento (lotes que pagan cuota)' },
         ]
@@ -720,7 +720,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 })),
             ];
         });
-        seedRows.push(row('sales-year', 'Venta por ano', empty()));
+        seedRows.push(row('sales-year', 'Venta por año', empty()));
 
         if (usesBankCashflow) {
             const seenIds = new Set(seedRows.map((item) => item.id));
@@ -1710,8 +1710,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         window.setTimeout(() => scheduleAutosave(), 0);
     }
 
-    const lotsSoldRow = calculated.find((item) => item.id === 'lots-sold') || row('lots-sold', 'Venta de lotes por ano');
-    const salesYearRow = calculated.find((item) => item.id === 'sales-year') || row('sales-year', 'Venta por ano');
+    const lotsSoldRow = calculated.find((item) => item.id === 'lots-sold') || row('lots-sold', 'Venta de lotes por año');
+    const salesYearRow = calculated.find((item) => item.id === 'sales-year') || row('sales-year', 'Venta por año');
     const calculatedValue = (id: string, year = 0) => calculated.find((item) => item.id === id)?.values[year] || 0;
     const calculatedRowTotal = (id: string) => (calculated.find((item) => item.id === id)?.values || empty()).reduce((sum, value) => sum + Number(value || 0), 0);
     const accumulateSeries = (values: number[]) => normalizeValues(values).reduce<number[]>((totals, value, year) => {
@@ -1727,7 +1727,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         : calculatedRowTotal('land-cost') || calculatedRowTotal('land');
     const averageLotArea = totalLots > 0 ? Number(manual.landArea || 0) / totalLots : 0;
     const averageLotPrice = totalLots > 0 ? saleValue / totalLots : 0;
-    // En dinamico, Datos usa el mismo total que la fila Ventas por ano.
+    // En dinamico, Datos usa el mismo total que la fila Ventas por año.
     const dataVentaTotalLotes = mode === 'dinamico'
         ? salesYearRow.values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0)
         : saleValue;
@@ -1766,9 +1766,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const margin = totalRevenue > 0 ? (totalAdjustedProfit / totalRevenue) * 100 : null;
     const firstNegative = cumulativeProfit.findIndex((value) => value < 0);
     const paybackYear = firstNegative === -1 ? -1 : cumulativeProfit.findIndex((value, year) => year > firstNegative && value >= 0);
-    const paybackValue = paybackYear >= 0 ? `Ano ${paybackYear}` : 'No aplica';
+    const paybackValue = paybackYear >= 0 ? `Año ${paybackYear}` : 'No aplica';
     const paybackHelper = paybackYear >= 0
-        ? 'Ano en que se cubre la inversion'
+        ? 'Año en que se cubre la inversion'
         : firstNegative === -1
             ? 'No hay deficit acumulado que recuperar'
             : 'Hay deficit acumulado y no se recupera en el horizonte';
@@ -1964,15 +1964,15 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                         )}
                     </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 border-b bg-[#F8FAFC] p-4 lg:grid-cols-7" style={{ borderColor: BRAND.border }}>
+                <div className="grid grid-cols-2 gap-3 border-b bg-[#F8FAFC] p-4 sm:grid-cols-3 lg:grid-cols-7" style={{ borderColor: BRAND.border }}>
                     {[
                         ['Venta de Lotes US$', 'income'],
                         ['Costo de Ventas US$', 'cost-sales'],
                         ['Gasto de Ventas US$', 'selling'],
                         ['Gasto Financiero US$', 'financial'],
                         ['Utilidad AdI US$', 'pre-tax'],
-                        ['Anos de proyeccion', 'years'],
-                        ['Ano de inicio', 'startYear'],
+                        ['Años de proyeccion', 'years'],
+                        ['Año de inicio', 'startYear'],
                     ].map(([label, key]) => {
                         const summaryValue = ['income', 'cost-sales', 'selling', 'financial', 'pre-tax'].includes(key)
                             ? showAmount(calculatedRowTotal(key))
@@ -1984,7 +1984,19 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 : key === 'landArea'
                                     ? formatPlainInteger((manual as any)[key])
                                     : formatPlainInteger((manual as any)[key]));
-                        return <div key={key} className="min-w-0"><p className="text-xs font-semibold text-slate-500">{label}</p><div className="mt-1 flex h-10 items-center justify-between rounded-md border bg-white px-2 text-sm font-semibold tabular-nums sm:px-3" style={{ borderColor: BRAND.border, color: BRAND.ink }}><span>{displayValue}</span></div></div>;
+                        const tones: Record<string, string> = { income: '#15803D', 'cost-sales': '#2563EB', selling: '#D97706', financial: '#7C3AED', 'pre-tax': '#08916F', years: '#52728F', startYear: '#52728F' };
+                        const icons: Record<string, typeof FiDollarSign> = { income: FiDollarSign, 'cost-sales': FiLayers, selling: FiBriefcase, financial: FiCreditCard, 'pre-tax': FiTrendingUp, years: FiPieChart, startYear: FiHome };
+                        const tone = tones[key];
+                        const Icon = icons[key];
+                        return (
+                            <article key={key} className="min-w-0 rounded-xl border bg-white p-3 shadow-sm sm:p-3.5" style={{ borderColor: `${tone}80`, borderTop: `3px solid ${tone}`, background: `linear-gradient(145deg, #FFFFFF 45%, ${tone}0A 100%)` }}>
+                                <div className="flex min-h-10 items-center gap-2">
+                                    <span aria-hidden="true" className="grid h-7 w-7 shrink-0 place-items-center rounded-lg" style={{ background: `${tone}15`, color: tone }}><Icon size={15} /></span>
+                                    <p className="min-w-0 text-[10px] font-semibold uppercase leading-4 tracking-wide text-slate-500">{label}</p>
+                                </div>
+                                <p className="mt-3 truncate text-center text-base font-bold leading-6 tabular-nums xl:text-lg" style={{ color: tone }} title={displayValue}>{displayValue}</p>
+                            </article>
+                        );
                     })}
                 </div>
             </section>
@@ -1999,14 +2011,14 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-4 lg:grid-cols-7">
                     {[
                         { label: 'VAN contable', value: showAmount(van), helper: `Tasa ${Number(manual.discountRate) || 10}% - utilidad ajustada descontada`, tone: BRAND.blue },
-                        { label: 'TIR contable', value: tir === null ? '-' : `${(tir * 100).toFixed(2)}%`, helper: tir === null ? 'Requiere utilidad negativa en algun ano' : 'Tasa interna de retorno', tone: '#15803D' },
+                        { label: 'TIR contable', value: tir === null ? '-' : `${(tir * 100).toFixed(2)}%`, helper: tir === null ? 'Requiere utilidad negativa en algun año' : 'Tasa interna de retorno', tone: '#15803D' },
                         { label: 'ROI contable', value: roi === null ? '-' : `${roi.toFixed(1)}%`, helper: 'Utilidad ajustada / costos totales', tone: '#0EA5A9' },
                         { label: 'Margen de utilidad', value: margin === null ? '-' : `${margin.toFixed(1)}%`, helper: 'Utilidad ajustada / ventas', tone: '#D97706' },
                         { label: 'Payback', value: paybackValue, helper: paybackHelper, tone: '#8064A2' },
                         { label: 'Punto de equilibrio', value: breakEvenLots === null ? '-' : `${formatPlainInteger(breakEvenLots)} lotes`, helper: `Lotes para cubrir costos - ${formatPlainInteger(totalLots)} totales`, tone: '#E11D48' },
                         { label: 'Capital maximo requerido', value: showAmount(maxCapitalRequired), helper: 'Max. deficit de caja acumulado', tone: BRAND.blueDark },
                     ].map(({ label, value, helper, tone }) => (
-                        <div key={label} className="min-w-0 rounded-xl border bg-white px-3 py-3" style={{ borderColor: `${tone}40` }}>
+                        <div key={label} className="min-w-0 rounded-xl border bg-white px-3 py-3 shadow-sm" style={{ borderColor: `${tone}99`, borderTop: `3px solid ${tone}` }}>
                             <p className="truncate text-[11px] font-semibold uppercase tracking-wide" style={{ color: tone }} title={label}>{label}</p>
                             <p className="mt-1 truncate text-center text-lg font-bold tabular-nums" style={{ color: BRAND.ink }} title={value}>{value}</p>
                             <p className="mt-1 truncate text-[11px] text-slate-400" title={helper}>{helper}</p>
@@ -2026,19 +2038,19 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                             type="button"
                             className="btn-neutral min-w-0 justify-center whitespace-nowrap px-3 text-xs sm:text-sm"
                             onClick={() => setHidePastYears((current) => !current)}
-                            title={hidePastYears ? 'Mostrar todos los anos de la proyeccion' : 'Ocultar anos anteriores al ano actual y agruparlos'}
+                            title={hidePastYears ? 'Mostrar todos los años de la proyeccion' : 'Ocultar años anteriores al año actual y agruparlos'}
                         >
-                            {hidePastYears ? 'Vista completa' : 'Ocultar anos pasados'}
+                            {hidePastYears ? 'Vista completa' : 'Ocultar años pasados'}
                         </button>
                         {hiddenPastYearIndexes.length > 0 && (
                             <span className="hidden text-[11px] font-semibold text-slate-500 sm:inline">
-                                {hiddenPastYearIndexes.length} ano(s) en historico
+                                {hiddenPastYearIndexes.length} año(s) en historico
                             </span>
                         )}
                         <FiEdit3 style={{ color: BRAND.blue }} />
                     </div>
                 </div>
-                <p className="cashflow-no-print px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver los anos.</p>
+                <p className="cashflow-no-print px-4 py-2 text-xs text-slate-400 md:hidden">Desliza la tabla hacia la derecha para ver los años.</p>
                 {/* [container-type:inline-size] permite usar `cqw` (ancho visible) en las columnas
                     fijas: en movil Concepto + Total llenan la pantalla y los aÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±os se ven al deslizar. */}
                 <IPhoneCashflowViewport yearColumns={displayedYearIndexesBeforeHistory.length + displayedYearIndexesAfterHistory.length + (showHistoricalColumn ? 1 : 0)}>
@@ -2053,7 +2065,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                     <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-3 text-center font-semibold`} style={{ background: BRAND.blue, color: '#fff' }}>{YEARS[year]}</th>
                                 ))}
                                 {showHistoricalColumn && (
-                                    <th className={`${YEAR_COL} border border-slate-200 px-2 py-3 text-center font-semibold`} style={{ background: '#475569', color: '#fff' }}>Anos anteriores</th>
+                                    <th className={`${YEAR_COL} border border-slate-200 px-2 py-3 text-center font-semibold`} style={{ background: '#475569', color: '#fff' }}>Años anteriores</th>
                                 )}
                                 {displayedYearIndexesAfterHistory.map((year) => (
                                     <th key={year} className={`${YEAR_COL} border border-slate-200 px-2 py-3 text-center font-semibold`} style={{ background: BRAND.blue, color: '#fff' }}>{YEARS[year]}</th>
@@ -2450,7 +2462,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 <h3 className="font-semibold" style={{ color: BRAND.ink }}>Cambiar a {MODE_LABEL[pendingMode]}</h3>
                                 <p className="mt-1 text-sm text-slate-500">
                                     {pendingMode === 'dinamico'
-                                        ? 'El modelo se cargara con la data real de Cuentas y bancos, agrupada por ano y clasificacion. Los anos anteriores a la data real quedaran editables para que cargues el historico a mano; el resto se recalcula desde bancos.'
+                                        ? 'El modelo se cargara con la data real de Cuentas y bancos, agrupada por año y clasificacion. Los años anteriores a la data real quedaran editables para que cargues el historico a mano; el resto se recalcula desde bancos.'
                                         : 'Podras editar todas las celdas. El flujo dinamico siempre se reconstruye desde Cuentas y bancos.'}
                                 </p>
                             </div>
@@ -2515,8 +2527,8 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                                 ['Area promedio lote (m2)', 'lotArea'],
                                 ['Precio US$/m2', 'priceM2'],
                                 ['Cuota inicial %', 'initialPercent'],
-                                ['Anos de proyeccion', 'years'],
-                                ['Ano de inicio', 'startYear'],
+                                ['Años de proyeccion', 'years'],
+                                ['Año de inicio', 'startYear'],
                                 ['Alcabala %', 'alcabalaPercent'],
                                 ['Supervision tecnica %', 'supervisionPercent'],
                                 ['Servicios publicos %', 'servicesPercent'],

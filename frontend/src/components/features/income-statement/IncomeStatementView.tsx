@@ -1288,8 +1288,8 @@ export default function IncomeStatementView({ projectId }: { projectId: number }
     },
     {
       label: 'Gasto de Ventas y Adm',
-      value: `${report.soldLots}/${lots.length}`,
-      helper: 'Planilla -MKT+CV+GM',
+      value: showUsdBase(rowReal['line-ventas_admin'] || 0),
+      helper: 'Gastos reales de ventas y administración',
       icon: <FiGrid />,
       color: BLUE_DARK,
       pdfTone: BLUE_DARK,
