@@ -3,7 +3,7 @@ import { BankAccountEntity } from '../infrastructure/entities/bank-account.entit
 
 export type FinancialDetails = { company: string; ruc: string; bank: string; currency: string; accountNumber: string; cci: string };
 export type LinkedFinancialAccount = FinancialDetails & { id: string; accountKey: string; name: string; displayName: string; isPrincipal: boolean };
-export type FinancialStore = { version?: number; exchangeRate?: number; labels?: Record<string, string>; accounts: Array<Partial<FinancialDetails> & { id?: string; accountKey?: string }> };
+export type FinancialStore = { version?: number; exchangeRate?: number; labels?: Record<string, string>; blankDefaults?: boolean; accounts: Array<Partial<FinancialDetails> & { id?: string; accountKey?: string }> };
 
 export function parseFinancialStore(value?: string | null): FinancialStore {
   if (!value) return { accounts: [] };
@@ -32,8 +32,8 @@ export function linkFinancialAccounts(masters: BankAccountEntity[], store: Finan
       id: master.accountKey, accountKey: master.accountKey, name: master.name,
       displayName: `${master.bank ? `${master.bank} - ` : ''}${master.name}`,
       isPrincipal: master.accountKey === 'GENERAL',
-      company: details?.company ?? defaults.company ?? 'Dunacon Sociedad An\u00f3nima Cerrada',
-      ruc: details?.ruc ?? defaults.ruc ?? '20608624393',
+      company: details?.company ?? (store.blankDefaults ? '' : defaults.company ?? 'Dunacon Sociedad An\u00f3nima Cerrada'),
+      ruc: details?.ruc ?? (store.blankDefaults ? '' : defaults.ruc ?? '20608624393'),
       bank: details?.bank ?? master.bank ?? '', currency: details?.currency ?? master.currency,
       accountNumber: details?.accountNumber ?? master.accountNumber ?? '', cci: details?.cci ?? '',
     };

@@ -6,6 +6,7 @@ import { CashflowModelEntity } from '../../../shared/infrastructure/entities/cas
 import { AuditLogEntity } from '../../../shared/infrastructure/entities/audit-log.entity';
 import { BankAccountMovementEntity } from '../../../shared/infrastructure/entities/bank-account-movement.entity';
 import { SaveCashflowModelDto, CashflowMode } from './dto/cashflow.dto';
+import { blankCashflowTemplate, CASHFLOW_TEMPLATE_STRUCTURE_VERSION } from '../../projects/application/cashflow-template';
 
 const MODES: CashflowMode[] = ['estatico', 'dinamico'];
 
@@ -24,6 +25,37 @@ export class CashflowService {
     return MODES.includes(mode as CashflowMode) ? (mode as CashflowMode) : 'estatico';
   }
 
+  /** One-time repair for projects created before template inheritance existed. */
+  private async inheritMissingStructure(projectId: number, mode: CashflowMode, model: CashflowModelEntity | null) {
+    const sourceId = Number(process.env.CASHFLOW_TEMPLATE_PROJECT_ID?.trim() || '5');
+    if (projectId === sourceId || Number(model?.assumptions?.templateStructureVersion || 0) >= CASHFLOW_TEMPLATE_STRUCTURE_VERSION) return model;
+    return this.cashflowRepo.manager.transaction(async manager => {
+    await manager.query('SELECT pg_advisory_xact_lock(624159, $1::integer)', [projectId]);
+    const repo = manager.getRepository(CashflowModelEntity);
+    model = await repo.findOne({ where: { projectId, mode } });
+    if (Number(model?.assumptions?.templateStructureVersion || 0) >= CASHFLOW_TEMPLATE_STRUCTURE_VERSION) return model;
+    const sources = await repo.find({ where: { projectId: sourceId }, order: { id: 'DESC' } });
+    const primary = sources.find((item) => item.mode === 'estatico' && item.rows?.length)
+      || sources.find((item) => item.mode === 'dinamico' && item.rows?.length);
+    if (!primary) return model;
+    const structure = new Map(primary.rows.map((row) => [row.id, row]));
+    for (const source of sources.filter((item) => item.mode === 'dinamico')) {
+      for (const row of source.rows || []) if (!structure.has(row.id)) structure.set(row.id, row);
+    }
+    const template = blankCashflowTemplate({ ...primary, rows: [...structure.values()] });
+    const rows = [...(model?.rows || [])];
+    const existingIds = new Set(rows.map((row) => row.id));
+    for (const row of template.rows) if (!existingIds.has(row.id)) rows.push(row);
+    return repo.save(repo.create({
+      ...model,
+      projectId,
+      mode,
+      rows,
+      assumptions: { ...template.assumptions, ...model?.assumptions, templateStructureVersion: CASHFLOW_TEMPLATE_STRUCTURE_VERSION },
+    }));
+    });
+  }
+
   /**
    * Devuelve el modelo guardado de un proyecto en el modo indicado.
    * Si aun no existe devuelve null: el frontend decide como sembrarlo
@@ -32,9 +64,10 @@ export class CashflowService {
   async getModel(projectId: number, mode?: string) {
     if (!projectId) return null;
     const normalizedMode = this.normalizeMode(mode);
-    const model = await this.cashflowRepo.findOne({
+    const existing = await this.cashflowRepo.findOne({
       where: { projectId, mode: normalizedMode },
     });
+    const model = await this.inheritMissingStructure(projectId, normalizedMode, existing);
     if (!model) return null;
     if (normalizedMode !== 'dinamico') return model;
 
@@ -65,7 +98,11 @@ export class CashflowService {
     const payload = {
       projectId: dto.projectId,
       mode,
-      assumptions: dto.assumptions ?? null,
+      assumptions: {
+        ...dto.assumptions,
+        ...(existing?.assumptions?.templateStructureVersion !== undefined
+          ? { templateStructureVersion: existing.assumptions.templateStructureVersion } : {}),
+      },
       rows: Array.isArray(dto.rows) ? dto.rows : [],
       createdBy: existing?.createdBy ?? actorId,
     };

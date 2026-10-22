@@ -17,6 +17,12 @@ export class SessionLockGuard implements CanActivate {
     if (['GET', 'HEAD', 'OPTIONS'].includes(req.method) || path === '/auth/session-lock' || path === '/auth/login') return true;
     if (!req.headers.authorization) return true;
     if (path.startsWith('/auth/') || path.startsWith('/users')) return true;
+    // Editing project metadata or deleting from the list/history is outside its internal lock.
+    // Authentication and the controller's admin roles still protect this route.
+    if (req.method === 'POST' && (
+      /^\/projects\/(update|cover|logo|delete|restore|purge)\/\d+$/.test(path)
+      || /^\/projects\/status\/\d+\/(active|inactive)$/.test(path)
+    )) return true;
     const projects = new Set<number>();
     for (const value of [req.params?.projectId, req.body?.projectId, req.query?.projectId, req.headers['x-project-id']]) {
       if (Number.isSafeInteger(Number(value)) && Number(value) > 0) projects.add(Number(value));

@@ -738,6 +738,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             seedRows.forEach((item) => {
                 const saved = savedById.get(item.id);
                 if (saved?.label) item.label = String(saved.label);
+                if (saved?.parentId !== undefined) item.parentId = saved.parentId ? String(saved.parentId) : undefined;
+                if (saved?.depth !== undefined) item.depth = Number(saved.depth);
+                if (saved?.computed) item.computed = true;
             });
             const structuralWidth = seedRows[0]?.values?.length || YEAR_COUNT;
             for (const model of savedModels) {

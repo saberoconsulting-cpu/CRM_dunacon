@@ -14,6 +14,7 @@ import { ProjectDocumentEntity } from '../../../shared/infrastructure/entities/p
 import { UserProjectEntity } from '../../../shared/infrastructure/entities/user-project.entity';
 import { uploadProjectPhoto, deleteProjectPhoto, uploadToCloudinary } from '../../../shared/infrastructure/upload/cloudinary.util';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { initializeProjectCashflows } from './cashflow-template';
 
 @Injectable()
 export class ProjectsService {
@@ -76,9 +77,14 @@ export class ProjectsService {
       longitude: lng != null ? String(lng) : null,
       referencePrice: dto.referencePrice != null ? String(dto.referencePrice) : null,
     } as DeepPartial<ProjectEntity>);
-    const saved = await this.projectRepo.save(project);
-    await this.audit(actorId, 'CREAR_PROYECTO', 'projects', saved.id);
-    return saved;
+    return this.projectRepo.manager.transaction(async manager => {
+      const saved = await manager.getRepository(ProjectEntity).save(project);
+      await initializeProjectCashflows(manager, saved.id, actorId);
+      await manager.getRepository(AuditLogEntity).save({
+        userId: actorId, action: 'CREAR_PROYECTO', entity: 'projects', entityId: saved.id,
+      });
+      return saved;
+    });
   }
 
   async list(user?: { id: number; role: string }) {
