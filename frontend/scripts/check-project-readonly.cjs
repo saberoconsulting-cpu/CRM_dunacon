@@ -2,41 +2,37 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const ts = require('typescript');
-const code = ts.transpileModule(fs.readFileSync(path.join(__dirname, '../src/lib/project-readonly.ts'), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText;
-class Control {
-  constructor(disabled = false) { this.disabled = disabled; }
-}
-class Button extends Control {
-  constructor(label) { super(); this.textContent = label; this.type = 'button'; this.title = ''; }
+const vm = require('node:vm');
+class Button {
+  constructor({ managed = false, disabled = false, text = 'Nueva factura' } = {}) { this.managed = managed; this.disabled = disabled; this.textContent = text; this.title = ''; this.type = 'button'; }
+  closest(selector) { return selector.includes('data-project-lock-managed') && this.managed ? {} : null; }
   getAttribute() { return null; }
 }
-global.HTMLButtonElement = Button;
-let onMutation;
-let disconnected = false;
-global.MutationObserver = class {
-  constructor(callback) { onMutation = callback; }
+class Observer {
+  constructor(callback) { this.callback = callback; Observer.latest = this; }
   observe() {}
-  disconnect() { disconnected = true; }
-};
-const output = {};
-new Function('exports', code)(output);
-const input = new Control();
-const previouslyDisabled = new Control(true);
-const edit = new Button('Editar');
-const summary = new Button('Resúmenes');
-const controls = [input, previouslyDisabled, edit, summary];
-const unlock = output.lockProjectControls({ querySelectorAll: () => controls });
-assert.equal(input.disabled, true);
-assert.equal(edit.disabled, true);
-assert.equal(summary.disabled, false);
-const newInput = new Control();
-controls.push(newInput);
-onMutation();
-assert.equal(newInput.disabled, true);
-unlock();
-assert.equal(disconnected, true);
-assert.equal(input.disabled, false);
-assert.equal(edit.disabled, false);
-assert.equal(previouslyDisabled.disabled, true);
-assert.equal(newInput.disabled, false);
-console.log('PASS: fields and edit actions locked, summary available, new fields locked, original states restored.');
+  disconnect() {}
+}
+const source = fs.readFileSync(path.join(__dirname, '../src/lib/project-readonly.ts'), 'utf8');
+const context = { exports: {}, HTMLButtonElement: Button, MutationObserver: Observer };
+vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText, context);
+const { lockProjectControls } = context.exports;
+for (const text of ['Nueva factura', 'Nuevo movimiento', 'Importar Excel']) {
+  const button = new Button({ managed: true, disabled: true, text });
+  const cleanup = lockProjectControls({ querySelectorAll: () => [button] });
+  // React updates the controlled button on unlock before passive cleanup runs.
+  button.disabled = false;
+  cleanup();
+  assert.equal(button.disabled, false, `${text} debe permanecer habilitado al desbloquear`);
+  const relockCleanup = lockProjectControls({ querySelectorAll: () => [button] });
+  button.disabled = true;
+  Observer.latest.callback();
+  assert.equal(button.disabled, true, `${text} debe permanecer bloqueado al activar el candado`);
+  relockCleanup();
+}
+const legacyButton = new Button();
+const legacyCleanup = lockProjectControls({ querySelectorAll: () => [legacyButton] });
+assert.equal(legacyButton.disabled, true);
+legacyCleanup();
+assert.equal(legacyButton.disabled, false);
+console.log('Candado: Contabilidad conserva el estado de React al desbloquear y bloquear; protección de módulos existentes verificada.');

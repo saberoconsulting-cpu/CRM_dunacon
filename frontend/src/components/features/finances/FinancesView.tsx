@@ -1,4 +1,5 @@
 'use client';
+import ClassificationTable from './ClassificationTable';
 import { useEffect, useState, useCallback, type InputHTMLAttributes } from 'react';
 import { Toaster, toast, Field, Modal } from '@/components/ui/ui';
 import { api, getToken, isSessionLockError } from '@/lib/api';
@@ -462,7 +463,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
         if (!alive) return;
         let parsed: any = {};
         try { parsed = res?.value ? JSON.parse(res.value) : {}; } catch { parsed = {}; }
-        const rows = Array.isArray(parsed?.rows) && parsed.rows.length
+        const rows = Array.isArray(parsed?.rows)
           ? normalizeFinanceClassRows(parsed.rows)
           : defaultFinanceClassRows();
         setFinanceClassRows(rows);
@@ -1424,45 +1425,7 @@ export default function FinancesView({ lockedProjectId }: { lockedProjectId?: nu
           </div>
           <div className="overflow-auto p-3">
             {!financeClassLoaded ? <p className="p-4 text-slate-400">Cargando clasificacion...</p> : (
-              <table className="table-base table-head-plomo" style={{ width: 800, minWidth: 800 }}>
-                <thead>
-                  <tr>
-                    <th className="th-base">Codigo</th>
-                    <th className="th-base">Tipo</th>
-                    <th className="th-base">Categorias</th>
-                    <th className="th-base">Clasificación</th>
-                    <th className="th-base">Accion</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {financeClassRows.map((row, index) => (
-                    <tr key={row.key}>
-                      <td className="td-base w-[90px]">
-                        <input
-                          className={`input input-ghost !h-7 text-center font-bold uppercase ${row.code && row.code.length < 2 ? '!border-red-300 !text-red-600' : ''}`}
-                          value={row.code}
-                          maxLength={3}
-                          onChange={(e) => updateFinanceClassRow(row.key, { code: e.target.value })}
-                        />
-                      </td>
-                      <td className="td-base" style={{ background: row.movementType === 'Ingreso' ? '#EAF7EE' : row.movementType === 'Egreso' ? '#FFF7ED' : 'transparent' }}>
-                        <Select
-                          value={row.movementType}
-                          onChange={(v) => updateFinanceClassRow(row.key, { movementType: v })}
-                          options={[
-                            { value: 'Ingreso', label: 'Ingreso' },
-                            { value: 'Egreso', label: 'Egreso' }
-                          ]}
-                          className="input-ghost !h-7"
-                        />
-                      </td>
-                      <td className="td-base"><input className="input input-ghost !h-7" value={row.category || ''} onChange={(e) => updateFinanceClassRow(row.key, { category: e.target.value })} /></td>
-                      <td className="td-base" style={{ background: row.eerrClassification === 'Financiamiento' ? '#E0F2FE' : row.eerrClassification === 'Inversión/Construcción' ? '#ECFDF5' : row.eerrClassification === 'Operación (G&A, com, admin)' ? '#FEF3C7' : row.eerrClassification === 'Venta de Lote' ? '#FEE2E2' : 'transparent' }}><input className="input input-ghost !h-7" value={row.eerrClassification} onChange={(e) => updateFinanceClassRow(row.key, { eerrClassification: e.target.value })} /></td>
-                      <td className="td-base text-center"><div className="flex justify-center gap-1"><button className={rowIconButton} type="button" title="Editar" onClick={focusRowInput}><FiEdit3 size={13} /></button><button className={rowDangerButton} type="button" title="Eliminar" onClick={() => removeFinanceClassRow(row.key)}><FiTrash2 size={13} /></button></div></td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <ClassificationTable rows={financeClassRows} disabled={projectReadonly} onChange={updateFinanceClassRow} onDelete={removeFinanceClassRow} />
             )}
           </div>
         </div>

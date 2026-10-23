@@ -4,6 +4,9 @@ export function lockProjectControls(root: HTMLElement) {
   const writeAction = /\b(editar|agregar|añadir|anadir|nuevo|nueva|crear|guardar|eliminar|borrar|importar|subir|cargar archivo|registrar|aprobar|rechazar|restaurar|duplicar|confirmar|pagar|reservar|separar|vender|liberar|aplicar cambios)\b/i;
   const apply = () => {
     root.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLButtonElement>('input, textarea, select, button').forEach(control => {
+      // These components manage disabled state through ProjectReadonlyContext.
+      // Restoring DOM snapshots here can overwrite React's state on unlock.
+      if (control.closest('[data-project-lock-managed="true"]')) return;
       if (control instanceof HTMLButtonElement) {
         const label = [control.textContent, control.title, control.getAttribute('aria-label')].join(' ');
         if (control.type !== 'submit' && !writeAction.test(label)) return;

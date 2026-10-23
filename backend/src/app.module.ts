@@ -1,3 +1,4 @@
+import { AccountingModule } from './modules/accounting/accounting.module';
 // app.module.ts
 import { Module } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
@@ -52,6 +53,7 @@ import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module
 
 @Module({
   imports: [
+    AccountingModule,
     ConfigModule.forRoot({ isGlobal: true }),
     // Límite general por IP (protege toda la API); endpoints sensibles como
     // login usan @Throttle() con un límite más estricto encima de este.

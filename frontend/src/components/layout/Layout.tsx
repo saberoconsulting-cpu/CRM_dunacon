@@ -37,7 +37,7 @@ import { BRAND, User, UserRole } from '@/lib/types';
 import ProjectDocuments from '@/components/features/projects/ProjectDocuments';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
 import { lockProjectControls } from '@/lib/project-readonly';
-import { ProjectReadonlyContext } from '@/lib/project-readonly-context';
+import { ProjectEditAccessContext, ProjectReadonlyContext } from '@/lib/project-readonly-context';
 
 interface NavItem {
   href: string;
@@ -72,13 +72,14 @@ function projectNav(projectId: number): NavItem[] {
     { key: 'quotes', number: 4, href: `/projects/${projectId}/quotes`, label: 'Cotizaciones', icon: <FiFileText />, roles: ['superadmin', 'admin', 'agent'] },
     { key: 'sales', number: 5, href: `/projects/${projectId}/sales`, label: 'Ventas', icon: <FiTag />, roles: ['superadmin', 'admin', 'agent'] },
     { key: 'payments', number: 6, href: `/projects/${projectId}/payments`, label: 'Pagos de lotes', icon: <FiCreditCard />, roles: ['superadmin', 'admin', 'agent'] },
-    { key: 'finances', number: 7, href: `/projects/${projectId}/finances`, label: 'Finanzas', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
-    { key: 'campaigns', number: 8, href: `/projects/${projectId}/campaigns`, label: 'Campanas', icon: <FiVolume2 />, roles: ['superadmin', 'admin', 'agent'] },
-    { key: 'clients', number: 9, href: `/projects/${projectId}/clients`, label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
-    { key: 'banking', number: 10, href: `/projects/${projectId}/bank-accounts`, label: 'Cuentas y bancos', icon: <FiCreditCard />, roles: ['superadmin', 'admin'] },
-    { key: 'construction-budget', number: 11, href: `/projects/${projectId}/construction-budget`, label: 'Presupuesto de obra', icon: <FiLayers />, roles: ['superadmin', 'admin'] },
-    { key: 'income-statement', number: 12, href: `/projects/${projectId}/income-statement`, label: 'Estado de resultados', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
-    { key: 'cashflow', number: 13, href: `/projects/${projectId}/cashflow`, label: 'Flujo de caja', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
+    { key: 'accounting', number: 7, href: `/projects/${projectId}/accounting`, label: 'Contabilidad', icon: <FiFileText />, roles: ['superadmin', 'admin'] },
+    { key: 'finances', number: 8, href: `/projects/${projectId}/finances`, label: 'Finanzas', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
+    { key: 'campaigns', number: 9, href: `/projects/${projectId}/campaigns`, label: 'Campanas', icon: <FiVolume2 />, roles: ['superadmin', 'admin', 'agent'] },
+    { key: 'clients', number: 10, href: `/projects/${projectId}/clients`, label: 'Clientes y leads', icon: <FiUsers />, roles: ['superadmin', 'admin', 'agent'] },
+    { key: 'banking', number: 11, href: `/projects/${projectId}/bank-accounts`, label: 'Cuentas y bancos', icon: <FiCreditCard />, roles: ['superadmin', 'admin'] },
+    { key: 'construction-budget', number: 12, href: `/projects/${projectId}/construction-budget`, label: 'Presupuesto de obra', icon: <FiLayers />, roles: ['superadmin', 'admin'] },
+    { key: 'income-statement', number: 13, href: `/projects/${projectId}/income-statement`, label: 'Estado de resultados', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
+    { key: 'cashflow', number: 14, href: `/projects/${projectId}/cashflow`, label: 'Flujo de caja', icon: <FiPieChart />, roles: ['superadmin', 'admin'] },
   ];
 }
 
@@ -155,6 +156,17 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
     } finally {
       setLockBusy(false);
     }
+  }
+
+  async function enableProjectEditing() {
+    if (sessionLocked === false) return;
+    if (!activeProjectId || lockBusy) throw new Error('Espera a que termine de consultarse el candado.');
+    setLockBusy(true);
+    try {
+      const data = await api.post<{ locked: boolean }>('/auth/session-lock', { locked: false, projectId: activeProjectId });
+      if (data.locked) throw new Error('No se pudo habilitar la edición del proyecto.');
+      setSessionLocked(false); setLockError('');
+    } finally { setLockBusy(false); }
   }
 
   useEffect(() => {
@@ -734,7 +746,9 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
         </header>
         <main ref={projectContentRef} className={`flex-1 overflow-y-auto bg-canvas ${title === 'Modelo financiero' ? 'p-2 sm:p-3 md:p-4' : 'p-4 sm:p-5 md:p-6'}`}>
           {activeProjectId && lockError && <div role="alert" className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{lockError}</div>}
-          <ProjectReadonlyContext.Provider value={!!activeProjectId && sessionLocked !== false}>{children}</ProjectReadonlyContext.Provider>
+          <ProjectEditAccessContext.Provider value={{ enableEditing: enableProjectEditing, busy: lockBusy }}>
+            <ProjectReadonlyContext.Provider value={!!activeProjectId && sessionLocked !== false}>{children}</ProjectReadonlyContext.Provider>
+          </ProjectEditAccessContext.Provider>
         </main>
       </div>
       {projectDocumentsOpen && activeProjectId && (

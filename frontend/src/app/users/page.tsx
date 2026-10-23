@@ -34,6 +34,7 @@ const PROJECT_MODULES = [
   { key: 'quotes', label: 'Cotizaciones', roles: ['admin', 'agent'] },
   { key: 'sales', label: 'Ventas', roles: ['admin', 'agent'] },
   { key: 'payments', label: 'Pagos', roles: ['admin', 'agent'] },
+  { key: 'accounting', label: 'Contabilidad', roles: ['admin'] },
   { key: 'clients', label: 'Clientes y leads', roles: ['admin', 'agent'] },
   { key: 'finances', label: 'Finanzas', roles: ['admin'] },
   { key: 'campaigns', label: 'Campanas', roles: ['admin', 'agent'] },
