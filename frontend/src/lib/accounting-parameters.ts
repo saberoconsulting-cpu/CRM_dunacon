@@ -1,5 +1,6 @@
 export type AccountingParameters = {
   igvRate: number; deductionRate: number; deductionThreshold: number;
+  igvLabel?: string; deductionLabel?: string; thresholdLabel?: string;
 };
 export const DEFAULT_ACCOUNTING_PARAMETERS: AccountingParameters = { igvRate: 18, deductionRate: 12, deductionThreshold: 700 };
 export function calculateIgv(base: number, rate: number) { return Math.round(base * rate) / 100; }

@@ -17,6 +17,14 @@ assert.equal(invoice.base, 1000); assert.equal(invoice.igv, 180); assert.equal(i
 const usd = [...row]; usd[8] = 750; usd[11] = 200; usd[12] = 36;
 const usdParsed = readInvoiceExcel(file([headers, usd]), 'purchase')[0].input;
 assert.equal(usdParsed.currency, 'USD'); assert.equal(usdParsed.base, 200);
+assert.equal(usdParsed.exchangeRate, 3.75);
+assert.equal(validateInvoice(prepareInvoiceAmounts(usdParsed, DEFAULT_ACCOUNTING_PARAMETERS)).exchangeRate, 3.75);
+for (const exchangeRate of ['', undefined, 0, -1, 'incorrecto']) {
+  assert.throws(() => prepareInvoiceAmounts({ ...usdParsed, exchangeRate }, DEFAULT_ACCOUNTING_PARAMETERS), /tipo de cambio/);
+}
+const changedRate = validateInvoice(prepareInvoiceAmounts({ ...usdParsed, exchangeRate: 3.8 }, DEFAULT_ACCOUNTING_PARAMETERS));
+assert.equal(changedRate.exchangeRate, 3.8);
+assert.equal(changedRate.base * changedRate.exchangeRate, 760);
 assert.equal(prepareInvoiceAmounts(usdParsed, DEFAULT_ACCOUNTING_PARAMETERS).deduction, 106.2);
 const minimal = ['Tipo Documento', 'Fecha de emisión', 'Número de comprobante', 'RUC', 'Cliente', 'Base imponible', 'Moneda'];
 const sale = readInvoiceExcel(file([minimal, ['Nota de Credito', '2026-10-22', 'FC-1', '20123456789', 'Cliente', 100, 'S/']]), 'sale')[0].input;

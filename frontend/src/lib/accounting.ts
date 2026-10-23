@@ -10,7 +10,7 @@ export type AccountingInvoice = {
 };
 export function inAccountingYear(row: AccountingInvoice, year: string, currentYear: number) {
   const issuedYear = Number(row.issuedAt.slice(0, 4));
-  return year === 'all' || (year === 'recent' ? issuedYear >= currentYear - 4 && issuedYear <= currentYear : issuedYear === Number(year));
+  return year === 'all' || (year === 'recent' ? issuedYear >= currentYear - 7 && issuedYear <= currentYear : issuedYear === Number(year));
 }
 export function invoiceAmount(row: AccountingInvoice, field: 'base' | 'igv' | 'total', soles = false) {
   const value = field === 'total' ? row.base + row.igv : row[field];

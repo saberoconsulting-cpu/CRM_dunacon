@@ -2,7 +2,8 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { api, getToken, projectContextHeaders, uploadFile } from '@/lib/api';
-import { Modal } from '@/components/ui/ui';
+import { Modal, toast } from '@/components/ui/ui';
+import { Select } from '@/components/ui/Select';
 import type { CashMovement } from '@/lib/accounting-cash';
 import { CASH_DOCUMENT_TYPES } from '@/lib/accounting-cash';
 import styles from './accounting.module.css';
@@ -45,7 +46,7 @@ export default function CashEntry({ projectId, disabled, editing, onEditClose, o
     return () => { active = false; };
   }, [mode, projectId]);
   const movementType = Number(draft.deposit) > 0 ? 'Ingreso' : Number(draft.expense) > 0 ? 'Egreso' : '';
-  const categoryOptions = categories.filter(row => !movementType || row.movementType === movementType);
+  const categoryOptions = categories;
   useEffect(() => { if (editing) { setDraft(editing); setMode('manual'); setError(''); } }, [editing]);
   const close = () => { if (!busy) { setMode(null); onEditClose(); } };
   const open = (next: 'manual' | 'excel') => { setError(''); setDraft(blank()); setPreview([]); setMode(next); };
@@ -54,7 +55,7 @@ export default function CashEntry({ projectId, disabled, editing, onEditClose, o
     setError(''); setBusy(true);
     try {
       const rows = editing ? [await api.patch<CashMovement>(`/accounting/cash/${editing.id}`, { projectId, row: draft })] : await api.post<CashMovement[]>('/accounting/cash', { projectId, rows: mode === 'manual' ? [draft] : preview });
-      onSaved(rows); setMode(null); onEditClose();
+      onSaved(rows); toast(`${rows.length} movimientos guardados en el servidor.`); setMode(null); onEditClose();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar.'); }
     finally { setBusy(false); }
   };
@@ -74,7 +75,7 @@ export default function CashEntry({ projectId, disabled, editing, onEditClose, o
       <form onSubmit={save} className={styles.entry}>
         <EntryAccessNotice blockedReason={blockedReason} />
         {mode === 'manual' ? <><fieldset className={styles.formGrid} disabled={disabled || busy || categoriesLoading}>
-          {fields.map(field => <label key={field.key}>{field.label}{field.required ? ' *' : ''}{field.key === 'category' ? <select value={draft.categoryKey || categoryOptions.find(row => row.category === draft.category)?.key || ''} onChange={e => { const selected = categoryOptions.find(row => row.key === e.target.value); setDraft({ ...draft, categoryKey: selected?.key || '', category: selected?.category || '', classification: selected?.eerrClassification || '' }); }}><option value="">Selecciona...</option>{categoryOptions.map(row => <option key={row.key} value={row.key}>{row.category}</option>)}</select> : field.key === 'classification' ? <input readOnly value={draft.classification} placeholder="Segun la categoria" /> : field.key === 'documentType' ? <select required value={draft.documentType} onChange={e => setDraft({ ...draft, documentType: e.target.value })}>{!CASH_DOCUMENT_TYPES.some(value => value === draft.documentType) && <option value={draft.documentType}>{draft.documentType}</option>}{CASH_DOCUMENT_TYPES.map(value => <option key={value}>{value}</option>)}</select> : <input required={field.required} type={field.type || 'text'} value={draft[field.key]} min={field.type === 'number' ? '0' : field.type === 'date' ? '2000-01-01' : undefined} max={field.type === 'date' ? '2100-12-31' : undefined} step="0.01" maxLength={field.key === 'description' ? 1000 : 255} onChange={e => setDraft({ ...draft, [field.key]: field.type === 'number' ? e.target.value === '' ? '' : Number(e.target.value) : e.target.value })} />}</label>)}
+          {fields.map(field => <label key={field.key}>{field.key === 'documentNumber' ? `${field.label} · ${draft.documentType}` : field.label}{field.required ? ' *' : ''}{field.key === 'category' ? <Select searchable searchPlaceholder="Buscar categoría o código..." className={styles.categorySelect} disabled={disabled || busy || categoriesLoading || !!categoriesError} value={draft.categoryKey || categoryOptions.find(row => row.category === draft.category && (!movementType || row.movementType === movementType))?.key || ''} options={[{ value: '', label: 'Selecciona...' }, ...categoryOptions.map(row => ({ value: row.key, label: row.category || '', hint: `${row.code} · ${row.movementType}` }))]} onChange={value => { const selected = categoryOptions.find(row => row.key === value); setDraft({ ...draft, categoryKey: selected?.key || '', category: selected?.category || '', classification: selected?.eerrClassification || '' }); }} /> : field.key === 'classification' ? <input readOnly value={draft.classification} placeholder="Segun la categoria" /> : field.key === 'documentType' ? <select required value={draft.documentType} onChange={e => setDraft({ ...draft, documentType: e.target.value })}>{!CASH_DOCUMENT_TYPES.some(value => value === draft.documentType) && <option value={draft.documentType}>{draft.documentType}</option>}{CASH_DOCUMENT_TYPES.map(value => <option key={value}>{value}</option>)}</select> : <input required={field.required} type={field.type || 'text'} value={draft[field.key]} min={field.type === 'number' ? '0' : field.type === 'date' ? '2000-01-01' : undefined} max={field.type === 'date' ? '2100-12-31' : undefined} step="0.01" maxLength={field.key === 'description' ? 1000 : 255} onChange={e => setDraft({ ...draft, [field.key]: field.type === 'number' ? e.target.value === '' ? '' : Number(e.target.value) : e.target.value })} />}</label>)}
           <label>Mes<input readOnly value={draft.date.slice(0, 7)} /></label>
         </fieldset>{categoriesError && <p className={styles.error} role="alert">{categoriesError}</p>}<p>Registra un abono o un gasto por movimiento. El saldo se calcula automáticamente.</p></> : <>
           <label className={styles.fileLabel}>Subir archivo Excel<input key={fileKey} type="file" accept=".xlsx,.xls" disabled={busy || disabled} onChange={async e => {
@@ -86,7 +87,7 @@ export default function CashEntry({ projectId, disabled, editing, onEditClose, o
             finally { setBusy(false); setFileKey(n => n + 1); }
           }} /></label>
           <button type="button" className={styles.templateLink} disabled={busy} onClick={template}>Plantilla Excel</button>
-          {!!preview.length && <><p>{preview.length} movimientos listos para importar.</p><div className={styles.preview}><table><thead><tr>{fields.map(f => <th key={f.key}>{f.label}</th>)}</tr></thead><tbody>{preview.map((row, index) => <tr key={index}>{fields.map(f => <td key={f.key}>{row[f.key]}</td>)}</tr>)}</tbody></table></div></>}
+          {!!preview.length && <><p>{preview.length} movimientos listos para importar. Vista previa sin guardar: pulsa Guardar importación para registrarlos.</p><div className={styles.preview}><table><thead><tr>{fields.map(f => <th key={f.key}>{f.label}</th>)}</tr></thead><tbody>{preview.map((row, index) => <tr key={index}>{fields.map(f => <td key={f.key}>{row[f.key]}</td>)}</tr>)}</tbody></table></div></>}
         </>}
         {error && <p role="alert" className={styles.error}>{error}</p>}
         <div className={styles.actions}><button type="button" className="btn-neutral" disabled={busy} onClick={close}>Cancelar</button><button type="submit" className="btn-primary" disabled={busy || disabled || (mode === 'manual' && (categoriesLoading || !!categoriesError)) || (mode === 'excel' && !preview.length)}>{busy ? 'Procesando…' : editing ? 'Guardar cambios' : mode === 'excel' ? 'Guardar importación' : 'Guardar movimiento'}</button></div>

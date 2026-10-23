@@ -11,18 +11,25 @@ export function Select({
   options,
   className = '',
   disabled = false,
+  searchable = false,
+  searchPlaceholder = 'Buscar…',
 }: {
   value: string | number;
   onChange: (value: string) => void;
   options: SelectOption[];
   className?: string;
   disabled?: boolean;
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
   const [mounted, setMounted] = useState(false);
   const [menuStyle, setMenuStyle] = useState<CSSProperties | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const current = options.find((o) => String(o.value) === String(value));
+  const normalize = (text: string) => text.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
+  const filteredOptions = searchable && search.trim() ? options.filter(option => normalize(`${option.label} ${option.hint || ''}`).includes(normalize(search))) : options;
 
   // El menu se pinta en un portal a document.body. Motivo: este componente se usa
   // dentro de modales cuyo contenedor tiene `transform` (ej. LotDetailModal usa
@@ -70,7 +77,7 @@ export function Select({
 
   // Al cerrar se limpia la medida para que la proxima apertura vuelva a medir.
   useEffect(() => {
-    if (!open) setMenuStyle(null);
+    if (!open) { setMenuStyle(null); setSearch(''); }
   }, [open]);
 
   return (
@@ -96,7 +103,11 @@ export function Select({
             className="overflow-auto rounded-xl border border-[#D1D5DB] bg-white py-1 shadow-xl"
             style={{ ...menuStyle, zIndex: 30010 }}
           >
-            {options.map((o) => (
+            {searchable && <div className="sticky top-0 z-10 bg-white px-2 pb-2 pt-1"><input autoFocus type="search" aria-label={searchPlaceholder} placeholder={searchPlaceholder} value={search} onChange={e => setSearch(e.target.value)} className="h-9 w-full rounded-md border border-slate-200 bg-white px-2 text-sm outline-none focus:border-blue-300" onKeyDown={e => {
+              if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
+              if (e.key === 'Enter') { e.preventDefault(); if (filteredOptions[0]) { onChange(String(filteredOptions[0].value)); setOpen(false); } }
+            }} /></div>}
+            {filteredOptions.map((o) => (
               <button
                 key={String(o.value)}
                 type="button"
@@ -113,6 +124,7 @@ export function Select({
                 )}
               </button>
             ))}
+            {!filteredOptions.length && <p className="px-3 py-2 text-xs text-slate-500">Sin coincidencias.</p>}
           </div>
         </>,
         document.body,

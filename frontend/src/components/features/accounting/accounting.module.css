@@ -18,14 +18,27 @@
 .filters input[type='number'] { width: 65px; }
 .filters button { height: 29px; padding: 0 9px; border: 1px solid #cbd5e1; border-radius: 3px; }
 .register { overflow-x: auto; background: white; border-radius: 8px; border: 1px solid #d5dbe3; }
+.sheet .register table { table-layout: auto; width: max-content; min-width: 100%; }
+.sheet .register th, .sheet .register td { white-space: nowrap; overflow-wrap: normal; padding: 8px 10px; }
+.sheet .register td.empty { white-space: normal; }
+.sheet .invoiceRegister table { width: 100%; }
+.sheet .invoiceRegister th, .sheet .invoiceRegister td { padding: 7px 6px; }
+.sheet .invoiceRegister .expandedAmount { min-width: 96px; width: 96px; padding-left: 8px; padding-right: 8px; }
+.sheet .invoiceRegister .dateColumn { min-width: 110px; width: 110px; padding-left: 12px; padding-right: 12px; }
+.baseEditor > div { display: flex; align-items: center; gap: 3px; }
+.baseEditor input { width: 100%; min-width: 74px; padding: 3px 2px; border: 1px solid transparent; border-radius: 4px; background: transparent; text-align: right; font: inherit; appearance: textfield; }
+.baseEditor input::-webkit-inner-spin-button, .baseEditor input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.baseEditor input:hover:not(:disabled), .baseEditor input:focus { border-color: #b5d5fa; background: #f8fafc; }
+.baseEditor > span { display: block; max-width: 180px; white-space: normal; color: #b42318; font-size: 10px; }
+.sheet .invoiceRegister .partyCell { min-width: 120px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .sheet table { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: 10px; background: white; }
 .sheet th, .sheet td { border: 1px solid #d5dbe3; padding: 4px 3px; overflow-wrap: anywhere; vertical-align: middle; font-variant-numeric: tabular-nums; }
 .sheet th { background: #52728f; color: white; font-weight: 500; text-align: center; }
 .register thead { position: sticky; top: 0; z-index: 1; }
 .register th:nth-child(1) { width: 28px; }
-.register th:nth-child(8) { width: 13%; }
+.register .partyCell { min-width: 180px; text-align: left; }
 .register td { text-align: right; }
-.register td:nth-child(-n+8) { text-align: left; }
+.register td:nth-child(-n+7) { text-align: left; }
 .sheet th.pen { background: #8f9eae; color: #102e4d; }
 .sheet th.usd { background: #3e7e20; }
 .sheet th button { width: 100%; font: inherit; font-weight: 600; padding: 3px 0; }
@@ -68,9 +81,26 @@
 .formGrid label, .fileLabel { display: grid; gap: 5px; color: #475569; font-size: 12px; }
 .formGrid input, .formGrid select { border: 1px solid #d5dbe3; border-radius: 6px; width: 100%; height: 36px; padding: 6px 8px; background: white; }
 .formGrid input:read-only { background: #f1f5f9; }
+.categorySelect :global(.select-trigger) { height: 36px; border-color: #d5dbe3; border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: none !important; }
+.deductionField { display: grid; align-content: start; gap: 5px; color: #475569; font-size: 12px; }
+.deductionField button { width: 100%; height: 36px; padding: 6px 8px; border: 1px solid #d5dbe3; border-radius: 6px; background: white; color: #475569; font: inherit; font-weight: 400; text-align: left; box-shadow: none; transition: background-color .15s, border-color .15s; }
+.deductionField button:hover:not(:disabled) { border-color: #b8c7da; background: #f8fafc; }
+.deductionField button[aria-pressed='true'] { border-color: #b5d5fa; background: #f1f6fd; color: #164c8b; }
 .preview { overflow: auto; max-height: 260px; border-radius: 8px; border: 1px solid #d5dbe3; }
 .preview table { min-width: 600px; }
 .error { color: #b42318; background: #fff1f2; border: 1px solid #fecdd3; padding: 10px; border-radius: 8px; }
+.classificationTable { max-width: calc(100vw - 3rem); }
+.classificationTable fieldset { min-width: 0; }
+.classificationTable table { width: 880px !important; min-width: 880px !important; table-layout: fixed !important; }
+.classificationTable th, .classificationTable td { padding: 8px 10px; border: 1px solid #dbe3ec; }
+.classificationTable th:nth-child(1), .classificationTable td:nth-child(1) { width: 90px; }
+.classificationTable th:nth-child(2), .classificationTable td:nth-child(2) { width: 130px; }
+.classificationTable th:nth-child(3), .classificationTable td:nth-child(3) { width: 260px; }
+.classificationTable th:nth-child(4), .classificationTable td:nth-child(4) { width: 300px; }
+.classificationTable th:nth-child(5), .classificationTable td:nth-child(5) { width: 100px; }
+.classificationTable td input { width: 100%; min-width: 0; height: 36px !important; padding: 6px 8px; font-size: 13px; }
+.classificationTable td > div { height: auto !important; }
+.classificationTable td :global(.select-trigger) { height: 36px; font-size: 13px; }
 .rowActions { display: flex; justify-content: center; gap: 3px; }
 .rowActions button { display: grid; place-items: center; width: 23px; height: 25px; border: 1px solid #d5dbe3; border-radius: 5px; color: #52728f; background: white; flex-shrink: 0; }
 .rowActions button:last-child { color: #b42318; }
@@ -100,6 +130,10 @@
 .openingForm button:hover:not(:disabled) { background: #f1f6fc; border-color: #b8c7da; transform: none; }
 .openingForm button[aria-expanded='true'] { background: #edf4fc; border-color: #b8c7da; color: #153e78; }
 .cashRegister th:nth-child(5) { width: 14%; }
+.sheet .cashRegister .documentTypeColumn { width: 105px; min-width: 105px; max-width: 105px; overflow: hidden; text-overflow: ellipsis; }
+.documentTypeSelect { width: 100%; min-width: 0; height: 28px; border: 1px solid transparent; border-radius: 4px; padding: 3px 2px; background: transparent; color: inherit; font: inherit; text-overflow: ellipsis; appearance: none; cursor: pointer; transition: border-color .15s, background-color .15s; }
+.documentTypeSelect:hover:not(:disabled), .documentTypeSelect:focus { border-color: #b5d5fa; background: #f8fafc; }
+.documentTypeSelect:disabled { opacity: .6; }
 .cashRegister td.balance { background: #edf4fc; font-weight: 600; text-align: right; }
 @media (max-width: 767px) { .cashSummary { grid-template-columns: 1fr; row-gap: 18px; } .cashSummary > section { grid-template-rows: auto auto; grid-row: auto; gap: 10px; } .cashSummary > .cashDocumentSummary { width: 100%; grid-column: 1; grid-row: auto; grid-template-rows: auto auto; } }
 @media (max-width: 600px) { .formGrid { grid-template-columns: 1fr; } }

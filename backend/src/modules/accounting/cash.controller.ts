@@ -12,6 +12,7 @@ import { CurrentUser } from '../../shared/application/decorators/current-user.de
 import { UserRole } from '../../shared/domain/enums';
 import { assertAccountingAccess } from './accounting-access';
 import { applyCashClassification, loadCashClassifications, validateClassifications } from './cash-classification';
+import { readCashExcel } from './cash-excel';
 
 export const CASH_COLUMNS = { date: 'Fecha', paidTo: 'Pagado a', description: 'Descripción', documentType: 'Tipo Documento', documentNumber: 'Nro. Documento', responsible: 'Responsable', deposit: 'Abono S/', expense: 'Gasto S/', category: 'Categoría', classification: 'Clasificación' };
 export const CASH_DOCUMENT_TYPES = ['Transf. Bancaria', 'Recibo / boleta / ticket', 'Factura', 'Taxis - Planilla Mov', 'Sin Comprobante'];
@@ -33,7 +34,7 @@ export function validateCash(input: any) {
   const raw = input.date;
   let value = raw instanceof Date ? raw.toISOString().slice(0, 10) : String(raw ?? '').trim();
   if (typeof raw === 'number') { const d = XLSX.SSF.parse_date_code(raw); value = d ? `${d.y}-${String(d.m).padStart(2, '0')}-${String(d.d).padStart(2, '0')}` : ''; }
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(value)) value = value.split('/').reverse().join('-');
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value)) value = value.split('/').reverse().map(part => part.padStart(2, '0')).join('-');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value || Number(value.slice(0, 4)) < 2000 || Number(value.slice(0, 4)) > 2100) throw new BadRequestException('Ingresa una fecha válida entre 2000 y 2100.');
   row.date = value;
   for (const key of ['deposit', 'expense']) {
@@ -93,13 +94,9 @@ export class CashController {
     const categories = await loadCashClassifications(this.db, Number(projectId));
     if (!file || !/\.xlsx?$/i.test(file.originalname)) throw new BadRequestException('Selecciona un archivo .xlsx o .xls.');
     try {
-      const book = XLSX.read(file.buffer, { type: 'buffer', cellDates: true });
-      const rows = XLSX.utils.sheet_to_json<Record<string, any>>(book.Sheets[book.SheetNames[0]], { defval: '' });
-      if (!rows.length || rows.length > 2000) throw new BadRequestException('El archivo debe contener entre 1 y 2000 movimientos.');
-      if (!Object.values(CASH_COLUMNS).every(h => Object.keys(rows[0]).includes(h))) throw new BadRequestException('Usa los encabezados de la plantilla de Caja Chica.');
-      return rows.map((row, i) => {
-        try { const input = Object.fromEntries(Object.entries(CASH_COLUMNS).map(([key, label]) => [key, row[label]])); return applyCashClassification(validateCash(input), input, categories); }
-        catch (e) { throw new BadRequestException(`Fila ${i + 2}: ${e.message}`); }
+      return readCashExcel(file.buffer).map(({ input, rowNumber }) => {
+        try { return applyCashClassification(validateCash(input), input, categories); }
+        catch (e) { throw new BadRequestException(`Fila ${rowNumber}: ${e.message}`); }
       });
     } catch (e) { if (e instanceof BadRequestException) throw e; throw new BadRequestException('No se pudo leer el archivo Excel.'); }
   }

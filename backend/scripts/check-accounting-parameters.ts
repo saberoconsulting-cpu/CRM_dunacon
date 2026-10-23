@@ -7,7 +7,8 @@ async function main() {
   assert.equal('cashPayments' in defaults, false);
   assert.equal('cashDeposits' in defaults, false);
   assert.deepEqual(validateAccountingParameters(defaults), defaults);
-  for (const change of [{ igvRate: -1 }, { deductionRate: 101 }, { deductionThreshold: 0 }]) assert.throws(() => validateAccountingParameters({ ...defaults, ...change }));
+  for (const change of [{ igvRate: -1 }, { deductionRate: 101 }, { deductionThreshold: -1 }, { igvLabel: ' ' }]) assert.throws(() => validateAccountingParameters({ ...defaults, ...change }));
+  assert.equal(validateAccountingParameters({ ...defaults, deductionThreshold: 0 }).deductionThreshold, 0);
   const calculated = prepareInvoiceAmounts({ base: 1000, currency: 'PEN', igv: '', deduction: '' }, defaults);
   assert.equal(calculated.igv, 180);
   assert.equal(calculated.deduction, 141.6);
@@ -17,8 +18,8 @@ async function main() {
   const manual = prepareInvoiceAmounts({ base: 1000, igv: 0, deduction: 0, currency: 'PEN' }, defaults);
   assert.equal(manual.igv, 0); assert.equal(manual.deduction, 0);
   const changed = { ...defaults, igvRate: 10, deductionRate: 5 };
-  assert.equal(prepareInvoiceAmounts({ base: 1000, currency: 'PEN' }, changed).deduction, 141.6);
-  assert.throws(() => validateAccountingParameters(changed));
+  assert.equal(prepareInvoiceAmounts({ base: 1000, currency: 'PEN' }, changed).deduction, 55);
+  assert.deepEqual(validateAccountingParameters(changed), changed);
   const queries: { sql: string; params: any[] }[] = [];
   const db = { query: async (sql: string, params: any[]) => {
     queries.push({ sql, params });
@@ -27,13 +28,13 @@ async function main() {
     return [];
   } };
   const controller = new AccountingController(db as any);
-  assert.equal((await controller.parameters('5', { role: 'superadmin' })).igvRate, 18);
+  assert.equal((await controller.parameters('5', { role: 'superadmin' })).igvRate, 10);
   assert.equal('salesReceipts' in await controller.parameters('5', { role: 'superadmin' }), false);
   assert.equal('cashPayments' in await controller.parameters('5', { role: 'superadmin' }), false);
   await controller.saveParameters({ projectId: 5, parameters: { ...defaults, salesReceipts: 50000 } }, { role: 'superadmin' });
   assert.equal(queries.find(q => q.sql.startsWith('INSERT'))?.params[0], 'accounting_parameters_5');
   assert.deepEqual(await loadAccountingParameters({ query: async () => [] } as any, 5), defaults);
   await assert.rejects(() => controller.parameters('5', { role: 'admin', id: 100 }));
-  console.log('Parámetros: solo tasas fijas; importes de ejemplo y valores manuales antiguos descartados.');
+  console.log('Parámetros: tasas y textos editables, persistencia por proyecto y cálculos verificados.');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

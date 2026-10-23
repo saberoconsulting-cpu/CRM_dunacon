@@ -2,15 +2,15 @@
 
 import { FormEvent, useEffect, useState } from 'react';
 import { api, getToken, projectContextHeaders, uploadFile } from '@/lib/api';
-import { Modal } from '@/components/ui/ui';
+import { Modal, toast } from '@/components/ui/ui';
 import type { AccountingInvoice, InvoiceKind } from '@/lib/accounting';
 import styles from './accounting.module.css';
 import EntryAccessNotice from './EntryAccessNotice';
 import { FiPlus, FiUpload } from 'react-icons/fi';
-import { AccountingParameters, calculateDeduction, calculateIgv } from '@/lib/accounting-parameters';
+import { AccountingParameters, calculateIgv, extractIgv } from '@/lib/accounting-parameters';
 
 type Draft = Omit<AccountingInvoice, 'id' | 'kind' | 'exchangeRate'> & { exchangeRate: number | string };
-const blank = (): Draft => ({ documentType: 'Factura', issuedAt: '', dueAt: '', number: '', ruc: '', supplier: '', currency: 'PEN', base: 0, igv: 0, deduction: 0, deductionNumber: '', deductionDate: '', exchangeRate: 1, validated: false, creditReference: '' });
+const blank = (): Draft => ({ documentType: 'Factura', issuedAt: '', dueAt: '', number: '', ruc: '', supplier: '', currency: 'PEN', base: 0, igv: 0, deduction: 0, deductionNumber: '', deductionDate: '', exchangeRate: '', validated: false, creditReference: '' });
 const fields: { key: keyof Draft; label: string; type?: string; required?: boolean }[] = [
   { key: 'issuedAt', label: 'Fecha de emisión', type: 'date', required: true },
   { key: 'dueAt', label: 'Fecha de vencimiento', type: 'date' },
@@ -19,7 +19,7 @@ const fields: { key: keyof Draft; label: string; type?: string; required?: boole
   { key: 'supplier', label: 'Proveedor', required: true },
   { key: 'base', label: 'Base imponible', type: 'number', required: true },
   { key: 'igv', label: 'IGV', type: 'number', required: true },
-  { key: 'deduction', label: 'Detracción S/', type: 'number' },
+  { key: 'deduction', label: 'Detracción S/ (importe calculado)', type: 'number' },
   { key: 'deductionNumber', label: 'N.º de detracción' },
   { key: 'deductionDate', label: 'Fecha de detracción', type: 'date' },
   { key: 'exchangeRate', label: 'Tipo de cambio del día', type: 'number', required: true },
@@ -32,26 +32,40 @@ export default function InvoiceEntry({ projectId, kind, disabled, onSaved, editi
   const register = sale ? 'venta' : 'compra';
   const [mode, setMode] = useState<'manual' | 'excel' | null>(null);
   const [draft, setDraft] = useState<Draft>(blank);
+  const [igvMode, setIgvMode] = useState<'apply' | 'included'>('apply');
+  const [includedAmount, setIncludedAmount] = useState<number | string>('');
+  const [includeDeduction, setIncludeDeduction] = useState(false);
   const [preview, setPreview] = useState<Draft[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [fileKey, setFileKey] = useState(0);
+  const updateIncludedAmount = (value: number | string) => {
+    setIncludedAmount(value);
+    const total = Math.round(Number(value) * 100) / 100;
+    const igv = extractIgv(total, parameters.igvRate);
+    setDraft(current => ({ ...current, base: Math.round((total - igv) * 100) / 100, igv }));
+  };
+  const changeIgvMode = (value: 'apply' | 'included') => {
+    setIgvMode(value);
+    if (value === 'included') updateIncludedAmount(Math.round((Number(draft.base) + Number(draft.igv)) * 100) / 100);
+    else setDraft(current => ({ ...current, igv: calculateIgv(Number(current.base), parameters.igvRate) }));
+  };
   const updateDraft = (key: keyof Draft, value: string | number) => setDraft(current => {
     const next = { ...current, [key]: value };
-    if (key === 'currency' && value !== current.currency) next.exchangeRate = value === 'USD' ? '' : 1;
+    if (key === 'currency' && value !== current.currency) next.exchangeRate = '';
     if (key === 'base') next.igv = calculateIgv(Number(value), parameters.igvRate);
-    if (['base', 'igv', 'currency', 'exchangeRate'].includes(key)) next.deduction = calculateDeduction(Number(next.base) + Number(next.igv), next.currency, Number(next.exchangeRate), parameters);
     return next;
   });
-  useEffect(() => { if (editing) { setDraft(editing); setMode('manual'); setError(''); } }, [editing]);
+  useEffect(() => { if (editing) { setDraft(editing); setIncludeDeduction(Boolean(editing.deduction || editing.deductionNumber || editing.deductionDate)); setIgvMode('apply'); setIncludedAmount(''); setMode('manual'); setError(''); } }, [editing]);
   const close = () => { if (!busy) { setMode(null); onEditClose(); } };
-  const open = (next: 'manual' | 'excel') => { setError(''); setDraft(blank()); setPreview([]); setMode(next); };
+  const open = (next: 'manual' | 'excel') => { setError(''); setDraft(blank()); setIncludeDeduction(false); setIgvMode('apply'); setIncludedAmount(''); setPreview([]); setMode(next); };
   const save = async (event: FormEvent) => {
     event.preventDefault(); if (disabled || busy) return;
     setError(''); setBusy(true);
     try {
-      const rows = editing ? [await api.patch<AccountingInvoice>(`/accounting/${editing.id}`, { projectId, row: draft })] : await api.post<AccountingInvoice[]>('/accounting', { projectId, kind, rows: mode === 'manual' ? [draft] : preview });
-      onSaved(rows); setMode(null); onEditClose();
+      const manualRow = { ...draft, exchangeRate: draft.currency === 'USD' ? draft.exchangeRate : 1, deduction: includeDeduction ? Number(draft.deduction || 0) : 0, deductionNumber: includeDeduction ? draft.deductionNumber : '', deductionDate: includeDeduction ? draft.deductionDate : '' };
+      const rows = editing ? [await api.patch<AccountingInvoice>(`/accounting/${editing.id}`, { projectId, row: manualRow })] : await api.post<AccountingInvoice[]>('/accounting', { projectId, kind, rows: mode === 'manual' ? [manualRow] : preview });
+      onSaved(rows); toast(`${rows.length} facturas guardadas en el servidor.`); setMode(null); onEditClose();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar.'); }
     finally { setBusy(false); }
   };
@@ -73,7 +87,11 @@ export default function InvoiceEntry({ projectId, kind, disabled, onSaved, editi
         {mode === 'manual' ? <fieldset className={styles.formGrid} disabled={disabled || busy}>
           <label>Tipo de documento<select value={draft.documentType} onChange={e => setDraft({ ...draft, documentType: e.target.value })}>{['Factura', 'Boleta', 'Nota de crédito', 'Nota de débito', 'Recibo por honorarios'].map(v => <option key={v}>{v}</option>)}</select></label>
           <label>Moneda<select value={draft.currency} onChange={e => updateDraft('currency', e.target.value)}><option value="PEN">Soles S/</option><option value="USD">Dólares US$</option></select></label>
-          {fields.map(field => <label key={field.key}>{field.key === 'supplier' ? party : field.key === 'ruc' ? `RUC del ${party.toLowerCase()}` : field.label}{field.required ? ' *' : ''}<input required={field.required} type={field.type || 'text'} value={String(draft[field.key])} min={field.key === 'exchangeRate' ? '0.0001' : field.type === 'number' ? '0' : field.key === 'dueAt' ? draft.issuedAt : undefined} step={field.key === 'exchangeRate' ? '0.0001' : '0.01'} maxLength={field.key === 'ruc' ? 11 : 255} pattern={field.key === 'ruc' ? '[0-9]{11}' : undefined} onChange={e => updateDraft(field.key, field.type === 'number' ? e.target.value === '' ? '' : Number(e.target.value) : e.target.value)} /></label>)}
+          <label>Cálculo del IGV ({parameters.igvRate}%)<select value={igvMode} onChange={e => changeIgvMode(e.target.value as 'apply' | 'included')}><option value="apply">Aplicar IGV</option><option value="included">Incluye IGV</option></select></label>
+          <div className={styles.deductionField}><span>Detracción</span><button type="button" aria-pressed={includeDeduction} onClick={() => setIncludeDeduction(value => !value)}>Incluir detracción {includeDeduction ? '−' : '+'}</button></div>
+          {igvMode === 'included' && <label>Monto total (incluye IGV) {draft.currency === 'PEN' ? 'S/' : 'US$'} *<input type="number" required min="0" step="0.01" value={includedAmount} onChange={e => updateIncludedAmount(e.target.value === '' ? '' : Number(e.target.value))} /></label>}
+          {fields.filter(field => (field.key !== 'exchangeRate' || draft.currency === 'USD') && (!['deduction', 'deductionNumber', 'deductionDate'].includes(field.key) || includeDeduction)).map(field => <label key={field.key}>{field.key === 'supplier' ? party : field.key === 'ruc' ? `RUC del ${party.toLowerCase()}` : field.label}{(field.key === 'exchangeRate' ? draft.currency === 'USD' : field.required) ? ' *' : ''}<input readOnly={igvMode === 'included' && (field.key === 'base' || field.key === 'igv')} required={field.key === 'exchangeRate' ? draft.currency === 'USD' : field.required} type={field.type || 'text'} value={String(draft[field.key])} placeholder={field.key === 'exchangeRate' ? 'Ej. 3.7500' : undefined} min={field.key === 'exchangeRate' ? '0.0001' : field.type === 'number' ? '0' : field.key === 'dueAt' ? draft.issuedAt : undefined} step={field.key === 'exchangeRate' ? '0.0001' : '0.01'} maxLength={field.key === 'ruc' ? 11 : 255} pattern={field.key === 'ruc' ? '[0-9]{11}' : undefined} onChange={e => updateDraft(field.key, field.type === 'number' ? e.target.value === '' ? '' : Number(e.target.value) : e.target.value)} /></label>)}
+          {draft.currency === 'USD' && <label>Total convertido a soles S/<input readOnly value={Number(draft.exchangeRate) > 0 ? ((Number(draft.base) + Number(draft.igv)) * Number(draft.exchangeRate)).toFixed(2) : ''} placeholder="Ingresa el tipo de cambio" /></label>}
           <label>Mes<input readOnly value={draft.issuedAt ? draft.issuedAt.slice(0, 7) : ''} /></label>
           <label>Total {draft.currency === 'PEN' ? 'S/' : 'US$'}<input readOnly value={(Number(draft.base) + Number(draft.igv)).toFixed(2)} /></label>
           {!sale && <label>Validada<select value={draft.validated ? 'SI' : 'NO'} onChange={e => setDraft({ ...draft, validated: e.target.value === 'SI' })}><option value="NO">NO</option><option value="SI">SÍ</option></select></label>}
@@ -87,7 +105,7 @@ export default function InvoiceEntry({ projectId, kind, disabled, onSaved, editi
             finally { setBusy(false); setFileKey(n => n + 1); }
           }} /></label>
           <button type="button" className={styles.templateLink} disabled={busy} onClick={template}>Plantilla Excel</button>
-          {!!preview.length && <><p>{preview.length} facturas de {register} listas para importar. Revisa los datos antes de guardar.</p><div className={styles.preview}><table><thead><tr><th>Comprobante</th><th>{party}</th><th>Fecha</th><th>Moneda</th><th>Base</th><th>IGV</th>{!sale && <th>Validada</th>}</tr></thead><tbody>{preview.map((r, i) => <tr key={i}><td>{r.number}</td><td>{r.supplier}</td><td>{r.issuedAt}</td><td>{r.currency}</td><td>{r.base}</td><td>{r.igv}</td>{!sale && <td>{r.validated ? 'SÍ' : 'NO'}</td>}</tr>)}</tbody></table></div></>}
+          {!!preview.length && <><p>{preview.length} facturas de {register} listas para importar. Vista previa sin guardar: pulsa Guardar importación para registrarlas.</p><div className={styles.preview}><table><thead><tr><th>Comprobante</th><th>{party}</th><th>Fecha</th><th>Moneda</th><th>Base</th><th>IGV</th><th>Tipo de cambio del día</th><th>Total S/</th>{!sale && <th>Validada</th>}</tr></thead><tbody>{preview.map((r, i) => <tr key={i}><td>{r.number}</td><td>{r.supplier}</td><td>{r.issuedAt}</td><td>{r.currency}</td><td>{r.base}</td><td>{r.igv}</td><td>{r.currency === 'USD' ? r.exchangeRate : 'No aplica'}</td><td>{((Number(r.base) + Number(r.igv)) * (r.currency === 'USD' ? Number(r.exchangeRate) : 1)).toFixed(2)}</td>{!sale && <td>{r.validated ? 'SÍ' : 'NO'}</td>}</tr>)}</tbody></table></div></>}
         </>}
         {error && <p role="alert" className={styles.error}>{error}</p>}
         <div className={styles.actions}><button type="button" className="btn-neutral" disabled={busy} onClick={close}>Cancelar</button><button type="submit" className="btn-primary" disabled={busy || disabled || (mode === 'excel' && !preview.length)}>{busy ? 'Procesando…' : editing ? 'Guardar cambios' : mode === 'excel' ? 'Guardar importación' : 'Guardar factura'}</button></div>
