@@ -7,6 +7,7 @@ import { Select } from '@/components/ui/Select';
 import type { CashMovement } from '@/lib/accounting-cash';
 import { CASH_DOCUMENT_TYPES } from '@/lib/accounting-cash';
 import styles from './accounting.module.css';
+import AttachmentField, { saveAttachments, attachmentPath } from './AttachmentField';
 import EntryAccessNotice from './EntryAccessNotice';
 import { FiPlus, FiUpload } from 'react-icons/fi';
 import type { CashClassificationRow } from './CashClassificationPanel';
@@ -33,6 +34,7 @@ export default function CashEntry({ projectId, disabled, editing, onEditClose, o
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [fileKey, setFileKey] = useState(0);
+  const [attachments, setAttachments] = useState<File[]>([]);
   const [categories, setCategories] = useState<CashClassificationRow[]>([]);
   const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [categoriesError, setCategoriesError] = useState('');
@@ -47,14 +49,18 @@ export default function CashEntry({ projectId, disabled, editing, onEditClose, o
   }, [mode, projectId]);
   const movementType = Number(draft.deposit) > 0 ? 'Ingreso' : Number(draft.expense) > 0 ? 'Egreso' : '';
   const categoryOptions = categories;
-  useEffect(() => { if (editing) { setDraft(editing); setMode('manual'); setError(''); } }, [editing]);
+  useEffect(() => { if (editing) { setDraft(editing); setAttachments([]); setMode('manual'); setError(''); } }, [editing]);
   const close = () => { if (!busy) { setMode(null); onEditClose(); } };
-  const open = (next: 'manual' | 'excel') => { setError(''); setDraft(blank()); setPreview([]); setMode(next); };
+  const open = (next: 'manual' | 'excel') => { setError(''); setAttachments([]); setDraft(blank()); setPreview([]); setMode(next); };
   const save = async (event: FormEvent) => {
     event.preventDefault(); if (disabled || busy || mode === 'manual' && (categoriesLoading || categoriesError)) return;
     setError(''); setBusy(true);
     try {
       const rows = editing ? [await api.patch<CashMovement>(`/accounting/cash/${editing.id}`, { projectId, row: draft })] : await api.post<CashMovement[]>('/accounting/cash', { projectId, rows: mode === 'manual' ? [draft] : preview });
+      if (mode === 'manual' && attachments.length) {
+        try { await saveAttachments('cash', rows[0].id, projectId, attachments); Object.assign(rows[0], { attachments: await api.get(attachmentPath('cash', rows[0].id, projectId)) }); }
+        catch (e) { toast(`Registro guardado, pero faltan adjuntos. Usa el boton Adjuntar de la fila para reintentar. ${e instanceof Error ? e.message : ''}`); onSaved(rows); setMode(null); onEditClose(); return; }
+      }
       onSaved(rows); toast(`${rows.length} movimientos guardados en el servidor.`); setMode(null); onEditClose();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar.'); }
     finally { setBusy(false); }
@@ -77,7 +83,7 @@ export default function CashEntry({ projectId, disabled, editing, onEditClose, o
         {mode === 'manual' ? <><fieldset className={styles.formGrid} disabled={disabled || busy || categoriesLoading}>
           {fields.map(field => <label key={field.key}>{field.key === 'documentNumber' ? `${field.label} · ${draft.documentType}` : field.label}{field.required ? ' *' : ''}{field.key === 'category' ? <Select searchable searchPlaceholder="Buscar categoría o código..." className={styles.categorySelect} disabled={disabled || busy || categoriesLoading || !!categoriesError} value={draft.categoryKey || categoryOptions.find(row => row.category === draft.category && (!movementType || row.movementType === movementType))?.key || ''} options={[{ value: '', label: 'Selecciona...' }, ...categoryOptions.map(row => ({ value: row.key, label: row.category || '', hint: `${row.code} · ${row.movementType}` }))]} onChange={value => { const selected = categoryOptions.find(row => row.key === value); setDraft({ ...draft, categoryKey: selected?.key || '', category: selected?.category || '', classification: selected?.eerrClassification || '' }); }} /> : field.key === 'classification' ? <input readOnly value={draft.classification} placeholder="Segun la categoria" /> : field.key === 'documentType' ? <select required value={draft.documentType} onChange={e => setDraft({ ...draft, documentType: e.target.value })}>{!CASH_DOCUMENT_TYPES.some(value => value === draft.documentType) && <option value={draft.documentType}>{draft.documentType}</option>}{CASH_DOCUMENT_TYPES.map(value => <option key={value}>{value}</option>)}</select> : <input required={field.required} type={field.type || 'text'} value={draft[field.key]} min={field.type === 'number' ? '0' : field.type === 'date' ? '2000-01-01' : undefined} max={field.type === 'date' ? '2100-12-31' : undefined} step="0.01" maxLength={field.key === 'description' ? 1000 : 255} onChange={e => setDraft({ ...draft, [field.key]: field.type === 'number' ? e.target.value === '' ? '' : Number(e.target.value) : e.target.value })} />}</label>)}
           <label>Mes<input readOnly value={draft.date.slice(0, 7)} /></label>
-        </fieldset>{categoriesError && <p className={styles.error} role="alert">{categoriesError}</p>}<p>Registra un abono o un gasto por movimiento. El saldo se calcula automáticamente.</p></> : <>
+        <AttachmentField type="cash" id={editing?.id} projectId={projectId} disabled={disabled || busy} files={attachments} onChange={setAttachments} /></fieldset>{categoriesError && <p className={styles.error} role="alert">{categoriesError}</p>}<p>Registra un abono o un gasto por movimiento. El saldo se calcula automáticamente.</p></> : <>
           <label className={styles.fileLabel}>Subir archivo Excel<input key={fileKey} type="file" accept=".xlsx,.xls" disabled={busy || disabled} onChange={async e => {
             const file = e.target.files?.[0]; setPreview([]); setError(''); if (!file) return;
             if (file.size > 5 * 1024 * 1024) { setError('El archivo supera los 5 MB.'); return; }

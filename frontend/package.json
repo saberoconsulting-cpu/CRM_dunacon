@@ -10,6 +10,7 @@
     "test:currency": "node scripts/check-usd.cjs"
   },
   "dependencies": {
+    "exceljs": "^4.4.0",
     "html2canvas": "^1.4.1",
     "maplibre-gl": "^4.7.1",
     "next": "14.2.15",

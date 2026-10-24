@@ -4,7 +4,7 @@ import { Fragment, type ReactNode, useCallback, useEffect, useMemo, useRef, useS
 import { FiBriefcase, FiCheck, FiClipboard, FiCreditCard, FiDollarSign, FiDownload, FiEdit3, FiHome, FiLayers, FiMapPin, FiPercent, FiPieChart, FiPlus, FiRefreshCw, FiSave, FiTool, FiTrendingUp, FiZap } from 'react-icons/fi';
 import { Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { api } from '@/lib/api';
-import { projectedSalesByYear, salesByYear } from '@/lib/sales-by-year';
+import { salesByYear } from '@/lib/sales-by-year';
 import { BRAND } from '@/lib/types';
 import { Toaster, toast } from '@/components/ui/ui';
 import { formatCurrency, useDisplayCurrency, DEFAULT_EXCHANGE_RATE } from '@/lib/currency';
@@ -591,9 +591,16 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const rowsRef = useRef<Row[]>([]);
     const editSnapshot = useRef<{ id: string; year: number; value: number } | null>(null);
     const [pendingEdit, setPendingEdit] = useState<{ id: string; year: number; value: number; original: number } | null>(null);
-    const [editingDrafts, setEditingDrafts] = useState<Record<string, string>>({});
+    const [editingDrafts, setEditingDraftsState] = useState<Record<string, string>>({});
+    const editingDraftsRef = useRef<Record<string, string>>({});
+    function setEditingDrafts(update: Record<string, string> | ((current: Record<string, string>) => Record<string, string>)) {
+        const next = typeof update === 'function' ? update(editingDraftsRef.current) : update;
+        editingDraftsRef.current = next;
+        setEditingDraftsState(next);
+    }
     const autosaveInFlight = useRef(false);
     const autosaveQueued = useRef(false);
+    const autosavePromise = useRef<Promise<void> | null>(null);
     const [mode, setMode] = useState<CashflowMode>('estatico');
     const [staticLandAcquisitionTotal, setStaticLandAcquisitionTotal] = useState(0);
     const [modeSwitchOpen, setModeSwitchOpen] = useState(false);
@@ -618,6 +625,16 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
         apply();
         mq.addEventListener('change', apply);
         return () => mq.removeEventListener('change', apply);
+    }, []);
+
+    useEffect(() => {
+        const protectPendingSave = (event: BeforeUnloadEvent) => {
+            if (!autosaveInFlight.current) return;
+            event.preventDefault();
+            event.returnValue = '';
+        };
+        window.addEventListener('beforeunload', protectPendingSave);
+        return () => window.removeEventListener('beforeunload', protectPendingSave);
     }, []);
 
     /**
@@ -994,6 +1011,10 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
 
     const loadModel = useCallback(async (target: CashflowMode) => {
         setLoading(true);
+        if (autosavePromise.current) await autosavePromise.current;
+        setEditingDrafts({});
+        editSnapshot.current = null;
+        setPendingEdit(null);
         try {
             if (target === 'dinamico') {
                 // Dinamico = data real del sistema ubicada segun el AÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â±o 0 que el
@@ -1078,88 +1099,33 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
                 }));
                 setHasSavedModel(Boolean(savedDynamic?.rows?.length));
             } else {
-                const seed = await buildSeedRows();
-                setProject(seed.project);
-                setBaseYear(seed.baseYear);
-                setFirstDataYear(seed.firstDataYear);
-                const savedModel = await api.get<any>(`/cashflow/model?projectId=${projectId}&mode=estatico`).catch(() => null);
-                if (savedModel?.rows?.length) {
-                    const savedById = new Map((savedModel.rows || []).map((item: any) => [item.id, item]));
-                    const seedIds = new Set(seed.rows.map((item) => item.id));
-                    // Los modelos guardados antes de v2 traen en 'initial-fee' y
-                    // 'financing-fee' el resultado de la formula del % de cuota
-                    // inicial. Son celdas planas: su valor valido es solo el de los
-                    // pagos reales del sistema, por eso se restauran desde el seed.
-                    const savedSeedVersion = Number((savedModel.assumptions || {}).seedVersion || 0);
-                    const legacyAssumptionCells = savedSeedVersion < CASHFLOW_SEED_VERSION;
-                    const savedRows: Row[] = seed.rows.map((seedRow) => {
-                        const item: any = savedById.get(seedRow.id);
-                        const useSeedValues = legacyAssumptionCells && PLAIN_NUMBER_ROW_IDS.includes(seedRow.id);
-                        return {
-                            id: seedRow.id,
-                            label: item?.label || seedRow.label,
-                            values: normalizeValues(!useSeedValues && Array.isArray(item?.values) ? item.values : seedRow.values),
-                            computed: seedRow.id === 'igv' ? false : Boolean(seedRow.computed || item?.computed),
-                            parentId: item?.parentId ?? seedRow.parentId,
-                            depth: item?.depth ?? seedRow.depth,
-                        };
-                    });
-                    const customRows: Row[] = (savedModel.rows || [])
-                        .filter((item: any) => !seedIds.has(item.id))
-                        .map((item: any) => ({
-                            id: String(item.id),
-                            label: String(item.label || 'Nueva subpartida'),
-                            values: normalizeValues(Array.isArray(item.values) ? item.values : []),
-                            computed: Boolean(item.computed),
-                            parentId: item.parentId ? String(item.parentId) : undefined,
-                            depth: Number(item.depth || 1),
-                        }));
-                    savedRows.push(...customRows);
-                    rowsRef.current = savedRows;
-                    setRows(savedRows);
-                    const savedAssumptions = savedModel.assumptions || {};
-                    const savedStartYear = Number(savedAssumptions.startYear ?? savedAssumptions.baseYear ?? seed.baseYear) || seed.baseYear;
-                    const savedTotalLots = Number(seed.manualFields.totalLots || 0);
-                    setManual((current) => ({
-                        ...current,
-                        ...seed.manualFields,
-                        discountRate: current.discountRate || 10,
-                        ...savedAssumptions,
-                        startYear: savedStartYear,
-                        totalLots: savedTotalLots,
-                    }));
-                    setHasSavedModel(true);
-                    // Si el modelo era v1 (o anterior) se re-guarda ya limpio para que
-                    // las filas de numero plano no vuelvan a aparecer con formula.
-                    if (legacyAssumptionCells) {
-                        rowsRef.current = savedRows;
-                        const cleanedRows = calculateRows(savedRows);
-                        const cleanedById = new Map(cleanedRows.map((item) => [item.id, item]));
-                        void api.post('/cashflow/model', {
-                            projectId,
-                            mode: 'estatico',
-                            assumptions: { ...savedAssumptions, seedVersion: CASHFLOW_SEED_VERSION },
-                            rows: savedRows.map((item) => {
-                                const clean = cleanedById.get(item.id);
-                                return {
-                                    id: item.id,
-                                    label: item.label,
-                                    values: item.computed && clean ? clean.values : normalizeValues(item.values),
-                                    computed: item.computed,
-                                    parentId: item.parentId,
-                                    depth: item.depth,
-                                };
-                            }),
-                        }).catch(() => {
-                            // Silencioso: la pantalla ya muestra los valores limpios.
-                        });
-                    }
-                } else {
-                    rowsRef.current = seed.rows;
-                    setRows(seed.rows);
-                    setManual((current) => ({ ...current, ...seed.manualFields, initialPercent: current.initialPercent || 10, years: current.years || 10, startYear: seed.baseYear, discountRate: current.discountRate || 10 }));
-                    setHasSavedModel(false);
-                }
+                // Static values are exclusively manual: never rebuild them from system data.
+                const [savedModel, projectData] = await Promise.all([
+                    api.get<any>(`/cashflow/model?projectId=${projectId}&mode=estatico`),
+                    api.get<any>(`/projects/${projectId}`),
+                ]);
+                setProject(projectData);
+                const defaults = SECTIONS.flatMap(section => [
+                    row(section.id, section.label, empty(), Boolean(section.computed || section.rows.length > 0)),
+                    ...section.rows.map(item => ({ ...row(item.id, item.label, empty(), Boolean(item.computed)), parentId: item.parentId || section.id, depth: item.parentId ? 2 : 1 })),
+                ]);
+                defaults.push(row('sales-year', 'Venta por año', empty()));
+                const source: Row[] = Array.isArray(savedModel?.rows) ? savedModel.rows : defaults;
+                const parentIds = new Set(source.map(item => item.parentId).filter(Boolean));
+                const totalIds = new Set(SECTIONS.filter(section => section.computed || section.rows.length > 0).map(section => section.id));
+                const restored = source.map(item => ({
+                    ...item,
+                    values: normalizeValues(item.values),
+                    computed: item.id === 'igv' || item.id === 'sales-year' ? false : totalIds.has(item.id) || parentIds.has(item.id),
+                }));
+                rowsRef.current = restored;
+                setRows(restored);
+                const assumptions = savedModel?.assumptions || {};
+                const startYear = Number(assumptions.startYear ?? assumptions.baseYear) || new Date().getFullYear();
+                setBaseYear(startYear);
+                setFirstDataYear(startYear);
+                setManual(current => ({ ...current, ...assumptions, startYear }));
+                setHasSavedModel(Boolean(savedModel));
             }
             setOverrides({});
         } finally { setLoading(false); }
@@ -1192,15 +1158,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             item.values = item.values.map((cell, index) => index === year ? draftValue(draft) : cell);
         });
         const result = calculateRows(base);
-        if (mode === 'estatico') {
-            const lots = result.find((item) => item.id === 'lots-sold')?.values || empty();
-            const income = (result.find((item) => item.id === 'income')?.values || empty()).reduce((sum, value) => sum + Number(value || 0), 0);
-            const annualSales = result.find((item) => item.id === 'sales-year');
-            if (annualSales) {
-                annualSales.values = projectedSalesByYear(lots, income, visibleYears.length, Number(manual.totalLots || 0));
-                annualSales.computed = true;
-            }
-        }
+
         return result;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [rows, overrides, editingDrafts, mode, projectionYears, manual.totalLots]);
@@ -1222,9 +1180,9 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     const displayRowTotal = (values: number[]) => formatInteger(values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0));
     const displayPlainRowTotal = (values: number[]) => formatPlainInteger(values.slice(0, visibleYears.length).reduce((sum, value) => sum + Number(value || 0), 0));
     const canEditRow = (item?: Row) => !item?.computed;
-    const isCellEditable = (item: Row | undefined, year: number) => currency === 'PEN' ? false : mode === 'estatico'
-        ? canEditRow(item) && item?.id !== 'sales-year'
-        : Boolean(canEditRow(item) && item?.id === 'igv' && year >= 0);
+    const isCellEditable = (item: Row | undefined, year: number) => mode === 'estatico'
+        ? Boolean(item && item.id !== 'sales-year' && canEditRow(item))
+        : Boolean(currency !== 'PEN' && canEditRow(item) && item?.id === 'igv' && year >= 0);
     const writeCellValue = (id: string, year: number, numeric: number) => {
         const apply = (current: Row[]) => current.map((candidate) => candidate.id !== id ? candidate : { ...candidate, values: normalizeValues(candidate.values).map((cell, index) => index === year ? numeric : cell) });
         rowsRef.current = apply(rowsRef.current.length ? rowsRef.current : rows);
@@ -1263,11 +1221,15 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
     }
 
     function editCell(id: string, year: number, value: string) {
-        // onChange mientras el usuario escribe: solo conservamos el TEXTO CRUDO.
-        // Ninguna conversion/parseo aqui para no romper el cursor ni el tipeo.
+        // Keep the raw draft for typing and immediately persist static changes.
+        // Reloading while the cell is focused must not discard a deletion.
         setSaved(false);
         setHasSavedModel(false);
         setEditingDrafts((current) => ({ ...current, [cellKey(id, year)]: value }));
+        if (mode === 'estatico') {
+            writeCellValue(id, year, baseNumber(value));
+            scheduleAutosave();
+        }
     }
 
     function beginCellEdit(id: string, year: number, value: number) {
@@ -1335,7 +1297,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             if (!item || item.computed) return;
             item.values = item.values.map((cell, index) => index === year ? numeric : cell);
         };
-        Object.entries(editingDrafts).forEach(([key, draft]) => {
+        Object.entries(editingDraftsRef.current).forEach(([key, draft]) => {
             const [id, rawYear] = key.split(':');
             const year = Number(rawYear);
             if (!id || Number.isNaN(year)) return;
@@ -1356,7 +1318,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
 
     function payloadRows(labelPatch?: { id: string; label: string }) {
         const editableById = new Map(materializedEditableRows().map((item) => [item.id, item]));
-        return calculated.map((item) => {
+        return calculateRows(materializedEditableRows()).map((item) => {
             const editable = editableById.get(item.id);
             return {
                 id: item.id,
@@ -1598,7 +1560,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             return;
         }
         autosaveInFlight.current = true;
-        void runAutosave();
+        autosavePromise.current = runAutosave();
     }
 
     async function refreshDynamic() {
@@ -1689,22 +1651,7 @@ export default function CashflowExcelTestView({ projectId }: { projectId: number
             }
             return;
         }
-        const saleValue = calculatedRowTotal('income') || draftManual.landArea * draftManual.priceM2;
-        const percent = (value: number) => Math.max(0, Math.min(100, Number(value) || 0)) / 100;
-        setRows((current) => current.map((item) => {
-            const values = normalizeValues(item.values);
-            // 'initial-fee' y 'financing-fee' NO se reescriben desde los supuestos:
-            // son celdas de numero plano (por defecto 0) que solo cambian si el
-            // usuario escribe un valor o si vienen de pagos reales del sistema.
-            if (item.id === 'alcabala') return { ...item, values: values.map((value, year) => year === 0 ? calculatedValue('land-cost') * percent(normalizedManual.alcabalaPercent) : value) };
-            if (item.id === 'supervision') return { ...item, values: values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(normalizedManual.supervisionPercent) : value) };
-            if (item.id === 'services') return { ...item, values: values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(normalizedManual.servicesPercent) : value) };
-            if (item.id === 'design') return { ...item, values: values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(normalizedManual.designPercent) : value) };
-            if (item.id === 'management') return { ...item, values: values.map((value, year) => year === 0 ? saleValue * percent(normalizedManual.managementPercent) : value) };
-            if (item.id === 'indemnity') return { ...item, values: values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(normalizedManual.indemnityPercent) : value) };
-            if (item.id === 'legal-contingency') return { ...item, values: values.map((value, year) => year === 0 ? calculatedValue('construction') * percent(normalizedManual.contingencyPercent) : value) };
-            return item;
-        }));
+        // Static assumptions configure the view; all detail amounts stay manual.
         setAssumptionsOpen(false);
         setSaved(false);
         setHasSavedModel(false);

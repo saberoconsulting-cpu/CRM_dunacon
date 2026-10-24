@@ -6,13 +6,18 @@
 .toggle button { padding: 7px 14px; font-weight: 600; }
 .toggle button[aria-pressed='true'] { background: #153e78; color: white; }
 .cards { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
-.cards article { border: 1px solid #b8c7da; border-top: 3px solid #1c4a80; border-radius: 9px; padding: 10px 8px; background: white; min-width: 0; }
-.cards h2 { color: #164c7c; font-size: 11px; min-height: 28px; }
-.cards strong { display: block; color: #ad2525; font-size: clamp(14px, 1.35vw, 21px); font-variant-numeric: tabular-nums; margin: 3px 0 8px; }
-.cards p { font-size: 10px; color: #4c6481; }
+.cards :global(.card-card-kpi) { padding-left: 8px; padding-right: 8px; }
+.cards :global(.kpi-label) { gap: 4px; }
+.cards :global(.kpi-label) > span:first-child { width: 24px; height: 24px; }
+.cards :global(.kpi-label-text) { font-size: 9px; letter-spacing: normal; }
+.cards :global(.kpi-helper) { font-size: 9px; }
 .sheet h2 { font-weight: 650; }
 .filters { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; background: white; padding: 6px 0; }
 .filters h2 { margin-right: auto; align-self: center; font-size: 14px; color: #153e78; }
+.cashFilterHeading { display: flex; align-items: center; gap: 12px; margin-right: auto; min-width: 0; }
+.cashFilterHeading h2 { margin: 0; }
+.filters .cashFilterHeading label { display: flex; align-items: center; gap: 8px; }
+.cashFilterHeading select { width: 88px; }
 .filters label { display: grid; gap: 3px; font-size: 10px; }
 .filters input, .filters select { border: 1px solid #cbd5e1; border-radius: 3px; height: 29px; padding: 3px 5px; min-width: 0; background: white; max-width: 145px; }
 .filters input[type='number'] { width: 65px; }
@@ -56,7 +61,6 @@
 .chartEmpty { display: grid; place-items: center; min-height: 215px; color: #8794a6; background: repeating-linear-gradient(to top, transparent 0, transparent 42px, #edf0f4 43px); }
 .sheet td.yes { background: #e6f4eb; color: #176338; text-align: center; }
 .sheet td.no { background: #fff2d9; color: #98611b; text-align: center; }
-.cards strong { white-space: pre-line; }
 .actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .tabs { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
 .tabs button { border: 1px solid #d5dbe3; border-radius: 8px; padding: 9px 12px; font-size: 12px; font-weight: 600; background: #f8fafc; color: #52728f; }
@@ -69,7 +73,7 @@
 .yearFilter { display: flex; align-items: center; gap: 8px; font-size: 11px; }
 .yearFilter select { background: white; border: 1px solid #cbd5e1; border-radius: 6px; padding: 4px 8px; }
 .summaryHeading button { padding: 4px 12px; }
-.entry { display: grid; gap: 16px; font-size: 12px; }
+.entry { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 16px; font-size: 12px; }
 .entryAccess { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; border: 1px solid #cbdcec; border-radius: 8px; padding: 10px; background: #f4f8fd; color: #315575; }
 .parametersTable { width: 100%; border-collapse: collapse; font-size: 12px; }
 .parametersTable td, .parametersTable th { border: 1px solid #d5dbe3; padding: 8px; }
@@ -77,7 +81,25 @@
 .parametersTable input { width: 100%; border: 1px solid #b5d5fa; border-radius: 4px; padding: 6px 8px; background: #eaf3ff; color: #164c8b; text-align: right; }
 .parametersTable input:read-only { background: #f5f6f8; border-color: #d5dbe3; color: #64748b; }
 .templateLink { justify-self: start; color: #52728f; font-size: 11px; text-decoration: underline; text-underline-offset: 3px; }
-.formGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.formGrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+.formGrid > * { min-width: 0; }
+.attachmentField { grid-column: 1 / -1; min-width: 0; overflow-wrap: anywhere; }
+.attachmentField input { max-width: 100%; }
+.attachmentHeading { font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 8px; }
+.attachmentField .attachmentPicker { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; min-width: 0; width: 100%; min-height: 44px; padding: 10px; border: 1px dashed #93b4dc; border-radius: 8px; background: #eff6ff; color: #2563eb; cursor: pointer; font-size: 12px; }
+.attachmentPicker[aria-disabled='true'] { opacity: .5; cursor: not-allowed; }
+.attachmentField .attachmentPicker input[type='file'] { position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; border: 0; opacity: 0; overflow: hidden; }
+.attachmentPicker:focus-within { outline: 2px solid #2684e4; outline-offset: 2px; }
+.attachmentHint { display: block; color: #64748b; font-size: 11px; margin-top: 8px; }
+.attachmentList { display: grid; gap: 8px; min-width: 0; margin-top: 10px; }
+.attachmentCard { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 8px; border: 1px solid #e2e8f0; border-radius: 9px; background: white; }
+.attachmentThumbnail { position: relative; display: grid; place-items: center; width: 52px; height: 52px; flex: 0 0 52px; overflow: hidden; border-radius: 6px; background: #f1f5f9; color: #52728f; font-size: 24px; }
+.attachmentThumbnail img { width: 100%; height: 100%; object-fit: cover; }
+.attachmentImageLoading { position: absolute; inset: 0; display: grid; place-items: center; background: #f1f5f9; font-size: 9px; }
+.attachmentInfo { flex: 1; min-width: 0; }
+.attachmentName { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #334155; }
+.attachmentInfo small { display: block; color: #64748b; font-size: 10px; margin-top: 4px; }
+.attachmentView { display: flex; align-items: center; gap: 4px; flex-shrink: 0; padding: 8px 4px; color: #2563eb; font-size: 12px; font-weight: 600; }
 .formGrid label, .fileLabel { display: grid; gap: 5px; color: #475569; font-size: 12px; }
 .formGrid input, .formGrid select { border: 1px solid #d5dbe3; border-radius: 6px; width: 100%; height: 36px; padding: 6px 8px; background: white; }
 .formGrid input:read-only { background: #f1f5f9; }
@@ -136,7 +158,39 @@
 .documentTypeSelect:disabled { opacity: .6; }
 .cashRegister td.balance { background: #edf4fc; font-weight: 600; text-align: right; }
 @media (max-width: 767px) { .cashSummary { grid-template-columns: 1fr; row-gap: 18px; } .cashSummary > section { grid-template-rows: auto auto; grid-row: auto; gap: 10px; } .cashSummary > .cashDocumentSummary { width: 100%; grid-column: 1; grid-row: auto; grid-template-rows: auto auto; } }
-@media (max-width: 600px) { .formGrid { grid-template-columns: 1fr; } }
 @media (max-width: 767px) { .summaryHeading { flex-wrap: wrap; gap: 8px; } }
-@media (max-width: 1100px) { .cards { gap: 5px; } .cards article { padding: 7px 5px; } .sheet { padding: 8px; } .filters { gap: 5px; } }
+@media (max-width: 1100px) { .cards { grid-template-columns: repeat(3, minmax(0, 1fr)); } .sheet { padding: 8px; } .filters { gap: 5px; } }
 @media (max-width: 767px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .summary { grid-template-columns: 1fr; } .register table { min-width: 1000px; } .toolbar { align-items: start; flex-direction: column; } }
+@media (max-width: 767px) {
+  .toolbar { gap: 12px; }
+  .tabs, .toolbar > .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; gap: 8px; }
+  .tabs { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
+  .tabs button { min-width: 0; min-height: 40px; padding: 8px 3px; font-size: clamp(8px, 2.5vw, 11px); white-space: nowrap; letter-spacing: -.2px; }
+  .toolbar > .actions > .actions { display: contents; }
+  .toolbar > .actions button { width: 100%; min-width: 0; min-height: 40px; justify-content: center; }
+  .filters { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 12px 10px; padding: 14px; margin-bottom: 12px; border: 1px solid #dce5ef; border-radius: 12px; background: #f8fafc; }
+  .filters h2 { grid-column: 1 / -1; margin: 0 0 2px; font-size: 14px; }
+  .cashFilterHeading { grid-column: 1 / -1; width: 100%; justify-content: space-between; }
+  .filters .cashFilterHeading select { width: 88px; }
+  .filters label { order: 1; min-width: 0; gap: 6px; font-size: 11px; font-weight: 500; color: #475569; }
+  .filters input, .filters select, .filters input[type='number'] { width: 100%; max-width: 100%; min-width: 0; height: 40px; border-radius: 8px; padding: 7px 8px; font-size: 12px; color: #183454; }
+  .filters > button { order: 2; width: 100%; min-height: 40px; height: auto; border-radius: 8px; background: white; color: #315575; font-size: 12px; font-weight: 500; }
+  .formGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 10px; align-items: end; }
+  .formGrid label, .deductionField { min-width: 0; font-size: 11px; gap: 6px; }
+  .formGrid input, .formGrid select { min-width: 0; max-width: 100%; height: 40px; padding: 7px; font-size: 12px; border-radius: 8px; }
+  .categorySelect :global(.select-trigger), .deductionField button { min-height: 40px; height: auto; font-size: 11px; border-radius: 8px; }
+  .attachmentField { margin-top: 2px; padding: 12px; border: 1px solid #dce5ef; border-radius: 10px; background: #f8fafc; }
+  .attachmentField input[type='file'] { height: auto; min-height: 40px; background: white; }
+  .entry > .actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .entry > .actions button { min-width: 0; min-height: 40px; justify-content: center; }
+}
+
+.rowActions button.viewAttachments { color: #2563eb; border-color: #bfdbfe; background: #eff6ff; }
+
+.cashYearFilter { display: flex; align-items: center; gap: 8px; color: #183454; font-size: 10px; }
+.cashYearSelect { width: 88px; flex-shrink: 0; }
+.filters .cashYearSelect > button { width: 100%; height: 29px; min-height: 0; padding: 3px 5px; border: 1px solid #cbd5e1; border-radius: 3px; background: white; font-size: 11px; font-weight: 400; box-shadow: none !important; }
+@media (max-width: 767px) {
+  .cashYearFilter { font-size: 11px; font-weight: 500; color: #475569; }
+  .filters .cashYearSelect > button { height: 40px; padding: 7px 8px; border-radius: 8px; font-size: 12px; }
+}

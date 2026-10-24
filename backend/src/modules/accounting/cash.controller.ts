@@ -121,7 +121,7 @@ export class CashController {
     await assertAccountingAccess(this.db, Number(body.projectId), user);
     const categories = await loadCashClassifications(this.db, Number(body.projectId));
     const row = applyCashClassification(validateCash(body.row), body.row, categories);
-    const [[saved]] = await this.db.query('UPDATE accounting_cash SET data = $1::jsonb WHERE id::text = $2 AND project_id = $3 RETURNING id, data', [JSON.stringify(row), id, Number(body.projectId)]);
+    const [[saved]] = await this.db.query('UPDATE accounting_cash SET data = data || $1::jsonb WHERE id::text = $2 AND project_id = $3 RETURNING id, data', [JSON.stringify(row), id, Number(body.projectId)]);
     if (!saved) throw new NotFoundException('Movimiento no encontrado.');
     return { ...saved.data, id: saved.id };
   }

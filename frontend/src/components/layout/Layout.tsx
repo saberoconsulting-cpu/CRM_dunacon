@@ -1,5 +1,5 @@
 'use client';
-import { ReactNode, useEffect, useMemo, useState, useRef } from 'react';
+import { type CSSProperties, ReactNode, useEffect, useMemo, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -36,6 +36,7 @@ import { getSocket } from '@/lib/socket';
 import { BRAND, User, UserRole } from '@/lib/types';
 import ProjectDocuments from '@/components/features/projects/ProjectDocuments';
 import CurrencyToggle from '@/components/ui/CurrencyToggle';
+import styles from './Layout.module.css';
 import { lockProjectControls } from '@/lib/project-readonly';
 import { ProjectEditAccessContext, ProjectReadonlyContext } from '@/lib/project-readonly-context';
 
@@ -466,11 +467,11 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
 
   const sidebar = (
     <aside
-      className={`${drawerOpen ? 'translate-x-0' : '-translate-x-full'} fixed inset-y-0 left-0 z-30 flex w-[min(70vw,240px)] flex-col border-r bg-white shadow-2xl transition-[transform,width] duration-200 md:static md:translate-x-0 md:shadow-none`}
-      style={{ borderColor: BRAND.border, width: drawerOpen ? undefined : sidebarWidth }}
+      className={`${styles.mobileMenu} ${drawerOpen ? 'translate-x-0' : '-translate-x-full'} fixed inset-y-0 left-0 z-30 flex w-[min(70vw,240px)] flex-col border-r bg-white shadow-2xl transition-[transform,width] duration-200 md:static md:translate-x-0 md:shadow-none`}
+      style={{ borderColor: BRAND.border, width: drawerOpen ? undefined : sidebarWidth, '--mobile-menu-items': visiblePrimary.length + visibleEnd.length + (isProjectContext ? 1 : 2) } as CSSProperties}
     >
       {isProjectContext ? (
-        <div className="shrink-0 border-b p-2" style={{ borderColor: BRAND.border }}>
+        <div className={`${styles.menuBrand} shrink-0 border-b p-2`} style={{ borderColor: BRAND.border }}>
           {showLabels ? (
             <div className="flex h-11 items-center gap-1.5">
               <span className="w-8 shrink-0" aria-hidden="true" />
@@ -525,7 +526,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
           )}
         </div>
       ) : (
-        <div className="flex h-14 shrink-0 items-center justify-center border-b px-2" style={{ borderColor: BRAND.border }}>
+        <div className={`${styles.menuBrand} flex h-14 shrink-0 items-center justify-center border-b px-2`} style={{ borderColor: BRAND.border }}>
           <img src="/logo/dunacon.png" alt="Dunacon" className={`${showLabels ? 'h-11 w-auto mr-3' : 'h-8 max-w-10 object-contain'}`} />
         </div>
       )}
@@ -541,7 +542,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
 
         {visibleEnd.length > 0 && (
           <>
-            <div className={`mb-1.5 mt-4 border-t pt-3 ${showLabels ? 'px-3' : 'px-1'}`} style={{ borderColor: BRAND.border }}>
+            <div className={`${styles.menuDivider} mb-1.5 mt-4 border-t pt-3 ${showLabels ? 'px-3' : 'px-1'}`} style={{ borderColor: BRAND.border }}>
               {showLabels && <p className="text-[11px] font-semibold tracking-wide" style={{ color: BRAND.muted }}>GENERAL</p>}
             </div>
             <ul className="space-y-0.5">
@@ -551,7 +552,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
         )}
 
         <div className="md:hidden">
-          <div className={`mb-1.5 mt-4 border-t pt-3 ${showLabels ? 'px-3' : 'px-1'}`} style={{ borderColor: BRAND.border }}>
+          <div className={`${styles.menuDivider} mb-1.5 mt-4 border-t pt-3 ${showLabels ? 'px-3' : 'px-1'}`} style={{ borderColor: BRAND.border }}>
             {showLabels && <p className="text-[11px] font-semibold tracking-wide" style={{ color: BRAND.muted }}>NOTIFICACIONES</p>}
           </div>
           <ul className="space-y-0.5">
@@ -561,7 +562,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
 
         {!isProjectContext && (
           <>
-            <div className={`mb-1.5 mt-4 border-t pt-3 ${showLabels ? 'px-3' : 'px-1'}`} style={{ borderColor: BRAND.border }}>
+            <div className={`${styles.menuDivider} mb-1.5 mt-4 border-t pt-3 ${showLabels ? 'px-3' : 'px-1'}`} style={{ borderColor: BRAND.border }}>
               {showLabels && <p className="text-[11px] font-semibold tracking-wide" style={{ color: BRAND.muted }}>CUENTA</p>}
             </div>
             <button
@@ -578,7 +579,7 @@ export default function Layout({ children, title, titleLogoUrl }: { children: Re
         )}
       </nav>
 
-      <div className="shrink-0 space-y-2 border-t px-3 py-3" style={{ borderColor: BRAND.border }}>
+      <div className={`${styles.menuFooter} shrink-0 space-y-2 border-t px-3 py-3`} style={{ borderColor: BRAND.border }}>
         {!isProjectContext && (
           <button
             type="button"

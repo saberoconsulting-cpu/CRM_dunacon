@@ -1,0 +1,43 @@
+@media (max-width: 767px) {
+  .mobileMenu {
+    top: 0;
+    bottom: auto;
+    height: 100vh;
+    height: 100dvh;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    --menu-row-height: clamp(28px, calc((100dvh - 200px - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)) / var(--mobile-menu-items, 15)), 38px);
+  }
+
+  .mobileMenu .menuBrand { height: 52px; padding: 5px 8px; }
+  .menuBrand > div { height: 40px; }
+  .menuBrand img { max-height: 40px; }
+
+  .mobileMenu nav {
+    min-height: 0;
+    padding: 6px 10px;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .mobileMenu nav::-webkit-scrollbar { display: none; width: 0; height: 0; }
+
+  .mobileMenu nav ul { display: grid; gap: 1px; }
+  .mobileMenu nav li { margin-top: 0; min-width: 0; }
+  .mobileMenu nav button {
+    height: var(--menu-row-height) !important;
+    min-height: 28px;
+    padding-top: 0;
+    padding-bottom: 0;
+    column-gap: 8px;
+    font-size: 12px;
+    line-height: 1.2;
+  }
+
+  .mobileMenu .menuDivider { margin-top: 6px; margin-bottom: 3px; padding-top: 5px; }
+  .menuDivider p { font-size: 9px; line-height: 12px; }
+  .mobileMenu .menuFooter { padding: 6px 10px; }
+  .menuFooter > * + * { margin-top: 4px; }
+  .menuFooter > button { height: 30px !important; font-size: 12px; }
+}

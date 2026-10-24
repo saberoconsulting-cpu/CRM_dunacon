@@ -10,6 +10,7 @@ import { RolesGuard } from '../../shared/application/guards/roles.guard';
 import { Roles } from '../../shared/application/decorators/roles.decorator';
 import { CurrentUser } from '../../shared/application/decorators/current-user.decorator';
 import { UserRole } from '../../shared/domain/enums';
+import { AccountingAttachmentsController } from './attachments.controller';
 import { CashController } from './cash.controller';
 import { assertAccountingAccess } from './accounting-access';
 import { loadAccountingParameters, prepareInvoiceAmounts, validateAccountingParameters } from './accounting-parameters';
@@ -144,7 +145,7 @@ export class AccountingController {
     const parameters = await loadAccountingParameters(this.db, Number(body.projectId));
     const row = validateInvoice(prepareInvoiceAmounts(body.row, parameters), existing.kind);
     try {
-      const [[saved]] = await this.db.query('UPDATE accounting_invoices SET data = $1::jsonb WHERE id::text = $2 AND project_id = $3 RETURNING id, kind, data', [JSON.stringify(row), id, Number(body.projectId)]);
+      const [[saved]] = await this.db.query('UPDATE accounting_invoices SET data = data || $1::jsonb WHERE id::text = $2 AND project_id = $3 RETURNING id, kind, data', [JSON.stringify(row), id, Number(body.projectId)]);
       if (!saved) throw new NotFoundException('Factura no encontrada.');
       return { ...saved.data, id: saved.id, kind: saved.kind };
     } catch (e) { if (e.code === '23505') throw new BadRequestException('Ya existe un comprobante con ese RUC, número y tipo.'); throw e; }
@@ -159,5 +160,5 @@ export class AccountingController {
   }
 }
 
-@Module({ controllers: [AccountingController, CashController] })
+@Module({ controllers: [AccountingController, CashController, AccountingAttachmentsController] })
 export class AccountingModule {}

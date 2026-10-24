@@ -1,9 +1,14 @@
 'use client';
 
+import { api } from './api';
+
 export type PdfTable = { title: string; headers: string[]; rows: string[][]; totals?: string[]; weights?: number[] };
 export type AccountingPdfReport = {
   title: string; projectId: number; period: string; summaryPeriod: string;
+  registerOnly?: boolean;
+  branding?: { projectName: string; date: string; logos: string[] };
   cards: string[][]; register: PdfTable; summaries: PdfTable[];
+  cardColors?: string[];
   chart: { title: string; labels: string[]; series: { name: string; values: number[] }[] };
 };
 
@@ -15,6 +20,7 @@ export async function createAccountingPdf(report: AccountingPdfReport) {
   const pdf = await PDFDocument.create();
   const regular = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const logos = await Promise.all((report.branding?.logos || []).map(data => pdf.embedPng(data)));
   const blue = rgb(.08, .23, .43), ink = rgb(.13, .2, .29), muted = rgb(.39, .45, .53);
   const line = rgb(.83, .87, .92), pale = rgb(.95, .97, .99);
   const colors = [rgb(.09, .47, .95), rgb(.93, .61, .25)];
@@ -35,6 +41,20 @@ export async function createAccountingPdf(report: AccountingPdfReport) {
   };
   const header = (subtitle: string) => {
     page.drawRectangle({ x: 0, y: height - 7, width, height: 7, color: blue });
+    if (report.branding) {
+      logos.forEach((logo, index) => {
+        const dimensions = logo.scale(Math.min(100 / logo.width, 40 / logo.height));
+        page.drawImage(logo, { x: width - margin - logos.length * 112 + index * 112 + (100 - dimensions.width) / 2, y: y - 42, ...dimensions });
+      });
+      const titleX = margin;
+      write(report.title, titleX, y - 2, 19, true, blue);
+      wrap(report.branding.projectName, usable - logos.length * 112 - 20, 10, true).slice(0, 2).forEach((value, index) => write(value, titleX, y - 28 - index * 12, 10, true));
+      y -= 62;
+      write(`Fecha: ${report.branding.date}`, margin, y, 9, false, muted); y -= 18;
+      wrap(subtitle, usable, 9).forEach(value => { write(value, margin, y, 9, false, muted); y -= 12; });
+      y -= 12;
+      return;
+    }
     write(report.title, margin, y, 19, true, blue); y -= 27;
     write(`Proyecto ${report.projectId} | ${subtitle}`, margin, y, 9, false, muted); y -= 20;
   };
@@ -43,15 +63,17 @@ export async function createAccountingPdf(report: AccountingPdfReport) {
   const cardGap = 7, cardWidth = (usable - cardGap * (report.cards.length - 1)) / report.cards.length;
   const cardHeight = 87;
   report.cards.forEach(([label, value, description], index) => {
+    const hex = report.cardColors?.[index];
+    const tone = hex ? rgb(parseInt(hex.slice(0, 2), 16) / 255, parseInt(hex.slice(2, 4), 16) / 255, parseInt(hex.slice(4, 6), 16) / 255) : blue;
     const x = margin + index * (cardWidth + cardGap);
     page.drawRectangle({ x, y: y - cardHeight, width: cardWidth, height: cardHeight, color: pale, borderColor: line, borderWidth: .6 });
-    page.drawRectangle({ x, y: y - 3, width: cardWidth, height: 3, color: blue });
-    wrap(label, cardWidth - 12, 8, true).slice(0, 2).forEach((s, i) => write(s, x + 6, y - 10 - i * 10, 8, true, blue));
+    page.drawRectangle({ x, y: y - 3, width: cardWidth, height: 3, color: tone });
+    wrap(label, cardWidth - 12, 8, true).slice(0, 2).forEach((s, i) => write(s, x + 6, y - 10 - i * 10, 8, true, muted));
     const valueSize = Math.min(13, (cardWidth - 12) / Math.max(1, bold.widthOfTextAtSize(text(value), 1)));
-    write(value, x + 6, y - 36, valueSize, true, ink);
+    write(value, x + 6 + (cardWidth - 12 - bold.widthOfTextAtSize(text(value), valueSize)) / 2, y - 36, valueSize, true, tone);
     wrap(description, cardWidth - 12, 7).slice(0, 3).forEach((s, i) => write(s, x + 6, y - 57 - i * 8, 7, false, muted));
   });
-  y -= cardHeight + 19;
+  if (report.cards.length) y -= cardHeight + 19;
 
   const drawTable = (table: PdfTable, x: number, tableWidth: number, start: number, allowPages: boolean) => {
     let top = start;
@@ -60,26 +82,35 @@ export async function createAccountingPdf(report: AccountingPdfReport) {
     const weights = table.headers.map((_, i) => table.weights?.[i] || 1);
     const weight = weights.reduce((n, w) => n + w, 0);
     const widths = weights.map(w => tableWidth * w / weight);
+    const documentColumn = report.registerOnly ? table.headers.findIndex(value => /^Tipo (?:de )?doc/i.test(value)) : -1;
+    if (documentColumn >= 0 && widths[documentColumn] < 108) {
+      const remaining = tableWidth - widths[documentColumn];
+      widths.forEach((value, index) => { widths[index] = index === documentColumn ? 108 : value * (tableWidth - 108) / remaining; });
+    }
+    const cellLines = (value: string, index: number, strong: boolean) => index === documentColumn ? [text(value)] : wrap(value, widths[index] - 8, size, strong);
     const drawRow = (values: string[][], offset: number, count: number, heading: boolean, total: boolean) => {
       const rowHeight = count * leading + 8;
       let left = x;
       values.forEach((lines, index) => {
-        page.drawRectangle({ x: left, y: top - rowHeight, width: widths[index], height: rowHeight, color: heading || total ? blue : rgb(1, 1, 1), borderColor: line, borderWidth: .4 });
-        lines.slice(offset, offset + count).forEach((s, i) => write(s, left + 4, top - 4 - i * leading, size, heading || total, heading || total ? rgb(1, 1, 1) : ink));
+        page.drawRectangle({ x: left, y: top - rowHeight, width: widths[index], height: rowHeight, color: report.registerOnly ? total ? rgb(18 / 255, 46 / 255, 105 / 255) : heading ? rgb(82 / 255, 114 / 255, 143 / 255) : table.headers[index].startsWith('Saldo') ? rgb(237 / 255, 244 / 255, 252 / 255) : rgb(1, 1, 1) : heading || total ? blue : rgb(1, 1, 1), borderColor: line, borderWidth: .4 });
+        lines.slice(offset, offset + count).forEach((s, i) => {
+          const cellSize = index === documentColumn ? Math.min(size, (widths[index] - 8) / Math.max(1, (heading || total ? bold : regular).widthOfTextAtSize(text(s), 1))) : size;
+          write(s, report.registerOnly && !heading && /^(Abono|Gasto|Saldo)/.test(table.headers[index]) ? left + widths[index] - 4 - (total ? bold : regular).widthOfTextAtSize(text(s), cellSize) : left + 4, top - 4 - i * leading, cellSize, heading || total, heading || total ? rgb(1, 1, 1) : ink);
+        });
         left += widths[index];
       });
       top -= rowHeight;
     };
     const heading = () => {
       write(table.title, x, top, 11, true, blue); top -= 19;
-      const cells = table.headers.map((v, i) => wrap(v, widths[i] - 8, size, true));
+      const cells = table.headers.map((v, i) => cellLines(v, i, true));
       drawRow(cells, 0, Math.max(...cells.map(v => v.length)), true, false);
     };
     heading();
     const rows = table.rows.length ? table.rows : [table.headers.map((_, i) => i === 0 ? 'Sin registros' : '')];
     [...rows, ...(table.totals ? [table.totals] : [])].forEach((row, index) => {
       const total = !!table.totals && index === rows.length;
-      const cells = table.headers.map((_, i) => wrap(row[i] || '', widths[i] - 8, size, total));
+      const cells = table.headers.map((_, i) => cellLines(row[i] || '', i, total));
       const lineCount = Math.max(...cells.map(v => v.length));
       let offset = 0;
       while (offset < lineCount) {
@@ -93,6 +124,7 @@ export async function createAccountingPdf(report: AccountingPdfReport) {
     });
     return top;
   };
+  if (!report.registerOnly) {
   write(report.summaryPeriod, margin, y, 10, true, muted); y -= 20;
   const summaryTop = y;
   const leftWidth = usable * .43;
@@ -125,6 +157,7 @@ export async function createAccountingPdf(report: AccountingPdfReport) {
   });
   report.summaries.slice(1).forEach(summary => { nextPage(report.summaryPeriod); drawTable(summary, margin, usable * .6, y, true); });
   nextPage(report.period);
+  }
   drawTable(report.register, margin, usable, y, true);
   const pages = pdf.getPages();
   pages.forEach((p, index) => {
@@ -136,6 +169,22 @@ export async function createAccountingPdf(report: AccountingPdfReport) {
 }
 
 export async function downloadAccountingPdf(report: AccountingPdfReport) {
+  if (report.registerOnly) {
+    const project = await api.get<{ name: string; logoImageUrl?: string }>(`/projects/${report.projectId}`);
+    const logos = await Promise.all(['/logo/dunacon.png', ...(project.logoImageUrl ? [project.logoImageUrl] : [])].map(async url => {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('No se pudo cargar un logo del reporte.');
+      const bitmap = await createImageBitmap(await response.blob());
+      try {
+        const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height;
+        const context = canvas.getContext('2d');
+        if (!context) throw new Error('No se pudo preparar el logo.');
+        context.drawImage(bitmap, 0, 0);
+        return canvas.toDataURL('image/png');
+      } finally { bitmap.close(); }
+    }));
+    report = { ...report, branding: { projectName: project.name, date: new Intl.DateTimeFormat('es-PE', { timeZone: 'America/Lima', day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date()), logos } };
+  }
   const bytes = await createAccountingPdf(report);
   const url = URL.createObjectURL(new Blob([bytes.slice().buffer as ArrayBuffer], { type: 'application/pdf' }));
   const link = document.createElement('a'); link.href = url;

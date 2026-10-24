@@ -5,6 +5,7 @@ import { api, getToken, projectContextHeaders, uploadFile } from '@/lib/api';
 import { Modal, toast } from '@/components/ui/ui';
 import type { AccountingInvoice, InvoiceKind } from '@/lib/accounting';
 import styles from './accounting.module.css';
+import AttachmentField, { saveAttachments, attachmentPath } from './AttachmentField';
 import EntryAccessNotice from './EntryAccessNotice';
 import { FiPlus, FiUpload } from 'react-icons/fi';
 import { AccountingParameters, calculateIgv, extractIgv } from '@/lib/accounting-parameters';
@@ -39,6 +40,7 @@ export default function InvoiceEntry({ projectId, kind, disabled, onSaved, editi
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [fileKey, setFileKey] = useState(0);
+  const [attachments, setAttachments] = useState<File[]>([]);
   const updateIncludedAmount = (value: number | string) => {
     setIncludedAmount(value);
     const total = Math.round(Number(value) * 100) / 100;
@@ -56,15 +58,19 @@ export default function InvoiceEntry({ projectId, kind, disabled, onSaved, editi
     if (key === 'base') next.igv = calculateIgv(Number(value), parameters.igvRate);
     return next;
   });
-  useEffect(() => { if (editing) { setDraft(editing); setIncludeDeduction(Boolean(editing.deduction || editing.deductionNumber || editing.deductionDate)); setIgvMode('apply'); setIncludedAmount(''); setMode('manual'); setError(''); } }, [editing]);
+  useEffect(() => { if (editing) { setDraft(editing); setAttachments([]); setIncludeDeduction(Boolean(editing.deduction || editing.deductionNumber || editing.deductionDate)); setIgvMode('apply'); setIncludedAmount(''); setMode('manual'); setError(''); } }, [editing]);
   const close = () => { if (!busy) { setMode(null); onEditClose(); } };
-  const open = (next: 'manual' | 'excel') => { setError(''); setDraft(blank()); setIncludeDeduction(false); setIgvMode('apply'); setIncludedAmount(''); setPreview([]); setMode(next); };
+  const open = (next: 'manual' | 'excel') => { setError(''); setAttachments([]); setDraft(blank()); setIncludeDeduction(false); setIgvMode('apply'); setIncludedAmount(''); setPreview([]); setMode(next); };
   const save = async (event: FormEvent) => {
     event.preventDefault(); if (disabled || busy) return;
     setError(''); setBusy(true);
     try {
       const manualRow = { ...draft, exchangeRate: draft.currency === 'USD' ? draft.exchangeRate : 1, deduction: includeDeduction ? Number(draft.deduction || 0) : 0, deductionNumber: includeDeduction ? draft.deductionNumber : '', deductionDate: includeDeduction ? draft.deductionDate : '' };
       const rows = editing ? [await api.patch<AccountingInvoice>(`/accounting/${editing.id}`, { projectId, row: manualRow })] : await api.post<AccountingInvoice[]>('/accounting', { projectId, kind, rows: mode === 'manual' ? [manualRow] : preview });
+      if (mode === 'manual' && attachments.length) {
+        try { await saveAttachments('invoice', rows[0].id, projectId, attachments); Object.assign(rows[0], { attachments: await api.get(attachmentPath('invoice', rows[0].id, projectId)) }); }
+        catch (e) { toast(`Registro guardado, pero faltan adjuntos. Usa el boton Adjuntar de la fila para reintentar. ${e instanceof Error ? e.message : ''}`); onSaved(rows); setMode(null); onEditClose(); return; }
+      }
       onSaved(rows); toast(`${rows.length} facturas guardadas en el servidor.`); setMode(null); onEditClose();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar.'); }
     finally { setBusy(false); }
@@ -95,6 +101,7 @@ export default function InvoiceEntry({ projectId, kind, disabled, onSaved, editi
           <label>Mes<input readOnly value={draft.issuedAt ? draft.issuedAt.slice(0, 7) : ''} /></label>
           <label>Total {draft.currency === 'PEN' ? 'S/' : 'US$'}<input readOnly value={(Number(draft.base) + Number(draft.igv)).toFixed(2)} /></label>
           {!sale && <label>Validada<select value={draft.validated ? 'SI' : 'NO'} onChange={e => setDraft({ ...draft, validated: e.target.value === 'SI' })}><option value="NO">NO</option><option value="SI">SÍ</option></select></label>}
+        <AttachmentField type="invoice" id={editing?.id} projectId={projectId} disabled={disabled || busy} files={attachments} onChange={setAttachments} />
         </fieldset> : <>
           <label className={styles.fileLabel}>Subir archivo Excel<input key={fileKey} type="file" accept=".xlsx,.xls" disabled={busy || disabled} onChange={async e => {
             const file = e.target.files?.[0]; setPreview([]); setError(''); if (!file) return;
