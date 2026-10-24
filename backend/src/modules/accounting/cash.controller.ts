@@ -76,7 +76,17 @@ export class CashController {
     const year = Number(body.year), balance = Number(body.balance);
     if (!Number.isInteger(year) || year < 2000 || year > 2100 || body.balance === '' || body.balance == null || !Number.isFinite(balance) || Math.abs(balance) > 999999999999) throw new BadRequestException('Año o saldo inicial inválido.');
     const rounded = Math.round(balance * 100) / 100;
-    await this.db.query('INSERT INTO accounting_cash_opening(project_id, year, balance) VALUES($1, $2, $3) ON CONFLICT(project_id, year) DO UPDATE SET balance = EXCLUDED.balance', [projectId, year, rounded]);
+    await this.db.transaction(async manager => {
+      await manager.query('SELECT id FROM projects WHERE id = $1 FOR UPDATE', [projectId]);
+      const [{ base_year: baseYear }] = await manager.query(`SELECT MIN(year) AS base_year FROM (
+        SELECT LEFT(data->>'date', 4)::integer AS year FROM accounting_cash WHERE project_id = $1
+        UNION ALL SELECT year FROM accounting_cash_opening WHERE project_id = $1
+        UNION ALL SELECT $2::integer
+      ) years`, [projectId, year]);
+      if (year !== Number(baseYear)) throw new BadRequestException(`Edita la base del primer año (${baseYear}). Los años siguientes se calculan automáticamente.`);
+      await manager.query('INSERT INTO accounting_cash_opening(project_id, year, balance) VALUES($1, $2, $3) ON CONFLICT(project_id, year) DO UPDATE SET balance = EXCLUDED.balance', [projectId, year, rounded]);
+      await manager.query('DELETE FROM accounting_cash_opening WHERE project_id = $1 AND year > $2', [projectId, year]);
+    });
     return { year, balance: rounded };
   }
   @Get('template')

@@ -15,18 +15,18 @@ import { PaginationBar } from '@/components/ui/PaginationBar';
 import { downloadAccountingExcel } from '@/lib/accounting-excel';
 import { downloadAccountingPdf } from '@/lib/accounting-pdf';
 import { KpiCard } from '@/components/ui/Metrics';
-import { FiFileText, FiShoppingCart, FiActivity, FiCreditCard, FiDollarSign, FiCheckCircle, FiRotateCcw, FiDownload, FiSliders } from 'react-icons/fi';
-import { AccountingParameters, DEFAULT_ACCOUNTING_PARAMETERS } from '@/lib/accounting-parameters';
-import AccountingParametersPanel from './AccountingParametersPanel';
+import { FiFileText, FiShoppingCart, FiActivity, FiCreditCard, FiDollarSign, FiCheckCircle, FiRotateCcw, FiDownload } from 'react-icons/fi';
+import { DEFAULT_ACCOUNTING_PARAMETERS } from '@/lib/accounting-parameters';
 import InvoiceBaseCell from './InvoiceBaseCell';
 import { accountingRegisterYear, inAccountingPeriod } from '@/lib/accounting-period';
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, Cell, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import styles from './accounting.module.css';
 
 const MONTHS = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 const CURRENT_YEAR = Number(new Intl.DateTimeFormat('en', { year: 'numeric', timeZone: 'America/Lima' }).format(new Date()));
 const RECENT_YEARS = Array.from({ length: 8 }, (_, index) => CURRENT_YEAR - index);
 const amount = (value: number) => value.toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const cardAmount = (value: number) => value.toLocaleString('es-PE', { maximumFractionDigits: 0 });
 const date = (value: string) => value ? value.split('-').reverse().join('/') : '—';
 
 export default function AccountingView({ projectId }: { projectId: number }) {
@@ -40,8 +40,7 @@ export default function AccountingView({ projectId }: { projectId: number }) {
   const [sourcesLoaded, setSourcesLoaded] = useState({ invoices: false, cash: false });
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfError, setPdfError] = useState('');
-  const [parameters, setParameters] = useState<AccountingParameters>(DEFAULT_ACCOUNTING_PARAMETERS);
-  const [showParameters, setShowParameters] = useState(false);
+  const parameters = DEFAULT_ACCOUNTING_PARAMETERS;
   const [reload, setReload] = useState(0);
   const cashExportRef = useRef<((format?: 'pdf' | 'excel') => Promise<void>) | null>(null);
   const [tab, setTab] = useState<InvoiceKind | 'cash'>('purchase');
@@ -49,8 +48,8 @@ export default function AccountingView({ projectId }: { projectId: number }) {
   useEffect(() => {
     let active = true; setLoading(true); setInvoices([]); setCash({ rows: [], openings: {} }); setLoadError('');
     setSourcesLoaded({ invoices: false, cash: false });
-    Promise.allSettled([api.get<AccountingInvoice[]>(`/accounting?projectId=${projectId}`), api.get<CashData>(`/accounting/cash?projectId=${projectId}`), api.get<AccountingParameters>(`/accounting/parameters?projectId=${projectId}`)])
-      .then(([rows, cashData, savedParameters]) => {
+    Promise.allSettled([api.get<AccountingInvoice[]>(`/accounting?projectId=${projectId}`), api.get<CashData>(`/accounting/cash?projectId=${projectId}`)])
+      .then(([rows, cashData]) => {
         if (!active) return;
         setSourcesLoaded({ invoices: rows.status === 'fulfilled', cash: cashData.status === 'fulfilled' });
         if (rows.status === 'fulfilled') {
@@ -58,8 +57,7 @@ export default function AccountingView({ projectId }: { projectId: number }) {
           setSummaryYear('all');
         }
         if (cashData.status === 'fulfilled') setCash(cashData.value);
-        if (savedParameters.status === 'fulfilled') setParameters(savedParameters.value);
-        const errors = [rows, cashData, savedParameters].flatMap((result, index) => result.status === 'rejected' ? [`${['Facturas', 'Caja Chica', 'Parámetros'][index]}: ${result.reason?.message || 'No se pudo cargar.'}`] : []);
+        const errors = [rows, cashData].flatMap((result, index) => result.status === 'rejected' ? [`${['Facturas', 'Caja Chica', 'Parámetros'][index]}: ${result.reason?.message || 'No se pudo cargar.'}`] : []);
         setLoadError(errors.join(' '));
       })
       .finally(() => { if (active) setLoading(false); });
@@ -117,13 +115,13 @@ export default function AccountingView({ projectId }: { projectId: number }) {
   const cashPeriod = cash.rows.filter(row => inAccountingPeriod(row.date, indicatorPeriod));
   const indicators = accountingIndicators(indicatorInvoices.map(row => ({ ...displayRow(row), currency: 'PEN', exchangeRate: 1 })), cashPeriod.map(row => ({ ...row, deposit: accountingDisplayAmount(row.deposit, 'PEN', currency, exchangeRate), expense: accountingDisplayAmount(row.expense, 'PEN', currency, exchangeRate) })));
   const cards = [
-    ['Comprob. ventas', `${symbol} ${amount(indicators.sales)}`, `IGV ventas: ${symbol} ${amount(indicators.salesIgv)}`],
-    ['Comprob. compras', `${symbol} ${amount(indicators.purchases)}`, `IGV compras: ${symbol} ${amount(indicators.purchaseIgv)}`],
-    ['Diferencia IGV', `${symbol} ${amount(indicators.igvBalance)}`, 'IGV ventas − IGV compras'],
-    ['Pago detracciones', `${symbol} ${amount(indicators.deductionPaid)}`, `Pendiente: ${symbol} ${amount(indicators.deductionPending)}`],
-    ['Caja chica pagos', `${symbol} ${amount(indicators.cashPayments)}`, `Depósitos: ${symbol} ${amount(indicators.cashDeposits)}`],
-    ['Validación facturas', `${symbol} ${amount(indicators.validated)}`, `Por validar: ${symbol} ${amount(indicators.pending)}`],
-    ['Notas de crédito', `${symbol} ${amount(indicators.creditNotes)}`, `${indicators.creditNotesCount} notas de crédito`],
+    ['Facturas ventas', `${symbol} ${cardAmount(indicators.sales)}`, `IGV ventas: ${symbol} ${amount(indicators.salesIgv)}`],
+    ['Facturas compras', `${symbol} ${cardAmount(indicators.purchases)}`, `IGV compras: ${symbol} ${amount(indicators.purchaseIgv)}`],
+    ['Diferencia IGV', `${symbol} ${cardAmount(indicators.igvBalance)}`, 'IGV ventas − IGV compras'],
+    ['Pago detracciones', `${symbol} ${cardAmount(indicators.deductionPaid)}`, `Pendiente: ${symbol} ${amount(indicators.deductionPending)}`],
+    ['Caja chica pagos', `${symbol} ${cardAmount(indicators.cashPayments)}`, `Depósitos: ${symbol} ${amount(indicators.cashDeposits)}`],
+    ['Validación facturas', `${symbol} ${cardAmount(indicators.validated)}`, `Por validar: ${symbol} ${amount(indicators.pending)}`],
+    ['Notas de crédito', `${symbol} ${cardAmount(indicators.creditNotes)}`, `${indicators.creditNotesCount} notas de crédito`],
   ].map((card, index) => (index === 4 ? sourcesLoaded.cash : sourcesLoaded.invoices) ? card : [card[0], loading ? 'Cargando…' : 'No disponible', loading ? 'Consultando registros…' : 'No se pudo cargar este registro.']);
   const exportPdf = async (format: 'pdf' | 'excel' = 'pdf') => {
     if (loading || pdfBusy) return;
@@ -149,19 +147,18 @@ export default function AccountingView({ projectId }: { projectId: number }) {
     finally { setPdfBusy(false); }
   };
   return <div className={styles.sheet} data-project-lock-managed="true">
-    {showParameters && <AccountingParametersPanel key={projectId} projectId={projectId} parameters={parameters} onSaved={setParameters} disabled={readonly || loading || !!loadError} onClose={() => setShowParameters(false)} />}
     <div className={styles.toolbar}>
       <div className={styles.tabs} role="tablist" aria-label="Secciones de Contabilidad">
         {([['purchase', '1. Facturas Compra'], ['sale', '2. Facturas Venta'], ['cash', '3. Caja Chica']] as const).map(([value, label]) => <button key={value} type="button" role="tab" id={`accounting-tab-${value}`} aria-selected={tab === value} aria-controls="accounting-panel" onClick={() => { setTab(value); setParty(''); setEditingInvoice(null); setEditingCash(null); }}>{label}</button>)}
       </div>
-      <div className={styles.actions}><button type="button" className="btn-neutral !h-8 !rounded-md !px-3 !text-xs" disabled={loading || !!loadError} onClick={() => setShowParameters(true)}><FiSliders />Parámetros</button><button type="button" className="btn-neutral !h-8 !rounded-md !px-3 !text-xs" disabled={loading || !!loadError || pdfBusy} onClick={() => exportPdf()}><FiDownload />{pdfBusy ? 'Generando...'  : 'Descargar PDF'}</button>{tab !== 'cash' ? <InvoiceEntry key={`${projectId}-${tab}`} projectId={projectId} kind={tab} parameters={parameters} blockedReason={loadError || (loading ? 'Cargando el registro...' : undefined)} editing={editingInvoice} onEditClose={() => setEditingInvoice(null)} disabled={readonly || loading || !!loadError} onSaved={rows => { setInvoices(prev => [...prev.map(r => rows.find(next => next.id === r.id) || r), ...rows.filter(r => !prev.some(existing => existing.id === r.id))]); setInvoiceYear('all'); setMonth(''); setFrom(''); setTo(''); setParty(''); }} /> : <CashEntry key={projectId} projectId={projectId} blockedReason={loadError || (loading ? 'Cargando el registro...' : undefined)} editing={editingCash} onEditClose={() => setEditingCash(null)} disabled={readonly || loading || !!loadError} onSaved={rows => { setCash(prev => ({ ...prev, rows: [...prev.rows.map(r => rows.find(next => next.id === r.id) || r), ...rows.filter(r => !prev.rows.some(existing => existing.id === r.id))] })); if (rows[0]) setYear(rows[0].date.slice(0, 4)); }} />}</div>
+      <div className={styles.actions}><button type="button" className="btn-neutral !h-8 !rounded-md !px-3 !text-xs" disabled={loading || !!loadError || pdfBusy} onClick={() => exportPdf()}><FiDownload />{pdfBusy ? 'Generando...'  : 'Descargar PDF'}</button>{tab !== 'cash' ? <InvoiceEntry key={`${projectId}-${tab}`} projectId={projectId} kind={tab} blockedReason={loadError || (loading ? 'Cargando el registro...' : undefined)} editing={editingInvoice} onEditClose={() => setEditingInvoice(null)} disabled={readonly || loading || !!loadError} onSaved={rows => { setInvoices(prev => [...prev.map(r => rows.find(next => next.id === r.id) || r), ...rows.filter(r => !prev.some(existing => existing.id === r.id))]); setInvoiceYear('all'); setMonth(''); setFrom(''); setTo(''); setParty(''); }} /> : <CashEntry key={projectId} projectId={projectId} blockedReason={loadError || (loading ? 'Cargando el registro...' : undefined)} editing={editingCash} onEditClose={() => setEditingCash(null)} disabled={readonly || loading || !!loadError} onSaved={rows => { setCash(prev => ({ ...prev, rows: [...prev.rows.map(r => rows.find(next => next.id === r.id) || r), ...rows.filter(r => !prev.rows.some(existing => existing.id === r.id))] })); if (rows[0]) setYear(rows[0].date.slice(0, 4)); }} />}</div>
     </div>
     {loadError && <div role="alert" className={styles.error}>{loadError} Los registros que no se pudieron cargar no se muestran. <button type="button" className="btn-neutral !h-8" onClick={() => setReload(value => value + 1)} disabled={loading}>Reintentar carga</button></div>}
     {pdfError && <p role="alert" className={styles.error}>{pdfError}</p>}
     {tab !== 'cash' && <section className={styles.cards} aria-label="Indicadores contables">{cards.map(([label, value, description], index) => {
       const tones = ['#16A36A', '#2563EB', '#DC2626', '#CA8A04', '#DC2626', '#16A36A', '#2563EB'];
       const Icon = [FiFileText, FiShoppingCart, FiActivity, FiCreditCard, FiDollarSign, FiCheckCircle, FiRotateCcw][index];
-      return <KpiCard key={label} label={label} value={value} helper={<span className="block text-left">{description}</span>} icon={<Icon />} tone={tones[index]} truncateLabel={false} valueAlign="center" />;
+      return <KpiCard key={label} label={label} value={value} helper={<span className="block text-left">{description}</span>} icon={<Icon />} tone={tones[index]} truncateLabel={false} valueAlign="center" valueSize="expanded" />;
     })}</section>}
     <div role="tabpanel" id="accounting-panel" aria-labelledby={`accounting-tab-${tab}`}>
     {tab === 'cash' ? <CashView key={projectId} projectId={projectId} exportRef={cashExportRef} cards={cards} data={cash} year={year} onYear={setYear} month={month} onMonth={setMonth} disabled={readonly || loading || !!loadError} onOpening={(savedYear, balance) => setCash(prev => ({ ...prev, openings: { ...prev.openings, [savedYear]: balance } }))} onEdit={setEditingCash} onSaved={saved => setCash(prev => ({ ...prev, rows: prev.rows.map(row => row.id === saved.id ? saved : row) }))} onDelete={row => setDeleting({ id: row.id, cash: true, label: `${row.date} · ${row.description}` })} /> : <>
@@ -197,7 +194,7 @@ export default function AccountingView({ projectId }: { projectId: number }) {
       <div className={styles.summaryHeading}><h2>RESUMEN {title}</h2><label className={styles.yearFilter}>Año<select value={summaryYear} onChange={e => setSummaryYear(e.target.value)}><option value="all">Todos</option><option value="recent">Últimos 8 años</option>{RECENT_YEARS.map(value => <option key={value} value={String(value)}>{value}</option>)}</select></label><div className={styles.toggle} aria-label="Moneda del resumen">{(['PEN', 'USD'] as const).map(unit => <button key={unit} type="button" aria-pressed={currency === unit} onClick={() => setCurrency(unit)}>{unit === 'PEN' ? 'Soles' : 'Dólares'}</button>)}</div></div>
       <div className={styles.summary}>
       <div><table><thead><tr><th>Mes</th><th>N.º facturas</th><th>Base sin IGV {symbol}</th></tr></thead><tbody>{monthly.map(row => <tr key={row.name}><td>{row.name}</td><td>{row.count}</td><td>{amount(row.base)}</td></tr>)}</tbody><tfoot><tr><td>Total</td><td>{selected.length}</td><td>{amount(displaySum(selected, 'base'))}</td></tr></tfoot></table></div>
-      <div className={styles.chart}><h2>Ventas vs. compras · {symbol}</h2>{summaryRows.length ? <ResponsiveContainer width="100%" height={215}><BarChart data={annual} layout="vertical"><CartesianGrid strokeDasharray="3 3" /><XAxis type="number" /><YAxis type="category" dataKey="name" width={65} /><Tooltip formatter={(v: number) => `${symbol} ${amount(v)}`} /><Bar dataKey="value" name="Base sin IGV" fill="#4472c4" /></BarChart></ResponsiveContainer> : <div className={styles.chartEmpty}>Sin movimientos para este período</div>}</div>
+      <div className={styles.chart}><h2>Ventas vs. compras · {symbol}</h2>{summaryRows.length ? <ResponsiveContainer width="100%" height={215}><BarChart data={annual} layout="vertical"><CartesianGrid strokeDasharray="3 3" /><XAxis type="number" /><YAxis type="category" dataKey="name" width={65} /><Tooltip formatter={(v: number) => `${symbol} ${amount(v)}`} /><Bar dataKey="value" name="Base sin IGV">{annual.map(row => <Cell key={row.name} fill={row.name === 'Compras' ? '#ed9b40' : '#4472c4'} />)}</Bar></BarChart></ResponsiveContainer> : <div className={styles.chartEmpty}>Sin movimientos para este período</div>}</div>
       <div className={styles.chart}><h2>Ventas vs. compras por mes · {symbol}</h2>{summaryRows.length ? <ResponsiveContainer width="100%" height={215}><BarChart data={monthly}><CartesianGrid strokeDasharray="3 3" /><XAxis dataKey="name" tickFormatter={v => v.slice(0, 3)} tick={{ fontSize: 9 }} interval={0} /><YAxis width={50} tick={{ fontSize: 10 }} /><Tooltip formatter={(v: number) => `${symbol} ${amount(v)}`} /><Legend /><Bar dataKey="sales" name="Ventas" fill="#4472c4" /><Bar dataKey="purchases" name="Compras" fill="#ed9b40" /></BarChart></ResponsiveContainer> : <div className={styles.chartEmpty}>Sin movimientos para este período</div>}</div>
       </div>
     </section>

@@ -4,8 +4,9 @@ import { MutableRefObject, useEffect, useState } from 'react';
 import { useDisplayCurrency } from '@/lib/currency';
 import { accountingDisplayAmount } from '@/lib/accounting-display';
 import { Select } from '@/components/ui/Select';
+import { Modal } from '@/components/ui/ui';
 import { api } from '@/lib/api';
-import { cashByDocument, cashLedger, cashMonthly, CASH_DOCUMENT_TYPES, CashData, CashMovement } from '@/lib/accounting-cash';
+import { cashByDocument, cashLedger, cashMonthly, cashOpeningBalance, cashBaseYear, CASH_DOCUMENT_TYPES, CashData, CashMovement } from '@/lib/accounting-cash';
 import { RecordActions } from './RecordActions';
 import { PaginationBar } from '@/components/ui/PaginationBar';
 import CashChart from './CashChart';
@@ -22,7 +23,12 @@ export default function CashView({ projectId, data, year, onYear, month, onMonth
   const convert = (value: number) => accountingDisplayAmount(value, 'PEN', currency, exchangeRate);
   const amount = (value: number) => convert(value).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const [search, setSearch] = useState('');
-  const [openingInput, setOpeningInput] = useState(String(data.openings[year] || 0));
+  const opening = cashOpeningBalance(data, year);
+  const baseYear = cashBaseYear(data, year);
+  const carried = year !== baseYear;
+  const [editingBase, setEditingBase] = useState(false);
+  const [baseDraft, setBaseDraft] = useState('');
+  const [openingInput, setOpeningInput] = useState(String(opening));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [documentSaving, setDocumentSaving] = useState<string | null>(null);
@@ -34,12 +40,11 @@ export default function CashView({ projectId, data, year, onYear, month, onMonth
   const [incomeMonth, setIncomeMonth] = useState('');
   const [expenseMonth, setExpenseMonth] = useState('');
   useEffect(() => { setPage(1); }, [projectId, year, month, search]);
-  useEffect(() => { setOpeningInput(String(data.openings[year] || 0)); setError(''); }, [data.openings, year]);
+  useEffect(() => { setOpeningInput(String(opening)); setError(''); }, [opening, year]);
   const availableYears = Array.from(new Set([
     ...data.rows.map(row => row.date.slice(0, 4)), ...Object.keys(data.openings), year,
     new Intl.DateTimeFormat('en', { year: 'numeric', timeZone: 'America/Lima' }).format(new Date()),
   ])).filter(value => /^\d{4}$/.test(value)).sort().reverse();
-  const opening = data.openings[year] || 0;
   const ledger = cashLedger(data.rows, year, opening);
   const filtered = ledger.filter(r => (!month || r.date.slice(5, 7) === month) && (!search || `${r.paidTo} ${r.description} ${r.responsible}`.toLocaleLowerCase().includes(search.toLocaleLowerCase())));
   const totalPages = Math.max(1, Math.ceil(filtered.length / 10));
@@ -68,6 +73,22 @@ export default function CashView({ projectId, data, year, onYear, month, onMonth
     return () => { exportRef.current = null; };
   }, [exportRef, projectId, year, month, search, opening, data, incomeMonth, expenseMonth, cards, currency, exchangeRate, documentDetailsExpanded]);
   return <>
+    <Modal open={editingBase} title={`Editar saldo inicial base ? ${baseYear}`} onClose={() => { if (!busy) setEditingBase(false); }}>
+      <form className={styles.entry} onSubmit={async event => {
+        event.preventDefault(); if (disabled || busy) return;
+        setBusy(true); setError('');
+        try {
+          const saved = await api.put<{ balance: number }>('/accounting/cash/opening', { projectId, year: Number(baseYear), balance: baseDraft });
+          onOpening(baseYear, saved.balance); setEditingBase(false);
+        } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar el saldo.'); }
+        finally { setBusy(false); }
+      }}>
+        <p>Esta base corresponde al primer a?o ({baseYear}). Al cambiarla se recalculan los saldos de todos los a?os siguientes.</p>
+        <label className={styles.fileLabel}>Saldo inicial base S/<input className="input" type="number" step="0.01" required value={baseDraft} disabled={disabled || busy} onChange={event => setBaseDraft(event.target.value)} /></label>
+        {error && <p className={styles.error} role="alert">{error}</p>}
+        <div className={styles.actions}><button type="button" className="btn-neutral" disabled={busy} onClick={() => setEditingBase(false)}>Cancelar</button><button type="submit" className="btn-primary" disabled={disabled || busy}>{busy ? 'Guardando...' : 'Guardar base'}</button></div>
+      </form>
+    </Modal>
     {showClassification && <CashClassificationPanel projectId={projectId} onClose={() => setShowClassification(false)} />}
     <div className={styles.filters}><div className={styles.cashFilterHeading}><h2>Caja Chica</h2><div className={styles.cashYearFilter} role="group" aria-label="Filtro de años de Caja Chica"><span>Años</span><Select className={styles.cashYearSelect} value={year} onChange={onYear} options={availableYears.map(value => ({ value, label: value }))} /></div></div><button type="button" onClick={() => setShowClassification(true)}>Clasificación</button><label>Mes<select value={month} onChange={e => onMonth(e.target.value)}><option value="">Todos</option>{MONTHS.map((name, i) => <option key={name} value={String(i + 1).padStart(2, '0')}>{name}</option>)}</select></label><label>Buscar<input placeholder="Pagado a / responsable" value={search} onChange={e => setSearch(e.target.value)} /></label><button type="button" onClick={() => { onMonth(''); setSearch(''); }}>Limpiar</button></div>
     {documentError && <p role="alert" className={styles.error}>{documentError}</p>}
@@ -86,12 +107,14 @@ export default function CashView({ projectId, data, year, onYear, month, onMonth
     <div className={styles.cashSummary}>
       <section><div className={styles.cashSummaryHeader}><h2>RESUMEN · {year}</h2><form className={styles.openingForm} onSubmit={async e => {
         e.preventDefault(); if (disabled || busy) return;
+        if (carried) { setBaseDraft(String(data.openings[baseYear] || 0)); setError(''); setEditingBase(true); return; }
         setBusy(true); setError('');
         const savedYear = year;
         try { const saved = await api.put<{ balance: number }>('/accounting/cash/opening', { projectId, year: Number(savedYear), balance: openingInput }); onOpening(savedYear, saved.balance); }
         catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar el saldo.'); }
         finally { setBusy(false); }
-      }}><label>Saldo inicial S/<input type="number" step="0.01" required value={openingInput} disabled={disabled || busy} onChange={e => setOpeningInput(e.target.value)} /></label><button type="submit" disabled={disabled || busy || Number(openingInput) === opening} className="btn-neutral">{busy ? 'Guardando…' : 'Guardar saldo'}</button><button type="button" className="btn-neutral" aria-expanded={showDocuments} aria-controls="cash-document-summary" onClick={() => setShowDocuments(value => !value)}>{showDocuments ? 'Ocultar tipos de documento' : 'Tipos de documento'}</button></form>
+      }}><label>Saldo inicial S/<input type="number" step="0.01" required readOnly={carried} value={openingInput} disabled={disabled || busy} onChange={e => setOpeningInput(e.target.value)} /></label><button type="submit" disabled={disabled || busy || (!carried && Number(openingInput) === opening)} className="btn-neutral">{busy ? 'Guardando…' : carried ? 'Editar base' : 'Guardar saldo'}</button><button type="button" className="btn-neutral" aria-expanded={showDocuments} aria-controls="cash-document-summary" onClick={() => setShowDocuments(value => !value)}>{showDocuments ? 'Ocultar tipos de documento' : 'Tipos de documento'}</button></form>
+        {carried && <p className={styles.hint}>Saldo inicial calculado con el cierre anterior. Base manual: {baseYear}.</p>}
         {error && <p role="alert" className={styles.error}>{error}</p>}
         </div><table><thead><tr>{['Mes', `Saldo inicial ${symbol}`, `Abono ${symbol}`, `Gastos ${symbol}`, `Saldo final ${symbol}`].map(h => <th key={h}>{h}</th>)}</tr></thead><tbody>{monthly.map(row => <tr key={row.month}><td>{MONTHS[row.month]}</td><td>{amount(row.initial)}</td><td>{amount(row.deposit)}</td><td>{amount(row.expense)}</td><td>{amount(row.final)}</td></tr>)}</tbody><tfoot><tr><td>Totales {symbol}</td><td>{amount(opening)}</td><td>{amount(totalDeposit)}</td><td>{amount(totalExpense)}</td><td>{amount(monthly[11].final)}</td></tr></tfoot></table>
       </section>

@@ -11,6 +11,22 @@ function documentKey(value: string) {
   return ['transferenciabancaria', 'transferenciabanco', 'transfbancaria', 'trasnfbancaria'].includes(key) ? 'transfbancaria' : key;
 }
 const cents = (value: number) => Math.round(value * 100);
+export function cashBaseYear(data: CashData, fallback: string) {
+  return [...data.rows.map(row => row.date.slice(0, 4)), ...Object.keys(data.openings)]
+    .filter(year => /^\d{4}$/.test(year)).sort()[0] || fallback;
+}
+export function cashOpeningBalance(data: CashData, year: string) {
+  const target = Number(year);
+  const baseYear = cashBaseYear(data, year);
+  const anchor = Number(baseYear);
+  if (target < anchor) return 0;
+  let balance = cents(data.openings[baseYear] || 0);
+  for (const row of data.rows) {
+    const movementYear = Number(row.date.slice(0, 4));
+    if (movementYear < target && movementYear >= anchor) balance += cents(row.deposit) - cents(row.expense);
+  }
+  return balance / 100;
+}
 export function cashLedger(rows: CashMovement[], year: string, opening: number) {
   let balance = cents(opening);
   return rows.filter(r => r.date.startsWith(year)).sort((a, b) => a.date.localeCompare(b.date)).map((r, index) => {

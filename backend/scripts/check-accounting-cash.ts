@@ -21,7 +21,7 @@ async function main() {
       if (sql.startsWith('SELECT kind')) return [{ kind: 'purchase' }];
       return [];
     },
-    transaction: async (fn: any) => fn({ query: async (sql: string, params: any[]) => { queries.push({ sql, params }); } }),
+    transaction: async (fn: any) => fn({ query: async (sql: string, params: any[]) => { queries.push({ sql, params }); if (sql.includes('MIN(year)')) return [{ base_year: 2026 }]; return []; } }),
   };
   const user = { role: 'superadmin', id: 1 };
   const controller = new CashController(db as any);
@@ -44,6 +44,10 @@ async function main() {
   assert.equal((await controller.remove('record', '5', user)).id, 'record');
   assert.equal((await controller.opening({ projectId: 5, year: 2026, balance: 200 }, user)).balance, 200);
   await assert.rejects(() => controller.opening({ projectId: 5, year: 1800, balance: 200 }, user));
+  assert.ok(queries.some(q => q.sql.startsWith('DELETE FROM accounting_cash_opening') && q.params[0] === 5 && q.params[1] === 2026));
+  const beforeLaterOpening = queries.length;
+  await assert.rejects(() => controller.opening({ projectId: 5, year: 2027, balance: 100 }, user));
+  assert.ok(!queries.slice(beforeLaterOpening).some(q => q.sql.startsWith('INSERT')));
   await assert.rejects(() => controller.list('5', { role: 'admin', id: 99 }));
   const invoice = { documentType: 'Factura', issuedAt: '2026-10-22', number: 'F001-12', supplier: 'Proveedor', ruc: '20123456789', currency: 'PEN', base: 100, igv: 18, validated: true };
   const invoiceController = new AccountingController(db as any);

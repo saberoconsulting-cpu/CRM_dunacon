@@ -22,6 +22,7 @@ async function check(file) {
     if (name === '@/lib/api') return { api: { post: async (_url, body) => { writes++; lastBody = body; return []; } } };
     if (name === '@/components/ui/ui') return { Modal: props => props.open ? props.children : null, toast() {} };
     if (name === '@/lib/accounting-cash') return { CASH_DOCUMENT_TYPES: ['Factura', 'Sin Comprobante'] };
+    if (name === './AttachmentField') return { default: () => null };
     if (name === './EntryAccessNotice') return { default: () => null };
     if (name === '@/lib/accounting-parameters') {
       const result = {};
@@ -91,13 +92,13 @@ async function check(file) {
     props.parameters = { ...props.parameters, igvRate: 10 };
     tree = render();
     field('Base imponible').props.onChange({ target: { value: '200' } }); tree = render();
-    assert.equal(field('IGV').props.value, '20', 'El IGV usa la tasa de parametros');
+    assert.equal(field('IGV').props.value, '36', 'El IGV autom?tico usa 18%');
     assert.equal(field('Detracción').props.value, '123.45');
     const igvSelect = () => find(find(tree, node => node.type === 'label' && labelText(node.props.children).startsWith('Cálculo del IGV')), node => node.type === 'select');
     igvSelect().props.onChange({ target: { value: 'included' } }); tree = render();
-    field('Monto total (incluye IGV)').props.onChange({ target: { value: '110' } }); tree = render();
+    field('Monto total (incluye IGV)').props.onChange({ target: { value: '118' } }); tree = render();
     assert.equal(field('Base imponible').props.value, '100');
-    assert.equal(field('IGV').props.value, '10');
+    assert.equal(field('IGV').props.value, '18');
     props.parameters = { ...props.parameters, igvRate: 18 }; tree = render();
     field('Monto total (incluye IGV)').props.onChange({ target: { value: '118' } }); tree = render();
     assert.equal(field('Base imponible').props.value, '100');
@@ -106,6 +107,14 @@ async function check(file) {
     assert.equal(field('Total US$').props.value, '118.00');
     assert.equal(field('Total convertido').props.value, '448.40');
     assert.equal(field('Detracción').props.value, '123.45');
+    igvSelect().props.onChange({ target: { value: 'apply' } }); tree = render();
+    igvSelect().props.onChange({ target: { value: 'manual' } }); tree = render();
+    assert.equal(field('IGV').props.readOnly, false);
+    field('IGV').props.onChange({ target: { value: '9.50' } }); tree = render();
+    field('Base imponible').props.onChange({ target: { value: '200' } }); tree = render();
+    assert.equal(field('IGV').props.value, '9.5', 'Cambiar la base conserva el IGV manual');
+    assert.equal(field('Total US$').props.value, '209.50');
+    field('Base imponible').props.onChange({ target: { value: '100' } }); tree = render();
     igvSelect().props.onChange({ target: { value: 'apply' } }); tree = render();
     assert.equal(field('Base imponible').props.readOnly, false);
     assert.equal(field('Base imponible').props.value, '100');
@@ -148,4 +157,4 @@ async function check(file) {
     assert.equal(lastBody.rows[0].exchangeRate, 1);
   }
 }
-Promise.all([check('InvoiceEntry'), check('CashEntry')]).then(() => console.log('Ingreso: Importar y Nuevo quedan deshabilitados con candado; botones y guardado se habilitan al desbloquear.')).catch(error => { console.error(error); process.exitCode = 1; });
+Promise.all((process.argv.includes('--invoice-only') ? ['InvoiceEntry'] : ['InvoiceEntry', 'CashEntry']).map(check)).then(() => console.log('Ingreso: Importar y Nuevo quedan deshabilitados con candado; botones y guardado se habilitan al desbloquear.')).catch(error => { console.error(error); process.exitCode = 1; });

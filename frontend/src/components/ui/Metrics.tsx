@@ -146,6 +146,7 @@ export function KpiCard({
   size = 'compact',
   truncateLabel = false,
   valueAlign = 'center',
+  valueSize,
   onClick,
   ariaLabel,
 }: {
@@ -158,6 +159,7 @@ export function KpiCard({
   /** etiquetas largas se recortan con "...". */
   truncateLabel?: boolean;
   valueAlign?: 'left' | 'center';
+  valueSize?: KpiCardSize;
   onClick?: () => void;
   ariaLabel?: string;
 }) {
@@ -165,7 +167,7 @@ export function KpiCard({
   return (
       <KpiCardShell tone={tone} ring={ring} size={size} className="flex flex-col" onClick={onClick} title={label} ariaLabel={ariaLabel}>
       <KpiCardLabel icon={icon} tone={tone} ring={ring} truncate={truncateLabel} size={size}>{label}</KpiCardLabel>
-      <KpiCardValue tone={tone} size={size} align={valueAlign}>{value}</KpiCardValue>
+      <KpiCardValue tone={tone} size={valueSize ?? size} align={valueAlign}>{value}</KpiCardValue>
       {helper && <KpiCardHelper>{helper}</KpiCardHelper>}
     </KpiCardShell>
   );
