@@ -11,6 +11,31 @@ function documentKey(value: string) {
   return ['transferenciabancaria', 'transferenciabanco', 'transfbancaria', 'trasnfbancaria'].includes(key) ? 'transfbancaria' : key;
 }
 const cents = (value: number) => Math.round(value * 100);
+export function cashInvoiceNumbers(invoices: { number: string; documentType: string; kind: string }[]) {
+  return new Set(invoices.filter(row => ['purchase', 'sale'].includes(row.kind) && documentKey(row.documentType) === 'factura')
+    .map(row => row.number.trim().toUpperCase()).filter(Boolean));
+}
+export function cashIsAccounted(row: CashMovement, invoiceNumbers: Set<string>) {
+  const number = row.documentNumber.trim().toUpperCase();
+  return documentKey(row.documentType) === 'factura' && !!number && invoiceNumbers.has(number);
+}
+export function cashIndicators(data: CashData, fallbackYear: string) {
+  const year = [...data.rows.map(row => row.date.slice(0, 4)), ...Object.keys(data.openings)]
+    .filter(value => /^\d{4}$/.test(value)).sort().at(-1) || fallbackYear;
+  let deposits = 0, payments = 0, withInvoice = 0, withoutInvoice = 0;
+  for (const row of data.rows) {
+    const expense = cents(row.expense);
+    const invoice = documentKey(row.documentType) === 'factura';
+    if (row.date.slice(0, 4) !== year) continue;
+    deposits += cents(row.deposit);
+    payments += expense;
+    if (invoice) withInvoice += expense; else withoutInvoice += expense;
+  }
+  const opening = cashOpeningBalance(data, year);
+  return { year, opening, deposits: deposits / 100, payments: payments / 100,
+    balance: (cents(opening) + deposits - payments) / 100,
+    withInvoice: withInvoice / 100, withoutInvoice: withoutInvoice / 100 };
+}
 export function cashBaseYear(data: CashData, fallback: string) {
   return [...data.rows.map(row => row.date.slice(0, 4)), ...Object.keys(data.openings)]
     .filter(year => /^\d{4}$/.test(year)).sort()[0] || fallback;

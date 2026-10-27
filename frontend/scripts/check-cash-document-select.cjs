@@ -17,6 +17,12 @@ const placeholder = () => null;
 const compile = file => ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 function resolve(name) {
   if (name === 'react') return react;
+  if (name === '@/lib/currency') return { useDisplayCurrency: () => ({ currency: 'PEN', exchangeRate: 3.75 }) };
+  if (name === '@/lib/accounting-display') {
+    const exports = {};
+    new Function('exports', 'require', compile(path.join(__dirname, '../src/lib/accounting-display.ts')))(exports, resolve);
+    return exports;
+  }
   if (name === '@/lib/api') return { api: { patch: async (_url, body) => { if (fail) throw new Error('Save failed'); written = body; return body.row; } } };
   if (name === './InvoiceEntry') return { default: InvoiceEntry };
   if (name === '@/lib/project-readonly-context') return { useProjectReadonly: () => false };

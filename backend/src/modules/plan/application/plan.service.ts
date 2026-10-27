@@ -495,9 +495,10 @@ export class PlanService {
   }
 
   async deleteLot(lotId: number, actorId: number) {
+    const lot = await this.lotRepo.findOne({ where: { id: lotId } });
     await this.lotRepo.delete({ id: lotId });
     await this.audit(actorId, 'ELIMINAR_LOTE', 'lots', lotId);
-    this.gateway.emitToAll('lot.updated', { id: lotId, deleted: true });
+    this.gateway.emitToAll('lot.updated', { id: lotId, projectId: lot?.projectId, deleted: true });
     return { ok: true };
   }
 

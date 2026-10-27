@@ -1,9 +1,10 @@
+import { ProjectResourceGuard } from '../../../shared/application/guards/project-resource.guard';
 // modules/lots/interface/lots.controller.ts
-import { Controller, Get, Param, ParseIntPipe, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, ParseIntPipe, Query, Req, UseGuards } from '@nestjs/common';
 import { LotsService } from '../application/lots.service';
 import { JwtAuthGuard } from '../../../shared/application/guards/jwt-auth.guard';
 
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, ProjectResourceGuard)
 @Controller('lots')
 export class LotsController {
   constructor(private readonly lotsService: LotsService) {}
@@ -22,8 +23,10 @@ export class LotsController {
     @Query('maxPrice') maxPrice?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
+    @Req() req?: any,
   ) {
     return this.lotsService.list({
+      projectScope: req?.projectScope,
       projectId: projectId ? Number(projectId) : undefined,
       streetId: streetId ? Number(streetId) : undefined,
       blockId: blockId ? Number(blockId) : undefined,
@@ -40,8 +43,8 @@ export class LotsController {
   }
 
   @Get('stats')
-  stats(@Query('projectId') projectId?: string) {
-    return this.lotsService.stats(projectId ? Number(projectId) : undefined);
+  stats(@Query('projectId') projectId?: string, @Req() req?: any) {
+    return this.lotsService.stats(projectId ? Number(projectId) : undefined, req?.projectScope);
   }
 
   @Get(':id')

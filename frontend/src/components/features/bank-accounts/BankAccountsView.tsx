@@ -849,7 +849,7 @@ export default function BankAccountsView({ projectId }: { projectId: number }) {
                 Ascendente
               </span>
             </div>
-            <div className="grid w-full min-w-0 grid-cols-1 gap-2 sm:grid-cols-2 xl:flex-1 2xl:grid-cols-6">
+            <div className="grid w-full min-w-0 grid-cols-2 items-end gap-2 xl:flex-1 2xl:grid-cols-6">
               <label className="block min-w-0 text-xs font-medium" style={{ color: MUTED }}>
                 <span className="mb-1 block">Fecha desde</span>
               <input

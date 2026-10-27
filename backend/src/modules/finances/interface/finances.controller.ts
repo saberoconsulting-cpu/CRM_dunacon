@@ -58,8 +58,8 @@ export class FinancesController {
   }
 
   @Get('by-project')
-  byProject() {
-    return this.financesService.byProject();
+  byProject(@Query('projectId') projectId?: string) {
+    return this.financesService.byProject(projectId ? Number(projectId) : undefined);
   }
 
   @Get('expenses')

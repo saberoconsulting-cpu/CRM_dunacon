@@ -103,7 +103,7 @@ export interface GraceScheduleResult {
  * - Si graceMonths = 0 o no hay TEA, se comporta como el cronograma normal.
  */
 export function buildGraceSchedule(options: GraceScheduleOptions): GraceScheduleResult {
-  const principal = Math.max(0, Number(options.principal || 0));
+  const principal = round2(Math.max(0, Number(options.principal || 0)));
   const totalCuotas = Math.max(0, Math.floor(Number(options.totalCuotas || 0)));
   const graceMonths = Math.min(totalCuotas, Math.max(0, Math.floor(Number(options.graceMonths || 0))));
 
@@ -121,14 +121,14 @@ export function buildGraceSchedule(options: GraceScheduleOptions): GraceSchedule
   }
 
   const iMensual = monthlyRate(options.interestType, options.teaPct);
-  const graceCuota = principal / totalCuotas;
+  const graceCuota = round2(principal / totalCuotas);
   const interestMonths = totalCuotas - graceMonths;
   const rows: AmortizationRow[] = [];
   let saldo = principal;
 
   for (let m = 1; m <= graceMonths; m++) {
-    const amortizacion = Math.min(saldo, graceCuota);
-    const saldoFinal = Math.max(0, saldo - amortizacion);
+    const amortizacion = m === totalCuotas ? saldo : Math.min(saldo, graceCuota);
+    const saldoFinal = round2(Math.max(0, saldo - amortizacion));
     rows.push({
       month: m,
       saldoInicial: saldo,
@@ -148,17 +148,17 @@ export function buildGraceSchedule(options: GraceScheduleOptions): GraceSchedule
 
   for (let k = 1; k <= interestMonths; k++) {
     const esUltima = k === interestMonths;
-    const interes = saldo * iMensual;
-    let amortizacion = interestCuota - interes;
+    const interes = round2(saldo * iMensual);
+    let amortizacion = Math.min(saldo, round2(interestCuota) - interes);
     if (esUltima) amortizacion = saldo;
-    const saldoFinal = Math.max(0, saldo - amortizacion);
+    const saldoFinal = round2(Math.max(0, saldo - amortizacion));
     rows.push({
       month: graceMonths + k,
       saldoInicial: saldo,
       interes,
       amortizacionCapital: amortizacion,
       amortizacionExtraordinaria: 0,
-      cuota: esUltima ? amortizacion + interes : interestCuota,
+      cuota: round2(amortizacion + interes),
       saldoFinal,
     });
     saldo = saldoFinal;

@@ -44,6 +44,7 @@ export default function AttachmentField({ type, id, projectId, disabled, files, 
     return () => { active = false; };
   }, [type, id, projectId]);
   return <div className={styles.attachmentField}>
+    <div className={styles.attachmentControl}>
     <div className={styles.attachmentHeading}>Documentos y fotos</div>
     <label className={styles.attachmentPicker} aria-disabled={disabled}>
       <FiUpload aria-hidden="true" /><span>Adjuntar documento o foto</span>
@@ -53,6 +54,8 @@ export default function AttachmentField({ type, id, projectId, disabled, files, 
         setError(''); onChange([...files, ...selectedFiles]); e.target.value = '';
       }} />
     </label>
+    </div>
+    <div className={styles.attachmentDetails}>
     <small className={styles.attachmentHint}>Fotos, PDF, Word o Excel. M?ximo 10 MB por archivo.</small>
     {loading && <p role="status" className={styles.attachmentHint}>Cargando adjuntos...</p>}
     {!loading && !error && !saved.length && !selected.length && <p className={styles.attachmentHint}>Sin archivos adjuntos.</p>}
@@ -61,5 +64,6 @@ export default function AttachmentField({ type, id, projectId, disabled, files, 
       {selected.map((file, i) => <AttachmentPreview key={file.url + i} file={file} pending />)}
     </div>
     {error && <p role="alert" className={styles.error}>{error}</p>}
+    </div>
   </div>;
 }

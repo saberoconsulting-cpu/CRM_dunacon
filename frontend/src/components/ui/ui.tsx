@@ -142,7 +142,7 @@ export function Modal({ open, onClose, title, children, width = 'max-w-lg' }: {
 // Toast global simple
 let toastFn: (msg: string, type?: 'ok' | 'err') => void = () => {};
 export function toast(msg: string, type: 'ok' | 'err' = 'ok') {
-  if (type === 'err' && isSessionLockError(msg)) return;
+  if (type === 'err' && isSessionLockError(msg)) msg = 'Candado activado. Desactívalo para realizar esta acción.';
   toastFn(msg, type);
 }
 

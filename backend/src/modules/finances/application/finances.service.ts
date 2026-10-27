@@ -382,14 +382,15 @@ export class FinancesService {
     return rows.map((r) => ({ category: r.category, total: Number(r.total) }));
   }
 
-  async byProject() {
-    const rows = await this.txnRepo
+  async byProject(projectId?: number) {
+    const qb = this.txnRepo
       .createQueryBuilder('t')
       .select('t.project_id', 'projectId')
       .addSelect('COALESCE(SUM(CASE WHEN t.type=\'ingreso\' THEN t.amount ELSE 0 END),0)', 'income')
       .addSelect('COALESCE(SUM(CASE WHEN t.type=\'egreso\' THEN t.amount ELSE 0 END),0)', 'expense')
-      .groupBy('t.project_id')
-      .getRawMany();
+      .groupBy('t.project_id');
+    if (projectId) qb.andWhere('t.project_id = :projectId', { projectId });
+    const rows = await qb.getRawMany();
     return rows.map((r) => ({ projectId: r.projectId, income: Number(r.income), expense: Number(r.expense) }));
   }
 

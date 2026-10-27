@@ -36,8 +36,9 @@ export default function CashClassificationPanel({ projectId, onClose }: { projec
     const currentRevision = revision.current;
     try {
       await api.put('/accounting/cash/classifications', { projectId, rows });
-      if (currentRevision === revision.current) setDirty(false);
-      return true;
+      const upToDate = currentRevision === revision.current;
+      if (upToDate) setDirty(false);
+      return upToDate;
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar la clasificación.'); return false; }
     finally { setBusy(false); }
   };
@@ -48,6 +49,6 @@ export default function CashClassificationPanel({ projectId, onClose }: { projec
   }, [readonly, dirty, complete, loading, busy, rows, error]);
   return <div className="fixed left-2 right-2 top-20 z-50 max-h-[calc(100dvh-6rem)] overflow-auto rounded-md border bg-white shadow-2xl sm:left-auto sm:right-6 sm:top-24 sm:max-h-[calc(100dvh-7rem)]" style={{ borderColor: '#E5E7EB' }} role="dialog" aria-label="Clasificación de Caja Chica">
     <div className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b bg-white px-4 py-3"><h3 className="font-semibold">Clasificación</h3><div className="flex flex-wrap items-center justify-end gap-2"><span className="text-xs text-slate-400">{busy ? 'Guardando…' : dirty ? 'Cambios pendientes' : loading ? 'Cargando…' : 'Guardado'}</span><button type="button" className="btn-neutral !h-8 !px-3 !text-xs" disabled={readonly || loading || !loaded || busy} onClick={() => change([...rows, { key: crypto.randomUUID(), code: '', movementType: 'Egreso', category: '', eerrClassification: '', paymentMethod: '', sortOrder: String(rows.length + 1), custom: true }])}>Agregar</button><button type="button" className="btn-neutral !h-8 !px-3 !text-xs" disabled={readonly || loading || !loaded || busy || !dirty} onClick={() => void save()}>Guardar</button><button type="button" className="btn-neutral !h-8 !px-3 !text-xs" disabled={busy} onClick={async () => { if (!dirty || await save()) onClose(); }}><FiX />Cerrar</button></div></div>
-    <div className={`${styles.classificationTable} overflow-auto p-3`}><EntryAccessNotice />{error && <p className={styles.error} role="alert">{error}</p>}{loading ? <p className="p-4 text-slate-400">Cargando clasificación…</p> : <ClassificationTable rows={rows} disabled={readonly || busy || !loaded} onChange={(key, patch) => change(rows.map(row => row.key === key ? { ...row, ...patch } : row))} onDelete={key => change(rows.filter(row => row.key !== key))} />}</div>
+    <div className={`${styles.classificationTable} overflow-auto p-3`}><EntryAccessNotice />{error && <p className={styles.error} role="alert">{error}</p>}{loading ? <p className="p-4 text-slate-400">Cargando clasificación…</p> : <ClassificationTable rows={rows} disabled={readonly || !loaded} onChange={(key, patch) => change(rows.map(row => row.key === key ? { ...row, ...patch } : row))} onDelete={key => change(rows.filter(row => row.key !== key))} />}</div>
   </div>;
 }

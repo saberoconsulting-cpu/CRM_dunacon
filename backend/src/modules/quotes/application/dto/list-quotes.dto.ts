@@ -6,7 +6,7 @@ import { IsIn, IsInt, IsOptional, IsString, MaxLength } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PaginationQueryDto } from '../../../../shared/application/dto/pagination.dto';
 
-export const QUOTE_SORT_FIELDS = ['createdAt', 'clientName', 'finalPriceUsd'] as const;
+export const QUOTE_SORT_FIELDS = ['id', 'createdAt', 'clientName', 'finalPriceUsd'] as const;
 export type QuoteSortField = (typeof QUOTE_SORT_FIELDS)[number];
 
 export class ListQuotesDto extends PaginationQueryDto {

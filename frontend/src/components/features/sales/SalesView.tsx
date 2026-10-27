@@ -12,6 +12,7 @@ import { formatMoney, formatDate } from '@/lib/types';
 import { DEFAULT_EXCHANGE_RATE, useDisplayCurrency, moneyGlobal, moneyGlobalDecimals, moneyGlobalShort, displayNumberGlobal, displaySymbol } from '@/lib/currency';
 import { Select } from '@/components/ui/Select';
 import { printHtml } from '@/lib/print';
+import { useProjectReadonly } from '@/lib/project-readonly-context';
 import { FiDownload, FiHome, FiCheckCircle, FiDollarSign, FiTrendingUp, FiPercent, FiBookmark, FiArrowDownCircle, FiCalendar, FiChevronDown, FiFilter, FiSearch, FiSliders, FiX } from 'react-icons/fi';
 import LotDetailModal from '@/components/features/lots/LotDetailModal';
 import {
@@ -123,7 +124,7 @@ function FilterSelect({
 
 type S = {
   id: number; projectId: number; lotId: number; clientId?: number | null; agentId?: number | null;
-  salePrice: string; saleDate: string; commission: string; agentName?: string | null; clientName?: string | null;
+  salePrice: string; saleDate: string; firstInstallmentDate?: string | null; commission: string; agentName?: string | null; clientName?: string | null;
   lotCode?: string | null; conditions?: string | null; approvalStatus?: string; totalCuotas?: number;
   interestType?: string; tea?: number; financingBase?: number; valorCuota?: number; planStatus?: string; lotAreaM2?: number;
   cuotaInicial?: number; exchangeRate?: number; graceCuota?: number;
@@ -314,6 +315,7 @@ function escapeHtml(value: unknown) {
 
 export default function SalesView({ lockedProjectId }: { lockedProjectId?: number }) {
   const searchParams = useSearchParams();
+  const projectReadonly = useProjectReadonly();
   const [rows, setRows] = useState<S[]>([]);
   const [pending, setPending] = useState<S[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -428,6 +430,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
   const [interestType, setInterestType] = useState<'sin_intereses' | 'tea'>('sin_intereses');
   const [tea, setTea] = useState(0);
   const [saleDate, setSaleDate] = useState(todayInput());
+  const [manualSaleDate, setManualSaleDate] = useState('');
+  const [firstInstallmentDate, setFirstInstallmentDate] = useState('');
+  const [customFirstInstallmentDate, setCustomFirstInstallmentDate] = useState(false);
   const [conditions, setConditions] = useState('');
   const [preview, setPreview] = useState<any>(null);
   const [saleCurrency, setSaleCurrencyState] = useState<SaleCurrency>('USD');
@@ -592,7 +597,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     if (lotStatus && lotStatus === 'vendido') return false;
     if (quoteSearch.trim()) {
       const term = quoteSearch.trim().toLowerCase();
-      const haystack = `${q.id} ${q.clientName || ''} ${q.lotCode || ''} ${q.clientEmail || ''} ${q.clientPhone || ''}`.toLowerCase();
+      const haystack = `${q.projectNumber ?? q.id} ${q.clientName || ''} ${q.lotCode || ''} ${q.clientEmail || ''} ${q.clientPhone || ''}`.toLowerCase();
       if (!haystack.includes(term)) return false;
     }
     const created = q.createdAt ? String(q.createdAt).slice(0, 10) : '';
@@ -836,9 +841,11 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     const lotForSale = lots.find((l: any) => Number(l.id) === Number(lotId));
     const basePriceUsd = Number(lotForSale?.salePrice || 0) || Number(lotForSale?.price || 0) * Number(lotForSale?.areaM2 || 0);
     if (basePriceUsd > 0 && salePrice - basePriceUsd > 0.01) return toast('El precio final no puede superar el precio de venta del lote. Corrige la cotizacion.', 'err');
-    if (!saleDate) return toast('Selecciona la fecha de venta', 'err');
+    if (!manualSaleDate) return toast('Selecciona la fecha de venta', 'err');
     if (!(Number(exchangeRate) > 0)) return toast('Ingresa un tipo de cambio valido', 'err');
     if (paymentMethod !== 'Contado') {
+      if (customFirstInstallmentDate && !firstInstallmentDate) return toast('Selecciona la fecha de primera cuota', 'err');
+      if (customFirstInstallmentDate && firstInstallmentDate && firstInstallmentDate < manualSaleDate) return toast('La primera cuota no puede vencer antes de la fecha de venta', 'err');
       if (!(Number(totalCuotas) > 0)) return toast('Ingresa el numero de cuotas del financiamiento', 'err');
       if (!(Number(cuotaInicial) > 0)) return toast('Ingresa la cuota inicial', 'err');
       if (Number(cuotaInicial) >= Number(salePrice)) return toast('La cuota inicial debe ser menor al precio de venta', 'err');
@@ -865,27 +872,30 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         interestType: paymentMethod === 'Contado' ? undefined : (applyInterest ? 'tea' : 'sin_intereses'),
         tea: paymentMethod !== 'Contado' && applyInterest ? tea : undefined,
         quoteId: sale?.id ? Number(sale.id) : (selectedQuoteId || undefined),
-        saleDate: saleDate || undefined,
+        saleDate: manualSaleDate,
+        firstInstallmentDate: paymentMethod !== 'Contado' && customFirstInstallmentDate ? firstInstallmentDate || undefined : undefined,
         conditions: (selectedQuoteId && !/cotizacion\s*q\d+/i.test(conditions))
-          ? [conditions.trim(), `Cotizacion Q${selectedQuoteId}`].filter(Boolean).join(' | ')
+          ? [conditions.trim(), `Cotizacion Q${sale?.projectNumber ?? selectedQuoteId}`].filter(Boolean).join(' | ')
           : (conditions || undefined),
       });
       toast('Separación registrada. Queda pendiente de validación.');
       setClientDni('');
       setOpen(false); setLotId(0); setSelectedQuoteId(0); setSelectedQuoteSnapshot(null); setClientId(0); setClientName(''); setConditions(''); setSalePrice(0);
       setPaymentMethod('Contado'); setTotalCuotas(0); setCuotaInicial(0); setInitialPaymentMode('contado'); setInitialParts(3); setGraceMonths(0); setApplyInterest(false); setInterestType('sin_intereses'); setTea(0);
-      setSaleDate(todayInput()); setAgentId(responsibleUserId); setPreview(null);
+      setSaleDate(todayInput()); setManualSaleDate(''); setFirstInstallmentDate(''); setCustomFirstInstallmentDate(false); setAgentId(responsibleUserId); setPreview(null);
       setQuoteSearch(''); setQuoteFrom(''); setQuoteTo(''); setShowCotizaciones(false);
       load();
     } catch (e: any) { toast(e.message, 'err'); }
   }
 
   async function aprobar(s: any) {
+    if (projectReadonly) return toast('Candado activado. Desactívalo para aprobar o rechazar ventas.', 'err');
     const suffix = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
     try { await api.post(`/sales/approve/${s.id}${suffix}`); toast('Separación aprobada. Lote vendido.'); load(); }
     catch (e: any) { toast(e.message, 'err'); }
   }
   async function rechazar(s: any) {
+    if (projectReadonly) return toast('Candado activado. Desactívalo para aprobar o rechazar ventas.', 'err');
     const suffix = lockedProjectId ? `?projectId=${lockedProjectId}` : '';
     try {
       await api.post(`/sales/reject/${s.id}${suffix}`);
@@ -949,8 +959,8 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       : (financingInstallments ? saldoFin / financingInstallments : 0);
     const interestCuotaUsd = cuotasConInteres.length ? cuotasConInteres[0] : valorCuota;
     const promedio = (values: number[], fallback: number) => (values.length ? values.reduce((a, b) => a + b, 0) / values.length : fallback);
-    const noInterestCuotaPen = promedio(cuotasSinInteres, noInterestCuotaUsd);
-    const interestCuotaPen = promedio(cuotasConInteres, interestCuotaUsd);
+    const noInterestCuotaPen = noInterestInstallments > 0 ? promedio(cuotasSinInteres, noInterestCuotaUsd) : 0;
+    const interestCuotaPen = interestInstallments > 0 ? promedio(cuotasConInteres, interestCuotaUsd) : 0;
     const totalCuotasPen = cuotas.reduce((a, b) => a + b, 0);
     // --- Moneda de la ficha: TODO el documento se expresa en US$ ---
     // Los importes de ventas ya estan guardados en dolares; no se convierten.
@@ -1047,17 +1057,17 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
     ` : '';
     printHtml(`
       <html><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><title>Ficha de venta V${s.id}</title><style>
-        body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white;font-size:14px}.brand{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}.logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}.eyebrow{margin:0 0 5px;color:#1877F2;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}h1{margin:0;font-size:25px;line-height:1.15;color:#111827}h2{font-size:15px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}p{margin:4px 0 0;color:#6B7280;font-size:13px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}.summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:10px 11px;border-radius:6px}.summary span{display:block;color:#6B7280;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.summary strong{display:block;margin-top:4px;color:#111827;font-size:15px}.sale-data-table td{width:24%}.sale-data-table .label{width:24%}.sale-data-table .sale-data-gap{width:4%;border:none;background:white;padding:0}.sale-data-table .value-cell{overflow-wrap:anywhere;word-break:break-word}.summary-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:6px;margin:14px 0 18px}.summary-row div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 8px;border-radius:6px;min-width:0}.summary-row span{display:block;color:#6B7280;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.2}.summary-row strong{display:block;margin-top:3px;color:#111827;font-size:14px;white-space:nowrap}.summary-row .finance-highlight{border-color:#1877F2;background:#F5F9FF;border-left:4px solid #1877F2}.summary-row .finance-highlight strong{color:#1259C4}.summary-row .tiny{display:inline;margin-left:3px;color:#64748B;font-size:10px;font-weight:700;text-transform:none;letter-spacing:0}table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}th{background:#1877F2;color:white;border:1px solid #1877F2;padding:9px 8px;font-size:13px;text-align:left;text-transform:uppercase}td{border:1px solid #E5E7EB;padding:9px 8px;font-size:14px;vertical-align:top}tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}.total-row td{background:#EAF3FF !important;border-color:#B9D2F4;font-weight:800;color:#0B2F6E}.num{text-align:right;white-space:nowrap;font-weight:700;color:#1259C4}.watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.06;z-index:-1}.watermark img{width:560px;max-width:72vw}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:12px;text-align:right}
+        body{font-family:Arial,Helvetica,sans-serif;margin:28px;color:#171717;background:white;font-size:14px}.brand{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;border-bottom:3px solid #1877F2;padding-bottom:14px;margin-bottom:16px}.logos{display:flex;align-items:center;gap:12px}.logos img{height:42px;max-width:150px;object-fit:contain}.eyebrow{margin:0 0 5px;color:#1877F2;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}h1{margin:0;font-size:25px;line-height:1.15;color:#111827}h2{font-size:15px;margin:18px 0 8px;color:#1259C4;text-transform:uppercase;letter-spacing:.04em}p{margin:4px 0 0;color:#6B7280;font-size:13px}.summary{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:14px 0 18px}.summary div{border:1px solid #E5E7EB;background:#F8FAFC;padding:10px 11px;border-radius:6px}.summary span{display:block;color:#6B7280;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}.summary strong{display:block;margin-top:4px;color:#111827;font-size:15px}.sale-data-table td{width:24%}.sale-data-table .label{width:24%}.sale-data-table .sale-data-gap{width:4%;border:none;background:white;padding:0}.sale-data-table .value-cell{overflow-wrap:anywhere;word-break:break-word}.summary-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:6px;margin:14px 0 18px}.summary-row div{border:1px solid #E5E7EB;background:#F8FAFC;padding:9px 8px;border-radius:6px;min-width:0}.summary-row span{display:block;color:#6B7280;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;line-height:1.2}.summary-row strong{display:block;margin-top:3px;color:#111827;font-size:14px;white-space:nowrap}.summary-row .finance-highlight{border-color:#1877F2;background:#F5F9FF;border-left:4px solid #1877F2}.summary-row .finance-highlight strong{color:#1259C4}.summary-row .tiny{display:inline;margin-left:3px;color:#64748B;font-size:10px;font-weight:700;text-transform:none;letter-spacing:0}table{width:100%;border-collapse:collapse;table-layout:fixed;margin-bottom:16px;background:white}th{background:#1877F2;color:white;border:1px solid #1877F2;padding:9px 8px;font-size:13px;text-align:left;text-transform:uppercase}td{border:1px solid #E5E7EB;padding:9px 8px;font-size:14px;vertical-align:top}tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}.total-row td{background:#EAF3FF !important;border-color:#B9D2F4;font-weight:800;color:#0B2F6E}.sale-schedule .total-row td{font-size:11px;padding:8px 4px}.sale-schedule .total-row td.num{white-space:normal;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}.num{text-align:right;white-space:nowrap;font-weight:700;color:#1259C4}.watermark{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%) rotate(-28deg);opacity:.06;z-index:-1}.watermark img{width:560px;max-width:72vw}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:12px;text-align:right}
         /* Solo pantalla: nunca aplicar el layout movil al imprimir/PDF. */
         @media screen and (max-width:640px){body{margin:12px}.brand{flex-direction:column;gap:10px}.logos img{height:32px;max-width:120px}h1{font-size:17px}h2{font-size:11px;margin:14px 0 6px}p{font-size:11px}.summary{grid-template-columns:repeat(2,minmax(0,1fr))}.summary-row{grid-template-columns:repeat(2,minmax(0,1fr))}table{table-layout:auto}th,td{padding:5px 4px;font-size:10px}.watermark img{width:300px}}
-        @media print{body{margin:18px;font-size:14px}thead{display:table-header-group}.brand,.summary,.summary-row,.total-row{break-inside:avoid}.summary-row{display:grid !important;grid-auto-flow:column !important;grid-template-columns:none !important;grid-auto-columns:minmax(0,1fr) !important;gap:6px !important}.summary-row span{font-size:10px !important;line-height:1.15 !important}.summary-row strong{font-size:13px !important;white-space:nowrap !important}.final-conditions{grid-auto-flow:row !important;grid-template-columns:repeat(4,minmax(0,1fr)) !important;grid-auto-columns:auto !important}.final-conditions strong{white-space:normal !important;overflow-wrap:anywhere !important}.watermark{position:fixed}}
+        @media print{*{-webkit-print-color-adjust:exact;print-color-adjust:exact}.schedule-start{break-before:page;page-break-before:always;break-after:avoid;page-break-after:avoid;margin-top:0}.sale-schedule thead{display:table-header-group}.sale-schedule th{background:#1877F2!important;color:#fff!important}.sale-schedule tr{break-inside:avoid;page-break-inside:avoid}body{margin:18px;font-size:14px}thead{display:table-header-group}.brand,.summary,.summary-row,.total-row{break-inside:avoid}.summary-row{display:grid !important;grid-auto-flow:column !important;grid-template-columns:none !important;grid-auto-columns:minmax(0,1fr) !important;gap:6px !important}.summary-row span{font-size:10px !important;line-height:1.15 !important}.summary-row strong{font-size:13px !important;white-space:nowrap !important}.final-conditions{grid-auto-flow:row !important;grid-template-columns:repeat(4,minmax(0,1fr)) !important;grid-auto-columns:auto !important}.final-conditions strong{white-space:normal !important;overflow-wrap:anywhere !important}.watermark{position:fixed}}
       </style></head><body>
         <div class="watermark"><img src="${escapeHtml(adminLogoUrl)}" alt="" /></div>
         <div class="brand"><div><p class="eyebrow">Ficha de venta</p><h1>Venta V${s.id} - ${escapeHtml(s.lotCode || `Lote ${s.lotId}`)}</h1><p>${escapeHtml(project?.name || `Proyecto ${s.projectId}`)} - generado ${new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' })}</p></div><div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div></div>
         <div class="summary"><div><span>Precio final</span><strong>${escapeHtml(usdMoney(salePriceValue))}</strong></div><div><span>Comision</span><strong>${escapeHtml(usdMoney(commission))}</strong></div><div><span>Forma de pago</span><strong>${escapeHtml(formaPago)}</strong></div><div><span>Cuota</span><strong>${escapeHtml(valorCuota ? usdMoney(valorCuota) : '-')}</strong></div></div>
         <h2>Datos de la venta</h2><table class="sale-data-table"><tbody>${detailRowsHtml}</tbody></table>
         ${financingBlock}
-        <h2>Cronograma de cuotas</h2><table><thead><tr><th>Cuota</th><th>Vencimiento</th><th>Amort Capital</th><th>Intereses</th><th>Monto</th><th>Estado</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="6">Sin cronograma registrado.</td></tr>'}</tbody></table>
+        <h2 class="schedule-start">Cronograma de cuotas</h2><table class="sale-schedule"><thead><tr><th>Cuota</th><th>Vencimiento</th><th>Amort Capital</th><th>Intereses</th><th>Monto</th><th>Estado</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="6">Sin cronograma registrado.</td></tr>'}</tbody></table>
         <div class="summary"><div><span>Cuotas financiadas</span><strong>${financingInstallments}</strong></div><div><span>Pagadas</span><strong>${paidInstallments}</strong></div><div><span>Pendientes</span><strong>${Math.max(0, amortizedRows.length - paidInstallments)}</strong></div><div><span>Plan</span><strong>${escapeHtml(s.planStatus || 'pendiente')}</strong></div></div>
         ${isFinancing ? `
           <h2>Condiciones finales de compra de lote</h2>
@@ -1333,6 +1343,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
         {isAdmin && pending.length > 0 && (
           <div className="card p-0 overflow-auto">
             <h3 className="font-semibold px-3 pt-2 text-sm">Separaciones por aprobar ({pending.length})</h3>
+            {projectReadonly && <p role="status" className="px-3 pt-2 text-xs text-slate-600">Candado activado. Desactívalo para aprobar o rechazar ventas.</p>}
             <table className="table-base table-head-plomo mt-1 [&_th]:!px-2 [&_th]:!py-1.5 [&_th]:!text-[10px] [&_td]:!px-2 [&_td]:!py-1.5 [&_td]:!text-[12px]" style={{ width: '100%', minWidth: showInterestColumns ? 1080 : 0 }}>
               <thead><tr>
                 <th className="th-base">Id</th><th className="th-base">Lote</th><th className="th-base">Cliente</th><th className="th-base">DNI</th>
@@ -1372,9 +1383,9 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                       </button>
                     </td>
                     <td className="td-base whitespace-nowrap">
-                      <div className="flex justify-center gap-1">
-                        <button className="btn-primary !h-6 text-[11px]" onClick={() => aprobar(s)}>Aprobar</button>
-                        <button className="btn-danger !h-6 text-[11px]" onClick={() => rechazar(s)}>Rechazar</button>
+                      <div className="flex justify-center gap-1" data-project-lock-managed="true">
+                        <button type="button" className="btn-primary !h-6 text-[11px]" disabled={projectReadonly} title={projectReadonly ? 'Desactiva el candado para aprobar la venta' : undefined} onClick={() => aprobar(s)}>Aprobar</button>
+                        <button type="button" className="btn-danger !h-6 text-[11px]" disabled={projectReadonly} title={projectReadonly ? 'Desactiva el candado para rechazar la venta' : undefined} onClick={() => rechazar(s)}>Rechazar</button>
                       </div>
                     </td>
                   </tr>
@@ -1454,7 +1465,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
       {open && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-2 sm:items-center sm:p-4">
           <div className="absolute inset-0 bg-slate-950/55 backdrop-blur-[2px]" onClick={() => setOpen(false)} />
-          <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-4xl overflow-y-auto rounded-2xl border border-white/70 bg-white shadow-2xl sm:max-h-[92vh]">
+          <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-[800px] overflow-y-auto rounded-2xl border border-white/70 bg-white shadow-2xl sm:max-h-[92vh]">
             <div className="border-b border-[#EAF1FF] bg-gradient-to-br from-[#F7FBFF] via-white to-[#EEF5FF] px-5 py-4 sm:px-6">
               <div className="flex flex-wrap items-start justify-between gap-4 sm:flex-nowrap">
                 <div className="min-w-0 flex-1">
@@ -1483,7 +1494,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                 </span>
                 </div>
                 </div>
-                {!quoteSelected && <div className="hidden rounded-2xl border-2 border-dashed border-[#1259C4] p-3 text-center sm:block sm:w-64 sm:shrink-0">
+                <div className="hidden rounded-2xl border-2 border-dashed border-[#1259C4] p-3 text-center sm:block sm:w-64 sm:shrink-0">
                   <p className="mb-2 text-xs leading-relaxed text-slate-700">Si no tienes una cotización, debes generar previamente una para poder realizar la VENTA</p>
                   <button type="button" className="btn-primary w-full justify-center" onClick={() => {
                     if (!quoteProjectId) { toast('Selecciona un proyecto para crear la cotizacion.', 'err'); return; }
@@ -1491,14 +1502,14 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     if (lotId) query.set('lotId', String(lotId));
                     window.location.href = `/projects/${quoteProjectId}/quotes?${query}`;
                   }}>Nueva cotización</button>
-                </div>}
+                </div>
                 <button type="button" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border bg-white text-slate-400 transition-colors hover:bg-slate-50 hover:text-slate-700" style={{ borderColor: '#DDEBFF' }} onClick={() => setOpen(false)} aria-label="Cerrar"><FiX /></button>
               </div>
               {/* Moneda de trabajo: los campos de monto se capturan en esta moneda
                   y se registran siempre en dolares (US$). El tipo de cambio se
                   conserva al alternar, así el monto real no cambia. */}
               <div className="mt-2 flex flex-wrap items-center gap-2 sm:hidden">
-                {!quoteSelected && (
+                {(
                   <div className="w-full rounded-2xl border-2 border-dashed border-[#1259C4] p-3 text-center sm:hidden">
                   <p className="mb-2 text-xs leading-relaxed text-slate-700">Si no tienes una cotización, debes generar previamente una para poder realizar la VENTA</p>
                   <button type="button" className="btn-primary !h-9 shrink-0 justify-center !px-3 !text-xs sm:hidden" onClick={() => {
@@ -1658,7 +1669,7 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     readOnly={quoteLocked}
                   />
                 </Field>
-                <Field label="Fecha"><input type="date" className="input" value={saleDate} onChange={(e) => setSaleDate(e.target.value)} /></Field>
+                <Field label="Fecha"><input type="date" className="input" value={saleDate} readOnly /></Field>
               </div>
               <p className="mt-1 text-xs text-slate-500">
                 Se registra en dolares: US$ {round2(salePriceUsd).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1684,6 +1695,22 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                   </>
                 )}
               </div>
+            </div>
+
+            <div className={`grid gap-3 ${paymentMethod !== 'Contado' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              <div className="mb-3 min-w-0">
+                <label htmlFor="sale-manual-date" className="label flex min-h-[20px] items-center">Fecha de venta *</label>
+                <input id="sale-manual-date" type="date" className="input" aria-label="Fecha de venta" required value={manualSaleDate} onChange={(e) => setManualSaleDate(e.target.value)} />
+              </div>
+              {paymentMethod !== 'Contado' && (
+                <div className="mb-3 min-w-0">
+                  <label className="label flex min-h-[20px] cursor-pointer items-center gap-2">
+                    <input type="checkbox" className="h-4 w-4 accent-[#1877F2]" checked={customFirstInstallmentDate} aria-controls="sale-first-installment-date" onChange={(e) => { setCustomFirstInstallmentDate(e.target.checked); if (!e.target.checked) setFirstInstallmentDate(''); }} />
+                    Fecha cuota
+                  </label>
+                  <input id="sale-first-installment-date" type="date" className="input disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400" aria-label="Fecha cuota" disabled={!customFirstInstallmentDate} required={customFirstInstallmentDate} min={manualSaleDate || undefined} value={firstInstallmentDate} onChange={(e) => setFirstInstallmentDate(e.target.value)} />
+                </div>
+              )}
             </div>
 
             {paymentMethod !== 'Contado' && (
@@ -1712,15 +1739,15 @@ export default function SalesView({ lockedProjectId }: { lockedProjectId?: numbe
                     )}
                     {initialPaymentMode === 'partes' && <div className="hidden"></div>}
                     {applyInterest && (
-                      <div className="mb-3">
-                        <label className="label flex min-h-[40px] items-end leading-tight">Cuantas cuotas sin interes</label>
-                        <input type="text" inputMode="numeric" className="input tabular-nums" value={graceMonths ? groupDigits(String(graceMonths)) : ''} onChange={(e) => setGraceMonths(Math.min(totalCuotas, Math.max(0, Math.round(parseGrouped(e.target.value)))))} disabled={quoteLocked} readOnly={quoteLocked} />
-                      </div>
-                    )}
-                    {applyInterest && (
-                      <div className="mb-3">
-                        <label className="label flex min-h-[40px] items-end leading-tight">Interes de las siguientes cuotas (TEA %)</label>
-                        <input type="number" step="0.01" className="input" value={tea || ''} onChange={(e) => setTea(Number(e.target.value))} disabled={quoteLocked} readOnly={quoteLocked} />
+                      <div className="col-span-2 grid min-w-0 grid-cols-2 gap-3 items-end" role="group" aria-label="Cuotas sin interés y TEA">
+                        <div className="mb-3 min-w-0">
+                          <label htmlFor="sale-grace-months" className="label flex min-h-[40px] items-end leading-tight">Cuantas cuotas sin interes</label>
+                          <input id="sale-grace-months" type="text" inputMode="numeric" className="input tabular-nums" value={graceMonths ? groupDigits(String(graceMonths)) : ''} onChange={(e) => setGraceMonths(Math.min(totalCuotas, Math.max(0, Math.round(parseGrouped(e.target.value)))))} disabled={quoteLocked} readOnly={quoteLocked} />
+                        </div>
+                        <div className="mb-3 min-w-0">
+                          <label htmlFor="sale-tea" className="label flex min-h-[40px] items-end leading-tight"><span className="sm:hidden">(TEA %)</span><span className="hidden sm:inline">Interes de las siguientes cuotas (TEA %)</span></label>
+                          <input id="sale-tea" type="number" step="0.01" className="input" value={tea || ''} onChange={(e) => setTea(Number(e.target.value))} disabled={quoteLocked} readOnly={quoteLocked} />
+                        </div>
                       </div>
                     )}
                     {initialPaymentMode === 'partes' && cuotaInicial > 0 && (

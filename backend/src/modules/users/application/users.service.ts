@@ -64,7 +64,8 @@ export class UsersService {
     const projectRows = this.buildProjectRows(saved.id, dto.projectIds, dto.projectAccess);
     if (projectRows.length) await this.userProjectRepo.save(projectRows);
     await this.audit(actorId, 'CREAR_AGENTE', 'users', saved.id);
-    return saved;
+    const { passwordHash, ...publicUser } = saved;
+    return publicUser;
   }
 
   async createAdmin(dto: CreateAdminDto, actorId: number) {
@@ -82,7 +83,8 @@ export class UsersService {
     const projectRows = this.buildProjectRows(saved.id, dto.projectIds, dto.projectAccess);
     if (projectRows.length) await this.userProjectRepo.save(projectRows);
     await this.audit(actorId, 'CREAR_ADMIN', 'users', saved.id);
-    return saved;
+    const { passwordHash, ...publicUser } = saved;
+    return publicUser;
   }
 
   private listQuery(role?: string, status?: string) {

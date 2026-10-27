@@ -1,7 +1,8 @@
 import { AccountingModule } from './modules/accounting/accounting.module';
 // app.module.ts
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { ProjectBoundaryInterceptor } from './shared/application/interceptors/project-boundary.interceptor';
 import { SessionLockGuard } from './shared/application/guards/session-lock.guard';
 import { ConfigModule } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -111,6 +112,6 @@ import { BankAccountsModule } from './modules/bank-accounts/bank-accounts.module
     IncomeStatementModule,
     BankAccountsModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }, { provide: APP_GUARD, useClass: SessionLockGuard }],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }, { provide: APP_GUARD, useClass: SessionLockGuard }, { provide: APP_INTERCEPTOR, useClass: ProjectBoundaryInterceptor }],
 })
 export class AppModule {}

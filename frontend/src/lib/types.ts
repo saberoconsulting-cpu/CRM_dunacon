@@ -201,9 +201,12 @@ export function formatMoney(n: number | string | undefined | null): string {
 
 export function formatDate(iso?: string | null): string {
   if (!iso) return '-';
-  const d = new Date(iso);
+  // A database DATE is a calendar day, not an instant at UTC midnight.
+  // Keep that day intact; only timestamps are converted to Peru time.
+  const calendarDate = /^\d{4}-\d{2}-\d{2}$/.test(iso);
+  const d = new Date(calendarDate ? `${iso}T00:00:00Z` : iso);
   if (isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('es-PE', { day: '2-digit', month: 'short', year: 'numeric' });
+  return d.toLocaleDateString('es-PE', { timeZone: calendarDate ? 'UTC' : 'America/Lima', day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 // Convierte puntos a string de atributo SVG `points`

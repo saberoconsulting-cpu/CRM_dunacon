@@ -11,6 +11,11 @@
 .cards :global(.kpi-label) > span:first-child { width: 24px; height: 24px; }
 .cards :global(.kpi-label-text) { font-size: 9px; letter-spacing: normal; }
 .cards :global(.kpi-helper) { font-size: 9px; }
+.cashCards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.cashCards > div { min-width: 0; }
+.cashCards :global(.card-card-kpi) { height: 100%; }
+.cashCards :global(.kpi-helper) { white-space: normal; overflow: visible; text-overflow: clip; }
+@media (max-width: 767px) { .cashCards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .sheet h2 { font-weight: 650; }
 .filters { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; background: white; padding: 6px 0; }
 .filters h2 { margin-right: auto; align-self: center; font-size: 14px; color: #153e78; }
@@ -206,4 +211,61 @@
 @media (max-width: 767px) {
   .cashEntryGrid .attachmentHeading { margin-bottom: 6px; font-size: 11px; }
   .cashEntryGrid .attachmentPicker { height: 40px; min-height: 40px; padding: 7px; border-radius: 8px; }
+}
+
+.invoiceEntryGrid { align-items: end; }
+.invoiceEntryGrid > .attachmentField { display: contents; }
+.invoiceEntryGrid .attachmentControl { min-width: 0; align-self: end; }
+.invoiceEntryGrid .attachmentHeading { margin-bottom: 5px; font-size: 12px; font-weight: 400; color: #475569; }
+.invoiceEntryGrid .attachmentPicker { height: 36px; min-height: 36px; padding: 6px 8px; border-radius: 6px; }
+.invoiceEntryGrid .attachmentDetails { grid-column: 1 / -1; min-width: 0; }
+.invoiceEntryGrid .attachmentHint:first-child { margin-top: 0; }
+.invoiceEntryGrid .attachmentList:empty { display: none; }
+@media (max-width: 767px) {
+  .invoiceEntryGrid .attachmentHeading { margin-bottom: 6px; font-size: 11px; font-weight: 400; color: #475569; }
+  .invoiceEntryGrid .attachmentPicker { height: 40px; min-height: 40px; padding: 7px; gap: 5px; font-size: 11px; }
+  .invoiceEntryGrid .attachmentPicker span { font-size: 0; }
+  .invoiceEntryGrid .attachmentPicker span::after { content: 'Adjuntar'; font-size: 11px; }
+}
+
+@media (min-width: 768px) {
+  .invoiceEntryGrid > .attachmentField:nth-child(3n + 1) .attachmentDetails {
+    grid-column: span 2;
+    align-self: end;
+  }
+}
+@media (max-width: 767px) {
+  .invoiceEntryGrid > .attachmentField:nth-child(2n + 1) .attachmentDetails {
+    grid-column: auto;
+    align-self: end;
+  }
+}
+
+.dateField { position: relative; display: block; min-width: 0; width: 100%; max-width: 100%; isolation: isolate; }
+.formGrid .dateField input[type='date'] {
+  position: relative; box-sizing: border-box; display: block; min-width: 0; max-width: 100%; width: 100%; min-height: 36px;
+  padding-right: 28px; color-scheme: light; color: #183454;
+  -webkit-text-fill-color: #183454; appearance: none; -webkit-appearance: none;
+  text-align: left;
+}
+.dateField input::-webkit-date-and-time-value { min-height: 1em; text-align: left; }
+.dateField input::-webkit-calendar-picker-indicator {
+  position: absolute; right: 0; top: 0; width: 28px; height: 100%;
+  box-sizing: border-box; margin: 0; padding: 0; opacity: 0; cursor: pointer;
+}
+.dateField input::-webkit-datetime-edit { min-width: 0; padding: 0; }
+.dateField input::-webkit-datetime-edit-fields-wrapper { padding: 0; }
+.dateField[data-empty='true']:not(:focus-within) input { color: transparent; -webkit-text-fill-color: transparent; }
+.datePlaceholder { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); color: #64748b; pointer-events: none; font-size: 12px; }
+.dateField:focus-within .datePlaceholder { display: none; }
+.dateIcon { position: absolute; right: 9px; top: 50%; transform: translateY(-50%); width: 15px; height: 15px; color: #64748b; pointer-events: none; }
+@media (max-width: 767px) {
+  .formGrid .dateField input[type='date'] {
+    height: 36px; min-height: 36px; padding: 5px 26px 5px 6px;
+    font-size: 11px; line-height: normal;
+  }
+  .dateField { height: 36px; }
+  .datePlaceholder { left: 6px; font-size: 11px; }
+  .dateIcon { right: 7px; width: 14px; height: 14px; z-index: 1; }
+
 }

@@ -147,6 +147,6 @@ export function buildQuoteAssignedValues(
     agentId: null,
     balanceUsd: Math.max(0, finalPriceUsd - cuotaInicialUsd),
     valorCuotaUsd: Number(quote?.valorCuotaUsd || 0),
-    cotizacionNote: `Cotizacion Q${Number(quote?.id || 0)}`,
+    cotizacionNote: `Cotizacion Q${Number(quote?.projectNumber ?? quote?.id ?? 0)}`,
   };
 }

@@ -43,6 +43,11 @@ export class QuotesController {
     return this.quotesService.updateStatus(id, dto.status, user.role === UserRole.AGENT ? user.id : undefined);
   }
 
+  @Patch(':id')
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: CreateQuoteDto, @CurrentUser() user: AuthUser) {
+    return this.quotesService.update(id, dto, user.role === UserRole.AGENT ? user.id : undefined);
+  }
+
   @Patch(':id/recalculate')
   recalculate(@Param('id', ParseIntPipe) id: number, @Body() dto: RecalculateQuoteDto, @CurrentUser() user: AuthUser) {
     return this.quotesService.recalculate(id, dto, user.role === UserRole.AGENT ? user.id : undefined);

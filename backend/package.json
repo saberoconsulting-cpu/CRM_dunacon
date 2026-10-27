@@ -4,6 +4,9 @@
   "description": "Backend NestJS - CRM Inmobiliario (arquitectura hexagonal)",
   "private": true,
   "scripts": {
+    "test:security": "node scripts/check-security.cjs",
+    "test:request-security": "node scripts/check-request-security.cjs",
+    "test:project-boundary": "node scripts/check-project-boundary.cjs",
     "build": "nest build",
     "start": "nest start",
     "start:dev": "nest start --watch",

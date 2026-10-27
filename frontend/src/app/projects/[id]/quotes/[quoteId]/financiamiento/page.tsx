@@ -57,9 +57,10 @@ export default function FinanciamientoDocPage() {
 
   const { quote, lot, block, project } = data;
   const lotAddress = lot?.address || block?.address || lot?.streetAddress || lot?.blockAddress || '—';
-  const start = new Date(quote.createdAt);
+  const start = new Date(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(quote.createdAt)) + 'T12:00:00');
   const dueDate = (m: number) => {
-    const d = new Date(start.getFullYear(), start.getMonth() + m, start.getDate());
+    const d = new Date(start.getFullYear(), start.getMonth() + m, 1);
+    d.setDate(Math.min(start.getDate(), new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
     return d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   };
 

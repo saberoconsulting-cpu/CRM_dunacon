@@ -61,17 +61,23 @@ export async function createAccountingPdf(report: AccountingPdfReport) {
   const nextPage = (subtitle: string) => { page = pdf.addPage([width, height]); y = height - margin; header(subtitle); };
   header(report.period);
   const cardGap = 7, cardWidth = (usable - cardGap * (report.cards.length - 1)) / report.cards.length;
-  const cardHeight = 87;
-  report.cards.forEach(([label, value, description], index) => {
+  const cardLabels = report.cards.map(([label]) => wrap(label, cardWidth - 12, 8, true).slice(0, 2));
+  const cardDescriptions = report.cards.map(([, , description]) => wrap(description, cardWidth - 12, 7).slice(0, 3));
+  const labelHeight = Math.max(1, ...cardLabels.map(lines => lines.length)) * 9;
+  const descriptionHeight = Math.max(1, ...cardDescriptions.map(lines => lines.length)) * 8;
+  const valueTop = 8 + labelHeight + 4;
+  const descriptionTop = valueTop + 18;
+  const cardHeight = descriptionTop + descriptionHeight + 6;
+  report.cards.forEach(([, value], index) => {
     const hex = report.cardColors?.[index];
     const tone = hex ? rgb(parseInt(hex.slice(0, 2), 16) / 255, parseInt(hex.slice(2, 4), 16) / 255, parseInt(hex.slice(4, 6), 16) / 255) : blue;
     const x = margin + index * (cardWidth + cardGap);
     page.drawRectangle({ x, y: y - cardHeight, width: cardWidth, height: cardHeight, color: pale, borderColor: line, borderWidth: .6 });
     page.drawRectangle({ x, y: y - 3, width: cardWidth, height: 3, color: tone });
-    wrap(label, cardWidth - 12, 8, true).slice(0, 2).forEach((s, i) => write(s, x + 6, y - 10 - i * 10, 8, true, muted));
+    cardLabels[index].forEach((s, i) => write(s, x + 6, y - 8 - i * 9, 8, true, muted));
     const valueSize = Math.min(13, (cardWidth - 12) / Math.max(1, bold.widthOfTextAtSize(text(value), 1)));
-    write(value, x + 6 + (cardWidth - 12 - bold.widthOfTextAtSize(text(value), valueSize)) / 2, y - 36, valueSize, true, tone);
-    wrap(description, cardWidth - 12, 7).slice(0, 3).forEach((s, i) => write(s, x + 6, y - 57 - i * 8, 7, false, muted));
+    write(value, x + 6 + (cardWidth - 12 - bold.widthOfTextAtSize(text(value), valueSize)) / 2, y - valueTop, valueSize, true, tone);
+    cardDescriptions[index].forEach((s, i) => write(s, x + 6, y - descriptionTop - i * 8, 7, false, muted));
   });
   if (report.cards.length) y -= cardHeight + 19;
 
@@ -83,10 +89,25 @@ export async function createAccountingPdf(report: AccountingPdfReport) {
     const weight = weights.reduce((n, w) => n + w, 0);
     const widths = weights.map(w => tableWidth * w / weight);
     const documentColumn = report.registerOnly ? table.headers.findIndex(value => /^Tipo (?:de )?doc/i.test(value)) : -1;
-    if (documentColumn >= 0 && widths[documentColumn] < 108) {
+    if (documentColumn >= 0 && /^Tipo (?:de )?documento$/i.test(table.headers[documentColumn]) && widths[documentColumn] < 108) {
       const remaining = tableWidth - widths[documentColumn];
       widths.forEach((value, index) => { widths[index] = index === documentColumn ? 108 : value * (tableWidth - 108) / remaining; });
     }
+    const headerLines = (value: string, index: number) => {
+      const lines: string[] = [];
+      for (const paragraph of String(value).split('\n')) {
+        let current = '';
+        for (const word of text(paragraph).split(/\s+/)) {
+          const candidate = current ? `${current} ${word}` : word;
+          if (current && bold.widthOfTextAtSize(candidate, size) > widths[index] - 8) {
+            lines.push(current);
+            current = word;
+          } else current = candidate;
+        }
+        lines.push(current);
+      }
+      return lines;
+    };
     const cellLines = (value: string, index: number, strong: boolean) => index === documentColumn ? [text(value)] : wrap(value, widths[index] - 8, size, strong);
     const drawRow = (values: string[][], offset: number, count: number, heading: boolean, total: boolean) => {
       const rowHeight = count * leading + 8;
@@ -94,7 +115,7 @@ export async function createAccountingPdf(report: AccountingPdfReport) {
       values.forEach((lines, index) => {
         page.drawRectangle({ x: left, y: top - rowHeight, width: widths[index], height: rowHeight, color: report.registerOnly ? total ? rgb(18 / 255, 46 / 255, 105 / 255) : heading ? rgb(82 / 255, 114 / 255, 143 / 255) : table.headers[index].startsWith('Saldo') ? rgb(237 / 255, 244 / 255, 252 / 255) : rgb(1, 1, 1) : heading || total ? blue : rgb(1, 1, 1), borderColor: line, borderWidth: .4 });
         lines.slice(offset, offset + count).forEach((s, i) => {
-          const cellSize = index === documentColumn ? Math.min(size, (widths[index] - 8) / Math.max(1, (heading || total ? bold : regular).widthOfTextAtSize(text(s), 1))) : size;
+          const cellSize = heading || index === documentColumn ? Math.min(size, (widths[index] - 8) / Math.max(1, (heading || total ? bold : regular).widthOfTextAtSize(text(s), 1))) : size;
           write(s, report.registerOnly && !heading && /^(Abono|Gasto|Saldo)/.test(table.headers[index]) ? left + widths[index] - 4 - (total ? bold : regular).widthOfTextAtSize(text(s), cellSize) : left + 4, top - 4 - i * leading, cellSize, heading || total, heading || total ? rgb(1, 1, 1) : ink);
         });
         left += widths[index];
@@ -103,7 +124,7 @@ export async function createAccountingPdf(report: AccountingPdfReport) {
     };
     const heading = () => {
       write(table.title, x, top, 11, true, blue); top -= 19;
-      const cells = table.headers.map((v, i) => cellLines(v, i, true));
+      const cells = table.headers.map((v, i) => headerLines(v, i));
       drawRow(cells, 0, Math.max(...cells.map(v => v.length)), true, false);
     };
     heading();

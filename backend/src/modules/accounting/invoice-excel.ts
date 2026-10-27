@@ -20,7 +20,7 @@ const aliases = {
 const isBlank = (value: unknown) => value == null || String(value).trim() === '';
 
 export function invoiceTemplateHeaders(kind: 'purchase' | 'sale') {
-  return ['Tipo Doc.', 'Fecha Emisión', 'Fecha Venc.', 'Nro. Comprob.', 'Nro. RUC', kind === 'sale' ? 'Cliente' : 'Proveedor', 'Base Imp. S/', 'I.G.V S/', 'Total S/', 'Base Imp. US$', 'I.G.V US$', 'Total US$', 'Detracción S/', 'Num. Detracción', 'Fecha Detracción', 'T. Cambio', ...(kind === 'purchase' ? ['Validada'] : []), 'Ref. Comprob. (NC)'];
+  return ['Tipo Doc.', 'Fecha Emisión', 'Fecha Venc.', 'Nro. Comprob.', 'Nro. RUC', kind === 'sale' ? 'Cliente' : 'Proveedor', 'Base Imp. S/', 'I.G.V S/', 'Total S/', 'Base Imp. US$', 'I.G.V US$', 'Total US$', 'Detracción S/', 'Num. Detracción', 'Fecha Detracción', 'T. Cambio', 'Validada', 'Ref. Comprob. (NC)'];
 }
 
 export function readInvoiceExcel(buffer: Buffer, kind: 'purchase' | 'sale') {

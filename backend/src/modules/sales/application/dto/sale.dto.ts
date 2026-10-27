@@ -1,5 +1,5 @@
 // modules/sales/application/dto/sale.dto.ts
-import { IsBoolean, IsNumber, IsOptional, IsString, Matches } from 'class-validator';
+import { IsBoolean, IsDateString, IsNumber, IsOptional, IsString, Matches } from 'class-validator';
 
 export class UpdateSaleDniDto {
   @IsString()
@@ -95,8 +95,14 @@ export class CreateSaleDto {
   tea?: number;
 
   @IsOptional()
-  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'La fecha de venta debe tener formato AAAA-MM-DD.' })
+  @IsDateString({ strict: true }, { message: 'Ingresa una fecha de venta válida.' })
   saleDate?: string;
+
+  @IsOptional()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'La fecha de primera cuota debe tener formato AAAA-MM-DD.' })
+  @IsDateString({ strict: true }, { message: 'Ingresa una fecha de primera cuota valida.' })
+  firstInstallmentDate?: string;
 
   @IsOptional()
   @IsString()

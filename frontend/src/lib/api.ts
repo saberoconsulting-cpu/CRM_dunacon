@@ -14,7 +14,38 @@ export function projectContextHeaders(): Record<string, string> {
   return match ? { 'X-Project-Id': match[1] } : {};
 }
 
+const SESSION_LOCK_MESSAGE = 'Candado activado. Desactívalo para realizar esta acción.';
+const projectLocks = new Map<number, boolean>();
+let lockSessionToken: string | null = null;
+
+function sessionProjectLocks() {
+  const token = getToken();
+  if (token !== lockSessionToken) {
+    projectLocks.clear();
+    lockSessionToken = token;
+  }
+  return projectLocks;
+}
+
+function requestProjects(path: string, body?: unknown): number[] {
+  const query = new URLSearchParams(path.split('?')[1] || '');
+  const routeProject = typeof window === 'undefined' ? null : window.location.pathname.match(/^\/projects\/(\d+)/)?.[1];
+  const bodyProject = body && typeof body === 'object' ? (body as Record<string, unknown>).projectId : null;
+  return [...new Set([routeProject, query.get('projectId'), bodyProject].map(Number).filter(id => Number.isSafeInteger(id) && id > 0))];
+}
+
+function assertProjectWritable(method: string, path: string, body?: unknown) {
+  const route = path.split('?')[0].replace(/\/$/, '');
+  if (['GET', 'HEAD', 'OPTIONS'].includes(method) || route.startsWith('/auth/') || route.startsWith('/users')) return;
+  // Project list actions are outside the internal project lock, as in the API guard.
+  if (method === 'POST' && (/^\/projects\/(update|cover|logo|delete|restore|purge)\/\d+$/.test(route)
+    || /^\/projects\/status\/\d+\/(active|inactive)$/.test(route))) return;
+  const locks = sessionProjectLocks();
+  if (requestProjects(path, body).some(id => locks.get(id) === true)) throw new Error(SESSION_LOCK_MESSAGE);
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  assertProjectWritable(method, path, body);
   const token = getToken();
   const res = await fetch(BASE + path, {
     method,
@@ -41,7 +72,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     const msg = data?.message
       ? Array.isArray(data.message) ? data.message.join(', ') : data.message
       : data?.error || 'Error de solicitud';
+    if (isSessionLockError(msg)) {
+      const locks = sessionProjectLocks();
+      requestProjects(path, body).forEach(id => locks.set(id, true));
+      throw new Error(SESSION_LOCK_MESSAGE);
+    }
     throw new Error(msg);
+  }
+  if (path.split('?')[0] === '/auth/session-lock' && typeof data?.locked === 'boolean') {
+    const locks = sessionProjectLocks();
+    const projectId = Number((body as any)?.projectId || new URLSearchParams(path.split('?')[1] || '').get('projectId'));
+    if (Number.isSafeInteger(projectId) && projectId > 0) locks.set(projectId, data.locked);
   }
   return data as T;
 }
@@ -80,6 +121,7 @@ export const api = {
 };
 
 export async function uploadFile(path: string, file: File, fields?: Record<string, string | number>): Promise<any> {
+  assertProjectWritable('POST', path, fields);
   const form = new FormData();
   const upload = /\.jpng$/i.test(file.name)
     ? new File([file], file.name.replace(/\.jpng$/i, '.jpg'), { type: file.type || 'image/jpeg' })

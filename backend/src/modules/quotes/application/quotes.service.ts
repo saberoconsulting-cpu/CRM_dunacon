@@ -17,13 +17,16 @@ export class QuotesService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(QuotesService.name);
 
   async expireUnusedQuotes() {
+    await this.quoteRepo.query(`UPDATE quotes SET status = 'enviada', status_updated_at = NULL
+      WHERE status = 'actualizada' AND deleted_at IS NULL
+      AND status_updated_at <= NOW() - INTERVAL '24 hours'`);
     await this.quoteRepo.query(`UPDATE quotes q SET deleted_at = NOW()
       WHERE q.deleted_at IS NULL AND q.reusable_until <= NOW() AND q.status <> 'convertida'
       AND NOT EXISTS (SELECT 1 FROM sales s WHERE s.quote_id = q.id AND s.approval_status <> 'rechazada')`);
   }
 
   async onModuleInit() {
-    const clean = () => this.expireUnusedQuotes().catch(error => this.logger.error('No se pudo limpiar cotizaciones vencidas', error.message));
+    const clean = () => this.expireUnusedQuotes().catch(() => this.logger.error('No se pudo limpiar cotizaciones vencidas'));
     await clean();
     this.expiryTimer = setInterval(() => { void clean(); }, 60_000);
     this.expiryTimer.unref();
@@ -51,6 +54,10 @@ export class QuotesService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException(`No se puede generar cotizacion ni financiamiento para un lote ${lot.status}.`);
     }
 
+    return this.quoteRepo.save(this.quoteRepo.create({ ...this.quoteValues(dto), createdBy: actorId }));
+  }
+
+  private quoteValues(dto: CreateQuoteDto) {
     const bonoDescuento = Number(dto.bonoDescuentoUsd || 0);
     const bonoEspecial = Number(dto.bonoEspecialUsd || 0);
     const bonoContado = dto.paymentMethod === 'contado' ? Number(dto.bonoContadoUsd ?? Number(dto.lotPriceUsd) * 0.05) : 0;
@@ -77,7 +84,7 @@ export class QuotesService implements OnModuleInit, OnModuleDestroy {
     });
     const valorCuota = dto.paymentMethod === 'credito' ? gracePlan.interestCuota : 0;
 
-    const quote = this.quoteRepo.create({
+    return {
       projectId: dto.projectId,
       lotId: dto.lotId,
       clientId: dto.clientId || undefined,
@@ -101,11 +108,30 @@ export class QuotesService implements OnModuleInit, OnModuleDestroy {
       tea: String(dto.paymentMethod === 'credito' && dto.interestType === 'tea' ? Number(dto.tea || 0) : 0),
       valorCuotaUsd: String(valorCuota),
       exchangeRate: String(dto.exchangeRate),
-      createdBy: actorId,
       createdAt: dto.quoteDate ? new Date(`${dto.quoteDate}T12:00:00`) : undefined,
-    });
-    return this.quoteRepo.save(quote);
+    };
   }
+
+  async update(id: number, dto: CreateQuoteDto, actorId?: number) {
+    return this.quoteRepo.manager.transaction(async manager => {
+      const repository = manager.getRepository(QuoteEntity);
+      const quote = await repository.findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
+      if (!quote || quote.deletedAt) throw new NotFoundException('Cotizacion no encontrada');
+      this.assertOwner(quote, actorId);
+      if (quote.status === 'convertida') throw new BadRequestException('Esta cotizacion ya fue convertida en venta y no se puede editar.');
+      if (quote.reusableUntil && quote.reusableUntil.getTime() <= Date.now()) throw new BadRequestException('La cotizacion ya vencio.');
+      if (Number(dto.projectId) !== Number(quote.projectId) || Number(dto.lotId) !== Number(quote.lotId)) {
+        throw new BadRequestException('No se puede cambiar el proyecto ni el lote de una cotizacion existente.');
+      }
+      const lot = await this.lotRepo.findOne({ where: { id: quote.lotId } });
+      if (!lot || ['vendido', 'reservado'].includes(String(lot.status || '').toLowerCase())) {
+        throw new BadRequestException('El lote no esta disponible para editar su cotizacion.');
+      }
+      Object.assign(quote, this.quoteValues(dto), { status: 'actualizada', statusUpdatedAt: new Date() });
+      return repository.save(quote);
+    });
+  }
+
 
   async list(filters: ListQuotesDto, actorId?: number) {
     await this.expireUnusedQuotes();
@@ -115,7 +141,7 @@ export class QuotesService implements OnModuleInit, OnModuleDestroy {
       .createQueryBuilder('q')
       .leftJoinAndSelect(LotEntity, 'l', 'l.id = q.lot_id')
       .select([
-        'q.id', 'q.projectId', 'q.lotId', 'q.clientName', 'q.clientEmail', 'q.clientPhone',
+        'q.id', 'q.projectNumber', 'q.projectId', 'q.lotId', 'q.clientName', 'q.clientEmail', 'q.clientPhone',
         'q.finalPriceUsd', 'q.cuotaInicialUsd', 'q.totalCuotas', 'q.paymentMethod',
         'q.interestType', 'q.tea', 'q.valorCuotaUsd', 'q.exchangeRate', 'q.status', 'q.createdAt',
         'q.graceMonths', 'q.initialPaymentMode', 'q.initialParts', 'q.createdBy',
@@ -141,15 +167,17 @@ export class QuotesService implements OnModuleInit, OnModuleDestroy {
 
     const total = await qb.clone().getCount();
     const sortMap: Record<string, string> = {
+      id: 'q.project_number',
       createdAt: 'q.created_at',
       clientName: 'q.client_name',
       finalPriceUsd: 'q.final_price_usd',
     };
     const sortCol = sortMap[filters.sort || 'createdAt'] || 'q.created_at';
     const order = String(filters.order || 'DESC').toUpperCase() === 'ASC' ? 'ASC' : 'DESC';
-    const raw = await qb.clone().orderBy(sortCol, order).offset(skip).limit(limit).getRawMany();
+    const raw = await qb.clone().orderBy(sortCol, order).addOrderBy('q.id', order).offset(skip).limit(limit).getRawMany();
     const items = raw.map((r) => ({
       id: Number(r.q_id),
+      projectNumber: Number(r.q_project_number),
       projectId: Number(r.q_project_id),
       lotId: Number(r.q_lot_id),
       clientName: r.q_client_name,
@@ -187,6 +215,7 @@ export class QuotesService implements OnModuleInit, OnModuleDestroy {
     if (!quote) throw new NotFoundException('Cotizacion no encontrada');
     this.assertOwner(quote, actorId);
     quote.status = status;
+    quote.statusUpdatedAt = status === 'actualizada' ? new Date() : null;
     return this.quoteRepo.save(quote);
   }
 
@@ -289,7 +318,7 @@ export class QuotesService implements OnModuleInit, OnModuleDestroy {
         totalPartesInicial: initialPlan ? initialPlan.partes : 0,
       };
     } catch (error) {
-      console.error('Error en schedule:', error);
+      this.logger.error('No se pudo calcular el cronograma de cotización');
       return { rows: [], graceMonths: 0, interestMonths: 0, graceCuota: 0, interestCuota: 0, totalInteres: 0, totalPagar: 0, saldoAlFinGracia: saldoAFinanciar, initialPlan: null, saldoAFinanciar };
     }
   }

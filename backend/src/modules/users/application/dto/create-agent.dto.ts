@@ -1,6 +1,10 @@
+import { Type } from 'class-transformer';
 // modules/users/application/dto/create-agent.dto.ts
 import {
   IsArray,
+  IsInt,
+  Min,
+  ValidateNested,
   IsEmail,
   IsNotEmpty,
   IsNumber,
@@ -10,7 +14,8 @@ import {
 } from 'class-validator';
 
 export class ProjectAccessDto {
-  @IsNumber()
+  @IsInt()
+  @Min(1)
   projectId!: number;
 
   @IsArray()
@@ -35,11 +40,14 @@ export class CreateAgentDto {
   password!: string;
 
   @IsArray()
-  @IsNumber({}, { each: true })
+  @IsInt({ each: true })
+  @Min(1, { each: true })
   projectIds!: number[];
 
   @IsOptional()
   @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProjectAccessDto)
   projectAccess?: ProjectAccessDto[];
 
   @IsNumber()

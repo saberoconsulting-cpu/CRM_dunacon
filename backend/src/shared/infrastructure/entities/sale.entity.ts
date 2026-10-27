@@ -42,6 +42,9 @@ export class SaleEntity {
   @Column({ name: 'sale_date', type: 'date', default: () => 'CURRENT_DATE' })
   saleDate: string;
 
+  @Column({ name: 'first_installment_date', type: 'date', nullable: true })
+  firstInstallmentDate: string | null;
+
   @Column({ type: 'numeric', precision: 14, scale: 2, default: 0 })
   commission: string;
 

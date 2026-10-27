@@ -1,16 +1,20 @@
+import { Type } from 'class-transformer';
 // modules/users/application/dto/create-admin.dto.ts
 import {
   IsArray,
+  IsInt,
+  Min,
+  ValidateNested,
   IsEmail,
   IsNotEmpty,
-  IsNumber,
   IsOptional,
   IsString,
   MinLength,
 } from 'class-validator';
 
 export class ProjectAccessDto {
-  @IsNumber()
+  @IsInt()
+  @Min(1)
   projectId!: number;
 
   @IsArray()
@@ -35,10 +39,13 @@ export class CreateAdminDto {
   password!: string;
 
   @IsArray()
-  @IsNumber({}, { each: true })
+  @IsInt({ each: true })
+  @Min(1, { each: true })
   projectIds!: number[];
 
   @IsOptional()
   @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProjectAccessDto)
   projectAccess?: ProjectAccessDto[];
 }

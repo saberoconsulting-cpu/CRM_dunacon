@@ -13,7 +13,7 @@ import { printHtml } from '@/lib/print';
 import { useDisplayCurrency, moneyGlobalDecimals } from '@/lib/currency';
 
 type Q = {
-  id: number; projectId: number; lotId: number; lotCode?: string | null; clientName: string;
+  id: number; projectNumber?: number; projectId: number; lotId: number; lotCode?: string | null; clientName: string;
   finalPriceUsd: number; cuotaInicialUsd: number; totalCuotas: number;
   paymentMethod: string; exchangeRate: number; createdAt: string;
   status: string; areaM2: number;
@@ -35,9 +35,11 @@ function todayInput() {
   return date.toISOString().slice(0, 10);
 }
 
-function addDays(date: Date, days: number) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
+function addMonths(date: Date, months: number) {
+  const day = date.getDate();
+  const next = new Date(date.getFullYear(), date.getMonth() + months, 1);
+  const lastDay = new Date(next.getFullYear(), next.getMonth() + 1, 0).getDate();
+  next.setDate(Math.min(day, lastDay));
   return next;
 }
 
@@ -213,8 +215,8 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
   const rate = Number(quote.exchangeRate || 0);
   const generatedAt = new Date().toLocaleString('es-PE', { dateStyle: 'medium', timeStyle: 'short' });
   const saldo = Math.max(0, Number(quote.finalPriceUsd || 0) - Number(quote.cuotaInicialUsd || 0));
-  const start = new Date(quote.createdAt || Date.now());
-  const dueDate = (m: number) => addDays(start, Math.max(1, Number(m || 1)) * 30).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const start = new Date(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(quote.createdAt || Date.now())) + 'T12:00:00');
+  const dueDate = (m: number) => addMonths(start, Math.max(1, Number(m || 1))).toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
   const rows: ScheduleRow[] = Array.isArray(plan?.rows) ? plan.rows : [];
   const totalInstallments = Number(quote.totalCuotas || 0);
   // CUOTA INICIAL: pago aparte que se descuenta del precio final. El saldo se
@@ -304,11 +306,9 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
     <html>
       <head>
         <meta charset="utf-8" />
-        <!-- Ancho fijo (no device-width): el documento imprimible siempre se
-             maqueta como escritorio A4 y no hereda el ancho de la ventana/iframe,
-             que era lo que encogia el PDF en la laptop del cliente. -->
-        <meta name="viewport" content="width=800, initial-scale=1" />
-        <title>${escapeHtml(title)} Q${quote.id}</title>
+        <!-- La pantalla se adapta al dispositivo; @media print conserva el formato A4. -->
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>${escapeHtml(title)} Q${quote.projectNumber ?? quote.id}</title>
         <style>
           *{box-sizing:border-box}
           html,body{max-width:100%;overflow-x:hidden}
@@ -352,6 +352,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           tbody tr:nth-child(even){background:#F8FAFC}.label{background:#D8E8FF;font-weight:700;color:#111827;width:34%}
           .total-row td{background:#EAF3FF !important;border-color:#B9D2F4;font-weight:800;color:#0B2F6E}
           .num{text-align:right;white-space:nowrap}.strong{font-weight:700;color:#1259C4}.footer{margin-top:18px;border-top:1px solid #E5E7EB;padding-top:8px;color:#6B7280;font-size:11px;text-align:right}
+          .schedule-scroll{max-width:100%;overflow-x:auto}
           .schedule-table{table-layout:fixed}
           .schedule-table th,.schedule-table td{padding:6px 4px;font-size:12px;line-height:1.35}
           .schedule-table .num{font-size:12px;letter-spacing:0}
@@ -404,6 +405,13 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
             .section-head{flex-direction:column;align-items:flex-start;gap:6px}
             .summary-aside{width:100%}
             .summary-aside div{flex:1;text-align:left}
+            .summary div,.summary-row div{min-width:0}
+            .summary strong,.summary-row strong{white-space:normal;overflow-wrap:anywhere}
+            .quote-data-table,.quote-data-table tbody{display:block}
+            .quote-data-table tr{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}
+            .quote-data-table td,.quote-data-table .label{width:auto;min-width:0}
+            .quote-data-table .quote-data-gap{display:none}
+            .schedule-table{min-width:760px}
             table{table-layout:auto}
             th,td{padding:5px 4px;font-size:9px}
             .plan-split{grid-template-columns:minmax(0,1fr)}
@@ -413,6 +421,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           /* Margen vertical lo da @page; el lateral lo da el padding del body (nunca se pierde) */
           @page{size:A4 portrait;margin:5mm 0}
           @media print{
+            .schedule-scroll{overflow:visible !important;max-width:none !important}
             html,body{width:auto !important;max-width:none !important;overflow:visible !important}
             body{
               margin:0 !important;
@@ -501,7 +510,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
       <body class="${bodyClass}">
         <div class="watermark"><img src="${escapeHtml(adminLogoUrl)}" alt="" /></div>
         <div class="brand">
-          <div><p class="eyebrow">${escapeHtml(title)}</p><h1>Q${quote.id} - ${escapeHtml(subtitle)}</h1><p>Generado ${escapeHtml(generatedAt)}</p></div>
+          <div><p class="eyebrow">${escapeHtml(title)}</p><h1>Q${quote.projectNumber ?? quote.id} - ${escapeHtml(subtitle)}</h1><p>Generado ${escapeHtml(generatedAt)}</p></div>
           <div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div>
         </div>
         <div class="summary">
@@ -528,7 +537,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
           <div class="financing-section${isFinancing ? ' page-break-financing' : ''}">
           ${isFinancing ? `
           <div class="brand financing-page-brand">
-            <div><p class="eyebrow">${escapeHtml(title)}</p><h1>Q${quote.id} - ${escapeHtml(subtitle)}</h1><p>Generado ${escapeHtml(generatedAt)}</p></div>
+            <div><p class="eyebrow">${escapeHtml(title)}</p><h1>Q${quote.projectNumber ?? quote.id} - ${escapeHtml(subtitle)}</h1><p>Generado ${escapeHtml(generatedAt)}</p></div>
             <div class="logos">${projectLogoUrl ? `<img src="${escapeHtml(projectLogoUrl)}" alt="Proyecto" />` : ''}<img src="${escapeHtml(adminLogoUrl)}" alt="Dunacon" /></div>
           </div>
           ` : ''}
@@ -540,7 +549,7 @@ function buildQuoteHtml(data: any, plan: any, docType: 'cotizacion' | 'financiam
             <div class="finance-highlight"><span>Cuotas sin interés <em class="tiny">(${noInterestInstallments})</em></span><strong>${escapeHtml(fmtUsd(noInterestCuotaUsd))}</strong></div>
             <div class="finance-highlight"><span>Cuotas con interés <em class="tiny">(${interestInstallments})</em></span><strong>${escapeHtml(fmtUsd(interestCuotaUsd))}</strong></div>
           </div>
-          ${isFinancing ? `<h2>CRONOGRAMA DEL FINANCIAMIENTO</h2><p class="schedule-start">Fecha de inicio del financiamiento: <b>${escapeHtml(quoteDate)}</b>. 1era cuota: <b>${escapeHtml(dueDate(1))}</b>.</p><table class="schedule-table"><thead><tr><th>Mes</th><th>Fecha</th><th>Saldo inicial</th><th>Amort. capital</th><th>Amort. extra</th><th>Interes</th><th>Cuota</th><th>Saldo final</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody></table>` : ''}
+          ${isFinancing ? `<h2>CRONOGRAMA DEL FINANCIAMIENTO</h2><p class="schedule-start">Fecha de inicio del financiamiento: <b>${escapeHtml(quoteDate)}</b>. 1era cuota: <b>${escapeHtml(dueDate(1))}</b>.</p><div class="schedule-scroll" role="region" aria-label="Cronograma de cuotas" tabindex="0"><table class="schedule-table"><thead><tr><th>Mes</th><th>Fecha</th><th>Saldo inicial</th><th>Amort. capital</th><th>Amort. extra</th><th>Interes</th><th>Cuota</th><th>Saldo final</th></tr></thead><tbody>${scheduleRows ? `${scheduleRows}${scheduleTotalRow}` : '<tr><td colspan="8">Sin cronograma registrado.</td></tr>'}</tbody></table></div>` : ''}
           </div>
         ` : ''}
         <div class="footer">Dunacon - CRM Inmobiliario</div>
@@ -623,7 +632,7 @@ function QuoteDocumentModal({ doc, onClose }: { doc: { id: number; type: 'cotiza
           <div className="rounded-lg border p-6 text-center text-sm text-slate-400" style={{ borderColor: '#E5E7EB' }}>Cargando documento...</div>
         ) : (
           <div className="overflow-auto rounded-lg border bg-white p-2 sm:p-3" style={{ borderColor: '#E5E7EB', maxHeight: '70vh' }}>
-            <iframe title="Vista previa del documento" srcDoc={html} className="h-[70vh] min-h-[420px] w-full min-w-[320px] rounded-md bg-white" />
+            <iframe title="Vista previa del documento" srcDoc={html} className="h-[70vh] min-h-[420px] w-full min-w-0 rounded-md bg-white" />
           </div>
         )}
       </div>
@@ -641,6 +650,10 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const [loading, setLoading] = useState(true);
   const [lots, setLots] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingNumber, setEditingNumber] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const editRequest = useRef(0);
   const [doc, setDoc] = useState<{ id: number; type: 'cotizacion' | 'financiamiento' } | null>(null);
   // Paginación server-side + filtros (buenas prácticas: page/limit en URL del API,
   // reset a página 1 cuando cambia un filtro, debounce en búsqueda).
@@ -656,8 +669,8 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   } | null>(null);
   const [deletingId, setDeletingId] = useState(0);
   const [fPayment, setFPayment] = useState('');
-  const [sort, setSort] = useState('createdAt');
-  const [order, setOrder] = useState<'ASC' | 'DESC'>('DESC');
+  const [sort, setSort] = useState('id');
+  const [order, setOrder] = useState<'ASC' | 'DESC'>('ASC');
 
   const [clientName, setClientName] = useState('');
   const [clientEmail, setClientEmail] = useState('');
@@ -840,7 +853,32 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   const initialPartsError = initialPaymentMode === 'partes' && !(Number.isInteger(Number(initialParts)) && Number(initialParts) >= 1 && Number(initialParts) <= 3);
   const cuotasFinanciadas = paymentMethod === 'credito' ? safeTotalCuotas : 0;
 
+  async function editQuote(id: number) {
+    const request = ++editRequest.current;
+    try {
+      const { quote, lot } = await api.get<{ quote: any; lot: any }>(`/quotes/${id}`);
+      if (request !== editRequest.current) return;
+      if (quote.status === 'convertida') return toast('Esta cotizacion ya fue convertida en venta y no se puede editar.', 'err');
+      setEditingId(quote.id); setEditingNumber(quote.projectNumber ?? quote.id);
+      setClientId(quote.clientId || null); setClientSearch('');
+      setClientName(quote.clientName || ''); setClientEmail(quote.clientEmail || ''); setClientPhone(quote.clientPhone || '');
+      setLotId(quote.lotId); setStreetId(Number(lot?.streetId ?? lot?.blockId ?? 0));
+      if (lot) setLots(prev => [...prev.filter(item => Number(item.id) !== Number(lot.id)), lot]);
+      const price = Number(quote.lotPriceUsd || 0);
+      setLotPriceUsd(price); setBonoDescuento(Number(quote.bonoDescuentoUsd || 0)); setBonoEspecial(Number(quote.bonoEspecialUsd || 0));
+      setBonoContadoPct(price > 0 ? Number(quote.bonoContadoUsd || 0) / price * 100 : 0); setEditingBonoContado(false);
+      setExchangeRate(Number(quote.exchangeRate || 3.75)); setQuoteDate(String(quote.createdAt).slice(0, 10));
+      setPaymentMethod(quote.paymentMethod === 'contado' ? 'contado' : 'credito');
+      setCuotaInicialUsd(Number(quote.cuotaInicialUsd || 0)); setTotalCuotas(Number(quote.totalCuotas || 0));
+      setInitialPaymentMode(quote.initialPaymentMode === 'partes' ? 'partes' : 'contado'); setInitialParts(Number(quote.initialParts || 1));
+      setGraceMonths(Number(quote.graceMonths || 0)); setApplyInterest(quote.interestType === 'tea');
+      setInterestType(quote.interestType === 'tea' ? 'tea' : 'sin_intereses'); setTea(Number(quote.tea || 0));
+      setDoc(null); setOpen(true);
+    } catch (e: any) { if (request === editRequest.current) toast(e.message, 'err'); }
+  }
+
   function resetForm() {
+    setEditingId(null); setEditingNumber(null);
     setClientName(''); setClientEmail(''); setClientPhone(''); setClientId(null); setClientSearch('');
     setLotId(0); setStreetId(0); setLotPriceUsd(0); setBonoContadoPct(5); setEditingBonoContado(false); setBonoDescuento(0); setBonoEspecial(0); setQuoteDate(todayInput());
     setPaymentMethod('credito'); setCuotaInicialUsd(0); setInitialPaymentMode('contado'); setInitialParts(3); setTotalCuotas(36); setGraceMonths(0); setApplyInterest(false); setTea(10);
@@ -855,6 +893,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
   }
 
   async function guardar() {
+    if (saving) return;
     if (!lotId) return toast('Selecciona un lote', 'err');
     if (selectedLot && isQuoteBlockedLot(selectedLot)) return toast(`No se puede generar cotizacion ni financiamiento para un lote ${selectedLot.status}.`, 'err');
     if (!clientName.trim()) return toast('Ingresa el nombre del cliente', 'err');
@@ -865,8 +904,9 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
     if (paymentMethod === 'credito' && initialPaymentMode === 'partes' && initialPartsError) {
       return toast('El numero de partes de la cuota inicial debe ser un entero entre 1 y 3', 'err');
     }
+    setSaving(true);
     try {
-      await api.post('/quotes', {
+      const payload = {
         projectId: lockedProjectId || selectedLot?.projectId || 1,
         lotId, clientId: clientId || undefined, clientName, clientEmail, clientPhone,
         pricePerM2Usd: derivedPricePerM2Usd, lotPriceUsd, finalPriceUsd: finalPrice, bonoDescuentoUsd: bonoDescuento || undefined, bonoEspecialUsd: bonoEspecial || undefined, bonoContadoUsd,
@@ -880,20 +920,23 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
         initialParts: paymentMethod === 'credito' && initialPaymentMode === 'partes' ? initialParts || undefined : undefined,
         exchangeRate,
         quoteDate,
-      });
-      if (searchParams?.get('returnToSale') === '1') {
+      };
+      if (editingId) await api.patch(`/quotes/${editingId}`, payload);
+      else await api.post('/quotes', payload);
+      if (!editingId && searchParams?.get('returnToSale') === '1') {
         const saleProjectId = lockedProjectId || selectedLot?.projectId;
         if (saleProjectId) {
           window.location.href = `/projects/${saleProjectId}/sales?lotId=${lotId}&openSale=1`;
           return;
         }
       }
-      toast('Cotizacion generada'); setOpen(false); resetForm(); setPage(1); load();
+      toast(editingId ? 'Cotizacion actualizada' : 'Cotizacion generada'); setOpen(false); resetForm(); if (!editingId) setPage(1); load(); loadStats();
     } catch (e: any) { toast(e.message, 'err'); }
+    finally { setSaving(false); }
   }
 
   async function deleteQuote(q: Q) {
-    if (!window.confirm(`Eliminar la cotizacion Q${q.id}? Quedara guardada para auditoria.`)) return;
+    if (!window.confirm(`Eliminar la cotizacion Q${q.projectNumber ?? q.id}? Quedara guardada para auditoria.`)) return;
     setDeletingId(q.id);
     try {
       await api.delete(`/quotes/${q.id}`);
@@ -912,7 +955,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
       setOrder((o) => (o === 'ASC' ? 'DESC' : 'ASC'));
     } else {
       setSort(field);
-      setOrder(field === 'clientName' ? 'ASC' : 'DESC');
+      setOrder(field === 'clientName' || field === 'id' ? 'ASC' : 'DESC');
     }
   }
 
@@ -938,7 +981,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
               <p className="text-sm mt-0.5" style={{ color: '#6B7280' }}>Calcula el financiamiento y genera la cotizacion y el cronograma de pagos para el cliente.</p>
             </div>
           </div>
-          <div className="mt-4 grid min-w-0 grid-cols-[minmax(0,1fr)_auto_80px] items-center gap-1.5 sm:grid-cols-[minmax(0,256px)_auto_120px] sm:justify-start sm:gap-3 lg:mt-0 lg:flex lg:shrink-0">
+          <div className="mt-4 grid min-w-0 grid-cols-2 items-center gap-1.5 sm:grid-cols-[minmax(0,256px)_auto_120px] sm:justify-start sm:gap-3 lg:mt-0 lg:flex lg:shrink-0">
             <input
               className="input !min-w-0 !w-full !px-2 !text-[11px] sm:!text-sm lg:!w-48"
               placeholder="Buscar cliente o lote..."
@@ -946,13 +989,14 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-            <button className="btn-primary whitespace-nowrap !px-2 !text-[11px] sm:!px-4 sm:!text-sm" onClick={() => setOpen(true)}>Nueva cotizacion</button>
+            <button className="btn-primary whitespace-nowrap !px-2 !text-[11px] sm:!px-4 sm:!text-sm" disabled={saving} onClick={() => { editRequest.current++; resetForm(); setOpen(true); }}>Nueva cotizacion</button>
             <Select
               value={fPayment}
               onChange={setFPayment}
               className="!min-w-0 !w-full [&_button]:!min-w-0 [&_button]:!px-2 [&_button]:!text-[11px] sm:[&_button]:!text-sm lg:!w-[100px]"
               options={[{ value: '', label: 'Todos' }, { value: 'contado', label: 'Contado' }, { value: 'credito', label: 'Crédito' }]}
             />
+            <button type="button" className="btn-neutral !h-9 whitespace-nowrap !px-2 text-xs" onClick={() => { setSort('id'); setOrder(current => sort === 'id' && current === 'ASC' ? 'DESC' : 'ASC'); }} aria-label="Ordenar por ID" aria-pressed={sort === 'id'}>Ordenar por ID {sort === 'id' ? (order === 'ASC' ? '↑' : '↓') : ''}</button>
             {(search || fPayment) && (
               <button
                 className="btn-neutral !h-9 text-xs"
@@ -970,7 +1014,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                 : (
                   <table className="table-base table-head-plomo" style={{ width: '100%', minWidth: 0 }}>
                     <thead className="[&_th]:!align-middle [&_th]:!leading-snug [&_th]:!py-3"><tr>
-                      <th className="th-base">Id</th>
+                      <th className="th-base"><button type="button" className="inline-flex items-center gap-1" onClick={() => toggleSort('id')} aria-label="Ordenar cotizaciones por ID">Id{sortArrow('id')}</button></th>
                       <th className="th-base">Lote</th>
                       <th className="th-base cursor-pointer select-none" onClick={() => toggleSort('clientName')}>Cliente{sortArrow('clientName')}</th>
                       <th className="th-base whitespace-nowrap">Area M2</th>
@@ -986,8 +1030,8 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                     </tr></thead>
                     <tbody className="divide-y divide-slate-100">
                       {rows.map((q) => (
-                        <tr key={q.id}>
-                          <td className="td-base text-slate-400">Q{q.id}</td>
+                        <tr key={q.id} onDoubleClick={event => { if (!(event.target as Element).closest('button, a, input, select')) void editQuote(q.id); }} title="Doble clic para editar cotizacion">
+                          <td className="td-base text-slate-400">Q{q.projectNumber ?? q.id}</td>
                           <td className="td-base font-medium">{q.lotCode || `Lote ${q.lotId}`}</td>
                           <td className="td-base">{q.clientName}</td>
                           <td className="td-base">{Number(q.areaM2 || 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || '-'}</td>
@@ -1013,7 +1057,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                             {q.paymentMethod === 'credito' && <button className="btn-secondary !h-7 !px-2 text-xs" onClick={() => setDoc({ id: q.id, type: 'financiamiento' })}><FiEye /> Finan..</button>}
                           </td>
                           <td className="td-base whitespace-nowrap">
-                            <button title="Eliminar cotizacion" aria-label={`Eliminar cotizacion Q${q.id}`} className="btn-danger mx-auto !h-7 !w-7 !min-w-0 !p-0" disabled={deletingId === q.id} onClick={() => deleteQuote(q)}><FiTrash2 /></button>
+                            <button title="Eliminar cotizacion" aria-label={`Eliminar cotizacion Q${q.projectNumber ?? q.id}`} className="btn-danger mx-auto !h-7 !w-7 !min-w-0 !p-0" disabled={deletingId === q.id} onClick={() => deleteQuote(q)}><FiTrash2 /></button>
                           </td>
                         </tr>
                       ))}
@@ -1037,9 +1081,9 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-2 sm:items-center sm:p-4">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setOpen(false)} />
+          <div className="absolute inset-0 bg-black/50" onClick={() => { if (!saving) setOpen(false); }} />
           <div className="relative max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white p-4 sm:max-h-[92vh] sm:p-6">
-            <h3 className="font-semibold mb-1" style={{ fontSize: 17 }}>Calcula tu financiamiento</h3>
+            <h3 className="font-semibold mb-1" style={{ fontSize: 17 }}>{editingId ? `Editar cotizacion Q${editingNumber ?? editingId}` : 'Calcula tu financiamiento'}</h3>
             <p className="text-xs text-slate-500 mb-4">Esta calculadora trabaja y registra todos los importes en dólares (US$).</p>
 
             <h4 className="font-semibold text-sm text-slate-700 mb-2">Cliente</h4>
@@ -1092,6 +1136,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                 <Field label="Calle">
                   <Select
                     value={String(streetId)}
+                    disabled={editingId !== null || saving}
                     onChange={(value) => { setStreetId(Number(value)); setLotId(0); }}
                     options={[
                       { value: '0', label: 'Todas las calles' },
@@ -1103,6 +1148,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
               <Field label="Lote elegido *">
                 <Select
                   value={String(lotId)}
+                  disabled={editingId !== null || saving}
                   onChange={(value) => selectLot(Number(value))}
                   options={[
                     { value: '0', label: 'Selecciona...' },
@@ -1124,7 +1170,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
                 type="button"
                 className="btn-neutral !h-7 !px-2 text-xs"
                 onClick={resetLot}
-                disabled={!selectedLot}
+                disabled={!selectedLot || editingId !== null || saving}
                 title="Limpiar el lote elegido para escoger otro sin salir del cuadro"
               >
                 <FiRefreshCw /> Cambiar lote
@@ -1190,7 +1236,7 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
               {paymentMethod === 'credito' && (
                 <>
                   <Field label="Cuota inicial US$"><input type="number" className="input" value={cuotaInicialUsd || ''} onChange={(e) => setCuotaInicialUsd(Number(e.target.value || 0))} /></Field>
-                  <Field label="Cuotas de financiamiento"><input type="number" className="input" value={totalCuotas || ''} onChange={(e) => setTotalCuotas(Number(e.target.value || 0))} /></Field>
+                  <div className="mb-3"><label className="label" htmlFor="quote-financing-installments"><span className="sm:hidden">C. financiamiento</span><span className="hidden sm:inline">Cuotas de financiamiento</span></label><input id="quote-financing-installments" type="number" className="input" value={totalCuotas || ''} onChange={(e) => setTotalCuotas(Number(e.target.value || 0))} /></div>
                 </>
               )}
               {paymentMethod === 'contado' && (
@@ -1322,13 +1368,14 @@ export default function QuotesView({ lockedProjectId }: { lockedProjectId?: numb
               </>
             )}
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="hidden grid-cols-2 gap-3 sm:grid">
               <Field label="Fecha de cotizacion"><input type="date" className="input" value={quoteDate} onChange={(e) => setQuoteDate(e.target.value)} /></Field>
             </div>
 
-            <div className="flex justify-end gap-2 pt-4 mt-1 border-t">
-              <button className="btn-neutral" onClick={() => setOpen(false)}>Cancelar</button>
-              <button className="btn-primary" onClick={guardar}>Generar cotizacion</button>
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-end gap-2 pt-4 mt-1 border-t sm:flex sm:justify-end">
+              <label className="block min-w-0 sm:hidden"><span className="mb-1 block text-[10px] font-semibold text-slate-500">Fecha de cotizacion</span><input type="date" className="input !min-w-0 !w-full !px-1 !text-xs" value={quoteDate} onChange={e => setQuoteDate(e.target.value)} /></label>
+              <button className="btn-neutral max-sm:!min-w-0 max-sm:!px-2 max-sm:!text-xs" disabled={saving} onClick={() => setOpen(false)}>Cancelar</button>
+              <button className="btn-primary max-sm:!min-w-0 max-sm:!px-2 max-sm:!text-xs" disabled={saving} onClick={guardar}>{saving ? 'Guardando...' : editingId ? 'Guardar cambios' : 'Generar cotizacion'}</button>
             </div>
           </div>
         </div>

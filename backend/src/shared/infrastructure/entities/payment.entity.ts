@@ -6,6 +6,7 @@ import {
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
+import type { InstallmentAllocation } from '../../../modules/payments/domain/installment-allocation';
 
 @Entity('payments')
 export class PaymentEntity {
@@ -29,6 +30,12 @@ export class PaymentEntity {
 
   @Column({ type: 'numeric', precision: 14, scale: 2 })
   amount: string;
+
+  @Column({ name: 'is_extraordinary', type: 'boolean', default: false })
+  isExtraordinary: boolean;
+
+  @Column({ name: 'installment_allocations', type: 'jsonb', default: () => "'[]'::jsonb" })
+  installmentAllocations: InstallmentAllocation[];
 
   @Column({ name: 'due_date', type: 'date', nullable: true })
   dueDate: string | null;

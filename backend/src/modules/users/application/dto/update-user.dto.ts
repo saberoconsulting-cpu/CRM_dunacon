@@ -1,6 +1,11 @@
+import { Type } from 'class-transformer';
 // modules/users/application/dto/update-user.dto.ts
 import {
   IsArray,
+  IsIn,
+  IsInt,
+  Min,
+  ValidateNested,
   IsEmail,
   IsNumber,
   IsOptional,
@@ -8,7 +13,8 @@ import {
 } from 'class-validator';
 
 export class ProjectAccessDto {
-  @IsNumber()
+  @IsInt()
+  @Min(1)
   projectId!: number;
 
   @IsArray()
@@ -30,7 +36,7 @@ export class UpdateUserDto {
   phone?: string;
 
   @IsOptional()
-  @IsString()
+  @IsIn(['active', 'inactive'])
   status?: 'active' | 'inactive';
 
   @IsOptional()
@@ -47,9 +53,13 @@ export class UpdateUserDto {
 
   @IsOptional()
   @IsArray()
+  @IsInt({ each: true })
+  @Min(1, { each: true })
   projectIds?: number[];
 
   @IsOptional()
   @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProjectAccessDto)
   projectAccess?: ProjectAccessDto[];
 }

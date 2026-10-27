@@ -1,3 +1,5 @@
+import { ProjectScope, scopeProjectQuery, projectScopeSql, projectScopeParameters } from '../../../shared/application/project-scope';
+import { calendarDate } from '../../../shared/domain/calendar-date';
 // modules/payments/application/payments.service.ts
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
@@ -12,6 +14,7 @@ import { SaleEntity } from '../../../shared/infrastructure/entities/sale.entity'
 import { SaleInstallmentEntity } from '../../../shared/infrastructure/entities/sale-installment.entity';
 import { NotificationsGateway } from '../../../shared/infrastructure/websocket/notifications.gateway';
 import { ApprovePaymentDto, CreatePaymentDto } from './dto/payment.dto';
+import { extraordinaryAllocation, installmentCoverage, moneyCents, InstallmentAllocation } from '../domain/installment-allocation';
 import { comparePaymentsForDisplay, paymentConcept, paymentConceptLabel, paymentConceptRank } from '../domain/payment-order';
 
 // Estado comercial al que conduce cada tipo de pago
@@ -63,21 +66,44 @@ export class PaymentsService {
     const saved = await this.dataSource.transaction(async (manager) => {
       // Serialize registration per lot so two requests cannot claim the same installment.
       await manager.getRepository(LotEntity).findOne({ where: { id: dto.lotId }, lock: { mode: 'pessimistic_write' } });
+      // Resolve the agreed rate from the sale's quote, never from a global rate
+      // or a client-supplied value. USD amounts remain unchanged.
+      const quoteRates = currentSale ? await manager.query(
+        `SELECT q.exchange_rate AS "exchangeRate" FROM quotes q
+          WHERE q.lot_id = $1 AND q.deleted_at IS NULL
+            AND (($3::integer IS NOT NULL AND q.id = $3)
+              OR ($3::integer IS NULL AND q.client_id = $2 AND q.status IN ('convertida','aprobada')))
+          ORDER BY q.id DESC LIMIT 1`,
+        [currentSale.lotId, currentSale.clientId || null, currentSale.quoteId || null],
+      ) : [];
+      const saleRate = Number(quoteRates[0]?.exchangeRate || 0);
       const concept = paymentConcept(dto.type);
-      let targetInstallment: SaleInstallmentEntity | null = null;
+      let allocations: InstallmentAllocation[] = [];
+      let allocationSchedule: SaleInstallmentEntity[] = [];
+      let registeredPayments: PaymentEntity[] = [];
+      if (dto.isExtraordinary && (concept !== 'cuota' || !currentSale)) {
+        throw new BadRequestException('El ingreso extraordinario solo se aplica a cuotas de una venta con cronograma.');
+      }
       if (concept === 'cuota' && currentSale) {
-        const schedule = await manager.getRepository(SaleInstallmentEntity).find({ where: { saleId: currentSale.id }, order: { installmentNo: 'ASC' } });
-        const registered = await manager.getRepository(PaymentEntity).find({ where: { lotId: dto.lotId } });
-        const financingPayments = registered.filter(p => paymentConcept(p.type) === 'cuota');
-        const occupied = (inst: SaleInstallmentEntity) => !!inst.paymentId || financingPayments.some(p =>
-          (p.dueDate && String(p.dueDate).slice(0, 10) === String(inst.dueDate).slice(0, 10)) ||
-          Number(String(p.reference || '').match(/cuota\s*(?:n[.\s]*)?(\d+)/i)?.[1] || 0) === inst.installmentNo);
-        targetInstallment = schedule.find(inst => inst.status !== 'pagado' && !occupied(inst)) || null;
-        if (!targetInstallment) throw new BadRequestException('Todas las cuotas ya tienen un pago registrado. Revisa el historial y los pagos pendientes de aprobacion.');
-        if (dto.dueDate && String(dto.dueDate).slice(0, 10) !== String(targetInstallment.dueDate).slice(0, 10)) {
+        allocationSchedule = await manager.getRepository(SaleInstallmentEntity).find({ where: { saleId: currentSale.id }, order: { installmentNo: 'ASC' } });
+        registeredPayments = await manager.getRepository(PaymentEntity).find({ where: { lotId: dto.lotId } });
+        const coverage = installmentCoverage(allocationSchedule, registeredPayments);
+        const target = coverage.find(row => row.availableCents > 0);
+        if (!target) throw new BadRequestException('Todas las cuotas ya tienen un pago registrado. Revisa el historial y los pagos pendientes de aprobacion.');
+        if (dto.dueDate && String(dto.dueDate).slice(0, 10) !== String(target.installment.dueDate).slice(0, 10)) {
           throw new BadRequestException('La cuota seleccionada ya cambio o tiene un pago registrado. Selecciona nuevamente el lote para cargar la siguiente cuota.');
         }
-        if (Math.abs(Number(dto.amount) - Number(targetInstallment.amount)) > 0.01) throw new BadRequestException('El monto en US$ debe coincidir con la cuota pendiente del cronograma.');
+        if (dto.isExtraordinary) {
+          const dateParts = new Intl.DateTimeFormat('en', { timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+          const part = (type: string) => dateParts.find(value => value.type === type)?.value || '';
+          const paidDate = dto.paidAt || `${part('year')}-${part('month')}-${part('day')}`;
+          try { allocations = extraordinaryAllocation(allocationSchedule, registeredPayments, dto.amount, paidDate); }
+          catch (error) { throw new BadRequestException(error instanceof Error ? error.message : 'No se pudo distribuir el pago.'); }
+        } else {
+          if (moneyCents(dto.amount) !== target.availableCents) throw new BadRequestException('El monto en US$ debe coincidir con la cuota pendiente del cronograma.');
+          const inst = target.installment;
+          allocations = [{ saleId: Number(inst.saleId), installmentId: Number(inst.id), installmentNo: inst.installmentNo, dueDate: String(inst.dueDate).slice(0, 10), amount: target.availableCents / 100, kind: 'installment' }];
+        }
       }
       if (concept === 'reserva') {
         const existingReserva = await manager.getRepository(PaymentEntity).count({
@@ -117,14 +143,16 @@ export class PaymentsService {
         agentId,
         type: dto.type,
         amount: String(dto.amount),
+        isExtraordinary: !!dto.isExtraordinary,
+        installmentAllocations: allocations,
         paymentMethod: dto.paymentMethod || 'otro',
         reference: dto.reference || undefined,
         dueDate: dto.dueDate || undefined,
         status: dto.dueDate ? 'pendiente' : 'pagado',
-        paidAt: dto.dueDate ? undefined : new Date(),
+        paidAt: dto.paidAt ? new Date(`${dto.paidAt}T00:00:00-05:00`) : dto.dueDate ? undefined : new Date(),
         note: dto.note,
         createdBy: actorId,
-        exchangeRate: '1',
+        exchangeRate: Number.isFinite(saleRate) && saleRate > 0 ? String(saleRate) : null,
         amountUsd: String(dto.amount),
         bankOperationNumber: dto.bankOperationNumber || null,
         receiptNumber: dto.receiptNumber || null,
@@ -137,10 +165,14 @@ export class PaymentsService {
         throw new Error('No se pudo registrar el pago');
       }
 
-      if (targetInstallment) {
-        await manager.update(SaleInstallmentEntity, { id: targetInstallment.id }, {
-          paymentId: savedPayment.id, status: savedPayment.status === 'pagado' ? 'pagado' : 'pendiente',
-        });
+      if (allocations.length) {
+        const coverage = installmentCoverage(allocationSchedule, [...registeredPayments, savedPayment]);
+        for (const allocation of allocations) {
+          const row = coverage.find(item => Number(item.installment.id) === allocation.installmentId)!;
+          await manager.update(SaleInstallmentEntity, { id: allocation.installmentId }, {
+            paymentId: savedPayment.id, status: row.remainingCents === 0 ? 'pagado' : 'pendiente',
+          });
+        }
       }
 
       // Finanzas solo debe reconocer dinero cobrado. Si el pago nace pendiente,
@@ -207,6 +239,7 @@ export class PaymentsService {
   }
 
   async list(filters: {
+    projectScope?: ProjectScope;
     projectId?: number;
     lotId?: number;
     agentId?: number;
@@ -221,6 +254,7 @@ export class PaymentsService {
     const limit = Math.min(200, Math.max(1, filters.limit ?? 20));
 
     const applyFilters = (qb: any) => {
+      scopeProjectQuery(qb, 'p', filters.projectScope);
       if (filters.projectId) qb.andWhere('p.project_id = :projectId', { projectId: filters.projectId });
       if (filters.lotId) qb.andWhere('p.lot_id = :lotId', { lotId: filters.lotId });
       if (filters.agentId) qb.andWhere('p.agent_id = :agentId', { agentId: filters.agentId });
@@ -243,7 +277,7 @@ export class PaymentsService {
           'p.id', 'p.projectId', 'p.lotId', 'p.clientId', 'p.agentId', 'p.type', 'p.amount',
           'p.dueDate', 'p.paymentMethod', 'p.reference', 'p.voucherUrl', 'p.paidAt', 'p.status', 'p.createdAt',
           'p.exchangeRate', 'p.amountUsd', 'p.bankOperationNumber', 'p.receiptNumber', 'p.receiptValue',
-          'p.approvalDocumentUrl', 'p.receiptDocumentUrl', 'p.approvedAt',
+          'p.approvalDocumentUrl', 'p.receiptDocumentUrl', 'p.approvedAt', 'p.isExtraordinary', 'p.installmentAllocations',
         ])
         // Postgres pliega a minúsculas cualquier alias sin comillas — mismo bug
         // ya corregido en lots.service.ts y sales.service.ts.
@@ -318,11 +352,12 @@ export class PaymentsService {
       clientId: r.p_client_id ? Number(r.p_client_id) : null,
       agentId: r.p_agent_id ? Number(r.p_agent_id) : null,
       type: r.p_type, amount: Number(r.p_amount),
+      isExtraordinary: !!r.p_is_extraordinary, installmentAllocations: r.p_installment_allocations || [],
       concept: paymentConcept(r.p_type),
       conceptLabel: paymentConceptLabel(r.p_type),
       conceptRank: paymentConceptRank(r.p_type),
       stage: String(r.p_status) === 'pagado' ? 'pagado' : 'pendiente',
-      dueDate: r.p_due_date, paymentMethod: r.p_payment_method,
+      dueDate: calendarDate(r.p_due_date), paymentMethod: r.p_payment_method,
       reference: r.p_reference, voucherUrl: r.p_voucher_url,
       paidAt: r.p_paid_at, status: r.p_status, createdAt: r.p_created_at,
       lotCode: r.lotCode || null,
@@ -387,6 +422,23 @@ export class PaymentsService {
     const installmentRepo = manager.getRepository(SaleInstallmentEntity);
     const saleRepo = manager.getRepository(SaleEntity);
     if (paymentConcept(payment.type) !== 'cuota') return;
+    if (payment.installmentAllocations?.length) {
+      await manager.getRepository(LotEntity).findOne({ where: { id: payment.lotId }, lock: { mode: 'pessimistic_write' } });
+      const saleId = payment.installmentAllocations[0].saleId;
+      const sale = await saleRepo.findOne({ where: { id: saleId, lotId: payment.lotId } });
+      if (!sale) throw new BadRequestException('La venta del pago ya no esta disponible.');
+      const schedule = await installmentRepo.find({ where: { saleId }, order: { installmentNo: 'ASC' } });
+      const payments = await manager.getRepository(PaymentEntity).find({ where: { lotId: payment.lotId } });
+      const confirmed = { ...payment, status: 'pagado' };
+      const coverage = installmentCoverage(schedule, [...payments.filter(item => Number(item.id) !== Number(payment.id)), confirmed]);
+      for (const allocation of payment.installmentAllocations) {
+        const row = coverage.find(item => Number(item.installment.id) === Number(allocation.installmentId));
+        if (!row || Number(allocation.saleId) !== Number(saleId)) throw new BadRequestException('La distribucion del pago no corresponde al cronograma.');
+        await installmentRepo.update(row.installment.id, { status: row.remainingCents === 0 ? 'pagado' : 'pendiente', paymentId: payment.id });
+      }
+      return;
+    }
+
     const linked = await installmentRepo.findOne({ where: { paymentId: payment.id } });
     if (linked) { await installmentRepo.update(linked.id, { status: 'pagado' }); return; }
     const sale = await saleRepo.findOne({ where: { lotId: payment.lotId }, order: { id: 'DESC' } });
@@ -461,15 +513,17 @@ export class PaymentsService {
 
   // Métricas de caja: por medio de pago, por mes (pagado), ventas por mes y
   // morosidad por mes (para el gráfico de doble eje "Pagos vs Morosidad").
-  async summary(projectId?: number, agentId?: number) {
+  async summary(projectId?: number, agentId?: number, scope?: ProjectScope) {
     const today = new Date().toISOString().slice(0, 10);
     const plus30 = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
     const scopePayments = (qb: any) => {
+      scopeProjectQuery(qb, 'p', scope);
       if (projectId) qb.andWhere('p.project_id = :projectId', { projectId });
       if (agentId) qb.andWhere('p.agent_id = :agentId', { agentId });
       return qb;
     };
     const scopeSales = (qb: any) => {
+      scopeProjectQuery(qb, 's', scope);
       if (projectId) qb.andWhere('s.project_id = :projectId', { projectId });
       if (agentId) qb.andWhere('s.agent_id = :agentId', { agentId });
       return qb;
@@ -538,6 +592,7 @@ export class PaymentsService {
         .andWhere("s.approval_status IN ('pendiente','aprobada')")
         .andWhere(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
         .andWhere(agentId ? 's.agent_id = :agentId' : '1=1', { agentId })
+        .andWhere(projectScopeSql('s', scope), projectScopeParameters(scope))
         .select('COUNT(*)', 'count')
         .addSelect('COALESCE(SUM(i.amount),0)', 'amount')
         .getRawOne(),
@@ -547,6 +602,7 @@ export class PaymentsService {
         .andWhere("s.approval_status IN ('pendiente','aprobada')")
         .andWhere(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
         .andWhere(agentId ? 's.agent_id = :agentId' : '1=1', { agentId })
+        .andWhere(projectScopeSql('s', scope), projectScopeParameters(scope))
         .select('COUNT(*)', 'count')
         .addSelect('COALESCE(SUM(i.amount),0)', 'amount')
         .getRawOne(),
@@ -556,6 +612,7 @@ export class PaymentsService {
         .andWhere("s.approval_status IN ('pendiente','aprobada')")
         .andWhere(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
         .andWhere(agentId ? 's.agent_id = :agentId' : '1=1', { agentId })
+        .andWhere(projectScopeSql('s', scope), projectScopeParameters(scope))
         .select('COUNT(*)', 'count')
         .addSelect('COALESCE(SUM(i.amount),0)', 'amount')
         .getRawOne(),
@@ -563,6 +620,7 @@ export class PaymentsService {
         .where("s.approval_status IN ('pendiente','aprobada')")
         .andWhere(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
         .andWhere(agentId ? 's.agent_id = :agentId' : '1=1', { agentId })
+        .andWhere(projectScopeSql('s', scope), projectScopeParameters(scope))
         .select('COUNT(*)', 'count')
         .addSelect('COALESCE(SUM(s.sale_price),0)', 'amount')
         .getRawOne(),
@@ -570,6 +628,7 @@ export class PaymentsService {
         .where("s.approval_status IN ('pendiente','aprobada')")
         .andWhere(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
         .andWhere(agentId ? 's.agent_id = :agentId' : '1=1', { agentId })
+        .andWhere(projectScopeSql('s', scope), projectScopeParameters(scope))
         .select('COALESCE(SUM(s.financing_base),0)', 'amount')
         .getRawOne(),
       this.installmentRepo
@@ -578,12 +637,14 @@ export class PaymentsService {
         .where("s.approval_status IN ('pendiente','aprobada')")
         .andWhere(projectId ? 's.project_id = :projectId' : '1=1', { projectId })
         .andWhere(agentId ? 's.agent_id = :agentId' : '1=1', { agentId })
+        .andWhere(projectScopeSql('s', scope), projectScopeParameters(scope))
         .select('COUNT(*)', 'count')
         .getRawOne(),
       this.paymentRepo.createQueryBuilder('p')
         .where("p.type = 'cuota' AND p.status = 'pagado'")
         .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
         .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
+        .andWhere(projectScopeSql('p', scope), projectScopeParameters(scope))
         .select('COUNT(*)', 'count')
         .addSelect('COALESCE(SUM(COALESCE(p.amount_usd, p.amount)),0)', 'amount')
         .getRawOne(),
@@ -591,6 +652,7 @@ export class PaymentsService {
         .where("p.type IN ('reserva','adelanto','cuota_inicial','primera_cuota') AND p.status = 'pagado'")
         .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
         .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
+        .andWhere(projectScopeSql('p', scope), projectScopeParameters(scope))
         .select('COUNT(*)', 'count')
         .addSelect('COALESCE(SUM(COALESCE(p.amount_usd, p.amount)),0)', 'amount')
         .getRawOne(),
@@ -598,6 +660,7 @@ export class PaymentsService {
         .where("(NULLIF(TRIM(COALESCE(p.receipt_number, '')), '') IS NOT NULL OR NULLIF(TRIM(COALESCE(p.receipt_document_url, '')), '') IS NOT NULL)")
         .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
         .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
+        .andWhere(projectScopeSql('p', scope), projectScopeParameters(scope))
         .select('COUNT(*)', 'count')
         .addSelect('COALESCE(SUM(COALESCE(p.amount_usd, p.amount, p.receipt_value)),0)', 'amount')
         .getRawOne(),
@@ -605,6 +668,7 @@ export class PaymentsService {
         .where("p.type IN ('cuota','reserva','adelanto','cuota_inicial','primera_cuota') AND p.status = 'pagado'")
         .andWhere(projectId ? 'p.project_id = :projectId' : '1=1', { projectId })
         .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
+        .andWhere(projectScopeSql('p', scope), projectScopeParameters(scope))
         .select('COUNT(DISTINCT p.lot_id)', 'count')
         .getRawOne(),
     ]);
@@ -642,16 +706,20 @@ export class PaymentsService {
   }
 
   // Alertas: cuotas vencidas y próximas a vencer (7 días)
-  async alerts() {
+  async alerts(scope?: ProjectScope, agentId?: number) {
     const today = new Date().toISOString().slice(0, 10);
     const plus7 = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
     const overdue = await this.paymentRepo
       .createQueryBuilder('p')
       .where('p.status = :s AND p.due_date < :today', { s: 'pendiente', today })
+      .andWhere(projectScopeSql('p', scope), projectScopeParameters(scope))
+      .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
       .getMany();
     const upcoming = await this.paymentRepo
       .createQueryBuilder('p')
       .where('p.status = :s AND p.due_date >= :today AND p.due_date <= :plus7', { s: 'pendiente', today, plus7 })
+      .andWhere(projectScopeSql('p', scope), projectScopeParameters(scope))
+      .andWhere(agentId ? 'p.agent_id = :agentId' : '1=1', { agentId })
       .getMany();
     return { overdue, upcoming };
   }

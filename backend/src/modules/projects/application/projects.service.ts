@@ -2,7 +2,7 @@ import { inspectPdfContractTemplate } from '../../../shared/application/pdf-cont
 import { inspectContractTemplate, downloadContractTemplate } from '../../../shared/application/contract-template';
 import { randomUUID } from 'crypto';
 // modules/projects/application/projects.service.ts
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DeepPartial, IsNull, Not, In } from 'typeorm';
 import { ProjectEntity } from '../../../shared/infrastructure/entities/project.entity';
@@ -15,6 +15,7 @@ import { UserProjectEntity } from '../../../shared/infrastructure/entities/user-
 import { uploadProjectPhoto, deleteProjectPhoto, uploadToCloudinary } from '../../../shared/infrastructure/upload/cloudinary.util';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { initializeProjectCashflows } from './cashflow-template';
+import { assertProjectAccess } from '../../../shared/application/project-access';
 
 @Injectable()
 export class ProjectsService {
@@ -128,7 +129,8 @@ export class ProjectsService {
     return { ok: true };
   }
 
-  async getOne(id: number) {
+  async getOne(id: number, user: { id: number; role: string }) {
+    await assertProjectAccess(this.userProjectRepo, id, user);
     const project = await this.projectRepo.findOne({ where: { id } });
     if (!project) throw new NotFoundException('Proyecto no encontrado');
     return project;
@@ -234,7 +236,8 @@ export class ProjectsService {
     return { ok: true };
   }
 
-  async listDocuments(projectId: number) {
+  async listDocuments(projectId: number, user: { id: number; role: string }) {
+    await assertProjectAccess(this.userProjectRepo, projectId, user);
     const project = await this.projectRepo.findOne({ where: { id: projectId } });
     if (!project) throw new NotFoundException('Proyecto no encontrado');
 
@@ -257,13 +260,15 @@ export class ProjectsService {
     }));
   }
 
-  async contractTemplateFile(projectId: number) {
+  async contractTemplateFile(projectId: number, user: { id: number; role: string }) {
+    await assertProjectAccess(this.userProjectRepo, projectId, user);
     const template = await this.projectDocumentRepo.findOne({ where: { projectId, kind: 'contrato_venta' }, order: { createdAt: 'DESC', id: 'DESC' } });
     if (!template) throw new NotFoundException('Sube primero la plantilla de contrato del proyecto.');
     return { buffer: await downloadContractTemplate(template.url), fileName: template.originalName, contentType: /\.pdf$/i.test(template.originalName) ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
   }
 
-  async contractTemplate(projectId: number) {
+  async contractTemplate(projectId: number, user: { id: number; role: string }) {
+    await assertProjectAccess(this.userProjectRepo, projectId, user);
     const template = await this.projectDocumentRepo.findOne({ where: { projectId, kind: 'contrato_venta' }, order: { createdAt: 'DESC', id: 'DESC' } });
     if (!template) throw new NotFoundException('Sube primero la plantilla de contrato del proyecto.');
     const buffer = await downloadContractTemplate(template.url);
@@ -272,7 +277,8 @@ export class ProjectsService {
     return { originalName: template.originalName, text, fields, availableFields, format: isPdf ? 'pdf' : 'docx' };
   }
 
-  async uploadDocument(projectId: number, kind: string, file: Express.Multer.File, actorId: number) {
+  async uploadDocument(projectId: number, kind: string, file: Express.Multer.File, user: { id: number; role: string }) {
+    await assertProjectAccess(this.userProjectRepo, projectId, user);
     const project = await this.projectRepo.findOne({ where: { id: projectId } });
     if (!project) throw new NotFoundException('Proyecto no encontrado');
     if (!file) throw new NotFoundException('Archivo no recibido');
@@ -301,7 +307,7 @@ export class ProjectsService {
       publicId: uploaded.public_id,
     });
 
-    await this.audit(actorId, 'SUBIR_DOCUMENTO', 'project_documents', saved.id).catch(() => {});
+    await this.audit(user.id, 'SUBIR_DOCUMENTO', 'project_documents', saved.id).catch(() => {});
 
     return {
       id: saved.id,
@@ -318,9 +324,7 @@ export class ProjectsService {
   }
 
   private async checkPhotoAccess(projectId: number, user: { id: number; role: string }) {
-    if (user.role === 'agent' && !await this.userProjectRepo.exist({ where: { projectId, userId: user.id } })) {
-      throw new ForbiddenException('No tienes acceso a este proyecto');
-    }
+    await assertProjectAccess(this.userProjectRepo, projectId, user);
   }
 
   async listPhotos(projectId: number, user: { id: number; role: string }) {
@@ -371,8 +375,8 @@ export class ProjectsService {
     });
   }
 
-  async dashboard(id: number) {
-    const project = await this.getOne(id);
+  async dashboard(id: number, user: { id: number; role: string }) {
+    const project = await this.getOne(id, user);
     const plan = await this.planRepo.findOne({ where: { projectId: id } });
     const streets = await this.blockRepo.find({ where: { projectId: id } });
     const lots = await this.lotRepo.find({ where: { projectId: id } });

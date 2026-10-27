@@ -14,6 +14,9 @@ export class QuoteEntity {
   @Column({ name: 'project_id' })
   projectId: number;
 
+  @Column({ name: 'project_number', type: 'integer' })
+  projectNumber: number;
+
   @Column({ name: 'lot_id' })
   lotId: number;
 
@@ -82,6 +85,9 @@ export class QuoteEntity {
 
   @Column({ length: 20, default: 'enviada' })
   status: string;
+
+  @Column({ name: 'status_updated_at', type: 'timestamptz', nullable: true })
+  statusUpdatedAt: Date | null;
 
   @Column({ name: 'reusable_until', type: 'timestamptz', nullable: true })
   reusableUntil: Date | null;

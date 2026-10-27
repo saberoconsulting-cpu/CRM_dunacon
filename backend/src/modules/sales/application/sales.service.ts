@@ -1,3 +1,6 @@
+import { installmentDueDate } from '../../../shared/domain/installment-dates';
+import { calendarDate } from '../../../shared/domain/calendar-date';
+import { installmentCoverage } from '../../payments/domain/installment-allocation';
 import { BankAccountEntity } from '../../../shared/infrastructure/entities/bank-account.entity';
 import { linkFinancialAccounts, parseFinancialStore } from '../../../shared/application/financial-accounts';
 import { ProjectLotDataEntity } from '../../../shared/infrastructure/entities/project-lot-data.entity';
@@ -245,6 +248,9 @@ export class SalesService {
     if (!assignedAgentId) throw new BadRequestException('Agente requerido');
     if (!(Number(dto.salePrice) > 0)) throw new BadRequestException('Precio de venta requerido');
     if (!dto.saleDate) throw new BadRequestException('Fecha de venta requerida');
+    if (dto.paymentMethod !== 'Contado' && dto.firstInstallmentDate && dto.firstInstallmentDate < dto.saleDate) {
+      throw new BadRequestException('La primera cuota no puede vencer antes de la fecha de venta');
+    }
     if (dto.paymentMethod !== 'Contado') {
       if (!(totalCuotas > 0)) throw new BadRequestException('Numero de cuotas requerido');
       if (!(cuotaInicial > 0)) throw new BadRequestException('Cuota inicial requerida');
@@ -293,6 +299,7 @@ export class SalesService {
         agentId: assignedAgentId,
         salePrice: String(dto.salePrice),
         saleDate: dto.saleDate || undefined,
+        firstInstallmentDate: dto.paymentMethod !== 'Contado' ? dto.firstInstallmentDate || null : null,
         commission: String(commission),
         financingBase: String(financingBase),
         conditions: [dto.conditions, paymentDetails].filter(Boolean).join(' | ') || undefined,
@@ -438,7 +445,14 @@ export class SalesService {
 
   private async buildSchedule(sale: SaleEntity, start?: Date | null, manager?: EntityManager) {
     const repo = manager ? manager.getRepository(SaleInstallmentEntity) : this.instRepo;
-    const begin = start ? new Date(start) : new Date();
+    let saleDate = sale.saleDate || (start || new Date()).toISOString().slice(0, 10);
+    if (!sale.firstInstallmentDate && sale.quoteId) {
+      const quoteRepo = (manager || this.dataSource).getRepository(QuoteEntity);
+      const quote = await quoteRepo.findOne({ where: { id: sale.quoteId } });
+      if (quote?.createdAt) saleDate = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'America/Lima', year: 'numeric', month: '2-digit', day: '2-digit',
+      }).format(new Date(quote.createdAt));
+    }
     const totalCuotas = Math.max(0, Number(sale.totalCuotas || 0));
     const cuotaInicial = Math.max(0, Number((sale as any).cuotaInicial || 0));
     const principal = Math.max(0, Number(sale.salePrice || 0) - cuotaInicial);
@@ -451,12 +465,11 @@ export class SalesService {
     });
     const rows: Partial<SaleInstallmentEntity>[] = [];
     for (const row of plan.rows) {
-      const d = new Date(begin.getFullYear(), begin.getMonth() + row.month, begin.getDate());
       rows.push({
         saleId: sale.id,
         installmentNo: row.month,
         amount: String(row.cuota || 0),
-        dueDate: d.toISOString().slice(0, 10),
+        dueDate: installmentDueDate(saleDate, row.month, sale.firstInstallmentDate),
         status: 'pendiente',
       });
     }
@@ -489,7 +502,7 @@ export class SalesService {
       .leftJoinAndSelect(LotEntity, 'l', 'l.id = s.lot_id')
       .select([
         's.id', 's.projectId', 's.lotId', 's.clientId', 's.agentId', 's.quoteId',
-        's.salePrice', 's.saleDate', 's.commission', 's.financingBase', 's.valorCuota', 's.conditions', 's.status', 's.createdAt',
+        's.salePrice', 's.saleDate', 's.firstInstallmentDate', 's.commission', 's.financingBase', 's.valorCuota', 's.conditions', 's.status', 's.createdAt',
       ])
       // Postgres pliega a minúsculas cualquier alias sin comillas (AS agentName
       // vuelve "agentname"), por eso van entre comillas dobles — mismo bug que
@@ -563,7 +576,7 @@ export class SalesService {
         clientDni: r.clientDni || null,
         quoteId: r.s_quote_id || null,
         agentId: r.s_agent_id ? Number(r.s_agent_id) : null,
-        salePrice, saleDate: r.s_sale_date,
+        salePrice, saleDate: calendarDate(r.s_sale_date), firstInstallmentDate: calendarDate(r.s_first_installment_date),
         commission: Number(r.s_commission), conditions,
         financingBase: Number(r.s_financing_base || 0),
         valorCuota: Number(r.s_valor_cuota || 0),
@@ -667,7 +680,7 @@ export class SalesService {
       .leftJoinAndSelect(LotEntity, 'l', 'l.id = s.lot_id')
       .select([
         's.id', 's.projectId', 's.lotId', 's.clientId', 's.agentId',
-        's.salePrice', 's.saleDate', 's.totalCuotas', 's.valorCuota',
+        's.salePrice', 's.saleDate', 's.firstInstallmentDate', 's.totalCuotas', 's.valorCuota',
         's.interestType', 's.tea', 's.conditions',
       ])
       .addSelect('s.cuota_inicial AS "s_cuota_inicial"')
@@ -777,6 +790,8 @@ export class SalesService {
     if (!payment) return null;
     return {
       paymentId: Number(payment.id),
+      isExtraordinary: !!payment.isExtraordinary,
+      installmentAllocations: payment.installmentAllocations || [],
       paidAt: payment.paidAt || null,
       exchangeRate: payment.exchangeRate != null ? Number(payment.exchangeRate) : null,
       amountUsd: payment.amountUsd != null ? Number(payment.amountUsd) : null,
@@ -856,12 +871,13 @@ export class SalesService {
       s_tea: (sale as any).tea,
       s_conditions: (sale as any).conditions,
       s_sale_date: sale.saleDate,
+      s_first_installment_date: sale.firstInstallmentDate,
       approvalStatus: sale.approvalStatus,
       planStatus: sale.planStatus,
       clientName: client?.fullName || null,
       lotCode: lot?.code || null,
     };
-    const quote = await this.resolveSaleQuote(sale.lotId, sale.clientId ? Number(sale.clientId) : undefined);
+    const quote = await this.resolveSaleQuote(sale.lotId, sale.clientId ? Number(sale.clientId) : undefined, sale.quoteId);
     if (quote) Object.assign(row, quote);
 
     return this.buildPaymentContextRow(row, { lot, client, agent, installments, payments });
@@ -1073,57 +1089,44 @@ export class SalesService {
       s_tea: (sale as any).tea,
       s_conditions: (sale as any).conditions,
       s_sale_date: sale.saleDate,
+      s_first_installment_date: sale.firstInstallmentDate,
       approvalStatus: sale.approvalStatus,
       planStatus: sale.planStatus,
       clientName: client?.fullName || null,
       lotCode: lot?.code || null,
       // TC pactado de la cotizacion que origino la venta: se usa para mostrar el
       // equivalente en US$ del pago sin depender del TC global de la pantalla.
-      exchangeRate: await this.resolveSaleExchangeRate(sale.lotId),
+      exchangeRate: 0,
     };
-    const quote = await this.resolveSaleQuote(sale.lotId, sale.clientId ? Number(sale.clientId) : undefined);
+    const quote = await this.resolveSaleQuote(sale.lotId, sale.clientId ? Number(sale.clientId) : undefined, sale.quoteId);
     if (quote) Object.assign(row, quote);
     return this.buildPaymentContextRow(row, { lot, client, agent, installments, payments });
   }
 
-  private async resolveSaleQuote(lotId: number, clientId?: number): Promise<any | null> {
+  private async resolveSaleQuote(lotId: number, clientId?: number, quoteId?: number | null): Promise<any | null> {
     const rows = await this.dataSource.query(
       `SELECT q.final_price_usd AS "quoteFinalPriceUsd",
               q.cuota_inicial_usd AS "quoteCuotaInicialUsd",
               q.valor_cuota_usd AS "quoteValorCuotaUsd",
-              q.total_cuotas AS "quoteTotalCuotas"
+              q.total_cuotas AS "quoteTotalCuotas",
+              q.exchange_rate AS "exchangeRate"
          FROM quotes q
         WHERE q.lot_id = $1
           AND q.deleted_at IS NULL
-          AND q.status IN ('convertida','aprobada')
-        ORDER BY CASE WHEN q.client_id = $2 THEN 0 ELSE 1 END, q.id DESC
-        LIMIT 1`,
-      [lotId, clientId || null],
-    ).catch(() => [] as any[]);
-    return rows?.[0] || null;
-  }
-
-  /**
-   * Tipo de cambio de la ultima cotizacion aprobada/convertida del lote.
-   * Devuelve 0 cuando la venta no nacio de una cotizacion, para que el
-   * llamador decida el TC por defecto.
-   */
-  private async resolveSaleExchangeRate(lotId: number): Promise<number> {
-    const rows = await this.dataSource.query(
-      `SELECT q.exchange_rate AS "exchangeRate"
-         FROM quotes q
-        WHERE q.lot_id = $1 AND q.status IN ('convertida','aprobada')
+          AND (($3::integer IS NOT NULL AND q.id = $3)
+            OR ($3::integer IS NULL AND q.status IN ('convertida','aprobada') AND q.client_id = $2))
         ORDER BY q.id DESC
         LIMIT 1`,
-      [lotId],
+      [lotId, clientId || null, quoteId || null],
     ).catch(() => [] as any[]);
-    return Number(rows?.[0]?.exchangeRate || 0);
+    return rows?.[0] || null;
   }
 
   private buildPaymentContextRow(
     r: any,
     related: { lot: any; client: any; agent: any; installments: SaleInstallmentEntity[]; payments?: PaymentEntity[] },
   ) {
+    r = { ...r, s_sale_date: calendarDate(r.s_sale_date), s_first_installment_date: calendarDate(r.s_first_installment_date) };
     const today = new Date().toISOString().slice(0, 10);
     const allPayments = related.payments || [];
     const paidPayments = allPayments.filter((p) => String(p.status) === 'pagado');
@@ -1247,47 +1250,32 @@ export class SalesService {
       : initialRows.some((row) => row.kind === 'cuota_inicial' && row.paid);
 
     const pool = allPayments.filter((p) => !usedPaymentIds.has(Number(p.id)));
-    const takeByPaymentId = (paymentId?: number | null) => {
-      if (!paymentId) return null;
-      const idx = pool.findIndex((p) => Number(p.id) === Number(paymentId));
-      if (idx < 0) return null;
-      return pool.splice(idx, 1)[0];
-    };
-
-
-    const expectedInstallmentAmount = totalCuotas > 0
-      ? (valorCuota > 0 ? valorCuota : Math.max(0, (salePrice - expectedCuotaInicial) / totalCuotas))
-      : 0;
-    const rows = related.installments.map((inst) => {
-      let payment = takeByPaymentId(inst.paymentId);
-      if (!payment) {
-        const index = pool.findIndex(p => paymentConcept(p.type) === 'cuota' &&
-          ((p.dueDate && String(p.dueDate).slice(0, 10) === String(inst.dueDate).slice(0, 10)) ||
-          Number(String(p.reference || '').match(/cuota\s*(?:n[.\s]*)?(\d+)/i)?.[1] || 0) === inst.installmentNo));
-        if (index >= 0) payment = pool.splice(index, 1)[0];
-      }
-      if (!payment && inst.status === 'pagado') {
-        const index = pool.findIndex(p => paymentConcept(p.type) === 'cuota' && String(p.status) === 'pagado');
-        if (index >= 0) payment = pool.splice(index, 1)[0];
-      }
-      const paid = payment ? String(payment.status) === 'pagado' : inst.status === 'pagado';
+    const coverage = installmentCoverage(related.installments, pool);
+    const appliedPaymentIds = new Set(coverage.flatMap(item => item.applications.map(application => Number(application.payment.id))));
+    for (let index = pool.length - 1; index >= 0; index--) {
+      if (appliedPaymentIds.has(Number(pool[index].id))) pool.splice(index, 1);
+    }
+    const rows = coverage.map(item => {
+      const inst = item.installment;
+      const application = item.applications.filter(value => value.payment.status === 'pagado').at(-1) || item.applications.at(-1);
+      const payment = application?.payment;
+      const paid = item.remainingCents === 0;
       const overdue = !paid && !!inst.dueDate && String(inst.dueDate).slice(0, 10) < today;
       return {
-        id: inst.id,
-        installmentNo: inst.installmentNo,
-        kind: 'cuota' as const,
-        conceptLabel: `Cuota ${inst.installmentNo}`,
-        amount: Number(inst.amount || 0) || expectedInstallmentAmount,
-        dueDate: inst.dueDate,
-        status: payment?.status || inst.status,
-        paid,
-        registered: !!payment || !!inst.paymentId,
-        overdue,
-        isCurrent: !paid && !overdue && !!inst.dueDate,
-        coveredByInitial: false,
-        payment: this.paymentDetails(payment),
+        id: inst.id, installmentNo: inst.installmentNo, kind: 'cuota' as const,
+        conceptLabel: `Cuota ${inst.installmentNo}`, amount: item.amountCents / 100,
+        paidAmount: item.confirmedCents / 100, remainingAmount: item.remainingCents / 100,
+        registerableAmount: item.availableCents / 100,
+        dueDate: inst.dueDate, status: paid ? 'pagado' : 'pendiente', paid,
+        registered: item.availableCents === 0,
+        overdue, isCurrent: !paid && !overdue && !!inst.dueDate, coveredByInitial: false,
+        payment: payment ? { ...this.paymentDetails(payment), amountUsd: (item.confirmedCents || item.reservedCents) / 100 } : null,
+        payments: item.applications.map(value => ({ ...this.paymentDetails(value.payment), appliedAmount: value.amountCents / 100, allocationKind: value.kind })),
       };
     });
+    const termReductionCount = coverage.filter(item => item.applications
+      .filter(value => value.kind === 'term_reduction' && value.payment.status === 'pagado')
+      .reduce((sum, value) => sum + value.amountCents, 0) >= item.amountCents).length;
 
     const pendingInitial = initialRows.filter((row) => !row.paid && !row.payment);
     const nextDueRow =
@@ -1305,7 +1293,7 @@ export class SalesService {
         ? {
             installmentNo: nextDueRow.installmentNo,
             conceptLabel: `Cuota ${nextDueRow.installmentNo}`,
-            amount: nextDueRow.amount,
+            amount: nextDueRow.registerableAmount,
             dueDate: nextDueRow.dueDate,
             overdue: nextDueRow.overdue,
             isInitial: false,
@@ -1315,9 +1303,7 @@ export class SalesService {
     const paidCount = rows.filter((x) => x.paid).length;
     const { lot, client, agent } = related;
 
-    const installmentsPaidAmount = rows
-      .filter((x) => x.paid && !(x as any).coveredByInitial)
-      .reduce((sum, x) => sum + x.amount, 0);
+    const installmentsPaidAmount = rows.reduce((sum, row) => sum + row.paidAmount, 0);
     const collectedAmount = initialPaidAmount + installmentsPaidAmount;
     const cuotaInicial = expectedCuotaInicial
       || Math.max(0, salePrice - valorCuota * totalCuotas);
@@ -1341,6 +1327,7 @@ export class SalesService {
         approvalStatus: r.approvalStatus || 'pendiente',
         planStatus: r.planStatus || 'pendiente',
         saleDate: r.s_sale_date,
+        firstInstallmentDate: r.s_first_installment_date || null,
         // TC pactado de la venta (0 si no proviene de cotizacion). El frontend
         // lo usa para convertir a US$ el monto de la cuota que se autocompleta.
         exchangeRate: Number(r.exchangeRate || 0),
@@ -1366,6 +1353,11 @@ export class SalesService {
       })),
       summary: {
         totalCuotas: rows.length,
+        effectiveTotalCuotas: rows.length - termReductionCount,
+        termReductionCount,
+        financingBalanceAmount: coverage.reduce((sum, item) => sum + item.remainingCents, 0) / 100,
+        availableFinancingAmount: coverage.reduce((sum, item) => sum + item.availableCents, 0) / 100,
+        lastDueDate: [...rows].reverse().find(row => !row.paid)?.dueDate || null,
         paidCount,
         pendingCount: rows.length - paidCount,
         pendingApprovalCount: allPayments.filter(p => String(p.status) !== 'pagado').length,

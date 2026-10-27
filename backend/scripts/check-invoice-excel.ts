@@ -30,7 +30,7 @@ const minimal = ['Tipo Documento', 'Fecha de emisión', 'Número de comprobante'
 const sale = readInvoiceExcel(file([minimal, ['Nota de Credito', '2026-10-22', 'FC-1', '20123456789', 'Cliente', 100, 'S/']]), 'sale')[0].input;
 assert.equal(sale.documentType, 'Nota de crédito'); assert.equal(sale.currency, 'PEN');
 assert.equal(invoiceTemplateHeaders('sale').includes('Cliente'), true);
-assert.equal(invoiceTemplateHeaders('sale').includes('Validada'), false);
+assert.equal(invoiceTemplateHeaders('sale').includes('Validada'), true);
 assert.throws(() => readInvoiceExcel(file([minimal, []]), 'purchase'), /Proveedor/);
 assert.throws(() => readInvoiceExcel(file([['Dato incorrecto'], ['Prueba']]), 'purchase'), /Faltan columnas/);
 console.log('Excel: encabezados de la tabla, tildes, abreviaturas, saltos de línea, soles/dólares, campos opcionales y filas de totales verificados.');

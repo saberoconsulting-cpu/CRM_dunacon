@@ -1,3 +1,4 @@
+import { ProjectResourceGuard } from '../../shared/application/guards/project-resource.guard';
 // modules/payments/payments.module.ts
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -28,6 +29,6 @@ import { PaymentsService } from './application/payments.service';
     WebsocketModule,
   ],
   controllers: [PaymentsController],
-  providers: [PaymentsService],
+  providers: [PaymentsService, ProjectResourceGuard],
 })
 export class PaymentsModule {}

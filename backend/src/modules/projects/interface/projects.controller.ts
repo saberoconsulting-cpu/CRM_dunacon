@@ -37,8 +37,8 @@ export class ProjectsController {
   }
 
   @Get('dashboard/:id')
-  dashboard(@Param('id', ParseIntPipe) id: number) {
-    return this.projectsService.dashboard(id);
+  dashboard(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.projectsService.dashboard(id, user);
   }
 
   @Get('history')
@@ -48,19 +48,19 @@ export class ProjectsController {
   }
   @Get(':id/contract-template/file')
   @Header('Cache-Control', 'no-store')
-  async contractTemplateFile(@Param('id', ParseIntPipe) id: number) {
-    const file = await this.projectsService.contractTemplateFile(id);
+  async contractTemplateFile(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    const file = await this.projectsService.contractTemplateFile(id, user);
     return new StreamableFile(file.buffer, { type: file.contentType, disposition: `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}` });
   }
 
   @Get(':id/contract-template')
-  contractTemplate(@Param('id', ParseIntPipe) id: number) {
-    return this.projectsService.contractTemplate(id);
+  contractTemplate(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.projectsService.contractTemplate(id, user);
   }
 
   @Get(':id/documents')
-  listDocuments(@Param('id', ParseIntPipe) id: number) {
-    return this.projectsService.listDocuments(id);
+  listDocuments(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.projectsService.listDocuments(id, user);
   }
 
   @Get(':id/photos')
@@ -82,8 +82,8 @@ export class ProjectsController {
   }
 
   @Get(':id')
-  getOne(@Param('id', ParseIntPipe) id: number) {
-    return this.projectsService.getOne(id);
+  getOne(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: AuthUser) {
+    return this.projectsService.getOne(id, user);
   }
 
   @Post()
@@ -170,13 +170,13 @@ export class ProjectsController {
   }
 
   @Post(':id/documents')
-  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
   async uploadDocument(
     @Param('id', ParseIntPipe) id: number,
     @Query('kind') kind: string,
     @UploadedFile() file: Express.Multer.File,
-    @CurrentUser('id') actorId: number,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.projectsService.uploadDocument(id, kind || 'general', file, actorId);
+    return this.projectsService.uploadDocument(id, kind || 'general', file, user);
   }
 }

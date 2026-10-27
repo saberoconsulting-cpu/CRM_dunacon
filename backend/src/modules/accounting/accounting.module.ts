@@ -31,8 +31,7 @@ function invoiceKind(value?: string): InvoiceKind {
 }
 export function invoiceColumns(kind: InvoiceKind) {
   if (kind === 'purchase') return INVOICE_COLUMNS;
-  const { validated, ...columns } = INVOICE_COLUMNS;
-  return { ...columns, supplier: 'Cliente' };
+  return { ...INVOICE_COLUMNS, supplier: 'Cliente' };
 }
 
 export function validateInvoice(input: any, kind: InvoiceKind = 'purchase') {
@@ -62,8 +61,8 @@ export function validateInvoice(input: any, kind: InvoiceKind = 'purchase') {
     row[key] = raw === '' || raw == null ? (key === 'exchangeRate' ? 1 : 0) : Number(raw);
     if (!Number.isFinite(row[key]) || row[key] < 0 || (key === 'exchangeRate' && row[key] <= 0)) throw new BadRequestException(`${INVOICE_COLUMNS[key]}: importe inválido.`);
   }
-  if (kind === 'purchase' && ![true, false, 'SI', 'SÍ', 'NO'].includes(input.validated)) throw new BadRequestException('Validada: usa SÍ o NO.');
-  row.validated = kind === 'purchase' && [true, 'SI', 'SÍ'].includes(input.validated);
+  if ((kind === 'purchase' || input.validated != null) && ![true, false, 'SI', 'SÍ', 'NO'].includes(input.validated)) throw new BadRequestException('Validada: usa SÍ o NO.');
+  row.validated = [true, 'SI', 'SÍ'].includes(input.validated);
   return row;
 }
 

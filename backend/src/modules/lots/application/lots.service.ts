@@ -1,3 +1,4 @@
+import { ProjectScope, scopeProjectQuery } from '../../../shared/application/project-scope';
 // modules/lots/application/lots.service.ts
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -35,6 +36,7 @@ export class LotsService {
 
   // Listado global con filtros
   async list(filters: {
+    projectScope?: ProjectScope;
     projectId?: number;
     blockId?: number;
     streetId?: number;
@@ -86,6 +88,7 @@ export class LotsService {
     if (filters.minPrice) qb.andWhere('l.price >= :minPrice', { minPrice: filters.minPrice });
     if (filters.maxPrice) qb.andWhere('l.price <= :maxPrice', { maxPrice: filters.maxPrice });
 
+    scopeProjectQuery(qb, 'l', filters.projectScope);
     qb.orderBy('l.code', 'ASC');
     const total = await qb.clone().getCount();
     if (paged) qb.skip((page - 1) * limit).take(limit);
@@ -121,10 +124,11 @@ export class LotsService {
   }
 
   // Cantidad y valor de venta de todo el proyecto, independientes de la pagina visible.
-  async stats(projectId?: number) {
+  async stats(projectId?: number, scope?: ProjectScope) {
     const qb = this.lotRepo.createQueryBuilder('l')
       .leftJoin(ProjectLotCatalogEntity, 'cat', 'cat.project_id = l.project_id AND cat.code = l.code');
     if (projectId) qb.where('l.project_id = :projectId', { projectId });
+    scopeProjectQuery(qb, 'l', scope);
     // Mismo precio que el listado: catalogo primero; si no hay precio de venta,
     // se usa precio por m2 por area. Nunca sumar directamente el precio por m2.
     const price = 'COALESCE(NULLIF(COALESCE(cat.sale_price, l.sale_price), 0), COALESCE(cat.price_m2, l.price, 0) * l.area_m2, 0)';

@@ -30,7 +30,9 @@ async function main() {
   assert.throws(() => validateInvoice(sale, 'purchase'));
   const saleColumns = invoiceColumns('sale');
   assert.equal(saleColumns.supplier, 'Cliente');
-  assert.ok(!('validated' in saleColumns));
+  assert.equal(saleColumns.validated, 'Validada');
+  assert.equal(validateInvoice({ ...sale, validated: true }, 'sale').validated, true);
+  assert.throws(() => validateInvoice({ ...sale, validated: 'INVALIDO' }, 'sale'));
   const saleBook = XLSX.utils.book_new();
   const saleRow = Object.fromEntries(Object.entries(saleColumns).map(([key, label]) => [label, sale[key]]));
   XLSX.utils.book_append_sheet(saleBook, XLSX.utils.json_to_sheet([saleRow]), 'Ventas');
@@ -41,9 +43,26 @@ async function main() {
   await assert.rejects(() => controller.preview(saleFile as any, '1', { role: 'superadmin' }, 'purchase'));
   const inserts: any[][] = [];
   const writeController = new AccountingController({ ...db, transaction: async (fn: any) => fn({ query: async (_sql: string, params: any[]) => { inserts.push(params); } }) } as any);
-  const savedSale = await writeController.create({ projectId: 1, kind: 'sale', rows: [sale] }, { role: 'superadmin' });
+  const savedSale = await writeController.create({ projectId: 1, kind: 'sale', rows: [{ ...sale, validated: true }] }, { role: 'superadmin' });
   const savedPurchase = await writeController.create({ projectId: 1, rows: [invoice] }, { role: 'superadmin' });
   assert.equal(savedSale[0].kind, 'sale');
+  assert.equal(savedSale[0].validated, true);
+  let storedSale = { ...invoice, validated: false };
+  const updateController = new AccountingController({ query: async (sql: string, params: any[]) => {
+    if (sql.startsWith('SELECT kind FROM accounting_invoices')) return [{ kind: 'sale' }];
+    if (sql.startsWith('UPDATE accounting_invoices')) {
+      storedSale = { ...storedSale, ...JSON.parse(params[0]) };
+      return [[{ id: 'sale-update', kind: 'sale', data: storedSale }], 1];
+    }
+    if (sql.includes('app_settings')) return [];
+    return [{ id: 1 }];
+  } } as any);
+  for (const validated of [true, false, true]) {
+    const updated = await updateController.update('sale-update', { projectId: 1, row: { ...sale, validated } }, { role: 'superadmin' });
+    assert.equal(updated.validated, validated);
+    assert.equal(storedSale.validated, validated);
+  }
+
   assert.equal(savedPurchase[0].kind, 'purchase');
   assert.equal(inserts[0][2], 'sale');
   assert.equal(inserts[1][2], 'purchase');

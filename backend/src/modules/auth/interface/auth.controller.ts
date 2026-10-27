@@ -1,3 +1,4 @@
+import { projectScope, assertScopedProject } from '../../../shared/application/project-scope';
 // modules/auth/interface/auth.controller.ts
 import {
   Body,
@@ -31,20 +32,22 @@ export class AuthController {
 
   @UseGuards(JwtAuthGuard)
   @Get('session-lock')
-  async getSessionLock(@Headers('authorization') authorization: string, @Query('projectId') projectId: string) {
+  async getSessionLock(@Headers('authorization') authorization: string, @Query('projectId') projectId: string, @CurrentUser() user: any) {
     const id = Number(projectId);
     if (!Number.isSafeInteger(id) || id <= 0) throw new BadRequestException('Proyecto inválido');
+    assertScopedProject(await projectScope(this.db, user), id);
     const row = await this.db.getRepository(AppSettingEntity).findOneBy({ key: sessionLockKey(authorization, id) });
     return { locked: row?.value !== 'false' };
   }
 
   @UseGuards(JwtAuthGuard)
   @Post('session-lock')
-  async setSessionLock(@Headers('authorization') authorization: string, @Body() body: { locked: boolean; projectId: number }) {
+  async setSessionLock(@Headers('authorization') authorization: string, @Body() body: { locked: boolean; projectId: number }, @CurrentUser() user: any) {
     if (typeof body.locked !== 'boolean') throw new BadRequestException('locked debe ser booleano');
     const repo = this.db.getRepository(AppSettingEntity);
     const id = Number(body.projectId);
     if (!Number.isSafeInteger(id) || id <= 0) throw new BadRequestException('Proyecto inválido');
+    assertScopedProject(await projectScope(this.db, user), id);
     const key = sessionLockKey(authorization, id);
     if (body.locked) await repo.delete({ key });
     else await repo.upsert({ key, value: 'false' }, ['key']);

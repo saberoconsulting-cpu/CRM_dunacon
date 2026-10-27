@@ -1,3 +1,4 @@
+import { ProjectResourceGuard } from '../../shared/application/guards/project-resource.guard';
 // modules/lots/lots.module.ts
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -26,7 +27,7 @@ import { LotsService } from './application/lots.service';
     ]),
   ],
   controllers: [LotsController],
-  providers: [LotsService],
+  providers: [LotsService, ProjectResourceGuard],
   exports: [LotsService],
 })
 export class LotsModule {}
