@@ -1130,7 +1130,8 @@ export class SalesService {
     const today = new Date().toISOString().slice(0, 10);
     const allPayments = related.payments || [];
     const paidPayments = allPayments.filter((p) => String(p.status) === 'pagado');
-    const paymentAmount = (p?: PaymentEntity | null) => Number((p as any)?.amountUsd ?? p?.amount ?? 0);
+    const paymentAmount = (p?: PaymentEntity | null) => Number((p as any)?.amountUsd ?? p?.amount ?? 0)
+      - (p && paymentConcept(p.type) === 'cuota_inicial' ? (p.installmentAllocations || []).reduce((sum, allocation) => sum + Number(allocation.amount), 0) : 0);
     const salePrice = Number(r.s_sale_price ?? r.quoteFinalPriceUsd ?? 0);
     const expectedCuotaInicial = Number(r.s_cuota_inicial ?? r.quoteCuotaInicialUsd ?? 0);
     const totalCuotas = Number(r.totalCuotas ?? r.quoteTotalCuotas ?? 0);
@@ -1183,7 +1184,20 @@ export class SalesService {
       });
     }
 
-    if (expectedCuotaInicial > 0) {
+    if (expectedCuotaInicial > 0 && cuotaInicialPayments.some(p => p.isExtraordinary)) {
+      for (const p of cuotaInicialPayments) {
+        usedPaymentIds.add(Number(p.id));
+        initialRows.push({ id: `payment-${p.id}`, paymentId: Number(p.id), installmentNo: null,
+          kind: 'cuota_inicial', conceptLabel: 'Cuota inicial', amount: paymentAmount(p),
+          dueDate: p.dueDate || r.s_sale_date || null, status: p.status, paid: p.status === 'pagado',
+          overdue: p.status !== 'pagado' && !!p.dueDate && String(p.dueDate).slice(0, 10) < today,
+          isCurrent: false, payment: this.paymentDetails(p) });
+      }
+      const remainingInitial = Math.max(0, expectedCuotaInicial - cuotaInicialPayments.reduce((sum, p) => sum + paymentAmount(p), 0));
+      if (remainingInitial > 0) initialRows.push({ id: `expected-cuota-inicial-${r.s_id}`, installmentNo: null,
+        kind: 'cuota_inicial', conceptLabel: 'Cuota inicial pendiente', amount: remainingInitial,
+        dueDate: r.s_sale_date, status: 'pendiente', paid: false, overdue: String(r.s_sale_date).slice(0, 10) < today, payment: null });
+    } else if (expectedCuotaInicial > 0) {
       const partAmount = expectedCuotaInicial / Math.max(1, initialParts);
       for (let i = 0; i < Math.max(1, initialParts); i++) {
         const p = cuotaInicialPayments[i] || null;
@@ -1250,7 +1264,7 @@ export class SalesService {
       : initialRows.some((row) => row.kind === 'cuota_inicial' && row.paid);
 
     const pool = allPayments.filter((p) => !usedPaymentIds.has(Number(p.id)));
-    const coverage = installmentCoverage(related.installments, pool);
+    const coverage = installmentCoverage(related.installments, allPayments);
     const appliedPaymentIds = new Set(coverage.flatMap(item => item.applications.map(application => Number(application.payment.id))));
     for (let index = pool.length - 1; index >= 0; index--) {
       if (appliedPaymentIds.has(Number(pool[index].id))) pool.splice(index, 1);
@@ -1259,23 +1273,23 @@ export class SalesService {
       const inst = item.installment;
       const application = item.applications.filter(value => value.payment.status === 'pagado').at(-1) || item.applications.at(-1);
       const payment = application?.payment;
-      const paid = item.remainingCents === 0;
-      const overdue = !paid && !!inst.dueDate && String(inst.dueDate).slice(0, 10) < today;
+      const paid = item.paid;
+      const reduced = item.reduced;
+      const overdue = !paid && !reduced && !!inst.dueDate && String(inst.dueDate).slice(0, 10) < today;
       return {
         id: inst.id, installmentNo: inst.installmentNo, kind: 'cuota' as const,
         conceptLabel: `Cuota ${inst.installmentNo}`, amount: item.amountCents / 100,
         paidAmount: item.confirmedCents / 100, remainingAmount: item.remainingCents / 100,
         registerableAmount: item.availableCents / 100,
-        dueDate: inst.dueDate, status: paid ? 'pagado' : 'pendiente', paid,
+        dueDate: inst.dueDate, status: reduced ? 'reducida' : paid ? 'pagado' : 'pendiente', paid, reduced,
+        amortizedAmount: item.amortizedCents / 100,
         registered: item.availableCents === 0,
-        overdue, isCurrent: !paid && !overdue && !!inst.dueDate, coveredByInitial: false,
+        overdue, isCurrent: !paid && !reduced && !overdue && !!inst.dueDate, coveredByInitial: false,
         payment: payment ? { ...this.paymentDetails(payment), amountUsd: (item.confirmedCents || item.reservedCents) / 100 } : null,
         payments: item.applications.map(value => ({ ...this.paymentDetails(value.payment), appliedAmount: value.amountCents / 100, allocationKind: value.kind })),
       };
     });
-    const termReductionCount = coverage.filter(item => item.applications
-      .filter(value => value.kind === 'term_reduction' && value.payment.status === 'pagado')
-      .reduce((sum, value) => sum + value.amountCents, 0) >= item.amountCents).length;
+    const termReductionCount = coverage.filter(item => item.reduced).length;
 
     const pendingInitial = initialRows.filter((row) => !row.paid && !row.payment);
     const nextDueRow =
@@ -1357,9 +1371,9 @@ export class SalesService {
         termReductionCount,
         financingBalanceAmount: coverage.reduce((sum, item) => sum + item.remainingCents, 0) / 100,
         availableFinancingAmount: coverage.reduce((sum, item) => sum + item.availableCents, 0) / 100,
-        lastDueDate: [...rows].reverse().find(row => !row.paid)?.dueDate || null,
+        lastDueDate: [...rows].reverse().find(row => !row.paid && !row.reduced)?.dueDate || null,
         paidCount,
-        pendingCount: rows.length - paidCount,
+        pendingCount: rows.length - paidCount - termReductionCount,
         pendingApprovalCount: allPayments.filter(p => String(p.status) !== 'pagado').length,
         nextInstallmentNo: nextConcept?.isInitial ? null : (nextConcept?.installmentNo || null),
         nextConceptLabel: nextConcept?.conceptLabel || null,

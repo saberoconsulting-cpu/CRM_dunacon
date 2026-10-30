@@ -66,8 +66,8 @@ export class PaymentsService {
     const saved = await this.dataSource.transaction(async (manager) => {
       // Serialize registration per lot so two requests cannot claim the same installment.
       await manager.getRepository(LotEntity).findOne({ where: { id: dto.lotId }, lock: { mode: 'pessimistic_write' } });
-      // Resolve the agreed rate from the sale's quote, never from a global rate
-      // or a client-supplied value. USD amounts remain unchanged.
+      // Preserve the conversion rate entered for this payment, falling back to
+      // the sale quote for USD payments. All amounts arrive normalized to USD.
       const quoteRates = currentSale ? await manager.query(
         `SELECT q.exchange_rate AS "exchangeRate" FROM quotes q
           WHERE q.lot_id = $1 AND q.deleted_at IS NULL
@@ -76,12 +76,12 @@ export class PaymentsService {
           ORDER BY q.id DESC LIMIT 1`,
         [currentSale.lotId, currentSale.clientId || null, currentSale.quoteId || null],
       ) : [];
-      const saleRate = Number(quoteRates[0]?.exchangeRate || 0);
+      const saleRate = Number(dto.exchangeRate ?? quoteRates[0]?.exchangeRate ?? 0);
       const concept = paymentConcept(dto.type);
       let allocations: InstallmentAllocation[] = [];
       let allocationSchedule: SaleInstallmentEntity[] = [];
       let registeredPayments: PaymentEntity[] = [];
-      if (dto.isExtraordinary && (concept !== 'cuota' || !currentSale)) {
+      if (dto.isExtraordinary && (!['cuota', 'cuota_inicial'].includes(concept) || !currentSale)) {
         throw new BadRequestException('El ingreso extraordinario solo se aplica a cuotas de una venta con cronograma.');
       }
       if (concept === 'cuota' && currentSale) {
@@ -124,14 +124,24 @@ export class PaymentsService {
             { lotId: dto.lotId, type: 'cuota_inicial' },
           ],
         });
-        const alreadyRegistered = existingInitials.reduce((sum, p) => sum + Number(p.amountUsd ?? p.amount ?? 0), 0);
+        const alreadyRegistered = existingInitials.reduce((sum, p) => sum + Number(p.amountUsd ?? p.amount ?? 0)
+          - (p.installmentAllocations || []).reduce((total, allocation) => total + Number(allocation.amount), 0), 0);
         const pendingInitial = Math.max(0, cuotaInicialTotal - alreadyRegistered);
-        if (existingInitials.length >= initialParts) {
+        if (pendingInitial <= 0 || (!dto.isExtraordinary && existingInitials.length >= initialParts)) {
           throw new BadRequestException(initialParts === 1
             ? 'La cuota inicial ya fue registrada. El siguiente pago debe ser una cuota del cronograma.'
             : `La cuota inicial ya tiene sus ${initialParts} partes registradas. El siguiente pago debe ser una cuota del cronograma.`);
         }
-        if (cuotaInicialTotal > 0 && alreadyRegistered + Number(dto.amount || 0) > cuotaInicialTotal + 0.01) {
+        if (dto.isExtraordinary) {
+          if (moneyCents(dto.amount) < moneyCents(pendingInitial)) throw new BadRequestException('Primero debes cubrir la cuota inicial pendiente.');
+          const surplus = (moneyCents(dto.amount) - moneyCents(pendingInitial)) / 100;
+          if (surplus > 0) {
+            allocationSchedule = await manager.getRepository(SaleInstallmentEntity).find({ where: { saleId: currentSale!.id }, order: { installmentNo: 'ASC' } });
+            registeredPayments = await manager.getRepository(PaymentEntity).find({ where: { lotId: dto.lotId } });
+            try { allocations = extraordinaryAllocation(allocationSchedule, registeredPayments, surplus, dto.paidAt || '', true); }
+            catch (error) { throw new BadRequestException(error instanceof Error ? error.message : 'No se pudo amortizar el saldo.'); }
+          }
+        } else if (cuotaInicialTotal > 0 && alreadyRegistered + Number(dto.amount || 0) > cuotaInicialTotal + 0.01) {
           throw new BadRequestException(`Este monto supera la cuota inicial pendiente. Falta registrar como maximo US$ ${pendingInitial.toFixed(2)} de cuota inicial.`);
         }
       }
@@ -156,7 +166,7 @@ export class PaymentsService {
         amountUsd: String(dto.amount),
         bankOperationNumber: dto.bankOperationNumber || null,
         receiptNumber: dto.receiptNumber || null,
-        receiptValue: dto.receiptValue != null ? String(dto.receiptValue) : null,
+        receiptValue: dto.isExtraordinary ? String(dto.amount) : dto.receiptValue != null ? String(dto.receiptValue) : null,
       });
       // Si no hay fecha de vencimiento, se considera pago inmediato (pagado)
       if (!dto.dueDate) payment.status = 'pagado';
@@ -170,7 +180,7 @@ export class PaymentsService {
         for (const allocation of allocations) {
           const row = coverage.find(item => Number(item.installment.id) === allocation.installmentId)!;
           await manager.update(SaleInstallmentEntity, { id: allocation.installmentId }, {
-            paymentId: savedPayment.id, status: row.remainingCents === 0 ? 'pagado' : 'pendiente',
+            paymentId: savedPayment.id, status: row.reduced ? 'reducida' : row.paid ? 'pagado' : 'pendiente',
           });
         }
       }
@@ -409,7 +419,7 @@ export class PaymentsService {
       await this.linkPaidInstallment(payment, manager);
       payment.status = 'pagado'; payment.paidAt = payment.paidAt || new Date();
       payment.bankOperationNumber = dto.bankOperationNumber; payment.receiptNumber = dto.receiptNumber;
-      payment.receiptValue = String(dto.receiptValue); payment.approvedBy = actorId; payment.approvedAt = new Date();
+      payment.receiptValue = String(payment.isExtraordinary ? payment.amountUsd ?? payment.amount : dto.receiptValue); payment.approvedBy = actorId; payment.approvedAt = new Date();
       const result = await repo.save(payment);
       await this.ensurePaymentIncome(result, actorId, manager);
       return result;
@@ -421,7 +431,7 @@ export class PaymentsService {
   private async linkPaidInstallment(payment: PaymentEntity, manager: EntityManager) {
     const installmentRepo = manager.getRepository(SaleInstallmentEntity);
     const saleRepo = manager.getRepository(SaleEntity);
-    if (paymentConcept(payment.type) !== 'cuota') return;
+    if (paymentConcept(payment.type) !== 'cuota' && !payment.installmentAllocations?.length) return;
     if (payment.installmentAllocations?.length) {
       await manager.getRepository(LotEntity).findOne({ where: { id: payment.lotId }, lock: { mode: 'pessimistic_write' } });
       const saleId = payment.installmentAllocations[0].saleId;
@@ -434,7 +444,7 @@ export class PaymentsService {
       for (const allocation of payment.installmentAllocations) {
         const row = coverage.find(item => Number(item.installment.id) === Number(allocation.installmentId));
         if (!row || Number(allocation.saleId) !== Number(saleId)) throw new BadRequestException('La distribucion del pago no corresponde al cronograma.');
-        await installmentRepo.update(row.installment.id, { status: row.remainingCents === 0 ? 'pagado' : 'pendiente', paymentId: payment.id });
+        await installmentRepo.update(row.installment.id, { status: row.reduced ? 'reducida' : row.paid ? 'pagado' : 'pendiente', paymentId: payment.id });
       }
       return;
     }

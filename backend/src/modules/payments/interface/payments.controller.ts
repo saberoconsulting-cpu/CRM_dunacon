@@ -87,7 +87,7 @@ export class PaymentsController {
   @Post('voucher/:id')
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
   async attachVoucher(@Param('id', ParseIntPipe) id: number, @UploadedFile() file: Express.Multer.File) {
-    if (!file || !/\.(pdf|png|jpe?g|webp|heic)$/i.test(file.originalname)) throw new BadRequestException('Selecciona una imagen o PDF (maximo 10 MB).');
+    if (!file || !/\.(pdf|png|jpe?g|webp|heic|heif)$/i.test(file.originalname)) throw new BadRequestException('Selecciona una imagen o PDF (maximo 10 MB).');
     const up = await uploadToCloudinary(file.buffer, 'uploads');
     return this.paymentsService.attachVoucher(id, up.secure_url);
   }
@@ -96,7 +96,7 @@ export class PaymentsController {
   @Roles(UserRole.SUPERADMIN, UserRole.ADMIN)
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
   async attachApprovalDoc(@Param('id', ParseIntPipe) id: number, @UploadedFile() file: Express.Multer.File) {
-    if (!file || !/\.(pdf|png|jpe?g|webp|heic)$/i.test(file.originalname)) throw new BadRequestException('Selecciona una imagen o PDF (maximo 10 MB).');
+    if (!file || !/\.(pdf|png|jpe?g|webp|heic|heif)$/i.test(file.originalname)) throw new BadRequestException('Selecciona una imagen o PDF (maximo 10 MB).');
     const up = await uploadToCloudinary(file.buffer, 'uploads');
     return this.paymentsService.attachApprovalDoc(id, up.secure_url);
   }
@@ -104,7 +104,7 @@ export class PaymentsController {
   @Post('receipt-doc/:id')
   @UseInterceptors(FileInterceptor('file', { storage: memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } }))
   async attachReceiptDoc(@Param('id', ParseIntPipe) id: number, @UploadedFile() file: Express.Multer.File) {
-    if (!file || !/\.(pdf|png|jpe?g|webp|heic)$/i.test(file.originalname)) throw new BadRequestException('Selecciona una imagen o PDF (maximo 10 MB).');
+    if (!file || !/\.(pdf|png|jpe?g|webp|heic|heif)$/i.test(file.originalname)) throw new BadRequestException('Selecciona una imagen o PDF (maximo 10 MB).');
     const up = await uploadToCloudinary(file.buffer, 'uploads');
     return this.paymentsService.attachReceiptDoc(id, up.secure_url);
   }

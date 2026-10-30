@@ -1,17 +1,17 @@
 import { financingCapitalAndInterest } from './financing-interest';
 
-type Installment = { installmentNo?: number; paid?: boolean; overdue?: boolean; amount?: number | string | null };
+type Installment = { installmentNo?: number; paid?: boolean; reduced?: boolean; remainingAmount?: number; overdue?: boolean; amount?: number | string | null };
 type History = { sale?: { lotId: number; cuotaInicial?: number | string; salePrice?: number | string; interestType?: string; tea?: number | string; paymentMethod?: string } | null; installments?: Installment[] };
 type Payment = { cuotaInicial?: number | string | null; dueDate?: string | null; lotId: number; status: string; type?: string; concept?: string; amount?: number | string | null; amountUsd?: number | string | null };
 
 export function pendingInstallments(installments: Installment[]) {
-  const pending = installments.filter(row => !row.paid);
-  return { amount: pending.reduce((sum, row) => sum + Number(row.amount || 0), 0), count: pending.length };
+  const pending = installments.filter(row => !row.paid && !row.reduced);
+  return { amount: pending.reduce((sum, row) => sum + Number(row.remainingAmount ?? row.amount ?? 0), 0), count: pending.length };
 }
 
 export function overdueInstallments(installments: Installment[]) {
-  const overdue = installments.filter(row => !row.paid && row.overdue);
-  return { amount: overdue.reduce((sum, row) => sum + Number(row.amount || 0), 0), count: overdue.length };
+  const overdue = installments.filter(row => !row.paid && !row.reduced && row.overdue);
+  return { amount: overdue.reduce((sum, row) => sum + Number(row.remainingAmount ?? row.amount ?? 0), 0), count: overdue.length };
 }
 
 /** Mismo criterio del reporte por Cliente: historial primero, pagos sueltos como respaldo. */

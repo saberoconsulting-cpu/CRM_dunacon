@@ -14,7 +14,7 @@ export function installmentCoverage<T extends Installment, P extends Payment>(in
     applications: [] as { payment: P; amountCents: number; kind: InstallmentAllocation['kind'] }[],
   }));
   for (const payment of payments) {
-    if (paymentConcept(payment.type) !== 'cuota') continue;
+    if (paymentConcept(payment.type) !== 'cuota' && !payment.installmentAllocations?.length) continue;
     const allocations = payment.installmentAllocations || [];
     if (allocations.length) {
       for (const allocation of allocations) {
@@ -42,21 +42,25 @@ export function installmentCoverage<T extends Installment, P extends Payment>(in
   }
   return rows.map(row => {
     if (!row.applications.length && row.installment.status === 'pagado') row.confirmedCents = row.reservedCents = row.amountCents;
-    return { ...row, remainingCents: Math.max(0, row.amountCents - row.confirmedCents), availableCents: Math.max(0, row.amountCents - row.reservedCents) };
+    const amortizedCents = row.applications.filter(value => value.kind === 'term_reduction' && value.payment.status === 'pagado')
+      .reduce((sum, value) => sum + value.amountCents, 0);
+    const remainingCents = Math.max(0, row.amountCents - row.confirmedCents);
+    const reduced = remainingCents === 0 && amortizedCents > 0;
+    return { ...row, amortizedCents, reduced, paid: remainingCents === 0 && !reduced,
+      remainingCents, availableCents: Math.max(0, row.amountCents - row.reservedCents) };
   });
 }
 
-export function extraordinaryAllocation<T extends Installment, P extends Payment>(installments: T[], payments: P[], amount: number, paidDate: string): InstallmentAllocation[] {
+export function extraordinaryAllocation<T extends Installment, P extends Payment>(installments: T[], payments: P[], amount: number, paidDate: string, reductionOnly = false): InstallmentAllocation[] {
   const rows = installmentCoverage(installments, payments).filter(row => row.availableCents > 0);
   const total = rows.reduce((sum, row) => sum + row.availableCents, 0);
   let remaining = moneyCents(amount);
   if (!Number.isFinite(remaining) || remaining <= 0) throw new Error('Ingresa un monto valido mayor a cero.');
   if (remaining > total) throw new Error('El pago supera el saldo de las cuotas sin registrar.');
-  let current = rows.filter(row => String(row.installment.dueDate).slice(0, 10) <= paidDate);
-  // If the client pays before the next due date, cover that installment first.
-  if (!current.length && rows.length) current = [rows[0]];
-  const required = current.reduce((sum, row) => sum + row.availableCents, 0);
-  if (remaining < required) throw new Error(`Primero debes cubrir la mora y la cuota actual: US$ ${(required / 100).toFixed(2)}.`);
+  // Cover arrears and one current installment only. Future installments are reduced from the end.
+  const overdue = rows.filter(row => String(row.installment.dueDate).slice(0, 10) < paidDate);
+  const current = rows.find(row => String(row.installment.dueDate).slice(0, 10) >= paidDate);
+  const eligible = reductionOnly ? [] : [...overdue, ...(current ? [current] : [])];
   const allocations: InstallmentAllocation[] = [];
   const assign = (row: typeof rows[number], kind: InstallmentAllocation['kind']) => {
     const applied = Math.min(remaining, row.availableCents);
@@ -65,8 +69,12 @@ export function extraordinaryAllocation<T extends Installment, P extends Payment
     allocations.push({ saleId: Number(inst.saleId), installmentId: Number(inst.id), installmentNo: inst.installmentNo, dueDate: String(inst.dueDate).slice(0, 10), amount: applied / 100, kind });
     remaining -= applied;
   };
-  for (const row of current) assign(row, 'installment');
-  const dueIds = new Set(current.map(row => Number(row.installment.id)));
+  const dueIds = new Set<number>();
+  for (const row of eligible) {
+    if (remaining < row.availableCents) break;
+    assign(row, 'installment');
+    dueIds.add(Number(row.installment.id));
+  }
   // Surplus cancels the LAST installments, never advances the next one.
   for (const row of [...rows].reverse()) {
     if (!dueIds.has(Number(row.installment.id))) assign(row, 'term_reduction');

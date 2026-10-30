@@ -1,6 +1,6 @@
 type FinancingHistory = {
   sale?: { salePrice?: number | string; cuotaInicial?: number | string; interestType?: string; tea?: number | string; paymentMethod?: string };
-  installments?: { installmentNo?: number; paid?: boolean; amount?: number | string | null }[];
+  installments?: { installmentNo?: number; paid?: boolean; reduced?: boolean; amortizedAmount?: number; amount?: number | string | null }[];
 };
 
 /** Descompone las cuotas guardadas sin alterar el precio ni inventar capital para cerrar saldos. */
@@ -17,12 +17,13 @@ export function financingCapitalAndInterest(history: FinancingHistory) {
     const row = rows[index];
     const amount = Math.max(0, cents(row.amount));
     const month = Number(row.installmentNo || index + 1);
-    const interest = month <= grace ? 0 : Math.min(amount, Math.max(0, Math.round(remaining * rate)));
+    const amortized = Math.min(amount, remaining, Math.max(0, cents(row.amortizedAmount)));
+    const interest = row.reduced || month <= grace ? 0 : Math.min(amount - amortized, Math.max(0, Math.round(remaining * rate)));
     const capital = Math.min(remaining, amount - interest);
     roundingDifference += amount - interest - capital;
     remaining -= capital;
     if (row.paid) { paidCapital += capital; paidInterest += interest; }
-    else { pendingCapital += capital; pendingInterest += interest; }
+    else { paidCapital += Math.min(capital, amortized); pendingCapital += Math.max(0, capital - amortized); pendingInterest += interest; }
   }
   return {
     paidCapital: paidCapital / 100, pendingCapital: pendingCapital / 100,

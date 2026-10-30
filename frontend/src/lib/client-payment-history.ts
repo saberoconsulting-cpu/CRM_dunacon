@@ -44,6 +44,11 @@ export function clientPaymentHistoryRows(history: RecordData): ClientHistoryRow[
     seen.add(id);
     const allocations: RecordData[] = payment.installmentAllocations || [];
     if (allocations.length) {
+      if (['adelanto', 'cuota_inicial'].includes(String(payment.type))) {
+        const initial = source.find(row => row.kind === 'cuota_inicial' && (paymentId(row.payment || {}) === id || Number(row.paymentId) === id));
+        attach(initial, payment, amountOf(payment));
+        continue;
+      }
       const regular = allocations.filter(item => item.kind !== 'term_reduction' && byId.has(Number(item.installmentId)));
       for (const item of regular) attach(byId.get(Number(item.installmentId)), payment, cents(item.amount));
       const current = [...regular].sort((a, b) => b.installmentNo - a.installmentNo)[0];
@@ -58,7 +63,9 @@ export function clientPaymentHistoryRows(history: RecordData): ClientHistoryRow[
   const sale = history.sale || {};
   const rate = sale.interestType === 'tea' && Number(sale.tea) > 0 ? Math.pow(1 + Number(sale.tea) / 100, 1 / 12) - 1 : 0;
   const grace = Number(sale.graceMonths ?? String(sale.paymentMethod || '').match(/Cuotas sin interes:\s*(\d+)/i)?.[1] ?? 0);
-  let balance = Math.max(0, cents(sale.salePrice) - cents(sale.cuotaInicial));
+  const initialExtraordinary = source.filter(row => row.kind === 'cuota_inicial')
+    .reduce((sum, row) => sum + Math.max(0, (applied.get(row) || 0) - cents(row.amount)), 0);
+  let balance = Math.max(0, cents(sale.salePrice) - cents(sale.cuotaInicial) - initialExtraordinary);
   const lastInstallmentNo = Math.max(Number(sale.totalCuotas || 0), ...financing.map(row => Number(row.installmentNo)));
   const result: ClientHistoryRow[] = [];
   for (const row of source) {
@@ -92,11 +99,13 @@ export function clientPaymentHistoryRows(history: RecordData): ClientHistoryRow[
   return result;
 }
 
-export function clientPaymentHistoryTotals(rows: ClientHistoryRow[]) {
+export function clientPaymentHistoryTotals(rows: ClientHistoryRow[], sale?: RecordData) {
   const financing = rows.filter(row => row.isFinancing);
   const sum = (field: keyof ClientHistoryRow) => rows.reduce((total, row) => total + cents(row[field]), 0) / 100;
-  return { openingBalance: financing[0]?.openingBalance || 0, monthlyInstallment: sum('monthlyInstallment'),
-    realizedPayment: sum('realizedPayment'), capitalAmortization: sum('capitalAmortization'), interest: sum('interest'),
+  // The report totals include the initial payment in the contractual capital.
+  const salePrice = sale?.salePrice != null ? cents(sale.salePrice) / 100 : null;
+  return { openingBalance: salePrice ?? (financing[0]?.openingBalance || 0), monthlyInstallment: sum('monthlyInstallment'),
+    realizedPayment: sum('realizedPayment'), capitalAmortization: salePrice ?? sum('capitalAmortization'), interest: sum('interest'),
     extraordinaryAmortization: sum('extraordinaryAmortization'), closingBalance: financing.at(-1)?.closingBalance || 0,
     unappliedAmount: sum('unappliedAmount') };
 }

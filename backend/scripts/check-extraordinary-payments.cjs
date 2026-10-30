@@ -2,7 +2,7 @@ require('ts-node/register/transpile-only');
 const assert = require('node:assert/strict');
 const { extraordinaryAllocation, installmentCoverage } = require('../src/modules/payments/domain/installment-allocation');
 const { ValidationPipe } = require('@nestjs/common');
-const { CreatePaymentDto } = require('../src/modules/payments/application/dto/payment.dto');
+const { CreatePaymentDto, ApprovePaymentDto } = require('../src/modules/payments/application/dto/payment.dto');
 const { PaymentsController } = require('../src/modules/payments/interface/payments.controller');
 const { PaymentsService } = require('../src/modules/payments/application/payments.service');
 const { SalesService } = require('../src/modules/sales/application/sales.service');
@@ -24,6 +24,9 @@ const first = extraordinaryAllocation(original, [], 8000, '2026-10-24');
 assert.deepEqual(first.map(item => [item.installmentNo, item.amount, item.kind]), [
   [1, 2000, 'installment'], [2, 2000, 'installment'], [3, 2000, 'installment'], [20, 2000, 'term_reduction'],
 ]);
+const betweenDates = extraordinaryAllocation(original, [], 9000, '2026-10-25');
+assert.deepEqual(betweenDates.filter(r => r.kind === 'installment').map(r => r.installmentNo), [1, 2, 3, 4]);
+assert.equal(betweenDates.find(r => r.kind === 'term_reduction').amount, 1000);
 const second = extraordinaryAllocation(original, [payment(1, first)], 8000, '2027-01-24');
 assert.deepEqual(second.map(item => item.installmentNo), [4, 5, 6, 19]);
 assert.equal(installmentCoverage(original, [payment(1, first), payment(2, second)]).filter(row => row.remainingCents === 0).length, 8);
@@ -34,19 +37,25 @@ assert.equal(partialCoverage[19].remainingCents, 50000, 'partial surplus reduces
 assert.equal(partialCoverage[3].availableCents, 200000, 'next monthly installment stays 2000');
 const early = extraordinaryAllocation(original, [], 5000, '2026-07-24');
 assert.deepEqual(early.map(item => [item.installmentNo,item.amount]), [[1,2000],[20,2000],[19,1000]]);
+assert.deepEqual(extraordinaryAllocation(original, [], 9000, '2026-08-24').map(r => [r.installmentNo,r.amount,r.kind]), [[1,2000,'installment'],[20,2000,'term_reduction'],[19,2000,'term_reduction'],[18,2000,'term_reduction'],[17,1000,'term_reduction']]);
 const fractional = extraordinaryAllocation(original, [], 5000.01, '2026-07-24');
 assert.equal(fractional.reduce((sum,item)=>sum+Math.round(item.amount*100),0),500001);
 const legacy = [{ id: 90, type: 'cuota', amount: '2000', status: 'pagado', dueDate: original[0].dueDate }];
 assert.equal(installmentCoverage(original, legacy)[0].remainingCents,0);
 assert.equal(extraordinaryAllocation(original, legacy, 8000, '2026-10-24')[0].installmentNo,2);
-assert.throws(() => extraordinaryAllocation(original, [], 5000, '2026-10-24'), /mora/);
+assert.deepEqual(extraordinaryAllocation(original, [], 5000, '2026-10-24').map(r => [r.installmentNo, r.amount]), [[1,2000],[2,2000],[20,1000]]);
+const small = original.map(r => ({ ...r, amount: '500' }));
+assert.deepEqual(extraordinaryAllocation(small, [], 680, '2026-10-24').map(r => [r.installmentNo,r.amount,r.kind]), [[1,500,'installment'],[20,180,'term_reduction']]);
+assert.equal(installmentCoverage(small, [payment(55, extraordinaryAllocation(small, [], 680, '2026-10-24'))]).at(-1).remainingCents,32000);
+const firstSmall = payment(55, extraordinaryAllocation(small, [], 680, '2026-10-24'));
+assert.deepEqual(extraordinaryAllocation(small, [firstSmall], 400, '2026-10-24').map(r => [r.installmentNo,r.amount,r.kind]), [[20,320,'term_reduction'],[19,80,'term_reduction']]);
 assert.throws(() => extraordinaryAllocation(original, [], 40000.01, '2026-10-24'), /supera/);
 assert.deepEqual(schedule(), original, 'contractual dates and installment amounts are not rewritten');
 
 console.log('PASS: allocation order and partial final balance.');
-function fixture() {
+function fixture(initialAmount = 0) {
   const lot = { id: 2, projectId: 5, status: 'vendido', agentId: 3, clientId: 7, code: 'A-1' };
-  const sale = { id: 10, lotId: 2, projectId: 5, clientId: 7, agentId: 3, salePrice: '40000', totalCuotas: 20, cuotaInicial: '0', valorCuota: '2000', saleDate: '2026-07-24' };
+  const sale = { id: 10, lotId: 2, projectId: 5, clientId: 7, agentId: 3, salePrice: '40000', totalCuotas: 20, cuotaInicial: String(initialAmount), valorCuota: '2000', saleDate: '2026-07-24' };
   let state = { installments: schedule(), payments: [], incomes: [], nextId: 1 };
   const copy = value => value == null ? null : structuredClone(value);
   const matches = (row, where) => Object.entries(where || {}).every(([key,value]) => row[key] === value);
@@ -90,7 +99,7 @@ function fixture() {
   } };
   const service = new PaymentsService(manager.getRepository(PaymentEntity), manager.getRepository(LotEntity), {}, manager.getRepository(FinancialTransactionEntity), manager.getRepository(ClientEntity), manager.getRepository(UserEntity), manager.getRepository(SaleEntity), manager.getRepository(SaleInstallmentEntity), { emitToAll() {} }, db);
   const sales = Object.create(SalesService.prototype);
-  const history = () => sales.buildPaymentContextRow({ s_id: 10, s_project_id: 5, s_lot_id: 2, s_client_id: 7, s_agent_id: 3, s_sale_price: '40000', s_cuota_inicial: '0', totalCuotas: 20, s_valor_cuota: '2000', s_sale_date: '2026-07-24' }, { lot, client: null, agent: null, installments: copy(state.installments), payments: copy(state.payments) });
+  const history = () => sales.buildPaymentContextRow({ s_id: 10, s_project_id: 5, s_lot_id: 2, s_client_id: 7, s_agent_id: 3, s_sale_price: '40000', s_cuota_inicial: String(initialAmount), totalCuotas: 20, s_valor_cuota: '2000', s_sale_date: '2026-07-24' }, { lot, client: null, agent: null, installments: copy(state.installments), payments: copy(state.payments) });
   return { service, history, get state() { return state; } };
 }
 const dto = { projectId: 5, lotId: 2, type: 'cuota', amount: 8000, isExtraordinary: true, dueDate: '2026-08-24', paidAt: '2026-10-24', receiptValue: 2000 };
@@ -103,8 +112,13 @@ const dto = { projectId: 5, lotId: 2, type: 'cuota', amount: 8000, isExtraordina
   } };
   const agreedQuote = await quoteSales.resolveSaleQuote(2, 7, 99);
   assert.equal(agreedQuote.exchangeRate, '3.75');
+  const converted = await fixture().service.register({ ...dto, amount: 8000, exchangeRate: 3.5 }, 3);
+  assert.equal(converted.exchangeRate, '3.5', 'preserve the payment conversion rate');
+  assert.equal(converted.amountUsd, '8000', 'converted total is stored without converting twice');
   const test = fixture();
   const pipe = new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: false });
+  const approvalBody = { bankOperationNumber: 'cgghh', receiptNumber: '4522', receiptValue: 5747.13 };
+  assert.deepEqual(JSON.parse(JSON.stringify(await pipe.transform(approvalBody, { type: 'body', metatype: ApprovePaymentDto }))), approvalBody);
   const requestBody = await pipe.transform(JSON.parse(JSON.stringify(dto)), { type: 'body', metatype: CreatePaymentDto });
   assert.equal(requestBody.isExtraordinary, true, 'HTTP validation must preserve the extraordinary selection');
   const saved = await new PaymentsController(test.service).register(requestBody, 3);
@@ -118,7 +132,10 @@ const dto = { projectId: 5, lotId: 2, type: 'cuota', amount: 8000, isExtraordina
   assert.equal(test.history().summary.nextInstallmentNo, 4, 'pending allocations reserve installments without double charging');
   await test.service.approve(saved.id, { bankOperationNumber:'OP1', receiptNumber:'B1', receiptValue:8000 }, 3);
   let context = test.history();
-  assert.equal(context.summary.paidCount, 4); assert.equal(context.summary.pendingCount, 16);
+  assert.equal(context.summary.paidCount, 3); assert.equal(context.summary.pendingCount, 16);
+  assert.equal(context.installments.at(-1).paid,false); assert.equal(context.installments.at(-1).reduced,true); assert.equal(context.installments.at(-1).status,'reducida');
+  assert.equal(context.installments[3].paid,false); assert.equal(context.installments[3].remainingAmount,2000);
+  assert.equal(test.state.installments.at(-1).status,'reducida');
   assert.equal(context.summary.termReductionCount, 1); assert.equal(context.summary.effectiveTotalCuotas, 19);
   assert.equal(context.summary.nextAmount, 2000); assert.equal(context.summary.nextInstallmentNo, 4);
   assert.equal(context.summary.collectedAmount, 8000); assert.equal(context.summary.financingBalanceAmount, 32000);
@@ -133,7 +150,7 @@ const dto = { projectId: 5, lotId: 2, type: 'cuota', amount: 8000, isExtraordina
   assert.equal(context.summary.nextAmount, 2000); assert.equal(context.summary.collectedAmount, 16000);
   assert.equal(test.state.incomes.length, 2);
   const before = structuredClone(test.state);
-  await assert.rejects(() => test.service.register({ ...dto, dueDate:'2027-02-24', paidAt:'2027-02-24', amount:24000.01 },3), /supera/);
+  await assert.rejects(() => test.service.register({ ...dto, dueDate:'2027-02-24', paidAt:'2027-04-24', amount:24000.01 },3), /supera/);
   assert.deepEqual(test.state, before, 'invalid allocation rolls back all financial and installment writes');
   const partialTest = fixture();
   const partialPayment = await partialTest.service.register({ ...dto, amount:7500 },3);
@@ -141,6 +158,23 @@ const dto = { projectId: 5, lotId: 2, type: 'cuota', amount: 8000, isExtraordina
   assert.equal(partialTest.history().installments.at(-1).remainingAmount,500);
   assert.equal(partialTest.history().summary.collectedAmount,7500);
   assert.equal(partialTest.history().summary.nextAmount,2000);
+  const initialTest = fixture(1000);
+  const initialPayment = await initialTest.service.register({...dto,type:'adelanto',amount:3500,dueDate:'2026-07-24'},3);
+  assert.deepEqual(initialPayment.installmentAllocations.map(r=>[r.installmentNo,r.amount,r.kind]),[[20,2000,'term_reduction'],[19,500,'term_reduction']]);
+  assert.equal(initialTest.history().summary.nextInstallmentNo,1,'initial surplus never reserves the next monthly installment');
+  await initialTest.service.approve(initialPayment.id,{bankOperationNumber:'OPI',receiptNumber:'BI',receiptValue:1000},3);
+  const initialContext = initialTest.history();
+  assert.equal(initialContext.summary.cuotaInicialPaid,true);
+  assert.equal(initialContext.summary.collectedAmount,3500,'one receipt includes initial plus amortization without double counting');
+  assert.equal(initialContext.summary.paidCount,0,'amortization never pays monthly installments');
+  assert.equal(initialContext.summary.termReductionCount,1);
+  assert.equal(initialContext.summary.nextInstallmentNo,1);
+  assert.equal(initialContext.summary.nextAmount,2000);
+  assert.equal(initialContext.installments.at(-2).remainingAmount,1500);
+  assert.equal(initialTest.state.incomes.length,1);
+  assert.equal(Number(initialTest.state.incomes[0].amount),3500);
+  await assert.rejects(()=>fixture(1000).service.register({...dto,type:'adelanto',amount:500},3),/inicial pendiente/);
+  await assert.rejects(()=>fixture(1000).service.register({...dto,type:'adelanto',amount:42000},3),/supera/);
   const normal = fixture();
   const regular = await normal.service.register({ ...dto, isExtraordinary:false, amount:2000 },3);
   assert.equal(regular.installmentAllocations.length,1);

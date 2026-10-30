@@ -122,6 +122,10 @@ export const api = {
 
 export async function uploadFile(path: string, file: File, fields?: Record<string, string | number>): Promise<any> {
   assertProjectWritable('POST', path, fields);
+  if (path.startsWith('/payments/')) {
+    if (file.size > 10 * 1024 * 1024) throw new Error('El archivo supera los 10 MB. Selecciona una imagen más pequeña o un PDF.');
+    if (!/\.(pdf|png|jpe?g|jpng|webp|heic|heif)$/i.test(file.name)) throw new Error('Selecciona una imagen JPG, PNG, WebP, HEIC, HEIF o un PDF.');
+  }
   const form = new FormData();
   const upload = /\.jpng$/i.test(file.name)
     ? new File([file], file.name.replace(/\.jpng$/i, '.jpg'), { type: file.type || 'image/jpeg' })
@@ -137,6 +141,9 @@ export async function uploadFile(path: string, file: File, fields?: Record<strin
   const text = await res.text();
   let data: any = null;
   try { data = text ? JSON.parse(text) : null; } catch { data = text; }
-  if (!res.ok) throw new Error(data?.message || 'Error al subir archivo');
+  if (!res.ok) {
+    const message = Array.isArray(data?.message) ? data.message.join(', ') : data?.message;
+    throw new Error(res.status === 413 ? 'El archivo supera el tamaño permitido. Selecciona una imagen más pequeña o un PDF.' : message || 'Error al subir archivo');
+  }
   return data;
 }

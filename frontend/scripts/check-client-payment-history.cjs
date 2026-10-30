@@ -5,7 +5,67 @@ const ts = require('typescript');
 const compile = file => ts.transpileModule(fs.readFileSync(file, 'utf8'), { compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const helper = {};
 new Function('exports', compile(path.join(__dirname,'../src/lib/client-payment-history.ts')))(helper);
+const amounts = {};
+new Function('exports', compile(path.join(__dirname,'../src/lib/lot-payment-amount.ts')))(amounts);
+const financingAmounts = {};
+assert.equal(amounts.savedPaymentInstallmentCount({ installmentAllocations: [
+  { amount: 500, kind: 'installment' }, { amount: 500, kind: 'installment' },
+  { amount: 500, kind: 'installment' }, { amount: 2000, kind: 'term_reduction' },
+]}), 3);
+assert.equal(amounts.savedPaymentInstallmentCount({ installmentAllocations: [
+  { amount: 500, kind: 'installment' }, { amount: 2000, kind: 'term_reduction' },
+]}), 1);
+assert.equal(amounts.savedPaymentInstallmentCount({}), 0);
+assert.deepEqual(amounts.savedPaymentBreakdown({ amount: 5400, isExtraordinary: true, installmentAllocations: [
+  { amount: 560.79, kind: 'installment' }, { amount: 4839.21, kind: 'term_reduction' },
+]}), { installments: 560.79, extraordinary: 4839.21 });
+assert.deepEqual(amounts.savedPaymentBreakdown({ amount: 5400, installmentAllocations: [
+  { amount: 560.79, kind: 'installment' }, { amount: 560.79, kind: 'installment' }, { amount: 4278.42, kind: 'term_reduction' },
+]}), { installments: 1121.58, extraordinary: 4278.42 });
+assert.equal(amounts.savedPaymentBreakdown({ amount: 5400, isExtraordinary: true }), null);
+assert.deepEqual(amounts.savedPaymentBreakdown({ amount: 560.79 }), { installments: 560.79, extraordinary: 0 });
+new Function('exports', compile(path.join(__dirname,'../src/lib/financing-interest.ts')))(financingAmounts);
+const reducedSchedule = financingAmounts.financingCapitalAndInterest({sale:{salePrice:2000,cuotaInicial:0}, installments:[
+  {installmentNo:1,amount:500,paid:true}, {installmentNo:2,amount:500,paid:false},
+  {installmentNo:3,amount:500,paid:false}, {installmentNo:4,amount:500,paid:false,reduced:true,amortizedAmount:500},
+]});
+assert.equal(reducedSchedule.paidCapital,1000,'extraordinary amortization remains received capital');
+assert.equal(reducedSchedule.pendingCapital,1000,'reduced installments are not pending obligations');
+assert.equal(reducedSchedule.paidInterest,0,'term reduction does not pay future interest');
+assert.equal(amounts.lotPaymentUsd(7000, 'PEN', 3.5), 2000);
+assert.equal(amounts.lotPaymentUsd(2000, 'USD', 0), 2000);
+assert.equal(amounts.lotPaymentUsd(1458.35, 'PEN', 3.5), 416.67);
+assert.equal(amounts.lotPaymentUsd(7000, 'PEN', 0), 0);
+assert.equal(amounts.lotPaymentUsd(-10, 'USD', 0), 0);
+assert.equal(amounts.lotPaymentUsd(Infinity, 'USD', 0), 0);
+const overdueSchedule = Array.from({ length: 6 }, (_, i) => ({ installmentNo: i + 1, dueDate: `2026-${String(i + 5).padStart(2, '0')}-28`, amount: 416, registerableAmount: 416 }));
+assert.deepEqual(amounts.extraordinaryPaymentBreakdown(overdueSchedule, 2000, '2026-08-28'), { count: 4, covered: [1,2,3,4], overdueCount: 3, overduePaid: 3, required: 1664, installments: 1664, extraordinary: 336 });
+assert.deepEqual(amounts.extraordinaryPaymentBreakdown(overdueSchedule, 1000, '2026-08-28'), { count: 2, covered: [1,2], overdueCount: 3, overduePaid: 2, required: 832, installments: 832, extraordinary: 168 });
+assert.deepEqual(amounts.extraordinaryPaymentBreakdown(overdueSchedule, 2000, '2026-04-28').covered, [1]);
+assert.deepEqual(amounts.extraordinaryPaymentBreakdown(overdueSchedule.map((r,i) => i < 2 ? {...r, registered:true} : r), 1000, '2026-08-28').covered, [3,4]);
+assert.equal(amounts.extraordinaryPaymentBreakdown([{installmentNo:14,amount:500},{installmentNo:15,amount:500},{installmentNo:19,amount:500}],680,'2026-08-28').extraordinary,180);
+const twelveOverdue = Array.from({length:19},(_,i)=>({installmentNo:i+1,amount:500,dueDate:i<12?'2025-01-01':'2027-01-01'}));
+const arrearsPreview = amounts.extraordinaryPaymentBreakdown(twelveOverdue,2180,'2026-10-28');
+assert.equal(arrearsPreview.overduePaid,4);assert.equal(arrearsPreview.overdueCount,12);assert.equal(arrearsPreview.extraordinary,180);
+assert.equal(amounts.extraordinaryPaymentBreakdown(overdueSchedule,2000,'2026-04-28').extraordinary,1584);
+console.log('PASS: soles conversion, dollars, cent rounding and invalid amounts.');
 const { clientPaymentHistoryRows: rowsFor, clientPaymentHistoryTotals: totalsFor } = helper;
+const initialReceipt = {id:900,type:'adelanto',status:'pagado',amountUsd:1500,installmentAllocations:[{installmentId:3,installmentNo:3,saleId:10,kind:'term_reduction',amount:500}]};
+const initialExtraRows = rowsFor({sale:{salePrice:2500,cuotaInicial:1000,totalCuotas:3},allPayments:[initialReceipt],plan:[
+  {kind:'cuota_inicial',amount:1000,paid:true,payment:initialReceipt},
+  {id:1,installmentNo:1,amount:500},{id:2,installmentNo:2,amount:500},{id:3,installmentNo:3,amount:500,reduced:true},
+]});
+assert.equal(totalsFor(initialExtraRows).realizedPayment,1500,'initial plus extraordinary receipt is counted once');
+assert.equal(initialExtraRows[1].openingBalance,1000,'initial extraordinary reduces the financing balance');
+assert.equal(initialExtraRows[1].realizedPayment,0,'next monthly installment remains unpaid');
+const finalPriceSale = { salePrice: 37805, cuotaInicial: 12000, totalCuotas: 1 };
+const finalPriceRows = rowsFor({ sale: finalPriceSale, plan: [{ installmentNo: 0, amount: 12000 }, { installmentNo: 1, amount: 25805 }] });
+const finalPriceTotals = totalsFor(finalPriceRows, finalPriceSale);
+assert.equal(finalPriceTotals.openingBalance, 37805);
+assert.equal(finalPriceTotals.capitalAmortization, 37805);
+assert.equal(finalPriceTotals.realizedPayment, 0);
+assert.equal(finalPriceRows[1].openingBalance, 25805);
+assert.equal(finalPriceTotals.closingBalance, 0);
 assert.equal(helper.formatClientHistoryDate('2026-09-27'),'27/09/2026');
 assert.equal(helper.formatClientHistoryDate('2026-10-24T05:00:00Z'),'24/10/2026');
 // The sale sheet and history must preserve the same stored calendar day.
@@ -100,7 +160,7 @@ function resolve(name) {
 new Function('exports','require',compile(path.join(__dirname,'../src/components/features/payments/PaymentsView.tsx')))(printable,resolve);
 printable.ClientPaymentHistoryPdf({sale:history([payment]),projectName:'Test'});
 for(const label of ['Cuota del mes','Pago realizado','Saldo inicial','Amortización de capital','Amortización<br><span style="white-space:nowrap">extra US$</span>','Saldo final']) assert.ok(html.includes(label),label);
-assert.ok(!html.includes('<th>Estado</th>')); assert.ok(!html.includes('<th>Mes</th>'));
+assert.ok(html.includes('<th>Estado</th>')); assert.ok(!html.includes('<th>TC</th>')); assert.ok(!html.includes('<th>Mes</th>'));
 // The expanded view follows the work area's real bounds, not a hard-coded
 // sidebar width, and therefore leaves both full and collapsed menus accessible.
 const originalWindow=global.window, originalDocument=global.document, originalObserver=global.ResizeObserver;
